@@ -539,7 +539,8 @@ void PaintBack() {
         if (TAHOE_DOCK) tint = dark ? D2D1::ColorF(0.28f, 0.28f, 0.29f, 0.39f) : D2D1::ColorF(0.56f, 0.56f, 0.57f, 0.39f);
         // escuro: o Dock real do macOS 26 sobre fundo preto fica em 12/255 (print do usuário, 16/11/2026); com o cinza
         // 0,28 o nosso ficava ~30 (cinza demais). Tinta preta: o fundo escurece 39 % e o preto continua quase preto
-        if (TAHOE_DOCK && dark) tint = D2D1::ColorF(0.02f, 0.02f, 0.02f, 0.39f);
+        // (e sobre papel de parede colorido escurecer 39 % deixava o Dock com cara de "tingido": 18 %, 17/11/2026)
+        if (TAHOE_DOCK && dark) tint = D2D1::ColorF(0.02f, 0.02f, 0.02f, 0.18f);
         backdrop::Set(g_back, (float)w, (float)h, rad * sc, tint);
         return;
     }
