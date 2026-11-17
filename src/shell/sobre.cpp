@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include "../comum/idioma.h"
+#include "../comum/semaforo.h"
 
 namespace {
 
@@ -156,7 +157,7 @@ void Paint() {
     for (int k = 0; k < 3; k++) {
         D2D1_POINT_2F c{ LIGHT_X0 + k * LIGHT_PITCH, LIGHT_Y };
         bool on = k == 0 && (g_active || g_hover == 0);
-        br->SetColor(on ? D2D1::ColorF(1.0f, 0.373f, 0.341f) : dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.14f));
+        br->SetColor(on ? semaforo::Close() : dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.14f));
         dc->FillEllipse(D2D1::Ellipse(c, LIGHT_R, LIGHT_R), br);
         if (k == 0 && g_hover == 0) {
             br->SetColor(D2D1::ColorF(0.30f, 0, 0, 0.75f));

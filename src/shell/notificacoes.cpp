@@ -475,7 +475,9 @@ struct El {
     float cutTop = -1e9f;  // camada da pilha: só abaixo desta linha
 };
 struct Spring1 { float x = 0, v = 0; };
-struct Anim { El el; Spring1 l, t, r, b, a; bool live = true; std::wstring anchor; };
+struct Anim { El el; Spring1 l, t, r, b, a; bool live = true; std::wstring anchor;
+    bool emerge = false; float fromTop = 0;  // cartão que sai de baixo do de cima ao abrir o grupo
+};
 std::map<std::wstring, Anim> g_anim;
 std::vector<std::wstring> g_order;  // ordem de desenho do último layout
 
@@ -518,15 +520,19 @@ std::vector<El> Layout() {
             out.push_back(p);
             y += HEADER_H + GAP;
             D2D1_RECT_F first{};
+            std::vector<El> cards;
             for (int ni = 0; ni < (int)g.notes.size(); ni++) {
                 float h2 = CardH(g.notes[ni]);
                 El c{ L"n:" + std::to_wstring(g.notes[ni].id), K_CARD, D2D1::RectF(0, y, CARD_W, y + h2), A_CARD };
                 c.group = gi; c.note = ni;
                 if (ni == 0) first = c.r;
                 else { c.from = D2D1::RectF(first.left, first.top, first.right, first.top + h2); c.hasFrom = true; }
-                out.push_back(c);
+                cards.push_back(c);
                 y += h2 + GAP;
             }
+            // as de baixo são desenhadas antes: ao abrir saem de trás do cartão de cima (como no Mac), sem texto
+            // de uma por cima do da outra
+            out.insert(out.end(), cards.rbegin(), cards.rend());
             y += GROUP_GAP - GAP;
         } else {
             float h2 = CardH(g.notes[0]);
@@ -594,6 +600,7 @@ void Sync(const std::vector<El>& els) {
             D2D1_RECT_F f = e.hasFrom && !g_snap ? e.from : e.r;
             a.l.x = f.left; a.t.x = f.top; a.r.x = f.right; a.b.x = f.bottom;
             a.a.x = g_snap ? 1.f : 0.f;
+            if (e.hasFrom && !g_snap && e.kind == K_CARD) { a.emerge = true; a.fromTop = e.from.top; }
             it = g_anim.emplace(e.key, a).first;
         } else it->second.el = e;
         it->second.live = true;
@@ -841,6 +848,12 @@ void Paint() {
         D2D1_RECT_F r = Off(Cur(a), ox, oy);
         if (r.bottom < -20 || r.top > viewH + 20) continue;
         float alpha = a.a.x;
+        if (a.emerge && a.live) {  // saindo de baixo do de cima: só aparece conforme desce (texto não se mistura)
+            float span = e.r.top - a.fromTop;
+            float k = span > 1 ? std::clamp((a.t.x - a.fromTop) / span, 0.f, 1.f) : 1.f;
+            if (k >= 0.999f && a.a.x >= 0.999f) a.emerge = false;
+            alpha *= k * k;
+        }
         if (alpha <= 0.003f) continue;
         D2D1_RECT_F px = D2D1::RectF(r.left * sc, r.top * sc, r.right * sc, r.bottom * sc);
         bool fade = alpha < 0.999f;
@@ -1011,6 +1024,7 @@ void Frame() {
 }
 
 void OpenApp(const Note& n) {
+    if (n.aumid == L"WacOS.Atualizacao") { shell::OpenSettings(L"atualizacao"); return; }  // atualizacao.cpp
     for (auto& a : apps::list)
         if (!a.wins.empty() && (!_wcsicmp(a.id.c_str(), (L"aumid:" + n.aumid).c_str()) || !_wcsicmp(a.name.c_str(), n.app.c_str()))) { apps::Activate(a); return; }
     for (auto& a : apps::list)
@@ -1058,6 +1072,8 @@ const Hit* HitAt(D2D1_POINT_2F p) {
     return hit;
 }
 
+DWORD g_expandedAt = 0;  // quando uma pilha foi aberta
+
 void Click(D2D1_POINT_2F p) {
     const Hit* h = HitAt(p);
     if (!h) { Close(); return; }  // clique no vazio da coluna: fecha, como clicar fora
@@ -1080,9 +1096,11 @@ void Click(D2D1_POINT_2F p) {
     }
     switch (hit.act) {
     case A_STACK:
-        if (hit.group >= 0 && hit.group < (int)g_groups.size()) g_expanded.insert(g_groups[hit.group].aumid);
+        if (hit.group >= 0 && hit.group < (int)g_groups.size()) { g_expanded.insert(g_groups[hit.group].aumid); g_expandedAt = GetTickCount(); }
         break;
     case A_CARD:
+        // segundo clique de um clique duplo na pilha: só abre o grupo (não abre o app nem fecha a central)
+        if (GetTickCount() - g_expandedAt < 500) break;
         if (hit.group >= 0 && hit.group < (int)g_groups.size() && hit.note >= 0 && hit.note < (int)g_groups[hit.group].notes.size()) {
             Note n = g_groups[hit.group].notes[hit.note];
             RemoveIds({ n.id });

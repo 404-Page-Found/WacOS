@@ -685,6 +685,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (att) AttachThreadInput(me, ft, FALSE);
         return 0;
     }
+    if (atualizacao::Handle(m)) return 0;
+    // Ajustes > Aparência > "Reiniciar o Liquid Glass": refaz o vidro real do zero (se ele desistiu ou travou)
+    static UINT redoGlass = RegisterWindowMessageW(L"ShellReiniciarVidro");
+    if (m == redoGlass && redoGlass) { backdrop::Restart(); return 1; }
     static UINT capVis = RegisterWindowMessageW(L"ShellCapturaVisivel");  // a Captura de Tela vai tirar a foto
     if (m == capVis && capVis) { backdrop::CaptureVisible(w != 0); return 1; }
     if (m == WM_COPYDATA && l && ((COPYDATASTRUCT*)l)->dwData == 0x4C504150 /*'PAPL'*/) {  // Ajustes: papel de parede escolhido
@@ -957,6 +961,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     RegisterClassW(&mc);
     g_msg = CreateWindowExW(WS_EX_TOOLWINDOW, mc.lpszClassName, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, hi, nullptr);
     apps::ours.push_back(g_msg);
+    atualizacao::Start(g_msg);  // aviso de versão nova no GitHub (90 s depois e a cada 6 h)
     boot::Progress(0.2f);
 
     if (!menubar::Create(hi) || !dock::Create(hi) || !launchpad::Create(hi) || !missioncontrol::Create(hi) || !central::Create(hi) || !spotlight::Create(hi) || !alertas::Create(hi) || !sobre::Create(hi) || !seletor::Create(hi) || !som::Create(hi)) { Log(L"erro criando as janelas"); Restore(); return 1; }
@@ -1047,6 +1052,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     RegisterClassW(&mc);
     g_msg = CreateWindowExW(WS_EX_TOOLWINDOW, mc.lpszClassName, L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, hi, nullptr);
     apps::ours.push_back(g_msg);
+    atualizacao::Start(g_msg);  // aviso de versão nova no GitHub (90 s depois e a cada 6 h)
 
     if (!menubar::Create(hi) || !dock::Create(hi) || !launchpad::Create(hi) || !missioncontrol::Create(hi) || !central::Create(hi) || !spotlight::Create(hi) || !alertas::Create(hi) || !sobre::Create(hi) || !seletor::Create(hi) || !som::Create(hi)) { Log(L"erro criando as janelas"); Restore(); return 1; }
     instalados::Start();

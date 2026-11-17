@@ -431,24 +431,43 @@ std::vector<IconCache> g_iconCache;
 const std::vector<BYTE>& IconPixels(HICON ic, UINT px) {
     for (auto& c : g_iconCache) if (c.icon == ic && c.px == px) return c.bgra;
     if (g_iconCache.size() > 64) g_iconCache.clear();
-    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), (LONG)px, -(LONG)px, 1, 32, BI_RGB };
+    // desenhado 4× maior e reduzido pela média de cada bloco 4×4 (anti-aliasing): em 1080p (17 px) o DrawIconEx
+    // esticava o ícone de 16/32 px pelo vizinho mais próximo e a borda saía serrilhada
+    const UINT SS = 4, R = px * SS;
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), (LONG)R, -(LONG)R, 1, 32, BI_RGB };
     void *pb, *pw;
     HDC dc = CreateCompatibleDC(nullptr);
     HBITMAP b = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &pb, nullptr, 0);
     HBITMAP w = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &pw, nullptr, 0);
-    memset(pw, 0xFF, px * px * 4);
-    HGDIOBJ old = SelectObject(dc, b); DrawIconEx(dc, 0, 0, ic, px, px, 0, nullptr, DI_NORMAL);
-    SelectObject(dc, w); DrawIconEx(dc, 0, 0, ic, px, px, 0, nullptr, DI_NORMAL);
-    SelectObject(dc, old);
     IconCache c{ ic, px, std::vector<BYTE>(px * px * 4) };
-    auto* B = (BYTE*)pb; auto* W = (BYTE*)pw;
-    for (UINT i = 0; i < px * px; i++) {
-        int a = 255 - std::clamp((W[i * 4 + 1] - B[i * 4 + 1]), 0, 255);  // alfa = 1 - (branco - preto)
-        c.bgra[i * 4 + 0] = B[i * 4 + 0];
-        c.bgra[i * 4 + 1] = B[i * 4 + 1];
-        c.bgra[i * 4 + 2] = B[i * 4 + 2];
-        c.bgra[i * 4 + 3] = (BYTE)a;
+    if (!b || !w || !pb || !pw) {
+        if (b) DeleteObject(b);
+        if (w) DeleteObject(w);
+        DeleteDC(dc);
+        g_iconCache.push_back(std::move(c));
+        return g_iconCache.back().bgra;
     }
+    memset(pw, 0xFF, R * R * 4);
+    HGDIOBJ old = SelectObject(dc, b); DrawIconEx(dc, 0, 0, ic, R, R, 0, nullptr, DI_NORMAL);
+    SelectObject(dc, w); DrawIconEx(dc, 0, 0, ic, R, R, 0, nullptr, DI_NORMAL);
+    SelectObject(dc, old);
+    auto* B = (BYTE*)pb; auto* W = (BYTE*)pw;
+    for (UINT y = 0; y < px; y++)
+        for (UINT x = 0; x < px; x++) {
+            UINT sb = 0, sg = 0, sr = 0, sa = 0;
+            for (UINT dy = 0; dy < SS; dy++)
+                for (UINT dx = 0; dx < SS; dx++) {
+                    size_t i = ((size_t)(y * SS + dy) * R + (x * SS + dx)) * 4;
+                    int a = 255 - std::clamp((W[i + 1] - B[i + 1]), 0, 255);  // alfa = 1 - (branco - preto)
+                    sb += B[i + 0]; sg += B[i + 1]; sr += B[i + 2]; sa += (UINT)a;
+                }
+            const UINT n = SS * SS;
+            size_t o = ((size_t)y * px + x) * 4;
+            c.bgra[o + 3] = (BYTE)((sa + n / 2) / n);
+            c.bgra[o + 0] = (BYTE)std::min<UINT>((sb + n / 2) / n, c.bgra[o + 3]);
+            c.bgra[o + 1] = (BYTE)std::min<UINT>((sg + n / 2) / n, c.bgra[o + 3]);
+            c.bgra[o + 2] = (BYTE)std::min<UINT>((sr + n / 2) / n, c.bgra[o + 3]);
+        }
     DeleteObject(b); DeleteObject(w); DeleteDC(dc);
     g_iconCache.push_back(std::move(c));
     return g_iconCache.back().bgra;
@@ -727,14 +746,33 @@ void Render() {
         if (r - 37 < leftEnd + 60) break;  // sem espaço: some, como no Mac
         auto bx = slot(17, K_TRAY, i);
         std::vector<BYTE> mono = IconPixels(t.icon, px);
-        for (size_t k = 0; k < mono.size(); k += 4) {  // só a forma do ícone, na cor do texto (como no Mac)
-            BYTE a = mono[k + 3];
-            BYTE v = dark ? a : 0;
-            mono[k] = mono[k + 1] = mono[k + 2] = (BYTE)(v * 0.92f);
-            mono[k + 3] = (BYTE)(a * (dark ? 0.92f : 0.85f));
+        // o mesmo filtro dos ícones Transparentes (ui::GlassIcon, escuro): cinza monocromático pelo tom do original,
+        // mais claro no alto e mais escuro embaixo. Antes era só a silhueta: ícone de fundo cheio (Discord,
+        // WhatsApp) virava um quadrado branco sem o desenho de dentro.
+        for (size_t k = 0; k < mono.size(); k += 4) {
+            float a = mono[k + 3] / 255.f;
+            if (a <= 0.004f) { mono[k] = mono[k + 1] = mono[k + 2] = mono[k + 3] = 0; continue; }
+            float b = mono[k] / 255.f / a, g = mono[k + 1] / 255.f / a, rr = mono[k + 2] / 255.f / a;
+            float l = std::clamp(0.2126f * rr + 0.7152f * g + 0.0722f * b, 0.f, 1.f);
+            float yy = (float)((k / 4) / px) / px;
+            float v, oa;
+            if (dark) {
+                float grad = 0.97f - 0.20f * yy;
+                v = std::clamp(grad * (0.52f + 0.52f * l), 0.36f, 0.98f);
+                oa = a * 0.94f;
+            } else {  // claro: preto, o desenho de dentro um pouco mais claro
+                v = std::clamp(0.06f + 0.42f * l * l + 0.06f * yy, 0.f, 0.55f);
+                oa = a * 0.86f;
+            }
+            BYTE c = (BYTE)std::lround(v * oa * 255);
+            mono[k] = mono[k + 1] = mono[k + 2] = c;
+            mono[k + 3] = (BYTE)std::lround(oa * 255);
         }
         if (ID2D1Bitmap* bmp = ui::Bitmap(rt, px, px, mono)) {
-            rt->DrawBitmap(bmp, D2D1::RectF(bx.left, H / 2 - 8.5f, bx.right, H / 2 + 8.5f));
+            // no pixel inteiro (1:1 com o bitmap): fora da grade o bitmap era reamostrado e borrava/serrilhava
+            float cxp = (bx.left + bx.right) / 2 * sc, cyp = H / 2 * sc;
+            float l0 = std::round(cxp - px / 2.f) / sc, t0 = std::round(cyp - px / 2.f) / sc;
+            rt->DrawBitmap(bmp, D2D1::RectF(l0, t0, l0 + px / sc, t0 + px / sc), 1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
             bmp->Release();
         }
     }

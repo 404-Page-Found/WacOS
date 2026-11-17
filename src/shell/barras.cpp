@@ -37,6 +37,7 @@
 #include <thread>
 #include <vector>
 #include <uiautomation.h>
+#include "../comum/semaforo.h"
 
 namespace {
 
@@ -287,7 +288,7 @@ void Pintar(Info& in) {
             rt->PopAxisAlignedClip();
         }
         // os três botões
-        static const D2D1_COLOR_F on[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
+        static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
         bool can[3] = { true, (in.estilo & WS_MINIMIZEBOX) != 0, (in.estilo & WS_MAXIMIZEBOX) != 0 };
         for (int k = 0; k < 3; k++) {
             D2D1_POINT_2F c{ LX0 + k * LPITCH, H / 2 };

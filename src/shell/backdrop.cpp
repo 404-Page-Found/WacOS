@@ -630,12 +630,14 @@ std::mutex readyMx;
 std::vector<std::pair<HWND, std::shared_ptr<WinCap>>> ready;  // abertas pela thread (nullptr = recusada)
 std::vector<HWND> pending;
 
+bool capJaFuncionou = false;  // alguma montagem já teve janela com quadro (a captura funciona neste PC)
+
 void RefreshWindows() {
     {   // sem captura nenhuma (todas recusadas, nenhuma aberta) por 3 s: também desiste
         static DWORD semCaps = 0;
         if (!caps.empty() || capFailed.empty()) semCaps = 0;
         else if (!semCaps) semCaps = GetTickCount();
-        else if (GetTickCount() - semCaps > 3000) semCaptura = true;
+        else if (GetTickCount() - semCaps > 3000 && !capJaFuncionou) semCaptura = true;
     }
     std::vector<std::pair<HWND, std::shared_ptr<WinCap>>> got;
     { std::lock_guard<std::mutex> lk(readyMx); got.swap(ready); }
@@ -645,7 +647,7 @@ void RefreshWindows() {
             if (!capFailed.count(h)) { wchar_t cl[64] = {}; GetClassNameW(h, cl, 64); Log(L"vidro real: captura recusada para %ls", cl); }
             {   // a mesa (o papel de parede) é o fundo de quase tudo: sem ela o vidro fica preto onde não há janela atrás
                 wchar_t cl[64] = {}; GetClassNameW(h, cl, 64);
-                if (!wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW")) semCaptura = true;
+                if (!capJaFuncionou && (!wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW"))) semCaptura = true;
             }
             capFailed[h] = GetTickCount();
         }
@@ -840,9 +842,11 @@ void Compose() {
     {   // nenhuma janela entregou quadro (captura de janelas recusada: VM, área remota, política): o fundo do vidro
         // ficaria PRETO (Dock, barra de menus e painéis pretos). Depois de 3 s assim, o vidro real desiste e volta o fosco.
         static DWORD vazio = 0;
-        if (!keep.empty()) vazio = 0;
+        // Só desiste se a captura NUNCA funcionou: com ela já funcionando, um fundo vazio é passageiro (a Captura
+        // de Tela, um jogo em tela cheia ou o bloqueio cobrindo tudo) e antes desligava o vidro até reiniciar.
+        if (!keep.empty()) { vazio = 0; capJaFuncionou = true; }
         else if (!vazio) vazio = GetTickCount();
-        else if (GetTickCount() - vazio > 3000) semCaptura = true;
+        else if (GetTickCount() - vazio > 3000 && !capJaFuncionou) semCaptura = true;
     }
     static size_t lastN = (size_t)-1;
     if (caps.size() != lastN || FAILED(hr)) {  // só quando muda o número de janelas (antes logava ~1,5 vez por segundo)
@@ -1216,7 +1220,9 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
         D2D1_COLOR_F t = backdrop::AdjustTint(tint);
         // peças com texto (Spotlight, Central): a tinta não some com a "Transparência do vidro" no mínimo,
         // senão o texto fica sobre o fundo quase nítido e não dá para ler
-        if (minFrost > 0) t.a = std::max(t.a, tint.a * std::min(0.8f, 0.25f + 1.1f * g_style.tintK));  // texto: no mínimo 25 %
+        // (17/11/2026, o usuário: o painel de Apps sobre uma página branca ficou branco, nomes ilegíveis): no mínimo 70 %
+        // da tinta normal; daí para cima segue o slider
+        if (minFrost > 0) t.a = std::max(t.a, tint.a * std::min(1.f, 0.70f + 0.6f * g_style.tintK));
         dc->CreateSolidColorBrush(t, &b);
         if (b) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), b); b->Release(); }
     }
@@ -1317,6 +1323,14 @@ void Use(Entry& e, bool want) {
 
 const backdrop::Style& backdrop::Current() { return g_style; }
 bool backdrop::Liquid() { return g_style.liquid && !g_style.reduce; }
+
+void backdrop::Restart() {
+    Log(L"vidro real: reiniciado pelo usuário (estava %ls%ls)", rg::active ? L"ligado" : L"desligado", rg::semCaptura ? L", desistido" : L"");
+    rg::semCaptura = false;
+    rg::capJaFuncionou = false;
+    if (rg::active) rg::SetActive(false);  // fecha todas as capturas; o Reload abre de novo
+    Reload();
+}
 
 void backdrop::Reload() {
     Style s;

@@ -39,6 +39,7 @@
 #include "../comum/vidro.h"
 #include "pastacor.h"  // Personalizar Pasta: cor e símbolo
 #include "../comum/abrircom.h"  // áudio abre no Música
+#include "../comum/semaforo.h"
 
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
@@ -2043,9 +2044,9 @@ static void DrawDocument(ID2D1DeviceContext* dc, D2D1_RECT_F box, const std::wst
 
 static void DrawLights(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br) {
     // cores do macOS medidas na referência: preenchimento e aro de 0,5 pt um tom abaixo
-    static const D2D1_COLOR_F fill[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
-    static const D2D1_COLOR_F ring[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) };
-    static const D2D1_COLOR_F glyph[3] = { D2D1::ColorF(0.302f, 0.0f, 0.0f), D2D1::ColorF(0.600f, 0.341f, 0.0f), D2D1::ColorF(0.0f, 0.396f, 0.0f) };
+    static const D2D1_COLOR_F fill_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* fill = semaforo::Pick(fill_c, semaforo::FILL);
+    static const D2D1_COLOR_F ring_c[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) }; const D2D1_COLOR_F* ring = semaforo::Pick(ring_c, semaforo::RING);
+    static const D2D1_COLOR_F glyph_c[3] = { D2D1::ColorF(0.302f, 0.0f, 0.0f), D2D1::ColorF(0.600f, 0.341f, 0.0f), D2D1::ColorF(0.0f, 0.396f, 0.0f) }; const D2D1_COLOR_F* glyph = semaforo::Pick(glyph_c, semaforo::GLYPH);
     bool lit = g_winActive || g_hoverLights;
     ID2D1Factory* f = nullptr; dc->GetFactory(&f);
     for (int k = 0; k < 3; k++) {

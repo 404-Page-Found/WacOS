@@ -34,6 +34,7 @@
 #include "../menu/context_menu.h"
 #include "../comum/ampliacao.h"  // botão verde com a animação do ampliar do Shell
 #include "../comum/idioma.h"
+#include "../comum/semaforo.h"
 
 FILE* g_log;
 void Log(const wchar_t* fmt, ...) {
@@ -582,9 +583,9 @@ void Render() {
     g_rt->FillRectangle(D2D1::RectF(0, 0, s.width, TITLE_H), br);
     br->SetColor(D2D1::ColorF(0, 0, 0, 0.55f));
     Line2(g_rt, br, 0, TITLE_H - 0.5f, s.width, TITLE_H - 0.5f, 1);
-    static const D2D1_COLOR_F fill[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
-    static const D2D1_COLOR_F ring[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) };
-    static const D2D1_COLOR_F glyph[3] = { D2D1::ColorF(0.302f, 0, 0), D2D1::ColorF(0.6f, 0.341f, 0), D2D1::ColorF(0, 0.396f, 0) };
+    static const D2D1_COLOR_F fill_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* fill = semaforo::Pick(fill_c, semaforo::FILL);
+    static const D2D1_COLOR_F ring_c[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) }; const D2D1_COLOR_F* ring = semaforo::Pick(ring_c, semaforo::RING);
+    static const D2D1_COLOR_F glyph_c[3] = { D2D1::ColorF(0.302f, 0, 0), D2D1::ColorF(0.6f, 0.341f, 0), D2D1::ColorF(0, 0.396f, 0) }; const D2D1_COLOR_F* glyph = semaforo::Pick(glyph_c, semaforo::GLYPH);
     bool lit = g_active || g_hoverLights;
     for (int k = 0; k < 3; k++) {  // padrão do projeto: 14 pt, 23 entre centros; barra fina: o primeiro em 19
         D2D1_POINT_2F c{ 19.f + k * 23, TITLE_H / 2 };

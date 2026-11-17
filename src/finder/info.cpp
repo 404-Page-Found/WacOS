@@ -21,6 +21,7 @@
 #include <mutex>
 #include <thread>
 #include "../comum/idioma.h"
+#include "../comum/semaforo.h"
 
 namespace {
 
@@ -439,8 +440,8 @@ void Paint(Info& in) {
     D2D1_COLOR_F line = dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.10f);
 
     // bolinhas: fechar e minimizar ativas; ampliar desligada (a janela tem tamanho fixo)
-    static const D2D1_COLOR_F fill[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
-    static const D2D1_COLOR_F ring[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) };
+    static const D2D1_COLOR_F fill_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* fill = semaforo::Pick(fill_c, semaforo::FILL);
+    static const D2D1_COLOR_F ring_c[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) }; const D2D1_COLOR_F* ring = semaforo::Pick(ring_c, semaforo::RING);
     for (int k = 0; k < 3; k++) {
         D2D1_POINT_2F c{ 19.f + k * 23, 14 };  // padrão do projeto: 14 pt, 23 entre centros
         bool lit = k < 2 && (in.active || in.hoverLights);
@@ -449,7 +450,7 @@ void Paint(Info& in) {
         br->SetColor(lit ? ring[k] : dark ? D2D1::ColorF(0, 0, 0, 0.3f) : D2D1::ColorF(0.73f, 0.73f, 0.74f));
         rt->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
         if (in.hoverLights && k < 2) {
-            br->SetColor(k == 0 ? D2D1::ColorF(0.302f, 0, 0) : D2D1::ColorF(0.6f, 0.341f, 0));
+            br->SetColor(semaforo::Grafite() ? D2D1::ColorF(0.20f, 0.20f, 0.21f) : k == 0 ? D2D1::ColorF(0.302f, 0, 0) : D2D1::ColorF(0.6f, 0.341f, 0));
             if (k == 0) { rt->DrawLine({ c.x - 2.5f, c.y - 2.5f }, { c.x + 2.5f, c.y + 2.5f }, br, 1.1f); rt->DrawLine({ c.x - 2.5f, c.y + 2.5f }, { c.x + 2.5f, c.y - 2.5f }, br, 1.1f); }
             else rt->DrawLine({ c.x - 3.3f, c.y }, { c.x + 3.3f, c.y }, br, 1.2f);
         }

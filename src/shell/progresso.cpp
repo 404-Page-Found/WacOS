@@ -21,6 +21,7 @@
 #include <set>
 #include <thread>
 #include "../comum/idioma.h"
+#include "../comum/semaforo.h"
 
 
 namespace {
@@ -442,7 +443,7 @@ void Paint() {
         float d = c.right - c.left, gap = tahoe ? 9.f : 8.f;
         for (int k = 0; k < 3; k++) {
             D2D1_ELLIPSE e = D2D1::Ellipse({ c.left + d / 2 + k * (d + gap), (c.top + c.bottom) / 2 }, d / 2, d / 2);
-            br->SetColor(k == 0 ? D2D1::ColorF(1.f, 0.37f, 0.34f) : (dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.13f)));
+            br->SetColor(k == 0 ? semaforo::Close() : (dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.13f)));
             dc->FillEllipse(e, br);
             if (k == 0) {
                 br->SetColor(D2D1::ColorF(0.75f, 0.2f, 0.18f, 0.6f));

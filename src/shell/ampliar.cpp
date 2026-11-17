@@ -11,6 +11,7 @@
 #include <map>
 #include <dwmapi.h>
 #include <cmath>
+#include "../comum/semaforo.h"
 
 namespace {
 
@@ -218,7 +219,7 @@ void DrawChrome(ID2D1DeviceContext* dc, HWND h, UINT w, UINT hh, const std::vect
     if (!b) return;
     bool tool = (flags & 2) != 0;
     float x0 = (tool ? 14.f : 19.f) * sc, pitch = (tool ? 20.f : 23.f) * sc, r = (tool ? 6.f : 7.f) * sc;
-    const D2D1_COLOR_F on[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
+    static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
     for (int k = 0; k < 3; k++) {
         D2D1_POINT_2F p{ x0 + k * pitch, cap / 2 };
         b->SetColor(on[k]);

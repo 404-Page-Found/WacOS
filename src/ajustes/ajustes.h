@@ -88,6 +88,7 @@ struct SideItem {
 };
 std::vector<SideItem>& SidebarItems();
 int SidebarIndexFor(const std::wstring& idOrUri);  // -1 se não houver
+void OpenUpdatePage();  // Geral > Atualização de Software (--pagina=atualizacao)
 std::wstring SymbolFor(const std::wstring& label);  // SF Symbol (icones\simbolos) do item, "" se não houver
 
 // ---- sistema.cpp: o que cada página lê e muda no Windows

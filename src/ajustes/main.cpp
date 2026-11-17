@@ -15,6 +15,7 @@
 #include <mutex>
 #include <cstdarg>
 #include "../comum/ampliacao.h"  // botão verde com a animação do ampliar do Shell
+#include "../comum/semaforo.h"
 
 namespace {
 
@@ -833,7 +834,7 @@ void DrawRow(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F rr, int gi, int ri) {
 float SideRowsTop() { return ACCOUNT_Y + ACCOUNT_H + 10; }
 
 void DrawLights(aj::Ctx& c) {
-    static const D2D1_COLOR_F on[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
+    static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
     for (int k = 0; k < 3; k++) {
         D2D1_POINT_2F p{ 23 + k * 23.f, 25 };  // padrão do projeto: 14 pt, 23 entre centros
         bool lit = g_winActive || g_hoverLights;
@@ -1465,6 +1466,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring id((const wchar_t*)cd->lpData, cd->cbData / sizeof(wchar_t));
             int i = SidebarIndexFor(id);
             if (i >= 0) SelectSide(i);
+            else if (id == L"atualizacao") { int g = SidebarIndexFor(L"geral"); if (g >= 0) SelectSide(g); OpenUpdatePage(); }
         }
         if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
         SetForegroundWindow(h);
@@ -1603,6 +1605,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     g_hist.push_back({ std::max(start, 0), {} });
     g_histAt = 0;
     ShowPage();
+    if (page == L"atualizacao") OpenUpdatePage();
 
     // escondida (cloak) até o primeiro quadro estar pronto: sem isso a janela aparecia com a área da
     // direita ainda vazia e transparente (o que estava atrás aparecia através dela por alguns quadros)

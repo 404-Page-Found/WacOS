@@ -106,6 +106,7 @@ if (Test-Path $log) {
     }
 }
 Remove-Item 'HKCU:\Software\ShellProprio' -Recurse -Force -ErrorAction SilentlyContinue  # cores das barras e opções da DLL das janelas
+Remove-Item 'HKCU:\Software\Classes\AppUserModelId\WacOS.Atualizacao' -Recurse -Force -ErrorAction SilentlyContinue  # remetente do aviso de atualização
 # QuickTime registrado como app de vídeo (tools\quicktime-registrar.ps1)
 $qr = Join-Path $dest 'tools\quicktime-registrar.ps1'; if (Test-Path $qr) { & $qr -Desfazer }
 # Música registrado como app de áudio (tools\musica-registrar.ps1): sai de "Abrir com" e dos apps padrão

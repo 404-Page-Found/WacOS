@@ -18,6 +18,7 @@
 #include <cmath>
 #include <map>
 #include "../comum/sombra.h"
+#include "../comum/semaforo.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
@@ -208,7 +209,7 @@ void Paint(Info* in) {
             fill(in->rightColor, D2D1::RectF(W - PATCH_R, 0, W, H), false);
         }
         // os três botões no tamanho padrão do projeto (o do Monitor de Atividade): 14 pt, 23 pt entre centros
-        static const D2D1_COLOR_F on[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
+        static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
         LONG st = in->style;
         bool can[3] = { true, (st & WS_MINIMIZEBOX) != 0, (st & WS_MAXIMIZEBOX) != 0 };
         float lx0 = in->tool ? 14.f : 19.f, lpitch = in->tool ? 20.f : 23.f, lr = in->tool ? 6.f : 7.f;

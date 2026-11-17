@@ -290,6 +290,10 @@ size_t Count();
 // foldedQuery: minúsculas sem acento; para logo se cancelled() der true
 void Search(const std::wstring& foldedQuery, size_t max, const std::function<bool()>& cancelled, std::vector<Hit>& out);
 }
+namespace atualizacao {  // aviso de versão nova no GitHub (atualizacao.cpp)
+void Start(HWND msgWnd);  // thread: confere 90 s depois e a cada 6 h; avisa msgWnd
+bool Handle(UINT m);      // na MsgProc: mostra a notificação (uma vez por versão); true = era a mensagem
+}
 namespace migrar {  // troca de nome Sequoia → WacOS (migrar.cpp)
 bool TrocarPeloNovo();  // rodando como SequoiaShell.exe com o WacOSShell.exe ao lado: abre o novo (true = sair)
 void Registro();        // caminhos do nome velho no registro e a tarefa do login
@@ -477,6 +481,7 @@ void BadgesChanged();   // chegou ou saiu notificação: redesenha os badges ver
 namespace backdrop {  // vidro desfocado com recorte arredondado suave (backdrop.cpp)
 bool Attach(HWND h);  // janela criada com WS_EX_NOREDIRECTIONBITMAP
 void Detach(HWND h);  // a janela vai ser destruída: solta o vidro dela
+void Restart();       // refaz o vidro real do zero (Ajustes: "Reiniciar o Liquid Glass")
 void Set(HWND h, float w, float hgt, float radius, D2D1_COLOR_F tint);  // px
 void Fade(HWND h, float opacity, float scale, float cx, float cy);     // animação: opacidade e escala em volta de (cx, cy) px
 // Conteúdo desenhado DENTRO do vidro (mesma árvore da Composição): vidro e desenho chegam à tela no mesmo

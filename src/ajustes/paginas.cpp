@@ -461,6 +461,9 @@ Page Atualizacao() {
     } else if (u.state == 2 && u.erro.empty()) rows.push_back(Note(Tr(L"O WacOS está atualizado.")));
     rows.push_back(Button(L"Confere de novo no GitHub.", L"Procurar Atualizações", [] { { std::lock_guard<std::mutex> lk(g_updMu); g_upd.state = 0; } aj::Rebuild(); }));
     p.groups.push_back(G(rows, L"WacOS"));
+    p.groups.push_back(G({ Toggle(L"Avisar quando houver atualização", [] { return Setting(L"avisar_atualizacao", L"1") != L"0"; },
+                                  [](bool v) { SetSetting(L"avisar_atualizacao", v ? L"1" : L"0"); },
+                                  L"O WacOS confere o GitHub ao entrar e a cada 6 horas e mostra uma notificação quando sai uma versão nova.") }));
     if (tem && !u.faltam.empty()) {
         std::vector<Row> ch;
         for (size_t k = 0; k < u.faltam.size() && k < 15; k++) ch.push_back(Note(L"• " + u.faltam[k]));
@@ -877,7 +880,14 @@ Page TransparenciaEfeitos() {
     refr.enabled = liquid && !reduce;
     refr.hasDef = true; refr.def = 0.6f;
     // (o vidro real é montado pelas janelas de trás e aparece nas gravações: não há mais o que trocar para gravar)
-    p.groups.push_back(G({ mat, lg, real, refr }, L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
+    Row redo = Button(L"Se o vidro ficar fosco, preto ou parado, refaz o Liquid Glass sem reiniciar o Shell.", L"Reiniciar o Liquid Glass", [] {
+        static UINT msg = RegisterWindowMessageW(L"ShellReiniciarVidro");
+        HWND sh = FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr);
+        if (!sh) sh = FindWindowW(L"ShellMensagens", nullptr);
+        if (sh) PostMessageW(sh, msg, 0, 0);
+    });
+    redo.enabled = liquid && !reduce;
+    p.groups.push_back(G({ mat, lg, real, refr, redo }, L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
 
     Row red = Toggle(L"Reduzir transparência", [] { return Setting(L"reduzir_transparencia", L"0") == L"1"; },
                      [](bool v) { SetSetting(L"reduzir_transparencia", v ? L"1" : L"0"); Rebuild(); },
@@ -1851,6 +1861,9 @@ std::wstring SymbolFor(const std::wstring& label) {
     if (it != m.end()) return it->second;
     return L"";
 }
+
+// --pagina=atualizacao (o aviso de versão nova do Shell): Geral > Atualização de Software
+void OpenUpdatePage() { aj::Push(L"Atualização de Software", Atualizacao); }
 
 int SidebarIndexFor(const std::wstring& idOrUri) {
     auto& items = SidebarItems();
