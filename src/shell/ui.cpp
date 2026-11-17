@@ -396,7 +396,9 @@ static void GlassIcon(UINT w, UINT h, std::vector<BYTE>& px, bool tinted, float 
             float yy = (float)y / h, l = lm[i], f = fm[i], d = dist[i];
             // corpo: grafite translúcido, um véu claro bem leve no alto
             // (medido sobre preto: a peça do Mac fica em 16/255, quase o fundo do Dock; a nossa estava em 30)
-            float oR = 0.05f, oG = 0.05f, oB = 0.055f, oa = 0.50f;
+            // Transparente: vidro de verdade, quase sem corpo (com 50 % o papel de parede colorido ficava escurecido e o
+            // ícone parecia tingido, 17/11/2026); o desenho claro e o fio da borda fazem a forma
+            float oR = 0.06f, oG = 0.06f, oB = 0.065f, oa = 0.24f;
             if (tinted) { oR = tr * 0.30f; oG = tg * 0.30f; oB = tb * 0.30f; oa = 0.62f; }
             float top = 0.015f * std::clamp(1 - yy / 0.45f, 0.f, 1.f);
             oR += (1 - oR) * top; oG += (1 - oG) * top; oB += (1 - oB) * top;
