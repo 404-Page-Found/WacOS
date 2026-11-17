@@ -113,8 +113,31 @@ if ($Atualizar) {  # só os arquivos; o resto (ajustes, fontes, cursor, atalho, 
     exit
 }
 
+# 1c. O que é da Apple e não vem no pacote do GitHub (fontes SF, sons de alerta, cursor): baixado aqui, no próprio
+#     PC, de onde a Apple e os autores publicam (tools\baixar-apple.ps1). O pacote completo feito no PC do autor já traz.
+$baixar = Join-Path $src 'tools\baixar-apple.ps1'
+if (-not (Test-Path $baixar)) { $baixar = Join-Path $dest 'tools\baixar-apple.ps1' }
+$apple = Join-Path $env:TEMP 'wacos-apple'
+$temFontes = [bool](Get-ChildItem "$src\fontes" -File -Include *.otf, *.ttf -Recurse -ErrorAction SilentlyContinue)
+$temSons = [bool](Get-ChildItem "$dest\sons\mac" -Filter *.wav -ErrorAction SilentlyContinue)
+$temCursor = [bool](Get-ChildItem "$src\cursor" -Directory -ErrorAction SilentlyContinue)
+if ((Test-Path $baixar) -and -not $temFontes -and
+    (Pergunta 'Baixar as fontes SF Pro e SF Mono do site da Apple (developer.apple.com/fonts; licença da Apple)?')) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $baixar -Fontes "$apple\fontes"
+}
+if ((Test-Path $baixar) -and -not $temSons -and
+    (Pergunta 'Baixar os sons de alerta do macOS (github.com/extratone/macOSsystemsounds)?')) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $baixar -Sons "$dest\sons\mac"
+    Anota "sons do macOS baixados em $dest\sons\mac"
+}
+if ((Test-Path $baixar) -and -not $temCursor -and
+    (Pergunta 'Usar o cursor do macOS Tahoe (baixado do DeviantArt, autor jimmyxd2)?')) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $baixar -Cursor "$apple\cursor"
+}
+
 # 2. Fontes (só para este usuário)
-$fontes = Get-ChildItem "$src\fontes" -File -Include *.otf, *.ttf -Recurse -ErrorAction SilentlyContinue
+$fontes = @(Get-ChildItem "$src\fontes" -File -Include *.otf, *.ttf -Recurse -ErrorAction SilentlyContinue) +
+          @(Get-ChildItem "$apple\fontes" -File -Include *.otf, *.ttf -Recurse -ErrorAction SilentlyContinue)
 if ($fontes) {
     $fdir = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'
     $freg = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts'
@@ -135,13 +158,15 @@ if ($fontes) {
 }
 
 # 2b. Cursor do Mac (só para este usuário; o anterior fica anotado e o desinstalar devolve)
-$cur = Get-ChildItem "$src\cursor" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($cur -and (Pergunta "Usar o cursor do Mac ($($cur.Name))?")) {
+$curRaiz = "$src\cursor"
+if (-not (Get-ChildItem $curRaiz -Directory -ErrorAction SilentlyContinue)) { $curRaiz = "$apple\cursor" }  # o baixado agora
+$cur = Get-ChildItem $curRaiz -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($cur -and ($curRaiz -like "$apple*" -or (Pergunta "Usar o cursor do Mac ($($cur.Name))?"))) {
     $cdir = Join-Path $dest "cursor\$($cur.Name)"
     robocopy $cur.FullName $cdir /E /NFL /NDL /NJH /NJS /NP | Out-Null
     Get-ChildItem $cdir -File | Unblock-File
     $creg = 'HKCU:\Control Panel\Cursors'
-    $mapa = Get-Content "$src\cursor\cursores.txt" -Encoding utf8  # papel=arquivo (ex.: Arrow=arrowS.cur)
+    $mapa = Get-Content "$curRaiz\cursores.txt" -Encoding utf8  # papel=arquivo (ex.: Arrow=arrowS.cur)
     $antes = Get-ItemProperty $creg
     foreach ($linha in $mapa) {
         if ($linha -notmatch '^([^=]+)=(.+)$') { continue }
@@ -158,6 +183,8 @@ if ($cur -and (Pergunta "Usar o cursor do Mac ($($cur.Name))?")) {
     [SeqCur.U]::SystemParametersInfo(0x57, 0, [IntPtr]::Zero, 3) | Out-Null  # SPI_SETCURSORS: aplica agora
     Write-Host 'Cursor do Mac aplicado.'
 }
+
+Remove-Item $apple -Recurse -Force -ErrorAction SilentlyContinue  # o baixado já foi copiado
 
 # 3. Ajustes (se vierem no pacote e este PC ainda não tiver os seus)
 $cfg = Join-Path $env:APPDATA 'Shell'

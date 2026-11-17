@@ -28,6 +28,15 @@ Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no w
 1. Download `WacOS.zip` from the [latest release](../../releases/latest).
 2. Extract it anywhere and run `instalar.cmd`.
 
+Apple's fonts, sounds and cursors can't be shipped in this repository, so the installer offers to fetch them on
+your own PC, from where their owners publish them:
+
+- **SF Pro and SF Mono** from [developer.apple.com/fonts](https://developer.apple.com/fonts/) (Apple's license applies).
+  The `.dmg` is opened with 7-Zip, installed through `winget` if missing.
+- **macOS alert sounds** from [extratone/macOSsystemsounds](https://github.com/extratone/macOSsystemsounds), converted to WAV.
+- **macOS Tahoe cursor** by [jimmyxd2 on DeviantArt](https://www.deviantart.com/jimmyxd2/art/1208233550): the installer opens
+  the page, you download it, and it picks the file up from your Downloads folder.
+
 WacOS installs for your user only (no administrator rights) in `%LOCALAPPDATA%\Programs\WacOS`.
 Everything it changes is logged in `instalacao.log` there, and `desinstalar.cmd` undoes it.
 

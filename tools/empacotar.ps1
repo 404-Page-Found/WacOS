@@ -32,7 +32,7 @@ foreach ($p in $progs) {
 # Os scripts de DESFAZER vão sempre (mesmo com -SemSistema): um PC que recebeu esses extras de um pacote antigo
 # precisa deles para o desinstalar devolver os ícones e a janela do Windows
 New-Item -ItemType Directory -Force "$pkg\tools" | Out-Null
-foreach ($s in 'icones-sistema.ps1', 'icones-sistema-extra.ps1', 'dialogo-desligar.ps1', 'musica-registrar.ps1', 'quicktime-registrar.ps1', 'atualizar-github.ps1') { Copy-Item "$PSScriptRoot\$s" "$pkg\tools\$s" }
+foreach ($s in 'icones-sistema.ps1', 'icones-sistema-extra.ps1', 'dialogo-desligar.ps1', 'musica-registrar.ps1', 'quicktime-registrar.ps1', 'atualizar-github.ps1', 'baixar-apple.ps1') { Copy-Item "$PSScriptRoot\$s" "$pkg\tools\$s" }
 if (-not $SemSistema) {
     New-Item -ItemType Directory -Force "$pkg\bin\icones-sistema" | Out-Null
     Get-ChildItem "$bin\icones-sistema" -File | Where-Object { $_.Extension -in '.ico', '.ps1' } | Copy-Item -Destination "$pkg\bin\icones-sistema"
