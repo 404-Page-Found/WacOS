@@ -19,6 +19,18 @@ Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no w
 | ![Activity Monitor](docs/screenshots/activity-monitor.png) **Activity Monitor** | ![Force Quit Applications](docs/screenshots/force-quit.png) **Force Quit Applications** (Ctrl+Alt+Esc) |
 | ![macOS alert](docs/screenshots/alert.png) Windows message boxes become **macOS alerts** | ![Dock icon styles](docs/screenshots/dock-icon-styles.png) **Dock icon styles**: Default, Dark, Clear and Tinted |
 
+### macOS Sequoia theme
+
+The same shell with the macOS 15 look (System Settings > Appearance > Theme).
+
+![WacOS desktop in the Sequoia theme](docs/screenshots/sequoia-desktop.png)
+
+| | |
+|---|---|
+| ![Control Center, Sequoia](docs/screenshots/sequoia-control-center.png) **Control Center** | ![Notification Center, Sequoia](docs/screenshots/sequoia-notification-center.png) **Notification Center** |
+| ![Launchpad](docs/screenshots/sequoia-launchpad.png) **Launchpad** | ![Spotlight, Sequoia](docs/screenshots/sequoia-spotlight.png) **Spotlight** |
+| ![Finder, Sequoia](docs/screenshots/sequoia-finder.png) **Finder** | ![System Settings, Sequoia](docs/screenshots/sequoia-system-settings.png) **System Settings** with the Sequoia wallpapers |
+
 ## Features
 
 - **Menu bar** with the active app's real menus, the Apple menu, status icons and the system tray.
