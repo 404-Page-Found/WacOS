@@ -1370,3 +1370,6 @@
 { L"Procurar Atualizações", L"Check for Updates" },
 { L"O que falta", L"What’s missing" },
 { L"não deu para conferir agora", L"couldn’t check right now" },
+{ L"Clicar no papel de parede para mostrar a mesa", L"Click wallpaper to reveal desktop" },
+{ L"Só no Organizador Visual", L"Only in Stage Manager" },
+{ L"Área de Trabalho", L"Desktop" },

@@ -402,6 +402,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_RV_CLICK: {
         POINT pt{ (short)LOWORD(l), (short)HIWORD(l) };
         if (missioncontrol::IsOpen()) return 0;
+        // como no macOS 15/26: "Clicar no papel de parede para mostrar a mesa" vem em "Só no Organizador Visual";
+        // "Sempre" empurrava as janelas para as bordas a cada clique na mesa (o usuário: "os apps pulam", 17/11/2026)
+        if (!g_revealed) {
+            std::wstring modo = shell::Setting(L"clique_mostra_mesa", L"palco");
+            if (modo == L"0" || (modo == L"palco" && shell::Setting(L"organizador", L"0") != L"1")) return 0;
+        }
         if (!EmptySpot(pt)) return 0;  // clicou num ícone: só seleciona, como no Mac
         if (g_revealed) Restore(); else Reveal();
         return 0;
@@ -438,7 +444,7 @@ void HookThread() {
 }  // namespace
 
 void revelar::Start() {
-    if (shell::Setting(L"clique_mostra_mesa", L"1") != L"1") return;
+    if (shell::Setting(L"clique_mostra_mesa", L"palco") == L"0") return;  // "Nunca": nem o gancho do mouse
     WNDCLASSW wc{}; wc.lpfnWndProc = Proc; wc.hInstance = shell::inst; wc.lpszClassName = L"ShellRevelar";
     RegisterClassW(&wc);
     g_wnd = CreateWindowExW(WS_EX_TOOLWINDOW, wc.lpszClassName, L"", WS_POPUP, 0, 0, 0, 0, HWND_MESSAGE, nullptr, shell::inst, nullptr);

@@ -872,7 +872,10 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         if (g_drag && GetCapture() == h) {
             POINT c; GetCursorPos(&c);
             int dx = c.x - g_dragStart.x, dy = c.y - g_dragStart.y;
-            if (!g_dragging && (abs(dx) > 3 || abs(dy) > 3)) {  // começou a arrastar: por cima dos outros, sombra na casa atual
+            // só vira arrastar depois de ~8 px: com 3 px um clique com a mão tremendo mudava o widget de casa
+            // e gravava o lugar novo (os widgets "pulavam" para o meio da tela, 17/11/2026)
+            int lim = std::max(8, GetSystemMetrics(SM_CXDRAG) * 2);
+            if (!g_dragging && (abs(dx) > lim || abs(dy) > lim)) {  // começou a arrastar: por cima dos outros, sombra na casa atual
                 g_dragging = true;
                 g_moves.erase(std::remove_if(g_moves.begin(), g_moves.end(), [&](const Move& mv) { return mv.w == g_drag; }), g_moves.end());
                 PlaceAtDesktop(*g_drag);

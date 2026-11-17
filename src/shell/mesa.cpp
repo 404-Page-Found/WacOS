@@ -96,6 +96,7 @@ struct Mon {
     bool primary = false;
     HDC wallDC = nullptr, bufDC = nullptr;
     HBITMAP wall = nullptr, buf = nullptr, wallOld = nullptr, bufOld = nullptr;
+    void* bufBits = nullptr;   // pixels do buf (BGRA): no papel de parede animado a mesa é transparente
     ID2D1DCRenderTarget* rt = nullptr;
 };
 std::vector<Mon> g_mons;
@@ -149,6 +150,7 @@ std::wstring Parent(const std::wstring& p) { size_t s = p.find_last_of(L'\\'); r
 
 Mon* Primary() { for (auto& m : g_mons) if (m.primary) return &m; return g_mons.empty() ? nullptr : &g_mons[0]; }
 Mon* MonOf(HWND h) { for (auto& m : g_mons) if (m.h == h) return &m; return nullptr; }
+void Invalidate(Mon& m);
 float Sc() { Mon* p = Primary(); return p && p->h ? GetDpiForWindow(p->h) / 96.f : 1.f; }
 
 // ------------------------------------------------------------------ Explorador
@@ -363,7 +365,7 @@ void LoadWallpapers() {
         SelectObject(m.wallDC, nb);
         if (m.wall) DeleteObject(m.wall);
         m.wall = nb;
-        InvalidateRect(m.h, nullptr, FALSE);
+        Invalidate(m);
     }
     Log(L"mesa: papel de parede %ls (estilo %d%ls)", wl.path.c_str(), wl.style, wl.tile ? L", lado a lado" : L"");
     menubar::ApplyTheme();  // a barra (transparente no Tahoe) refaz a cor do texto com o papel de parede novo
@@ -559,7 +561,7 @@ void Reload() {
     BuildStacks();
     Arrange();
     QueueIcons();
-    if (Mon* p = Primary()) InvalidateRect(p->h, nullptr, FALSE);
+    if (Mon* p = Primary()) Invalidate(*p);
     if (!g_renameAfter.empty()) {
         for (int i = 0; i < (int)g_items.size(); i++) if (g_items[i].key == g_renameAfter) {
             g_renameAfter.clear();
@@ -613,7 +615,7 @@ void TakeIcons() {
             break;
         }
     }
-    if (any) if (Mon* p = Primary()) InvalidateRect(p->h, nullptr, FALSE);
+    if (any) if (Mon* p = Primary()) Invalidate(*p);
 }
 
 void ForgetIcons() {  // escala mudou / associações mudaram
@@ -732,7 +734,64 @@ void DrawIcons(ID2D1RenderTarget* rt) {
     }
 }
 
+// Papel de parede animado (Lively Wallpaper e parecidos): o programa põe a janela dele dentro da mesa do Windows
+// (Progman/WorkerW), atrás dos ícones, e a nossa mesa, opaca e por cima, escondia tudo (17/11/2026). Com uma janela
+// de outro programa ali dentro, a mesa vira transparente (janela em camadas, alfa por pixel): só os ícones, sobre
+// um fundo de alfa 1/255 (invisível, mas ainda recebe os cliques da mesa: seleção, botão direito, arrastar).
+bool g_live;
+bool LiveWallpaperNow() {
+    HWND pm = FindWindowW(L"Progman", nullptr);
+    DWORD exPid = 0; if (pm) GetWindowThreadProcessId(pm, &exPid);
+    struct S { DWORD exPid; bool found; } st{ exPid, false };
+    auto look = [](HWND parent, S* st) {
+        EnumChildWindows(parent, [](HWND c, LPARAM l) -> BOOL {
+            auto* st = (S*)l;
+            DWORD pid = 0; GetWindowThreadProcessId(c, &pid);
+            if (pid && pid != st->exPid && pid != GetCurrentProcessId() && IsWindowVisible(c)) { st->found = true; return FALSE; }
+            return TRUE;
+        }, (LPARAM)st);
+    };
+    if (pm) look(pm, &st);
+    // Windows antigo: a WorkerW de trás (visível, do Explorador) é a mãe da janela do papel de parede
+    for (HWND w = nullptr; !st.found && (w = FindWindowExW(nullptr, w, L"WorkerW", nullptr));) {
+        DWORD pid = 0; GetWindowThreadProcessId(w, &pid);
+        if (pid == exPid && IsWindowVisible(w)) look(w, &st);
+    }
+    return st.found;
+}
+void PaintLayered(Mon& m) {
+    int W = m.r.right - m.r.left, H = m.r.bottom - m.r.top;
+    if (!m.bufBits || !m.bufDC) return;
+    std::fill((UINT32*)m.bufBits, (UINT32*)m.bufBits + (size_t)W * H, 0x01000000u);
+    if (m.primary && m.rt) {
+        RECT full{ 0, 0, W, H };
+        if (SUCCEEDED(m.rt->BindDC(m.bufDC, &full))) {
+            m.rt->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);  // ClearType não tem alfa
+            m.rt->BeginDraw();
+            DrawIcons(m.rt);
+            m.rt->EndDraw();
+        }
+    }
+    POINT pos{ m.r.left, m.r.top }, zero{ 0, 0 };
+    SIZE size{ W, H };
+    BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    UpdateLayeredWindow(m.h, nullptr, &pos, &size, m.bufDC, &zero, 0, &bf, ULW_ALPHA);
+}
+void Invalidate(Mon& m) { if (g_live) PaintLayered(m); else InvalidateRect(m.h, nullptr, FALSE); }
+void SetLive(bool on) {
+    if (on == g_live) return;
+    g_live = on;
+    for (auto& m : g_mons) {
+        LONG ex = GetWindowLongW(m.h, GWL_EXSTYLE);
+        SetWindowLongW(m.h, GWL_EXSTYLE, on ? (ex | WS_EX_LAYERED) : (ex & ~WS_EX_LAYERED));
+        if (on) PaintLayered(m);
+        else { if (m.rt) m.rt->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_DEFAULT); RedrawWindow(m.h, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN); }
+    }
+    Log(L"mesa: papel de parede animado %ls", on ? L"detectado: a mesa fica transparente (só os ícones)" : L"saiu: a mesa volta a desenhar o papel de parede");
+}
+
 void Paint(Mon& m) {
+    if (g_live) { ValidateRect(m.h, nullptr); PaintLayered(m); return; }
     PAINTSTRUCT ps; HDC dc = BeginPaint(m.h, &ps);
     int W = m.r.right - m.r.left, H = m.r.bottom - m.r.top;
     if (m.bufDC && m.wallDC) {
@@ -762,7 +821,7 @@ void Paint(Mon& m) {
     }
     EndPaint(m.h, &ps);
 }
-void Redraw() { if (Mon* p = Primary()) InvalidateRect(p->h, nullptr, FALSE); }
+void Redraw() { if (Mon* p = Primary()) Invalidate(*p); }
 
 // ------------------------------------------------------------------ ações
 // só arquivos de verdade e à vista (pilhas e o conteúdo de pilha fechada nunca entram em copiar/apagar/abrir)
@@ -1321,6 +1380,7 @@ void DestroyDesk() {
     g_mons.clear();
     if (g_drop) { g_drop->Release(); g_drop = nullptr; }
     Log(L"mesa: janelas da mesa fechadas");
+    g_live = false;  // as janelas novas nascem opacas; o Tick confere de novo
 }
 
 void CreateDesk() {
@@ -1340,6 +1400,7 @@ void CreateDesk() {
         BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
         void* bits = nullptr;
         m.buf = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        m.bufBits = bits;
         m.wall = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
         m.bufOld = (HBITMAP)SelectObject(m.bufDC, m.buf);
         m.wallOld = (HBITMAP)SelectObject(m.wallDC, m.wall);
@@ -1410,6 +1471,10 @@ bool AnyUwpWindow() {
 
 // máquina de estados, a cada 500 ms
 void Tick() {
+    {   // papel de parede animado entrou ou saiu (a cada ~2 s)
+        static int n;
+        if (++n % 4 == 0 && !g_mons.empty()) SetLive(LiveWallpaperNow());
+    }
     // explorer=0 / explorer=1 / explorer=fundo mandam. Sem o ajuste e com o Shell como shell do Windows: fundo.
     // Sem nenhum Explorador na sessão o Windows não liga o desfoque (transparência): o vidro do Dock, da barra e
     // dos painéis saía preto (13/11/2026, PC ligado direto no Shell). Com o Explorador escondido no fundo, volta.
