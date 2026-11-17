@@ -1203,7 +1203,9 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
                 cm._44 = 1.f / 3.f;
                 ms[k]->SetInputEffect(0, ds[k]);
                 ms[k]->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, cm);
-                ms[k]->SetValue(D2D1_COLORMATRIX_PROP_ALPHA_MODE, D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED);  // somados: (R, G, B, alfa) pré-multiplicado de novo
+                ms[k]->SetValue(D2D1_COLORMATRIX_PROP_ALPHA_MODE, D2D1_COLORMATRIX_ALPHA_MODE_STRAIGHT);  // a matriz direto nos valores pré-multiplicados: somados dão (R, G, B, alfa).
+                // (com PREMULTIPLIED o efeito desfaz e refaz o pré-multiplicado e cada canal saía com 1/3: o vidro inteiro ficava
+                // escuro e "tingido", 17/11/2026)
                 dc->DrawImage(ms[k], D2D1::Point2F(ox, oy), D2D1::RectF(sx, sy, sx + w, sy + h), D2D1_INTERPOLATION_MODE_LINEAR,
                               k == 0 ? D2D1_COMPOSITE_MODE_SOURCE_OVER : D2D1_COMPOSITE_MODE_PLUS);
             }
