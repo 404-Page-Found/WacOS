@@ -40,9 +40,6 @@ in `bin\versao.txt`. In **System Settings > General > Software Update**, WacOS c
 installed version, the latest one and the commits you don't have yet, and **Update Now** downloads and installs it
 (only programs, icons and sounds are replaced; your settings stay).
 
-While the repository is private, each PC needs a GitHub token with read access saved in
-`%APPDATA%\Shell\github-token.txt`.
-
 ## Build
 
 Requires Visual Studio 2022 (or Build Tools 2022) with the C++ workload.
