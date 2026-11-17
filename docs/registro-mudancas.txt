@@ -557,3 +557,5 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 [2026-11-17 01:00 PC] Transparente escuro (ui.cpp GlassIcon): corpo da peça de 50% para 24% (o usuário: "não está transparente, parece tingido" sobre papel de parede colorido). Conferido numa foto do Dock.
 
 [2026-11-17 01:05 PC] Dock escuro (dock.cpp PaintBack): tinta preta de 39% para 18% (o usuário: o Dock parecia tingido sobre papel de parede claro/colorido). Sobre preto continua quase preto.
+
+[2026-11-17 01:20 PC] Dock escuro: a tinta preta (39% e depois 18%) foi desfeita; o vidro do Dock volta ao do guia (cinza 0,28 a 39%). O usuário: o filtro do Transparente era só para os ícones, não para o Dock. Às 01:12 o Shell parou de responder (vigia: sem pulso há 10 s) e a reabertura do vigia não ficou; aberto de novo pelo WMI às 01:17.

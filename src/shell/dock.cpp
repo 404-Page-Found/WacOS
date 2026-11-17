@@ -537,10 +537,7 @@ void PaintBack() {
         // Tahoe: cor do vidro medida na tela (guia macOS26-Theme-Reference, seções 52 e 60): saída ≈ 0,61 × fundo + 0,11
         // no escuro (39 % de um cinza 0,28 por cima do fundo desfocado); no claro a média sobe ~0,11 (cinza 0,56)
         if (TAHOE_DOCK) tint = dark ? D2D1::ColorF(0.28f, 0.28f, 0.29f, 0.39f) : D2D1::ColorF(0.56f, 0.56f, 0.57f, 0.39f);
-        // escuro: o Dock real do macOS 26 sobre fundo preto fica em 12/255 (print do usuário, 16/11/2026); com o cinza
-        // 0,28 o nosso ficava ~30 (cinza demais). Tinta preta: o fundo escurece 39 % e o preto continua quase preto
-        // (e sobre papel de parede colorido escurecer 39 % deixava o Dock com cara de "tingido": 18 %, 17/11/2026)
-        if (TAHOE_DOCK && dark) tint = D2D1::ColorF(0.02f, 0.02f, 0.02f, 0.18f);
+        // (16-17/11/2026: a tinta preta do Dock foi desfeita a pedido; o filtro do Transparente é só nos ícones)
         backdrop::Set(g_back, (float)w, (float)h, rad * sc, tint);
         return;
     }
