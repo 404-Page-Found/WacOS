@@ -1598,8 +1598,14 @@ bool Step() {
     if (g_sel >= 0 && g_sel < (int)g_rows.size()) {
         float top = g_rows[g_sel].r.top, bot = g_rows[g_sel].r.bottom;
         if (g_sel > 0 && g_rows[g_sel - 1].type == R_HEAD) top = g_rows[g_sel - 1].r.top;
-        if (bot - g_scroll > listH - 6) g_scroll = bot - listH + 6;
-        if (top - g_scroll < 4) g_scroll = std::max(0.f, top - 4);
+        // só quando a seleção muda (setas, digitar): antes valia a cada quadro e a roda do mouse não rolava, a
+        // lista voltava sozinha para o escolhido (17/11/2026: não dava para ver o resto dos apps)
+        static int shown = -2; static size_t shownRows = 0;
+        if (g_sel != shown || g_rows.size() != shownRows) {
+            shown = g_sel; shownRows = g_rows.size();
+            if (bot - g_scroll > listH - 6) g_scroll = bot - listH + 6;
+            if (top - g_scroll < 4) g_scroll = std::max(0.f, top - 4);
+        }
         if (g_selTop < 0) { g_selTop = g_rows[g_sel].r.top; g_selBot = g_rows[g_sel].r.bottom; }  // primeira vez: sem deslizar
         moving |= ease(g_selTop, g_rows[g_sel].r.top, 0.05f);
         moving |= ease(g_selBot, g_rows[g_sel].r.bottom, 0.05f);

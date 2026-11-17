@@ -920,8 +920,18 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(h, m, wp, lp);
 }
 
+const UINT WM_WG_DESK = WM_APP + 62;
+// a mesa veio para a frente (Win+D, "mostrar a área de trabalho", clique na mesa): os widgets sobem na hora
+// (antes só na conferência de 3 s: no Win+D eles demoravam a aparecer)
+void CALLBACK OnForeground(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWORD) {
+    if (obj != OBJID_WINDOW || !h) return;
+    wchar_t c[32] = {}; GetClassNameW(h, c, 32);
+    if (mesa::IsDeskClass(c)) PostMessageW(g_timer, WM_WG_DESK, 0, 0);
+}
+
 LRESULT CALLBACK TimerProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     if (m == WM_WG_FRAME) { Frame(); return 0; }
+    if (m == WM_WG_DESK) { if (!g_drag) for (auto& w : g_w) if (w.on && BelowDesktop(w)) { for (auto& x : g_w) if (x.on) PlaceAtDesktop(x); break; } return 0; }
     if (m == WM_WX_READY) { for (auto& w : g_w) if (w.kind == K_WEATHER || w.kind == K_SUN) Paint(w); return 0; }
     if (m == WM_TIMER && wp == 1) {
         SYSTEMTIME t; GetLocalTime(&t);
@@ -930,7 +940,21 @@ LRESULT CALLBACK TimerProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         bool all = dark != g_dark || t.wMinute != g_lastMinute;
         g_dark = dark; g_lastMinute = t.wMinute;
         static int tick;
-        bool checkZ = ++tick % 3 == 0;  // ordem das janelas: a cada 3 s, e só pelo primeiro widget ligado (antes: os 5, todo segundo)
+        bool checkZ = true;  // ordem das janelas: todo segundo, só pelo primeiro widget ligado (barato: para no primeiro achado)
+        ++tick;
+        {   // área de trabalho mudou (a barra de menus reservou a faixa de cima depois que os widgets nasceram, ou o
+            // Dock mudou): reposiciona. O Shell muda a área sem avisar todo mundo, então o WM_SETTINGCHANGE não chegava
+            // e os widgets ficavam por cima da barra de menus (17/11/2026)
+            static RECT lastWork{};
+            MONITORINFO mi{ sizeof(mi) };
+            GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
+            if (!EqualRect(&mi.rcWork, &lastWork) && !g_drag && g_moves.empty()) {
+                bool first = lastWork.right == 0;
+                lastWork = mi.rcWork;
+                (void)first;  // também na primeira: os widgets podem ter nascido com a área antiga (sem a barra)
+                for (auto& w : g_w) if (w.on) { Position(w, false); Paint(w); }
+            }
+        }
         bool below = false;
         if (checkZ) for (auto& w : g_w) if (w.on) { below = BelowDesktop(w); break; }
         for (auto& w : g_w) {
@@ -1004,6 +1028,7 @@ void widgets::Create(HINSTANCE hi) {
     }
     SetTimer(g_timer, 1, 1000, nullptr);
     SetTimer(g_timer, 2, 15 * 60 * 1000, nullptr);
+    SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnForeground, 0, 0, WINEVENT_OUTOFCONTEXT);
     Fetch();
     Log(L"widgets: %zu na mesa (tempo de %ls)", g_w.size(), City().c_str());
 }
