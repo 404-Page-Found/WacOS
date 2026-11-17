@@ -1,0 +1,44 @@
+﻿{
+    "data":  "2026-11-11 10:09",
+    "chavesCriadas":  [
+                          "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+                          "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU"
+                      ],
+    "valores":  [
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+                        "n":  "TargetReleaseVersion",
+                        "antes":  null
+                    },
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+                        "n":  "ProductVersion",
+                        "antes":  null
+                    },
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+                        "n":  "TargetReleaseVersionInfo",
+                        "antes":  null
+                    },
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate",
+                        "n":  "ExcludeWUDriversInQualityUpdate",
+                        "antes":  null
+                    },
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+                        "n":  "NoAutoUpdate",
+                        "antes":  null
+                    },
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+                        "n":  "AUOptions",
+                        "antes":  null
+                    },
+                    {
+                        "k":  "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\WindowsUpdate\\AU",
+                        "n":  "NoAutoRebootWithLoggedOnUsers",
+                        "antes":  null
+                    }
+                ]
+}

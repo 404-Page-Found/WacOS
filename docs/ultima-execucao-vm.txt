@@ -1,0 +1,1 @@
+﻿ok  mouse=True; posicao -> 0; clique -> 0

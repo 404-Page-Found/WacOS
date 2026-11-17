@@ -1,0 +1,21 @@
+bin/
+*.obj
+*.pdb
+*.ilk
+*.log
+
+# sons do macOS (Apple, uso pessoal: não distribuir)
+sons/mac/
+arquivo-morto/
+dist/
+
+# arquivo vazio criado por engano
+função)
+notas.md
+
+# fora do GitHub: outro projeto (áudios) e binários de terceiros guardados para estudo
+vocal-test/
+docs/vm-barra/
+docs/**/*.dll
+docs/**/*.exe
+docs/nativo-fontes-*.zip

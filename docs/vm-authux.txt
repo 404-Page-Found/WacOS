@@ -1,0 +1,3 @@
+﻿VM AuthUX-Teste (Hyper-V) — dados de teste, só valem dentro da VM
+Conta local administradora: Teste
+Senha: teste123

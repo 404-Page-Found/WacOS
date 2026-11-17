@@ -1,0 +1,3 @@
+Símbolos SF (SF Symbols) da Apple em SVG, usados nos ícones do Ajustes do Sistema e da barra de menus.
+Baixados de https://github.com/TIUCSIB/sfsymbols-svg (exportados da fonte SF Pro).
+Uso pessoal: os SF Symbols são da Apple e não podem ser redistribuídos.

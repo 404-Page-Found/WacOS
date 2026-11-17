@@ -1,0 +1,25 @@
+﻿Finder	Finder (MacOS  Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Calculator	Calculator (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Terminal	Terminal (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Notes	Notes (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Launchpad	Launchpad (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Screenshot	Screenshot (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Photos	Photos (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Activity Monitor	Activite monitor (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Music	Music (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Safari	Safari (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+App Store	App Store (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Mail	Mail (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Maps	Maps (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Weather	Weather (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Reminders	Reminders (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Books	Books (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+QuickTime Player	QuickTime Player (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Time Machine	Time Machine (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Find My	Find My (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Voice Memos	Voice Memos (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Dictionary	Dictionary (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Shortcuts	Shortcuts (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+Bluetooth	Bluetooth (MacOS Tahoe)	w1xced	https://macosicons.com/#/u/w1xced
+folder default	Tahoe Folder	randomuser	https://macosicons.com/#/u/randomuser
+Preview	Preview iOS 26	blucamaro42	https://macosicons.com/#/u/blucamaro42

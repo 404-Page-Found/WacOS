@@ -1,0 +1,419 @@
+﻿[
+    {
+        "key":  "Software\\Classes\\Directory\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Directory\\DefaultIcon"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Folder\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Folder\\DefaultIcon"
+                    ]
+    },
+    {
+        "key":  "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Icons",
+        "name":  "3",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Icons"
+                    ]
+    },
+    {
+        "key":  "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Shell Icons",
+        "name":  "4",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{59031a47-3f72-44a7-89c5-5595fe6b30ee}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{088e3905-0323-4b02-9826-5d99428e115f}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{088e3905-0323-4b02-9826-5d99428e115f}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{088e3905-0323-4b02-9826-5d99428e115f}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{d3162b92-9365-467a-956b-92703aca08af}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{d3162b92-9365-467a-956b-92703aca08af}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{d3162b92-9365-467a-956b-92703aca08af}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{20D04FE0-3AEA-1069-A2D8-08002B30309D}"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CLSID\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CLSID\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}\\DefaultIcon",
+                        "Software\\Classes\\CLSID\\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}"
+                    ]
+    },
+    {
+        "key":  "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "C:\\WINDOWS\\System32\\imageres.dll,-55",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}\\DefaultIcon",
+        "name":  "full",
+        "existed":  true,
+        "old":  "C:\\WINDOWS\\System32\\imageres.dll,-54",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}\\DefaultIcon",
+        "name":  "empty",
+        "existed":  true,
+        "old":  "C:\\WINDOWS\\System32\\imageres.dll,-55",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Applications\\Explorer.exe\\Drives\\C\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\C\\DefaultIcon",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\C",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives",
+                        "Software\\Classes\\Applications\\Explorer.exe"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Applications\\Explorer.exe\\Drives\\D\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\D\\DefaultIcon",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\D"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Applications\\Explorer.exe\\Drives\\E\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\E\\DefaultIcon",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\E"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Applications\\Explorer.exe\\Drives\\F\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\F\\DefaultIcon",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\F"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Applications\\Explorer.exe\\Drives\\G\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\G\\DefaultIcon",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\G"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Applications\\Explorer.exe\\Drives\\H\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\H\\DefaultIcon",
+                        "Software\\Classes\\Applications\\Explorer.exe\\Drives\\H"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "@{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png}",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\AppXhk4des8gf2xat3wtyzc5q06ny78jhkqx\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "@{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/inifile.png}",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\MSEdgePDF\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\MSEdgePDF\\DefaultIcon",
+                        "Software\\Classes\\MSEdgePDF"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "@{Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.Windows.Photos/Files/Assets/Retail/PhotosLogoExtensions.png}",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\MSEdgeHTM\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\MSEdgeHTM\\DefaultIcon",
+                        "Software\\Classes\\MSEdgeHTM"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "@{Microsoft.ZuneMusic_11.2609.11.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.ZuneMusic/Files/Assets/MediaPlayerFileExtension.png}",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\VLC.aif\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\VLC.aif\\DefaultIcon",
+                        "Software\\Classes\\VLC.aif"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\VLC.aiff\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\VLC.aiff\\DefaultIcon",
+                        "Software\\Classes\\VLC.aiff"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\ChromeHTML\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\ChromeHTML\\DefaultIcon",
+                        "Software\\Classes\\ChromeHTML"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\AppXkv2jqn1pq8ajm0p5dhgqde7aafykkrrn\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "@{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png}",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\JSFile\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\JSFile\\DefaultIcon",
+                        "Software\\Classes\\JSFile"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CSSfile\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CSSfile\\DefaultIcon",
+                        "Software\\Classes\\CSSfile"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\AppXxf01pj590w7z9mxmyv3nx0a9ewj3e51g\\DefaultIcon",
+        "name":  "",
+        "existed":  true,
+        "old":  "@{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/ps1file.png}",
+        "kind":  "String",
+        "created":  [
+
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\batfile\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\batfile\\DefaultIcon",
+                        "Software\\Classes\\batfile"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\cmdfile\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\cmdfile\\DefaultIcon",
+                        "Software\\Classes\\cmdfile"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\CompressedFolder\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\CompressedFolder\\DefaultIcon"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\ArchiveFolder\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\ArchiveFolder\\DefaultIcon",
+                        "Software\\Classes\\ArchiveFolder"
+                    ]
+    },
+    {
+        "key":  "Software\\Classes\\Unknown\\DefaultIcon",
+        "name":  "",
+        "existed":  false,
+        "old":  null,
+        "kind":  "String",
+        "created":  [
+                        "Software\\Classes\\Unknown\\DefaultIcon",
+                        "Software\\Classes\\Unknown"
+                    ]
+    }
+]

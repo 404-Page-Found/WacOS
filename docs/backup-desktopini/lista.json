@@ -1,0 +1,37 @@
+﻿[
+    {
+        "folder":  "C:\\Users\\TheoH\\OneDrive\\Área de Trabalho",
+        "existed":  false,
+        "folderAttrs":  "ReadOnly, Directory"
+    },
+    {
+        "folder":  "C:\\Users\\TheoH\\OneDrive\\Documentos",
+        "existed":  true,
+        "copy":  "2-Documentos.ini",
+        "attrs":  "Hidden, System, Archive"
+    },
+    {
+        "folder":  "C:\\Users\\TheoH\\Downloads",
+        "existed":  true,
+        "copy":  "3-Downloads.ini",
+        "attrs":  "Hidden, System, Archive"
+    },
+    {
+        "folder":  "C:\\Users\\TheoH\\OneDrive\\Imagens",
+        "existed":  true,
+        "copy":  "4-Imagens.ini",
+        "attrs":  "Hidden, System, Archive"
+    },
+    {
+        "folder":  "C:\\Users\\TheoH\\Music",
+        "existed":  true,
+        "copy":  "5-Music.ini",
+        "attrs":  "Hidden, System, Archive"
+    },
+    {
+        "folder":  "C:\\Users\\TheoH\\Videos",
+        "existed":  true,
+        "copy":  "6-Videos.ini",
+        "attrs":  "Hidden, System, Archive"
+    }
+]
