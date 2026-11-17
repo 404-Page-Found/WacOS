@@ -27,8 +27,12 @@ jobs:
       - name: Version
         id: version
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "build-${{ github.run_number }}"
+          # sequential: one more than the releases that exist (they were reset to build-1 on 2026-11-17)
+          $n = @(gh release list --limit 1000 --json tagName --jq '.[].tagName' | Where-Object { $_ -match '^build-\d+$' }).Count + 1
+          $tag = "build-$n"
           New-Item -ItemType Directory -Force bin | Out-Null
           Set-Content -Encoding utf8 bin\versao.txt @($tag, "${{ github.sha }}", (Get-Date -Format 'yyyy-MM-dd HH:mm'))
           "tag=$tag" >> $env:GITHUB_OUTPUT
