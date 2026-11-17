@@ -549,6 +549,7 @@ void Quit(const wchar_t* why);  // sai do shell e devolve a barra do Windows
 void ApplyWorkArea();
 std::wstring Setting(const wchar_t* key, const wchar_t* def);
 void SetSetting(const wchar_t* key, const std::wstring& value);
+bool NaoIncomodar(HMONITOR mon);  // app em tela cheia nesse monitor (nullptr = qualquer um) ou Windows em "não incomodar"
 void Sound(const wchar_t* name);
 bool OpenCalculator(const std::wstring& target);  // alvo é a Calculadora do Windows: abre a nossa (Calculadora.exe)
 void OpenForceQuit(bool memory);  // Forçar Encerrar (Ctrl+Alt+Esc, menu da Apple); memory = "ficou sem memória"

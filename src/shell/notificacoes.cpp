@@ -1381,6 +1381,8 @@ void ChecarAvisos() {
 }
 
 void BannerShowNote(const Note& n) {
+    // jogo ou vídeo em tela cheia no monitor do banner: sem banner (ela fica na Central), senão o jogo sai da tela cheia
+    if (shell::NaoIncomodar(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY))) { Log(L"notificação: banner calado (app em tela cheia)"); return; }
     if (g_open || g_closing || !BannersOn() || !g_bwnd) return;
     bool wasIn = g_bshow && !g_bout;
     g_bnote = n;

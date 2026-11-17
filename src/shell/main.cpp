@@ -601,6 +601,18 @@ static bool IsFullscreen(HWND fg) {
     return r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom;
 }
 
+// Jogo/vídeo em tela cheia no monitor `mon` (ou o Windows em modo "não incomodar": Direct3D exclusivo,
+// apresentação): os banners de notificação não aparecem, só vão para a Central. Uma janela "sempre no topo" por cima
+// do jogo tirava ele da tela cheia (17/11/2026, Fortnite caindo a cada notificação).
+bool shell::NaoIncomodar(HMONITOR mon) {
+    QUERY_USER_NOTIFICATION_STATE q{};
+    if (SUCCEEDED(SHQueryUserNotificationState(&q)) && (q == QUNS_RUNNING_D3D_FULL_SCREEN || q == QUNS_PRESENTATION_MODE || q == QUNS_BUSY))
+        return true;
+    HWND fg = GetForegroundWindow();
+    if (!IsFullscreen(fg)) return false;
+    return !mon || MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) == mon;
+}
+
 // Com mais de um monitor, só some o que está no monitor do app em tela cheia (a barra daquele monitor; o Dock
 // se ele estiver lá). Tela travada: tudo some.
 static void CheckFullscreen() {
