@@ -231,6 +231,13 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 // o Explorador quando ele é o shell; sem ele, fazemos nós)
                 PostMessageW(g_msg, WM_APP_WINKEY, 'S', 0);
                 return 1;
+            } else if (g_winDown && down && !g_winCombo && !shell::nativo && k->vkCode == 'E' && GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_CONTROL) >= 0) {
+                // Win+E com o Explorador rodando (explorer=fundo): ele abria a página "Início" dele, que não é pasta de
+                // disco e o Finder não trocava (17/11/2026). O Shell atende sempre: Finder (ou o Explorador, se
+                // "Abrir pastas no Finder" estiver desligado — mesa::WinKey decide)
+                g_winCombo = g_winEaten = true;
+                PostMessageW(g_msg, WM_APP_WINKEY, 'E', 0);
+                return 1;
             } else if (g_winDown && down && !g_winCombo && mesa::Standalone() && (k->vkCode == 'E' || k->vkCode == 'R' || k->vkCode == 'D')) {
                 // sem o Explorador ninguém trata Win+E/R/D: fazemos nós (Finder, Executar, mostrar a mesa)
                 g_winCombo = g_winEaten = true;

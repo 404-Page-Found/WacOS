@@ -1844,6 +1844,9 @@ void mesa::Stop(bool restartExplorer) {
 void mesa::WinKey(UINT vk) {
     if (vk == 'E') {
         std::wstring finder = shell::dir + L"\\" EXE_FINDER;
+        bool usaFinder = shell::Setting(L"finder_padrao", L"1") == L"1" && GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES;
+        if (!usaFinder && !Standalone()) { ShellExecuteW(nullptr, L"open", L"explorer.exe", nullptr, nullptr, SW_SHOWNORMAL); return; }
+        AllowSetForegroundWindow(ASFW_ANY);
         ShellExecuteW(nullptr, L"open", finder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     } else if (vk == 'R') {  // Executar (shell32 #61), no próprio Shell
         typedef void(WINAPI * RunFileDlgFn)(HWND, HICON, LPCWSTR, LPCWSTR, LPCWSTR, UINT);

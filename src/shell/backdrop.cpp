@@ -1216,13 +1216,13 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
         D2D1_COLOR_F t = backdrop::AdjustTint(tint);
         // peças com texto (Spotlight, Central): a tinta não some com a "Transparência do vidro" no mínimo,
         // senão o texto fica sobre o fundo quase nítido e não dá para ler
-        if (minFrost > 0) t.a = std::max(t.a, tint.a * 0.8f);
+        if (minFrost > 0) t.a = std::max(t.a, tint.a * std::min(0.8f, 0.25f + 1.1f * g_style.tintK));  // texto: no mínimo 25 %
         dc->CreateSolidColorBrush(t, &b);
         if (b) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), b); b->Release(); }
     }
     {   // véu branco de 5% por dentro (rgba(255,255,255,0.05) do estudo; a referência é mais clara por dentro)
         ID2D1SolidColorBrush* v = nullptr;
-        dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.05f), &v);
+        dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.05f * std::min(1.f, 2 * g_style.tintK)), &v);  // some com a transparência no mínimo
         if (v) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), v); v->Release(); }
     }
     if (noise) {  // ruído de 2,5%: some com os degraus de cor do desfoque
@@ -1335,7 +1335,7 @@ void backdrop::Reload() {
     mg.liquid = s.liquid && !s.reduce;
     mg.alpha = [](float a) {
         const auto& st = g_style;
-        if (st.tintK < 0.5f) a *= 0.55f + 0.9f * st.tintK;
+        if (st.tintK < 0.5f) a *= 0.25f + 1.5f * st.tintK;  // menus: no mínimo 25 % (texto legível)
         else a += (1 - a) * (st.tintK - 0.5f) * 1.4f;
         if (st.reduce) return std::max(a, 0.97f);
         if (st.liquid) a = st.tinted ? a + (1 - a) * 0.3f : a * 0.72f;
@@ -1354,7 +1354,9 @@ void backdrop::Reload() {
 float backdrop::AdjustAlpha(float a) {
     const auto& st = g_style;
     // tinta do vidro: 0 = mais transparente, 0,5 = a de cada janela, 1 = bem mais opaco
-    if (st.tintK < 0.5f) a *= 0.35f + 1.3f * st.tintK;
+    // 0 = totalmente transparente (17/11/2026, o usuário: "deixe o slider fazer ele ficar totalmente transparente");
+    // antes o mínimo ainda deixava 35 % da tinta
+    if (st.tintK < 0.5f) a *= 2 * st.tintK;
     else a += (1 - a) * (st.tintK - 0.5f) * 1.4f;
     // Reduzir transparência: no Tahoe cor sólida, nada do fundo (medido no macOS 26: a ≈ 0; guia, seção 60); no Sequoia
     // como era (94 %)
