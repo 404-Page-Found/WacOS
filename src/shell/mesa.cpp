@@ -107,6 +107,7 @@ struct Item {
     bool dir = false;
     FILETIME mtime{};
     int col = -1, row = -1;        // casa da grade (coluna contada da direita)
+    float ox = 0, oy = 0;          // "Ordenar Por > Nenhum" (padrão do Mac): deslocamento livre da casa, em pt
     bool sel = false;
     std::vector<BYTE> px; UINT iw = 0, ih = 0;
     ID2D1Bitmap* bmp = nullptr;
@@ -120,6 +121,11 @@ std::vector<Item> g_items;
 bool g_stacks = false;               // mesa_pilhas=1
 std::set<int> g_openStacks;          // pilhas abertas (o conteúdo aparece logo depois delas)
 std::map<std::wstring, std::pair<int, int>> g_pos;  // posições gravadas (mesa.txt)
+std::map<std::wstring, std::pair<float, float>> g_off;  // e o deslocamento livre de cada uma (mesa.txt, 3º e 4º números)
+// Como no Mac (botão direito > Ordenar Por): "Nenhum" (padrão) deixa cada ícone onde foi solto; "Alinhar à Grade"
+// encaixa nas casas. mesa_grade=1 liga a grade.
+bool Livre() { return shell::Setting(L"mesa_grade", L"0") != L"1"; }
+POINT g_grab{ -1, -1 };  // onde o ícone foi pego (px, a partir do canto do ícone), para soltar exatamente ali
 IDWriteTextFormat* g_tf = nullptr;
 float g_tfScale = 0;
 ID2D1SolidColorBrush* g_br = nullptr;
@@ -409,20 +415,28 @@ bool Blocked(int col, int row) {
 void SavePositions() {
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, g_posFile.c_str(), L"w, ccs=UTF-8") || !fp) return;
-    for (auto& [k, v] : g_pos) fwprintf(fp, L"%d,%d|%ls\n", v.first, v.second, k.c_str());
+    for (auto& [k, v] : g_pos) {
+        auto o = g_off.find(k);
+        if (o != g_off.end() && (o->second.first != 0 || o->second.second != 0))
+            fwprintf(fp, L"%d,%d,%.1f,%.1f|%ls\n", v.first, v.second, o->second.first, o->second.second, k.c_str());
+        else fwprintf(fp, L"%d,%d|%ls\n", v.first, v.second, k.c_str());
+    }
     fclose(fp);
 }
 void LoadPositions() {
-    g_pos.clear();
+    g_pos.clear(); g_off.clear();
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, g_posFile.c_str(), L"r, ccs=UTF-8") || !fp) return;
     wchar_t line[1200];
     while (fgetws(line, 1200, fp)) {
-        int c = 0, r = 0; wchar_t* bar = wcschr(line, L'|');
-        if (!bar || swscanf_s(line, L"%d,%d", &c, &r) != 2) continue;
+        int c = 0, r = 0; float ox = 0, oy = 0; wchar_t* bar = wcschr(line, L'|');
+        if (!bar) continue;
+        int n = swscanf_s(line, L"%d,%d,%f,%f", &c, &r, &ox, &oy);
+        if (n < 2) continue;
         std::wstring k = bar + 1;
         while (!k.empty() && (k.back() == L'\n' || k.back() == L'\r')) k.pop_back();
         g_pos[k] = { c, r };
+        if (n == 4) g_off[k] = { ox, oy };
     }
     fclose(fp);
 }
@@ -493,9 +507,16 @@ void Arrange(bool forgetSaved = false) {
     std::vector<int> rest;
     for (int i = 0; i < (int)g_items.size(); i++) {
         auto& it = g_items[i];
-        if (forgetSaved) { it.col = it.row = -1; rest.push_back(i); continue; }
-        if (it.col < 0) { auto f = g_pos.find(it.key); if (f != g_pos.end()) { it.col = f->second.first; it.row = f->second.second; } }
-        if (ok(it.col, it.row)) taken.insert({ it.col, it.row });
+        if (forgetSaved) { it.col = it.row = -1; it.ox = it.oy = 0; rest.push_back(i); continue; }
+        if (it.col < 0) {
+            auto f = g_pos.find(it.key);
+            if (f != g_pos.end()) { it.col = f->second.first; it.row = f->second.second; }
+            auto o = g_off.find(it.key);
+            if (o != g_off.end() && Livre()) { it.ox = o->second.first; it.oy = o->second.second; } else { it.ox = it.oy = 0; }
+        }
+        bool livreOk = Livre() && (it.ox != 0 || it.oy != 0) && it.col >= 0 && it.row >= 0 && it.col < C && it.row < R;
+        if (livreOk) taken.insert({ it.col, it.row });  // solto à mão: fica onde está, mesmo perto de outro
+        else if (ok(it.col, it.row)) taken.insert({ it.col, it.row });
         else { it.col = it.row = -1; rest.push_back(i); }
     }
     bool hint = g_dropHint.x >= 0 && GetTickCount() - g_dropHintAt < 15000;
@@ -513,12 +534,15 @@ void Arrange(bool forgetSaved = false) {
             for (int c = 0; c < C && bc < 0; c++) for (int r = 0; r < R; r++) if (ok(c, r)) { bc = c; br = r; break; }
         }
         if (bc < 0) { bc = C - 1; br = R - 1; }  // mesa cheia: empilha no último lugar
-        it.col = bc; it.row = br; taken.insert({ bc, br });
+        it.col = bc; it.row = br; it.ox = it.oy = 0; taken.insert({ bc, br });
     }
     bool changed = forgetSaved;
     for (auto& it : g_items) {
         auto f = g_pos.find(it.key);
         if (f == g_pos.end() || f->second != std::make_pair(it.col, it.row)) { g_pos[it.key] = { it.col, it.row }; changed = true; }
+        auto o = g_off.find(it.key);
+        std::pair<float, float> off{ it.ox, it.oy };
+        if (!g_stacks && (o == g_off.end() ? (it.ox != 0 || it.oy != 0) : o->second != off)) { g_off[it.key] = off; changed = true; }
     }
     if (changed) SavePositions();
 }
@@ -624,13 +648,18 @@ void ForgetIcons() {  // escala mudou / associações mudaram
 }
 
 // ------------------------------------------------------------------ desenho
+D2D1_RECT_F ItemCell(const Item& it) {
+    D2D1_RECT_F c = CellRect(it.col, it.row);
+    if (!g_stacks && (it.ox != 0 || it.oy != 0)) { float s = Sc(); c.left += it.ox * s; c.right += it.ox * s; c.top += it.oy * s; c.bottom += it.oy * s; }
+    return c;
+}
 D2D1_RECT_F IconBox(const Item& it) {
-    D2D1_RECT_F c = CellRect(it.col, it.row); float s = Sc();
+    D2D1_RECT_F c = ItemCell(it); float s = Sc();
     float x = (c.left + c.right) / 2 - ICON * s / 2, y = c.top + 4 * s;
     return D2D1::RectF(x, y, x + ICON * s, y + ICON * s);
 }
 D2D1_RECT_F LabelBox(const Item& it) {
-    D2D1_RECT_F c = CellRect(it.col, it.row), ib = IconBox(it); float s = Sc();
+    D2D1_RECT_F c = ItemCell(it), ib = IconBox(it); float s = Sc();
     return D2D1::RectF(c.left + 3 * s, ib.bottom + LABEL_GAP * s, c.right - 3 * s, ib.bottom + (LABEL_GAP + LABEL_H) * s);
 }
 int HitClient(POINT p) {
@@ -978,6 +1007,33 @@ namespace {
 void Reposition(POINT client) {
     if (g_stacks) return;  // com Pilhas a mesa se arruma sozinha (como no Mac)
     if (g_dragAnchor < 0 || g_dragAnchor >= (int)g_items.size()) return;
+    if (Livre()) {  // "Ordenar Por > Nenhum": o ícone fica onde foi solto (a casa é só a mais perto, para gravar)
+        float s = Sc();
+        D2D1_RECT_F a = IconBox(g_items[g_dragAnchor]);
+        POINT grab = g_grab.x >= 0 ? g_grab : POINT{ (LONG)(ICON * s / 2), (LONG)(ICON * s / 2) };
+        float dx = (client.x - grab.x) - a.left, dy = (client.y - grab.y) - a.top;
+        if (std::fabs(dx) < 1 && std::fabs(dy) < 1) return;
+        RECT w = Work();
+        for (int i : Selected()) {
+            auto& it = g_items[i];
+            D2D1_RECT_F ib = IconBox(it);
+            float cx = (ib.left + ib.right) / 2 + dx, cy = (ib.top + ib.bottom) / 2 + dy;
+            // dentro da área de trabalho (não some atrás da barra de menus nem do Dock)
+            cx = std::clamp(cx, (float)w.left + ICON * s / 2, (float)w.right - ICON * s / 2);
+            cy = std::clamp(cy, (float)w.top + ICON * s / 2, (float)w.bottom - (ICON + LABEL_H) * s);
+            int c, r; CellAt(POINT{ (LONG)cx, (LONG)cy }, c, r);
+            it.col = c; it.row = r; it.ox = it.oy = 0;
+            D2D1_RECT_F base = IconBox(it);  // o ícone nessa casa sem deslocamento
+            it.ox = (cx - (base.left + base.right) / 2) / s;
+            it.oy = (cy - (base.top + base.bottom) / 2) / s;
+            if (it.ox == 0 && it.oy == 0) it.ox = 0.01f;  // marca "solto à mão"
+            g_pos[it.key] = { c, r };
+            g_off[it.key] = { it.ox, it.oy };
+        }
+        SavePositions();
+        Redraw();
+        return;
+    }
     int tc, tr; CellAt(client, tc, tr);
     int dc = tc - g_items[g_dragAnchor].col, dr = tr - g_items[g_dragAnchor].row;
     if (!dc && !dr) return;
@@ -999,8 +1055,8 @@ void Reposition(POINT client) {
             }
             c = bc; r = br;
         }
-        it.col = c; it.row = r; taken.insert({ c, r });
-        g_pos[it.key] = { c, r };
+        it.col = c; it.row = r; it.ox = it.oy = 0; taken.insert({ c, r });
+        g_pos[it.key] = { c, r }; g_off.erase(it.key);
     }
     SavePositions();
     Redraw();
@@ -1101,10 +1157,15 @@ void StartDrag(int idx) {
     IDataObject* obj = nullptr;
     if (FAILED(ctxmenu::GetUIObject(p->h, paths, IID_IDataObject, (void**)&obj)) || !obj) return;
     g_dragSrc = true; g_dragAnchor = idx;
+    {   // o ponto do ícone que está sob o cursor: ao soltar, esse ponto fica sob o cursor (sem pulo)
+        POINT c; GetCursorPos(&c);
+        D2D1_RECT_F ib = IconBox(g_items[idx]);
+        g_grab = { c.x - p->r.left - (LONG)ib.left, c.y - p->r.top - (LONG)ib.top };
+    }
     DWORD eff = 0;
     SHDoDragDrop(p->h, obj, nullptr, DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &eff);
     obj->Release();
-    g_dragSrc = false; g_dragAnchor = -1;
+    g_dragSrc = false; g_dragAnchor = -1; g_grab = { -1, -1 };
     Redraw();
 }
 
@@ -1118,7 +1179,8 @@ void ItemMenu(HWND h, POINT screen, int idx) {
 }
 
 void BackgroundMenu(HWND h, POINT screen) {
-    enum { ID_NEW = 1, ID_INFO, ID_PASTE, ID_WALL, ID_CLEAN, ID_BY_NAME, ID_BY_KIND, ID_BY_DATE, ID_BY_SIZE, ID_MORE, ID_DISPLAY, ID_PERSONAL, ID_STACKS };
+    enum { ID_NEW = 1, ID_INFO, ID_PASTE, ID_WALL, ID_CLEAN, ID_BY_NAME, ID_BY_KIND, ID_BY_DATE, ID_BY_SIZE, ID_MORE, ID_DISPLAY, ID_PERSONAL, ID_STACKS,
+           ID_SORT_NONE, ID_SORT_GRID };
     bool canPaste = IsClipboardFormatAvailable(CF_HDROP) || IsClipboardFormatAvailable(RegisterClipboardFormatW(CFSTR_SHELLIDLIST));
     std::vector<ctxmenu::Item> items;
     auto add = [&](const wchar_t* t, int id, bool dis = false) { ctxmenu::Item i; i.label = t; i.id = id; i.disabled = dis; items.push_back(i); return &items.back(); };
@@ -1131,6 +1193,12 @@ void BackgroundMenu(HWND h, POINT screen) {
     add(Tr(L"Alterar Fundo da Mesa…"), ID_WALL);
     sep();
     add(Tr(L"Usar Pilhas"), ID_STACKS)->checked = g_stacks;
+    if (!g_stacks) {  // como no Mac: Ordenar Por > Nenhum (solto) / Alinhar à Grade
+        ctxmenu::Item sb; sb.label = Tr(L"Ordenar Por");
+        ctxmenu::Item n1; n1.label = Tr(L"Nenhum"); n1.id = ID_SORT_NONE; n1.checked = Livre(); sb.sub.push_back(n1);
+        ctxmenu::Item n2; n2.label = Tr(L"Alinhar à Grade"); n2.id = ID_SORT_GRID; n2.checked = !Livre(); sb.sub.push_back(n2);
+        items.push_back(sb);
+    }
     if (!g_stacks) add(TrPick(L"Limpar", L"Clean Up"), ID_CLEAN);
     if (!g_stacks) {
         ctxmenu::Item by; by.label = Tr(L"Limpar Por");
@@ -1158,6 +1226,13 @@ void BackgroundMenu(HWND h, POINT screen) {
     }
     case ID_WALL: shell::OpenSettings(L"fundo"); break;
     case ID_STACKS: SetStacks(!g_stacks); break;
+    case ID_SORT_NONE: shell::SetSetting(L"mesa_grade", L"0"); Redraw(); break;
+    case ID_SORT_GRID:  // encaixa todos nas casas (a mais perto de onde cada um está)
+        shell::SetSetting(L"mesa_grade", L"1");
+        g_off.clear();
+        for (auto& it : g_items) it.ox = it.oy = 0;
+        Arrange(); SavePositions(); Redraw();
+        break;
     case ID_CLEAN: Arrange(true); Redraw(); break;
     case ID_BY_NAME: case ID_BY_KIND: case ID_BY_DATE: case ID_BY_SIZE: {
         auto kind = [](const Item& i) { return i.dir ? std::wstring(L"") : Lower(PathFindExtensionW(i.path.c_str())); };

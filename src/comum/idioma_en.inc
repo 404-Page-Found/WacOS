@@ -1373,3 +1373,4 @@
 { L"Clicar no papel de parede para mostrar a mesa", L"Click wallpaper to reveal desktop" },
 { L"Só no Organizador Visual", L"Only in Stage Manager" },
 { L"Área de Trabalho", L"Desktop" },
+{ L"Alinhar à Grade", L"Snap to Grid" },
