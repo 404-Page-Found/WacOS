@@ -654,12 +654,20 @@ void RefreshWindows() {
     bool anyGlass = false;
     for (auto& [hh, e] : g_entries) if (e.real && IsWindowVisible(e.hwnd)) { anyGlass = true; break; }
     if (anyGlass) {
-        struct Ctx { std::vector<HWND>* out; DWORD me; HRGN covered; HRGN tmp; HRGN screen; } cx{ &want, GetCurrentProcessId(),
-            CreateRectRgn(0, 0, 0, 0), CreateRectRgn(0, 0, 0, 0), CreateRectRgnIndirect(&mon) };
+        struct Ctx { std::vector<HWND>* out; DWORD me; HRGN covered; HRGN tmp; HRGN screen; bool afterMesa; } cx{ &want, GetCurrentProcessId(),
+            CreateRectRgn(0, 0, 0, 0), CreateRectRgn(0, 0, 0, 0), CreateRectRgnIndirect(&mon), false };
         EnumWindows([](HWND h, LPARAM lp) -> BOOL {
             auto* cx = (Ctx*)lp;
             if (!IsWindowVisible(h) || IsIconic(h) || Cloaked(h)) return TRUE;
             DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+            // papel de parede animado (Lively...): a nossa mesa ficou transparente (só os ícones) e o papel de
+            // parede é uma janela dentro da mesa do Windows (Progman), logo abaixo. O vidro pega as duas: a Progman
+            // por baixo e a mesa por cima (17/11/2026: com o Lively o vidro ficava preto, sem o papel de parede)
+            if (cx->afterMesa) {
+                wchar_t c[32] = {}; GetClassNameW(h, c, 32);
+                if (!wcscmp(c, L"Progman") || !wcscmp(c, L"WorkerW")) { cx->out->push_back(h); return FALSE; }
+                return TRUE;
+            }
             bool mesa = false;
             if (pid == cx->me) {  // do Shell só a mesa (papel de parede); o resto é o próprio vidro
                 wchar_t c[32] = {}; GetClassNameW(h, c, 32);
@@ -676,6 +684,7 @@ void RefreshWindows() {
             // janelas cobertas também: no Alt+Tab a de trás vem para a frente e o vidro já tem o quadro dela
             // (sem isso o vidro mostrava a janela antiga por alguns quadros, até a captura nova abrir)
             cx->out->push_back(h);
+            if (mesa && (ex & WS_EX_LAYERED)) { cx->afterMesa = true; return TRUE; }  // mesa transparente: falta o fundo dela
             return !mesa;  // a mesa é a última
         }, (LPARAM)&cx);
         DeleteObject(cx.covered); DeleteObject(cx.tmp); DeleteObject(cx.screen);
