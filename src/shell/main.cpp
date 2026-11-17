@@ -661,6 +661,21 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == openNC && openNC) { notificacoes::Toggle(); return 0; }
     static UINT openSP = RegisterWindowMessageW(L"ShellAbrirSpotlight");  // abre/fecha o Spotlight de fora (como o Win+Espaço)
     if (m == openSP && openSP) { PostMessageW(h, WM_APP_SPOTLIGHT, 0, 0); return 0; }
+    // abre um painel de fora (fotos do README, testes): 1 Launchpad/Apps, 2 Mission Control, 3..6 Spotlight no modo 1..4
+    static UINT openPanel = RegisterWindowMessageW(L"ShellAbrirPainel");
+    if (m == openPanel && openPanel) {
+        // pedido de fora: o Windows não deixa o Shell vir para a frente sozinho (o Spotlight e o Launchpad fechavam na
+        // hora, sem foco). Entra na fila de entrada da janela da frente enquanto abre, como os alertas fazem.
+        HWND fg = GetForegroundWindow();
+        DWORD ft = fg ? GetWindowThreadProcessId(fg, nullptr) : 0, me = GetCurrentThreadId();
+        bool att = ft && ft != me && AttachThreadInput(me, ft, TRUE);
+        if (w == 1) launchpad::Toggle();
+        else if (w == 2) missioncontrol::Toggle();
+        else if (w >= 3 && w <= 6) spotlight::OpenMode((int)w - 2);
+        else if (w == 7) spotlight::Toggle();
+        if (att) AttachThreadInput(me, ft, FALSE);
+        return 0;
+    }
     static UINT capVis = RegisterWindowMessageW(L"ShellCapturaVisivel");  // a Captura de Tela vai tirar a foto
     if (m == capVis && capVis) { backdrop::CaptureVisible(w != 0); return 1; }
     if (m == WM_COPYDATA && l && ((COPYDATASTRUCT*)l)->dwData == 0x4C504150 /*'PAPL'*/) {  // Ajustes: papel de parede escolhido

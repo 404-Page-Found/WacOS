@@ -7,6 +7,18 @@ the macOS Tahoe look with Liquid Glass.
 
 Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views.
 
+![WacOS desktop: menu bar, Dock and widgets](docs/screenshots/desktop.png)
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Control Center in Liquid Glass](docs/screenshots/control-center.png) **Control Center** in Liquid Glass, with real refraction and chromatic aberration | ![Notification Center](docs/screenshots/notification-center.png) **Notification Center** with widgets |
+| ![Spotlight](docs/screenshots/spotlight.png) **Spotlight** | ![Spotlight Applications mode](docs/screenshots/spotlight-apps.png) **Applications** (Spotlight's Apps mode, with categories) |
+| ![Finder](docs/screenshots/finder.png) **Finder** | ![System Settings](docs/screenshots/system-settings.png) **System Settings** |
+| ![Activity Monitor](docs/screenshots/activity-monitor.png) **Activity Monitor** | ![Force Quit Applications](docs/screenshots/force-quit.png) **Force Quit Applications** (Ctrl+Alt+Esc) |
+| ![macOS alert](docs/screenshots/alert.png) Windows message boxes become **macOS alerts** | ![Dock icon styles](docs/screenshots/dock-icon-styles.png) **Dock icon styles**: Default, Dark, Clear and Tinted |
+
 ## Features
 
 - **Menu bar** with the active app's real menus, the Apple menu, status icons and the system tray.
