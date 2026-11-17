@@ -709,11 +709,23 @@ static std::wstring NewestVersion(const std::wstring& path) {
 }
 
 // troca o caminho velho pelo da versão nova (no exe, no jeito de abrir e no id, se o id era o caminho)
+// Os nossos apps fixados (Ajustes, Notas...) apontam para o programa da pasta de onde o Shell roda, com o nome de
+// agora: o nome velho (SequoiaSettings.exe) não existe mais depois da troca para WacOS, e outra pasta (a de
+// desenvolvimento) não recebe as atualizações do GitHub (17/11/2026: o Ajustes fixado não abria pelo Dock)
+static std::wstring OurApp(const std::wstring& path) {
+    std::wstring base = Lower(path.substr(path.find_last_of(L'\\') + 1));
+    size_t n = base.rfind(L"sequoia", 0) == 0 ? 7 : base.rfind(L"wacos", 0) == 0 ? 5 : 0;
+    if (!n || base.size() < 5 || base.compare(base.size() - 4, 4, L".exe")) return path;
+    std::wstring mine = shell::dir + L"\\WacOS" + base.substr(n);
+    if (GetFileAttributesW(mine.c_str()) == INVALID_FILE_ATTRIBUTES) return path;
+    return Lower(mine) == Lower(path) ? path : mine;
+}
+
 static bool Heal(App& a) {
     if (a.finder) return false;
-    std::wstring exe = a.exe.empty() ? L"" : NewestVersion(a.exe);
+    std::wstring exe = a.exe.empty() ? L"" : OurApp(NewestVersion(a.exe));
     bool launchIsPath = a.launch.size() > 4 && a.launch[1] == L':' && Lower(a.launch.substr(a.launch.size() - 4)) == L".exe";
-    std::wstring launch = launchIsPath ? NewestVersion(a.launch) : a.launch;
+    std::wstring launch = launchIsPath ? OurApp(NewestVersion(a.launch)) : a.launch;
     if (Lower(exe) == Lower(a.exe) && launch == a.launch) return false;
     Log(L"dock: %ls atualizou: %ls -> %ls", a.name.c_str(), (launchIsPath ? a.launch : a.exe).c_str(), (launchIsPath ? launch : exe).c_str());
     if (!a.id.empty() && a.id == Lower(a.exe)) a.id = Lower(exe);

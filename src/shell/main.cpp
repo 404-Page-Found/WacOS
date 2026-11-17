@@ -652,6 +652,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
         else Log(L"reiniciar: não abriu o Shell novo (%lu)", GetLastError());
         mesa::NoExplorerOnExit();
+        tray::SemAvisoAoSair();
         shell::Quit(L"reiniciar");
         return 0;
     }

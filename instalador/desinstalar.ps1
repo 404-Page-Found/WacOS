@@ -120,5 +120,40 @@ if (Test-Path $dest) { Write-Host "Alguns arquivos estavam em uso; apague $dest 
 
 $cfg = Join-Path $env:APPDATA 'Shell'
 if ((Test-Path $cfg) -and (Pergunta "Apagar também os seus ajustes ($cfg)?")) { Remove-Item $cfg -Recurse -Force -ErrorAction SilentlyContinue }
+
+# Limpeza completa (opcional, numa caixa): o Windows guarda os ícones do Mac no cache de ícones e de miniaturas
+# e eles continuavam aparecendo depois de desinstalar; também sobram pastas e chaves de versões antigas.
+Add-Type -AssemblyName System.Windows.Forms
+$resp = [System.Windows.Forms.MessageBox]::Show(
+    "Limpar também o cache de ícones e miniaturas do Windows e o que sobrou do WacOS?`n`n" +
+    "- cache de ícones e de miniaturas (o Windows refaz sozinho; ícones do Mac que ficaram presos somem)`n" +
+    "- pastas de versões antigas (Sequoia Shell), do Finder e de binários antigos`n" +
+    "- chaves do registro do WacOS que sobraram`n`n" +
+    "A área de trabalho e a barra de tarefas do Windows piscam por alguns segundos.",
+    'WacOS - limpeza', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+if ($resp -eq [System.Windows.Forms.DialogResult]::Yes) {
+    # o Explorador segura os arquivos de cache: fecha, apaga e abre de novo
+    Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 800
+    $exp = Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Explorer'
+    Remove-Item (Join-Path $env:LOCALAPPDATA 'IconCache.db') -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $exp -Filter 'iconcache_*.db' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem $exp -Filter 'thumbcache_*.db' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Start-Process explorer.exe
+    Start-Process ie4uinit.exe -ArgumentList '-show' -ErrorAction SilentlyContinue  # avisa o Windows para reler os ícones
+    # sobras: instalação antiga (só se o cursor do Mac não estiver mais em uso), Finder, binários antigos, registro
+    $velho = Join-Path $env:LOCALAPPDATA 'Programs\SequoiaShell'
+    $cursorEmUso = (Get-ItemProperty 'HKCU:\Control Panel\Cursors' -ErrorAction SilentlyContinue).Arrow -like "$velho*"
+    if ((Test-Path $velho) -and -not $cursorEmUso) { Remove-Item $velho -Recurse -Force -ErrorAction SilentlyContinue }
+    foreach ($p in (Join-Path $env:APPDATA 'Arquivos'), (Join-Path $env:LOCALAPPDATA 'SequoiaBinariosAntigos')) {
+        if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    foreach ($k in 'HKCU:\Software\SequoiaShell', 'HKCU:\Software\Classes\SequoiaMusic.Audio', 'HKCU:\Software\Classes\SequoiaQuickTime.Video',
+                   'HKCU:\Software\Classes\Applications\WacOSMusic.exe', 'HKCU:\Software\Classes\Applications\WacOSQuickTime.exe',
+                   'HKCU:\Software\Classes\Applications\SequoiaMusic.exe', 'HKCU:\Software\Classes\Applications\SequoiaQuickTime.exe') {
+        Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Write-Host 'Cache de ícones e sobras do WacOS limpos.'
+}
 Write-Host 'WacOS removido.'
 Read-Host 'Enter para fechar'

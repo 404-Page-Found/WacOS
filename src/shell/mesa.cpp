@@ -806,7 +806,16 @@ void PaintLayered(Mon& m) {
     BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     UpdateLayeredWindow(m.h, nullptr, &pos, &size, m.bufDC, &zero, 0, &bf, ULW_ALPHA);
 }
-void Invalidate(Mon& m) { if (g_live) PaintLayered(m); else InvalidateRect(m.h, nullptr, FALSE); }
+// no transparente cada desenho é a tela inteira (CPU): no máximo ~60 por segundo (o retângulo de seleção pedia um
+// por movimento do mouse); o que chega antes espera um temporizador curto
+void Invalidate(Mon& m) {
+    if (!g_live) { InvalidateRect(m.h, nullptr, FALSE); return; }
+    static DWORD last;
+    DWORD now = GetTickCount();
+    if (now - last < 15) { SetTimer(m.h, 77, 16, nullptr); return; }
+    last = now;
+    PaintLayered(m);
+}
 void SetLive(bool on) {
     if (on == g_live) return;
     g_live = on;
@@ -1264,6 +1273,7 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_PAINT: if (mon) Paint(*mon); else ValidateRect(h, nullptr); return 0;
     case WM_ERASEBKGND: return 1;
+    case WM_TIMER: if (w == 77) { KillTimer(h, 77); if (mon && g_live) PaintLayered(*mon); return 0; } break;
     case WM_WINDOWPOSCHANGING: {  // sempre no fundo, como a mesa do Windows
         auto* wp = (WINDOWPOS*)l;
         if (!(wp->flags & SWP_NOZORDER)) {
@@ -1333,6 +1343,11 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_LBUTTONUP: {
         if (GetCapture() == h) ReleaseCapture();
+        // papel de parede animado: clique num lugar vazio (sem arrastar seleção) devolve o primeiro plano à mesa do
+        // Windows. Com a nossa mesa (do tamanho da tela) na frente, o Lively achava que um app em tela cheia estava
+        // aberto: pausava o papel de parede e parava de repassar o mouse para ele (17/11/2026)
+        if (g_live && g_band && std::abs(g_bandB.x - g_bandA.x) < 4 && std::abs(g_bandB.y - g_bandA.y) < 4)
+            if (HWND pm = FindWindowW(L"Progman", nullptr)) SetForegroundWindow(pm);
         if (g_press >= 0 && !g_pressCtrl) { for (int i = 0; i < (int)g_items.size(); i++) g_items[i].sel = i == g_press; }
         g_press = -1;
         if (g_band) { g_band = false; Redraw(); }

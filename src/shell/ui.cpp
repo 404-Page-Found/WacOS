@@ -381,7 +381,8 @@ static void GlassIcon(UINT w, UINT h, std::vector<BYTE>& px, bool tinted, float 
     // ESCURA (o fundo do ícone some num grafite translúcido) com o desenho em cinza-claro monocromático, mais claro
     // no alto e mais escuro embaixo, a claridade do original dando os tons (o verde do Spotify vira cinza médio, o
     // branco do Discord vira quase branco); a borda é só um fio fino e discreto, sem brilho largo nem sombra.
-    if (!tinted && dark) {
+    // Tingido no escuro: o mesmo filtro (17/11/2026, o usuário), com a cor de destaque no corpo e no desenho
+    if (dark) {
         for (size_t i = 0; i < N; i++) {
             BYTE* p = &px[i * 4];
             float a = p[3] / 255.f;
@@ -396,12 +397,15 @@ static void GlassIcon(UINT w, UINT h, std::vector<BYTE>& px, bool tinted, float 
             // corpo: grafite translúcido, um véu claro bem leve no alto
             // (medido sobre preto: a peça do Mac fica em 16/255, quase o fundo do Dock; a nossa estava em 30)
             float oR = 0.05f, oG = 0.05f, oB = 0.055f, oa = 0.50f;
+            if (tinted) { oR = tr * 0.30f; oG = tg * 0.30f; oB = tb * 0.30f; oa = 0.62f; }
             float top = 0.015f * std::clamp(1 - yy / 0.45f, 0.f, 1.f);
             oR += (1 - oR) * top; oG += (1 - oG) * top; oB += (1 - oB) * top;
             // desenho: cinza pelo tom do original, em degradê vertical (0,93 no alto, ~0,66 embaixo)
             float grad = 0.93f - 0.27f * yy;
             float gv = std::clamp(grad * (0.58f + 0.48f * l), 0.30f, 0.97f);
-            oR = oR + (gv - oR) * f; oG = oG + (gv - oG) * f; oB = oB + (std::min(1.f, gv + 0.01f) - oB) * f;
+            float gR = gv, gG = gv, gB = std::min(1.f, gv + 0.01f);
+            if (tinted) { gR = gv * (0.62f + 0.38f * tr); gG = gv * (0.62f + 0.38f * tg); gB = gv * (0.62f + 0.38f * tb); }  // desenho claro puxado para o destaque
+            oR = oR + (gR - oR) * f; oG = oG + (gG - oG) * f; oB = oB + (gB - oB) * f;
             oa = oa + (0.96f - oa) * f;
             // borda: fio de ~1 px, um pouco mais claro do lado de cima à esquerda
             float nx = x + 0.5f - cx, ny = y + 0.5f - cy, nl = std::sqrt(nx * nx + ny * ny);

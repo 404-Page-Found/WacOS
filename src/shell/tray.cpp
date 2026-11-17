@@ -145,12 +145,17 @@ void tray::Start(std::function<void()> changed) {
     Log(L"bandeja: Shell_TrayWnd próprio criado");
 }
 
+// "TaskbarCreated" ao sair devolve os ícones à barra do Windows. No reinício (o Shell novo já abre e avisa) ele não
+// vai: o Lively Wallpaper lê cada aviso como "o Explorer caiu" e reinicia o papel de parede; dois avisos em
+// segundos (sair + abrir) davam "Explorer restarted multiple times in the last 30s" e o "fatal error" (17/11/2026)
+static bool g_semAviso;
+void tray::SemAvisoAoSair() { g_semAviso = true; }
 void tray::Stop() {
     if (g_nativa) { DestroyWindow(g_nativa); g_nativa = nullptr; }
     if (!g_tray) return;
     DestroyWindow(g_tray);
     g_tray = nullptr;
-    SendNotifyMessageW(HWND_BROADCAST, RegisterWindowMessageW(L"TaskbarCreated"), 0, 0);
+    if (!g_semAviso) SendNotifyMessageW(HWND_BROADCAST, RegisterWindowMessageW(L"TaskbarCreated"), 0, 0);
 }
 
 void tray::Keepalive() {

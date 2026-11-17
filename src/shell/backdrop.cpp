@@ -1125,6 +1125,19 @@ ID2D1Bitmap* MapFor(int w, int h, float rad, float bezel, float dmax, float scal
 }
 
 // Desenha uma peça: a tela atrás de [sx, sy, sx + w, sy + h] (px da tela capturada) em (ox, oy) do dc
+// Os efeitos do vidro ficam guardados (por contexto de desenho) em vez de criados a cada peça a cada quadro: eram 5
+// (10 com a aberração cromática) por peça, ~60 vezes por segundo com uma janela mudando atrás do vidro (17/11/2026)
+struct FxCache { ID2D1DeviceContext* dc = nullptr; ID2D1Effect* e[10]{}; } g_fx;
+ID2D1Effect* Fx(ID2D1DeviceContext* dc, int i, REFCLSID id) {
+    if (g_fx.dc != dc) {
+        for (auto& e : g_fx.e) if (e) { e->Release(); e = nullptr; }
+        if (g_fx.dc) g_fx.dc->Release();
+        g_fx.dc = dc; dc->AddRef();  // segura o contexto: o ponteiro não pode ser reaproveitado por outro enquanto guardado
+    }
+    if (!g_fx.e[i]) dc->CreateEffect(id, &g_fx.e[i]);
+    return g_fx.e[i];
+}
+
 void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, float w, float h, float rad, float px, D2D1_COLOR_F tint, bool withTint, float minFrost = 0) {
     const auto& st = g_style;
     float k = std::clamp(st.refraction, 0.f, 1.f);
@@ -1139,12 +1152,8 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
     // Transparência (vidro_tinta): 0 = quase nítido, 0,5 = o do Tahoe, 1 = bem fosco
     float sigma = std::max(0.6f + 11.f * st.tintK, minFrost) * px;
     float m = 3 * sigma + dmax + 2;
-    ID2D1Effect *crop = nullptr, *blur = nullptr, *sat = nullptr, *disp = nullptr, *mapT = nullptr;
-    dc->CreateEffect(CLSID_D2D1Crop, &crop);
-    dc->CreateEffect(CLSID_D2D1GaussianBlur, &blur);
-    dc->CreateEffect(CLSID_D2D1Saturation, &sat);
-    dc->CreateEffect(CLSID_D2D1DisplacementMap, &disp);
-    dc->CreateEffect(CLSID_D2D12DAffineTransform, &mapT);
+    ID2D1Effect *crop = Fx(dc, 0, CLSID_D2D1Crop), *blur = Fx(dc, 1, CLSID_D2D1GaussianBlur), *sat = Fx(dc, 2, CLSID_D2D1Saturation),
+                *disp = Fx(dc, 3, CLSID_D2D1DisplacementMap), *mapT = Fx(dc, 4, CLSID_D2D12DAffineTransform);
     // o mapa só depende da distância até a borda: num painel crescendo (Spotlight digitando), um mapa por degrau de
     // 32 px esticado até o tamanho exato (diferença invisível) em vez de um mapa novo (~5 ms) a cada quadro
     const int STEP = 32;
@@ -1167,9 +1176,39 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
         disp->SetValue(D2D1_DISPLACEMENTMAP_PROP_SCALE, scale);
         disp->SetValue(D2D1_DISPLACEMENTMAP_PROP_X_CHANNEL_SELECT, D2D1_CHANNEL_SELECTOR_R);
         disp->SetValue(D2D1_DISPLACEMENTMAP_PROP_Y_CHANNEL_SELECT, D2D1_CHANNEL_SELECTOR_G);
-        dc->DrawImage(disp, D2D1::Point2F(ox, oy), D2D1::RectF(sx, sy, sx + w, sy + h), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+        // Aberração cromática (o Liquid Glass do macOS 26): na borda da lente cada cor dobra um pouco diferente e
+        // aparece uma franja colorida. Três deslocamentos (vermelho mais forte, azul mais fraco), cada um só com o
+        // seu canal, somados. No meio da peça o deslocamento é zero e as três cores coincidem (sem franja).
+        // vidro_cromatico=0 desliga (um deslocamento só, como antes).
+        static int cromatico = -1;
+        if (cromatico < 0) cromatico = shell::Setting(L"vidro_cromatico", L"1") != L"0";
+        ID2D1Effect *d2 = cromatico ? Fx(dc, 5, CLSID_D2D1DisplacementMap) : nullptr, *d3 = cromatico ? Fx(dc, 6, CLSID_D2D1DisplacementMap) : nullptr,
+                    *m1 = cromatico ? Fx(dc, 7, CLSID_D2D1ColorMatrix) : nullptr, *m2 = cromatico ? Fx(dc, 8, CLSID_D2D1ColorMatrix) : nullptr,
+                    *m3 = cromatico ? Fx(dc, 9, CLSID_D2D1ColorMatrix) : nullptr;
+        if (cromatico && d2 && d3 && m1 && m2 && m3) {
+            const float K = 0.10f;  // quanto o vermelho e o azul se afastam do verde
+            ID2D1Effect* ds[3] = { disp, d2, d3 };
+            float sc3[3] = { scale * (1 + K), scale, scale * (1 - K) };
+            ID2D1Effect* ms[3] = { m1, m2, m3 };
+            for (int k = 0; k < 3; k++) {
+                if (k) {
+                    ds[k]->SetInputEffect(0, sat);
+                    ds[k]->SetInputEffect(1, mapT);
+                    ds[k]->SetValue(D2D1_DISPLACEMENTMAP_PROP_X_CHANNEL_SELECT, D2D1_CHANNEL_SELECTOR_R);
+                    ds[k]->SetValue(D2D1_DISPLACEMENTMAP_PROP_Y_CHANNEL_SELECT, D2D1_CHANNEL_SELECTOR_G);
+                }
+                ds[k]->SetValue(D2D1_DISPLACEMENTMAP_PROP_SCALE, sc3[k]);
+                D2D1_MATRIX_5X4_F cm{};  // só o canal k (pré-multiplicado) e 1/3 do alfa: os três somados dão a cor e o alfa originais
+                if (k == 0) cm._11 = 1; else if (k == 1) cm._22 = 1; else cm._33 = 1;
+                cm._44 = 1.f / 3.f;
+                ms[k]->SetInputEffect(0, ds[k]);
+                ms[k]->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, cm);
+                ms[k]->SetValue(D2D1_COLORMATRIX_PROP_ALPHA_MODE, D2D1_COLORMATRIX_ALPHA_MODE_PREMULTIPLIED);  // somados: (R, G, B, alfa) pré-multiplicado de novo
+                dc->DrawImage(ms[k], D2D1::Point2F(ox, oy), D2D1::RectF(sx, sy, sx + w, sy + h), D2D1_INTERPOLATION_MODE_LINEAR,
+                              k == 0 ? D2D1_COMPOSITE_MODE_SOURCE_OVER : D2D1_COMPOSITE_MODE_PLUS);
+            }
+        } else dc->DrawImage(disp, D2D1::Point2F(ox, oy), D2D1::RectF(sx, sy, sx + w, sy + h), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
     }
-    for (ID2D1Effect* fx : { crop, blur, sat, disp, mapT }) if (fx) fx->Release();
     if (withTint) {
         ID2D1SolidColorBrush* b = nullptr;
         D2D1_COLOR_F t = backdrop::AdjustTint(tint);

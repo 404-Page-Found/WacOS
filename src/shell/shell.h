@@ -202,6 +202,7 @@ extern std::vector<TrayIcon> icons;
 bool DoExplorer(COPYDATASTRUCT* cd, LRESULT* res);
 void Start(std::function<void()> changed);
 void Stop();
+void SemAvisoAoSair();  // reinício: o Shell novo avisa ao abrir; avisar também ao sair confundia o Lively
 void Click(int index, UINT button, POINT screenPt);  // WM_LBUTTONUP / WM_RBUTTONUP
 void Keepalive();                                    // mantém o nosso Shell_TrayWnd na frente
 }
