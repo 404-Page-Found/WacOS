@@ -21,6 +21,17 @@ function Sair { if (-not $Silencioso) { Read-Host 'Enter para sair' }; exit }
 function Anota($linha) { Add-Content -Encoding utf8 $log ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $linha) }
 
 Write-Host ("WacOS - " + $(if ($Atualizar) { "atualizar`n" } else { "instalador`n" }))
+# Rodado do código-fonte (o "Code > Download ZIP" do GitHub): não tem os programas compilados. O pacote certo é o
+# WacOS.zip da página de versões (17/11/2026: no outro PC deu "Start-Process ... cannot find the file specified")
+if (-not (Test-Path (Join-Path $src '..\bin\WacOSShell.exe')) -and -not (Test-Path (Join-Path $src 'bin\WacOSShell.exe'))) {
+    Write-Host "Esta pasta é o código-fonte do WacOS, sem os programas compilados." -ForegroundColor Yellow
+    Write-Host "This folder is the WacOS source code, without the compiled programs." -ForegroundColor Yellow
+    Write-Host "`nBaixe o WacOS.zip pronto em / Download the ready-made WacOS.zip from:"
+    Write-Host "  https://github.com/renzyxx/WacOS/releases/latest"
+    Write-Host "`nExtraia e rode o instalar.cmd de dentro dele. / Extract it and run instalar.cmd from inside it."
+    Start-Process 'https://github.com/renzyxx/WacOS/releases/latest' -ErrorAction SilentlyContinue
+    Sair
+}
 if ($Atualizar -and -not (Test-Path (Join-Path $dest 'bin\WacOSShell.exe')) -and -not $temVelho) {
     Write-Host "O WacOS ainda não está instalado neste PC ($dest). Use instalar.cmd."
     Sair
