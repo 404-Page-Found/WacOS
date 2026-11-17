@@ -4,16 +4,16 @@ bin/
 *.ilk
 *.log
 
-# sons do macOS (Apple, uso pessoal: não distribuir)
+# macOS sounds (Apple, personal use: do not distribute)
 sons/mac/
 arquivo-morto/
 dist/
 
-# arquivo vazio criado por engano
+# empty file created by mistake, and the release notes written by the build
 função)
-notas.md
+notes.md
 
-# fora do GitHub: outro projeto (áudios) e binários de terceiros guardados para estudo
+# kept out of GitHub: another project (audio files) and third-party binaries kept for study
 vocal-test/
 docs/vm-barra/
 docs/**/*.dll

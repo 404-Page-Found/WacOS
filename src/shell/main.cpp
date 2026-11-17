@@ -712,7 +712,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         LoadSettings();
         static int lastEn = -1;
         if (lastEn < 0) lastEn = idioma::En();
-        if (bool en = shell::Setting(L"idioma", L"pt") == L"en"; (int)en != lastEn) {  // Ajustes > Geral > Idioma
+        if (bool en = shell::Setting(L"idioma", L"en") == L"en"; (int)en != lastEn) {  // Ajustes > Geral > Idioma
             lastEn = en;
             idioma::Set(en);
             apps::Relabel();

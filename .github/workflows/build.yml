@@ -1,6 +1,7 @@
-# A cada commit na main: compila o WacOS (build.cmd + a barra das janelas de 32/64 bits), grava a versão em
-# bin\versao.txt e publica o pacote de atualização como a versão "latest" do GitHub. O botão "Atualizar Agora"
-# do Ajustes (tools\atualizar-github.ps1) compara essa versão com a instalada e baixa só quando há novidade.
+# On every commit to main: build WacOS (build.cmd plus the 32/64-bit title bar DLLs), write the version to
+# bin\versao.txt and publish the update package as the "latest" GitHub release. The "Update Now" button in
+# System Settings (tools\atualizar-github.ps1) compares that version with the installed one and downloads it
+# only when there is something new.
 name: build
 
 on:
@@ -23,8 +24,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Versão
-        id: versao
+      - name: Version
+        id: version
         shell: pwsh
         run: |
           $tag = "build-${{ github.run_number }}"
@@ -32,26 +33,26 @@ jobs:
           Set-Content -Encoding utf8 bin\versao.txt @($tag, "${{ github.sha }}", (Get-Date -Format 'yyyy-MM-dd HH:mm'))
           "tag=$tag" >> $env:GITHUB_OUTPUT
 
-      - name: Compilar
+      - name: Build
         shell: cmd
         run: |
           call build.cmd || exit /b 1
           call build.cmd janelas || exit /b 1
 
-      - name: Empacotar
+      - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           powershell -NoProfile -ExecutionPolicy Bypass -File tools\empacotar.ps1 -SemSistema -Atualizacao -Zip "$PWD\dist\WacOS.zip"
-          if (-not (Test-Path dist\WacOS.zip)) { throw 'o pacote não foi gerado' }
+          if (-not (Test-Path dist\WacOS.zip)) { throw 'the package was not created' }
 
-      - name: Publicar
+      - name: Publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ steps.versao.outputs.tag }}"
-          $antes = git describe --tags --abbrev=0 HEAD~1 2>$null
-          $notas = if ($antes) { git log --pretty=format:'- %s' "$antes..HEAD" } else { git log -20 --pretty=format:'- %s' }
-          Set-Content -Encoding utf8 notas.md $notas
-          gh release create $tag dist\WacOS.zip --title "WacOS $tag" --notes-file notas.md --latest
+          $tag = "${{ steps.version.outputs.tag }}"
+          $prev = git describe --tags --abbrev=0 HEAD~1 2>$null
+          $notes = if ($prev) { git log --pretty=format:'- %s' "$prev..HEAD" } else { git log -20 --pretty=format:'- %s' }
+          Set-Content -Encoding utf8 notes.md $notes
+          gh release create $tag dist\WacOS.zip --title "WacOS $tag" --notes-file notes.md --latest

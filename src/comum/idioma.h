@@ -1,5 +1,5 @@
 #pragma once
-// Idioma da interface (Ajustes do Sistema > Geral > Idioma): `idioma=pt` (padrão) ou `idioma=en` em
+// Idioma da interface (Ajustes do Sistema > Geral > Idioma): `idioma=en` (padrão desde 16/11/2026) ou `idioma=pt` em
 // %APPDATA%\Shell\ajustes.txt. O texto fica escrito em português no código e passa por Tr():
 //   Tr(L"Abrir")                 -> L"Open" com idioma=en, L"Abrir" com idioma=pt
 //   swprintf(buf, Tr(L"%d itens"), n)  -> o formato traduzido tem os mesmos %d/%ls, na mesma ordem
@@ -20,10 +20,10 @@ inline int g_en = -1;  // -1 = ainda não leu o ajustes.txt
 inline bool ReadFile() {
     wchar_t ad[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"APPDATA", ad, MAX_PATH);
-    if (!n || n >= MAX_PATH) return false;
+    if (!n || n >= MAX_PATH) return true;  // inglês é o padrão
     FILE* f = nullptr;
-    if (_wfopen_s(&f, (std::wstring(ad) + L"\\Shell\\ajustes.txt").c_str(), L"r, ccs=UTF-8") || !f) return false;
-    bool en = false;
+    if (_wfopen_s(&f, (std::wstring(ad) + L"\\Shell\\ajustes.txt").c_str(), L"r, ccs=UTF-8") || !f) return true;
+    bool en = true;  // sem a linha idioma=: inglês
     wchar_t line[512];
     while (fgetws(line, 512, f)) {
         if (wcsncmp(line, L"idioma=", 7) == 0) en = line[7] == L'e' && line[8] == L'n';

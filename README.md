@@ -1,56 +1,71 @@
-# shell-proprio
+# WacOS
 
-Shell próprio para Windows com comportamento e visual inspirados no macOS, rodando por cima
-do Windows (kernel, drivers e apps continuam os mesmos). Nada aqui altera o registro nem
-substitui o Explorer: tudo roda como app comum ao lado dele.
+A macOS-style desktop shell for Windows 11. WacOS runs on top of Windows (same kernel, drivers and apps) and
+replaces what you see and touch: the menu bar, the Dock, Finder, Spotlight, Control Center, Notification Center,
+Mission Control, Launchpad, window title bars and a set of built-in apps. It supports the macOS Sequoia look and
+the macOS Tahoe look with Liquid Glass.
 
-## Programas
-- `bin\Arquivos.exe [pasta]`: gerenciador de arquivos no estilo do Finder (visão de ícones).
-- `bin\MenuTeste.exe [pasta]`: bancada do menu de contexto (`--dump <caminho> [--bg]` grava a árvore do menu no log).
+Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views.
 
-## Compilar
-Precisa do Visual Studio Build Tools 2022 com C++.
+## Features
+
+- **Menu bar** with the active app's real menus, the Apple menu, status icons and the system tray.
+- **Dock** with magnification, running indicators, stacks (Downloads), minimized windows and the Trash.
+- **Finder** (file manager), **Spotlight** (search with Applications, Files, Actions and Clipboard modes),
+  **Control Center**, **Notification Center**, **Mission Control**, **Launchpad / Apps**, **Quick Look**,
+  **Stage Manager** and **Hot Corners**.
+- **Mac title bars** (traffic lights, rounded corners, shadows) on other apps' windows.
+- **macOS alerts** in place of Windows message boxes, and the Mac Open/Save panel through Finder.
+- **Built-in apps**: System Settings, Activity Monitor (with memory pressure), Terminal, Calculator, Notes,
+  Reminders, Calendar, TextEdit, Preview, Photos, Music, QuickTime Player, Clock, Weather, Contacts,
+  Time Machine, Screenshot and Force Quit.
+- **Memory management like macOS**: memory pressure, App Nap and purgeable memory.
+- **Icon styles** (Default, Dark, Clear, Tinted), accent colors, light and dark appearance.
+- **English and Portuguese** interface (English is the default; System Settings > General > Language).
+
+## Install
+
+1. Download `WacOS.zip` from the [latest release](../../releases/latest).
+2. Extract it anywhere and run `instalar.cmd`.
+
+WacOS installs for your user only (no administrator rights) in `%LOCALAPPDATA%\Programs\WacOS`.
+Everything it changes is logged in `instalacao.log` there, and `desinstalar.cmd` undoes it.
+
+- Quit WacOS: `Ctrl+Alt+Shift+F12`. Emergency exit (brings Explorer back): `Ctrl+Alt+Shift+F11`.
+
+## Updates
+
+Every commit to `main` is built by GitHub Actions and published as the latest release, with its build number
+in `bin\versao.txt`. In **System Settings > General > Software Update**, WacOS checks GitHub on its own, shows the
+installed version, the latest one and the commits you don't have yet, and **Update Now** downloads and installs it
+(only programs, icons and sounds are replaced; your settings stay).
+
+While the repository is private, each PC needs a GitHub token with read access saved in
+`%APPDATA%\Shell\github-token.txt`.
+
+## Build
+
+Requires Visual Studio 2022 (or Build Tools 2022) with the C++ workload.
 
 ```
-build.cmd           (tudo)
-build.cmd finder    (só Arquivos.exe)
-build.cmd menu      (só MenuTeste.exe)
+build.cmd            everything
+build.cmd shell      the shell only (WacOSShell.exe: menu bar, Dock, Spotlight...)
+build.cmd finder     Finder only
+build.cmd janelas    Mac title bars for other apps (WacOSWindow.dll, 32 and 64 bit)
+tools\empacotar.ps1  the installer package (dist\WacOS-<date>.zip)
 ```
 
-## Estrutura
-- `src/menu`: menu de contexto próprio sobre as extensões reais do Windows (IContextMenu).
-- `src/finder`: Arquivos (Direct2D sobre DirectComposition, acrílico do DWM).
-- `src/tools`: bancadas de teste.
-- `docs/problemas-conhecidos.md`: o que ainda falta ou é limitação do Windows.
+## Layout
 
-## Atalhos do Arquivos
-| Ação | Tecla |
-|---|---|
-| Abrir | duplo clique, Ctrl+O, Ctrl+↓ |
-| Pasta de cima | Ctrl+↑ |
-| Voltar / avançar | Alt+← / Alt+→, Ctrl+[ / Ctrl+], Backspace, botões laterais do mouse |
-| Renomear | Enter ou F2 |
-| Nova pasta | Ctrl+Shift+N |
-| Copiar / recortar / colar | Ctrl+C / Ctrl+X / Ctrl+V |
-| Mover para a Lixeira | Delete ou Ctrl+Backspace |
-| Propriedades | Ctrl+I ou Alt+Enter |
-| Buscar (no computador todo ou na pasta, pela barra "Buscar:") | Ctrl+F; Esc ou Voltar sai da busca |
-| Nova janela | Ctrl+N |
-| Nova aba / fechar aba / próxima aba | Ctrl+T / Ctrl+W / Ctrl+Tab; Ctrl+duplo clique abre a pasta em nova aba; botão do meio fecha |
-| Quick Look | Espaço |
-| Opções de Visualização | Ctrl+J |
-| Menu com itens extras | Alt+clique direito; todas as opções: Shift+clique direito |
-| Visões: ícones / lista / colunas / galeria | Ctrl+1 / Ctrl+2 / Ctrl+3 / Ctrl+4 |
-| Tamanho dos ícones | Ctrl+ / Ctrl− |
-| Adicionar pasta à barra lateral | Ctrl+Alt+T, ou arrastar a pasta para entre dois favoritos |
-| Mover / remover favorito | arrastar na barra lateral / clique direito → Remover da Barra Lateral |
-| Etiquetar | botão de etiqueta, ou arrastar os itens para uma etiqueta da barra lateral |
+- `src/shell`: the shell (menu bar, Dock, Spotlight, Control Center, Mission Control, Liquid Glass...).
+- `src/finder`, `src/ajustes` (System Settings), `src/monitor` (Activity Monitor) and the other apps in `src/*`.
+- `src/janelas`: Mac title bars injected into other apps' windows.
+- `src/menu`: context menus on top of the real Windows shell extensions.
+- `src/comum`: shared code (names, language, glass, shadows).
+- `instalador`: install, update and uninstall scripts. `tools`: build and packaging tools.
+- `icones`: icon packs (Sequoia, Tahoe) and SF Symbols.
 
-## Arquivos como padrão para abrir pastas (opcional, reversível)
-Grava só em HKCU (verbo `arquivos` em `Directory` e `Drive`, e o comando de nova janela do Explorador, usado pelo Win+E); o valor anterior fica em `%APPDATA%\Arquivos\padrao-backup.txt`.
-```
-bin\Arquivos.exe --padrao status
-bin\Arquivos.exe --padrao on
-bin\Arquivos.exe --padrao off
-```
-"Este Computador" e `shell:Downloads` e afins abrem no Arquivos. Lixeira, Painel de Controle e outras pastas virtuais ainda abrem no Explorador.
+## Note
+
+Apple, macOS, Finder and related names and icons belong to Apple Inc. This is a personal, non-commercial project
+and is not affiliated with Apple. The bundled icons, fonts and sounds are for personal use only.

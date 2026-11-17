@@ -555,7 +555,7 @@ Page Geral() {
                            Link(L"Itens de Início", [] { Push(L"Itens de Início", Inicio); }, 0xE8FD, C_GRAY) }));
     // Idioma do WacOS (idioma=pt|en no ajustes.txt): o Shell troca na hora; este app também;
     // os outros apps abertos leem o idioma ao abrir.
-    Row lang = Popup(L"Idioma", { L"Português", L"English" }, [] { return Setting(L"idioma", L"pt") == L"en" ? 1 : 0; },
+    Row lang = Popup(L"Idioma", { L"Português", L"English" }, [] { return Setting(L"idioma", L"en") == L"en" ? 1 : 0; },
                      [](int i) {
                          SetSetting(L"idioma", i == 1 ? L"en" : L"pt");
                          idioma::Set(i == 1);
