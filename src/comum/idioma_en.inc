@@ -415,6 +415,8 @@
 { L"O fundo aparece nítido e dobra nas bordas, como no Tahoe. Gravações de outros programas não mostram o Dock e os painéis; desligue para gravar a tela.", L"The background shows through sharp and bends at the edges, like in Tahoe. Recordings from other programs don’t show the Dock and panels; turn this off to record the screen." },
 { L"Refração nas bordas", L"Edge refraction" },
 { L"Reiniciar o Liquid Glass", L"Restart Liquid Glass" },
+{ L"Reiniciar o WacOS", L"Restart WacOS" },
+{ L"Fecha e abre de novo a barra de menus, o Dock, a mesa e o vidro, sem sair do Windows. Os seus apps continuam abertos.", L"Closes and reopens the menu bar, Dock, desktop and glass without signing out of Windows. Your apps stay open." },
 { L"Atualizações Disponíveis", L"Updates Available" },
 { L"está pronto para instalar", L"is ready to install" },
 { L" mudança", L" change" },

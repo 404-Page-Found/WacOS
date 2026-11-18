@@ -579,6 +579,14 @@ Page Geral() {
                                       SetSetting(L"finder_padrao", on ? L"1" : L"0");
                                       RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --quieto --padrao " + (on ? L"on" : L"off"));
                                   }, L"Downloads do navegador, \"Mostrar na pasta\" e o Win+E também"),
+                           // reinicia só o Shell (barra, Dock, mesa, vidro): o mesmo do "ShellReiniciar" que a atualização usa
+                           Button(L"Reiniciar o WacOS", L"Reiniciar", [] {
+                               static UINT msg = RegisterWindowMessageW(L"ShellReiniciar");
+                               HWND sh = FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr);
+                               if (!sh) sh = FindWindowW(L"ShellMensagens", nullptr);
+                               if (sh) PostMessageW(sh, msg, 0, 0);
+                               else ShellExecuteW(nullptr, L"open", (BinDir() + L"\\WacOSShell.exe").c_str(), nullptr, nullptr, SW_SHOWNORMAL);  // o Shell não está rodando: abre
+                           }, L"Fecha e abre de novo a barra de menus, o Dock, a mesa e o vidro, sem sair do Windows. Os seus apps continuam abertos."),
                            Button(L"Parar de usar o WacOS", L"Desligar…", [] { TurnShellOff(); },
                                   L"Fecha o Shell e devolve a barra de tarefas e o Explorador do Windows") }, L"WacOS"));
     return p;
