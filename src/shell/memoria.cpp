@@ -235,12 +235,23 @@ void NapTick(DWORD now) {
     // processos que sumiram
     for (auto it = g_procs.begin(); it != g_procs.end();) it = s.any.count(it->first) ? std::next(it) : g_procs.erase(it);
 
+    // por programa, não por processo: o Chrome (Edge, Discord, Spotify...) toca o som num processo de áudio à parte e
+    // desenha o vídeo em outro; só o da janela entrava em soneca e o YouTube tocando atrás de outra janela travava
+    // (17/11/2026). Se qualquer processo do mesmo exe toca som ou está à vista, o programa inteiro fica acordado.
+    std::set<std::wstring> soundExe, shownExe;
+    for (DWORD a : audio) { std::wstring e = ExeOf(a); if (!e.empty()) soundExe.insert(Lower(e)); }
     for (auto& [pid, _] : s.any) {
         auto [it, fresh] = g_procs.try_emplace(pid);
         Nap& n = it->second;
         if (fresh) n.exe = ExeOf(pid);
-        bool awake = s.visible.count(pid) || pid == fgPid || audio.count(pid) || n.exe.empty() || Excluded(n.exe);
-        if (awake) { if (n.napped) Wake(pid, audio.count(pid) ? L"som" : L"à vista"); n.hiddenSince = 0; continue; }
+        if (s.visible.count(pid) || pid == fgPid) shownExe.insert(Lower(n.exe));
+    }
+    for (auto& [pid, _] : s.any) {
+        Nap& n = g_procs[pid];
+        std::wstring le = Lower(n.exe);
+        bool sound = audio.count(pid) || soundExe.count(le);
+        bool awake = s.visible.count(pid) || pid == fgPid || shownExe.count(le) || sound || n.exe.empty() || Excluded(n.exe);
+        if (awake) { if (n.napped) Wake(pid, sound ? L"som" : L"à vista"); n.hiddenSince = 0; continue; }
         if (!n.hiddenSince) n.hiddenSince = now ? now : 1;
         if (!n.napped && now - n.hiddenSince >= NAP_AFTER && (!n.retryAt || (int)(now - n.retryAt) >= 0)) {
             if (SetThrottle(pid, true, n)) { n.napped = true; Log(L"memoria: soneca para %ls (%u)", n.exe.c_str(), pid); }
