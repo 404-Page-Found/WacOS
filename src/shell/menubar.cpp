@@ -608,18 +608,9 @@ void Render() {
     if (!bgOn0 || liquid::On()) dark = WallpaperTopDark(dark);
     // Menubar Image do macOS 26 (guia, seção 31: catálogos Aqua/DarkAqua): branco 90 % no escuro, preto 85 % no claro
     D2D1_COLOR_F fgc = dark ? D2D1::ColorF(1, 1, 1, liquid::On() ? 0.90f : 0.92f) : D2D1::ColorF(0, 0, 0, 0.85f);
-    if (liquid::On() && !bgOn0) {
-        // vibrancy do macOS 26 (guia, seção 1.2, platformFillDarkPrimary / LightPrimary): o texto não tem cor fixa, é o
-        // fundo passado por uma matriz — saturação ~3×, contraste 0,5 e +0,50 no escuro (claro que "puxa" a cor de
-        // trás); no claro saturação ~3× e +0,06 (escuro levemente tingido). Aqui o fundo é a cor média do topo do papel
-        // de parede, atrás da barra. No Mac o resultado ainda soma ao fundo ("plus-lighter"), por isso o texto fica quase
-        // branco; aqui (sem a soma) fica a claridade do texto do guia (branco 96 % / preto) e só a cor de trás entra, 3×.
-        float l = 0.2126f * g_topR + 0.7152f * g_topG + 0.0722f * g_topB;
-        auto cl = [](float v) { return std::clamp(v, 0.f, 1.f); };
-        auto ch = [&](float c) { return (c - l) * 3.f; };  // a cor (o quanto foge do cinza), saturada 3×
-        if (dark) fgc = D2D1::ColorF(cl(0.93f + 0.5f * ch(g_topR)), cl(0.93f + 0.5f * ch(g_topG)), cl(0.93f + 0.5f * ch(g_topB)), 0.96f);
-        else fgc = D2D1::ColorF(cl(0.08f + 0.25f * ch(g_topR)), cl(0.08f + 0.25f * ch(g_topG)), cl(0.08f + 0.25f * ch(g_topB)), 0.92f);
-    }
+    // Liquid Glass sem fundo: só branco ou preto, mais firmes. Antes puxava a cor do papel de parede saturada 3×
+    // (a "vibrancy" do Mac) e em papel de parede azul o texto e os ícones ficavam ciano.
+    if (liquid::On() && !bgOn0) fgc = dark ? D2D1::ColorF(1, 1, 1, 0.96f) : D2D1::ColorF(0, 0, 0, 0.90f);
     ID2D1SolidColorBrush* br = nullptr;
     bool liquid = backdrop::Liquid(), bgOn = BarBackground();
     D2D1_COLOR_F veil = dark ? D2D1::ColorF(0.06f, 0.06f, 0.07f, 0.18f) : D2D1::ColorF(1, 1, 1, 0.26f);
@@ -746,25 +737,29 @@ void Render() {
         if (r - 37 < leftEnd + 60) break;  // sem espaço: some, como no Mac
         auto bx = slot(17, K_TRAY, i);
         std::vector<BYTE> mono = IconPixels(t.icon, px);
-        // o mesmo filtro dos ícones Transparentes (ui::GlassIcon, escuro): cinza monocromático pelo tom do original,
-        // mais claro no alto e mais escuro embaixo. Antes era só a silhueta: ícone de fundo cheio (Discord,
-        // WhatsApp) virava um quadrado branco sem o desenho de dentro.
+        // como os ícones-modelo do Mac: uma cor só, a mesma do texto da barra (branco no escuro, preto no claro);
+        // o desenho de dentro (ícone de fundo cheio: Discord, WhatsApp) sai pela transparência, nunca por cinza
+        // ou pela cor do original, que deixava o ícone azulado/acinzentado em cima do papel de parede.
+        float lmin = 1, lmax = 0;
+        for (size_t k = 0; k < mono.size(); k += 4) {
+            float a = mono[k + 3] / 255.f;
+            if (a < 0.5f) continue;
+            float l = std::clamp((0.2126f * mono[k + 2] + 0.7152f * mono[k + 1] + 0.0722f * mono[k]) / 255.f / a, 0.f, 1.f);
+            lmin = std::min(lmin, l); lmax = std::max(lmax, l);
+        }
+        bool detail = lmax - lmin > 0.25f;  // tem desenho de dentro (senão é só a silhueta)
+        BYTE ink = dark ? 255 : 0;
         for (size_t k = 0; k < mono.size(); k += 4) {
             float a = mono[k + 3] / 255.f;
             if (a <= 0.004f) { mono[k] = mono[k + 1] = mono[k + 2] = mono[k + 3] = 0; continue; }
-            float b = mono[k] / 255.f / a, g = mono[k + 1] / 255.f / a, rr = mono[k + 2] / 255.f / a;
-            float l = std::clamp(0.2126f * rr + 0.7152f * g + 0.0722f * b, 0.f, 1.f);
-            float yy = (float)((k / 4) / px) / px;
-            float v, oa;
-            if (dark) {
-                float grad = 0.97f - 0.20f * yy;
-                v = std::clamp(grad * (0.52f + 0.52f * l), 0.36f, 0.98f);
-                oa = a * 0.94f;
-            } else {  // claro: preto, o desenho de dentro um pouco mais claro
-                v = std::clamp(0.06f + 0.42f * l * l + 0.06f * yy, 0.f, 0.55f);
-                oa = a * 0.86f;
+            float oa = a;
+            if (detail) {
+                float l = std::clamp((0.2126f * mono[k + 2] + 0.7152f * mono[k + 1] + 0.0722f * mono[k]) / 255.f / a, 0.f, 1.f);
+                float t = std::clamp((l - lmin) / (lmax - lmin), 0.f, 1.f);  // 0 = parte mais escura do original
+                oa = a * (dark ? 0.30f + 0.70f * t : 1.f - 0.70f * t);
             }
-            BYTE c = (BYTE)std::lround(v * oa * 255);
+            oa *= dark ? 0.96f : 0.88f;
+            BYTE c = (BYTE)std::lround(ink * oa);
             mono[k] = mono[k + 1] = mono[k + 2] = c;
             mono[k + 3] = (BYTE)std::lround(oa * 255);
         }

@@ -23,7 +23,7 @@ inline bool Grafite() {
     wchar_t ad[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"APPDATA", ad, MAX_PATH);
     if (!n || n >= MAX_PATH) return on;
-    std::wstring path = std::wstring(ad) + L"\Shell\ajustes.txt";
+    std::wstring path = std::wstring(ad) + L"\\Shell\\ajustes.txt";
     WIN32_FILE_ATTRIBUTE_DATA fa{};
     if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa)) return on;
     if (!CompareFileTime(&fa.ftLastWriteTime, &lastWrite)) return on;

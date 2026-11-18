@@ -660,7 +660,7 @@ void sys::SetWheelLines(int n) { SystemParametersInfoW(SPI_SETWHEELSCROLLLINES, 
 // o valor gravado (com o Shell rodando o do momento fica desligado: quem encaixa é o Shell, ver src\shell\encaixe.cpp)
 bool sys::SnapEnabled() {
     wchar_t v[8] = L"1"; DWORD n = sizeof(v);
-    RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\Desktop", L"WindowArrangementActive", RRF_RT_REG_SZ, nullptr, v, &n);
+    RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"WindowArrangementActive", RRF_RT_REG_SZ, nullptr, v, &n);
     return v[0] != L'0';
 }
 void sys::SetSnapEnabled(bool on) {
