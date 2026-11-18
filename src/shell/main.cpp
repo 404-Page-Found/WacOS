@@ -415,6 +415,15 @@ static void SecondaryTaskbarsRestore() {
 
 // Área de trabalho de cada monitor: a barra de menus em cima (todos têm a sua) e o Dock embaixo (só no
 // monitor dele). O SPI_SETWORKAREA vale para o monitor que contém o retângulo.
+RECT shell::WorkAreaFor(HMONITOR hm) {
+    MONITORINFO mi{ sizeof(mi) };
+    if (!GetMonitorInfoW(hm, &mi)) return {};
+    RECT want = mi.rcMonitor;
+    want.top += (mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm);
+    if (hm == dock::MonitorHandle()) want.bottom -= dock::ReservedHeight();
+    return want;
+}
+
 void shell::ApplyWorkArea() {
     if (g_quitting) return;
     struct Ctx { HMONITOR dock; bool changed; } ctx{ dock::MonitorHandle(), false };
@@ -422,9 +431,8 @@ void shell::ApplyWorkArea() {
         auto* c = (Ctx*)p;
         MONITORINFO mi{ sizeof(mi) };
         if (!GetMonitorInfoW(hm, &mi)) return TRUE;
-        RECT want = mi.rcMonitor, cur = mi.rcWork;
-        want.top += (mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm);
-        if (hm == c->dock) want.bottom -= dock::ReservedHeight();
+        RECT want = shell::WorkAreaFor(hm), cur = mi.rcWork;
+        (void)c;
         if (EqualRect(&want, &cur)) return TRUE;
         static int times;
         Log(L"área de trabalho estava %d,%d-%d,%d; agora %d,%d-%d,%d (vez %d)", cur.left, cur.top, cur.right, cur.bottom,
@@ -659,6 +667,16 @@ static void AutoAppearance() {
 }
 
 static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    // Outro programa (o Explorador, com a barra do Windows escondida ou em ocultar automaticamente) devolveu a área de
+    // trabalho para a tela inteira: reaplica a nossa NA HORA. Antes esperava o tique de 1 s, e nesse meio-tempo as
+    // janelas maximizadas e os ícones da mesa subiam para baixo da barra de menus e voltavam (issue #1: "a área
+    // pula sem parar"). O nosso próprio SPI_SETWORKAREA vai sem aviso (sem SPIF_SENDCHANGE), então não volta aqui.
+    if (m == WM_SETTINGCHANGE && w == SPI_SETWORKAREA && !g_quitting) {
+        static DWORD win = 0; static int n = 0;
+        DWORD now = GetTickCount();
+        if (now - win > 1000) { win = now; n = 0; }
+        if (++n <= 8) shell::ApplyWorkArea();  // no máximo 8 por segundo (se alguém brigar sem parar, não gira em laço)
+    }
     static UINT reload = RegisterWindowMessageW(L"ShellAjustesMudaram");
     static UINT openCC = RegisterWindowMessageW(L"ShellAbrirCentral");  // abre/fecha a Central de Controle de fora
     static UINT restart = RegisterWindowMessageW(L"ShellReiniciar");    // reiniciar: sai sem abrir o Explorador e abre o Shell de novo
@@ -961,6 +979,18 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (!ui::Init()) { Log(L"erro: Direct2D/DirectWrite"); return 1; }
     LoadSettings();
     migrar::Registro();  // caminhos com o nome velho (Sequoia) no registro do Windows (depois dos ajustes: grava um)
+    // Voltando depois de "Desligar o WacOS" (Ajustes > Geral): o desligar mandou as pastas e o Win+E de volta para o
+    // Explorador (finder_padrao=0). Abrir o WacOS de novo devolve ao Finder; antes o 0 ficava e o Win+E abria o
+    // Explorador até apagar os ajustes (issue #1). Quem desligar "Abrir pastas no Finder" à mão continua com o 0.
+    if (shell::Setting(L"finder_volta", L"") == L"1") {
+        shell::SetSetting(L"finder_volta", L"");
+        std::wstring finder = shell::dir + L"\\" EXE_FINDER;
+        if (GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            shell::SetSetting(L"finder_padrao", L"1");
+            ShellExecuteW(nullptr, L"open", finder.c_str(), L"--quieto --padrao on", nullptr, SW_HIDE);
+            Log(L"finder: de volta depois do Desligar (finder_padrao=1, --padrao on)");
+        }
+    }
     boot::Show(hi);  // tela de inicialização do Mac (só logo depois do login)
     SetUnhandledExceptionFilter(OnCrash);
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &g_origWork, 0);

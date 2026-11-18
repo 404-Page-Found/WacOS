@@ -667,7 +667,7 @@ Grid GridNow(HWND h) {
     MONITORINFO mi{ sizeof(mi) };
     GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
     float sc = ui::Scale(h);
-    RECT r = mi.rcWork;
+    RECT r = shell::WorkAreaFor(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));  // a do Shell (issue #1)
     return { r.left / sc, r.top / sc, r.right / sc, r.bottom / sc, sc };
 }
 int Cols(const Widget& w) { return w.w > SMALL + 1 ? 2 : 1; }
@@ -946,11 +946,10 @@ LRESULT CALLBACK TimerProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
             // Dock mudou): reposiciona. O Shell muda a área sem avisar todo mundo, então o WM_SETTINGCHANGE não chegava
             // e os widgets ficavam por cima da barra de menus (17/11/2026)
             static RECT lastWork{};
-            MONITORINFO mi{ sizeof(mi) };
-            GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
-            if (!EqualRect(&mi.rcWork, &lastWork) && !g_drag && g_moves.empty()) {
+            RECT work = shell::WorkAreaFor(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));  // a do Shell (issue #1)
+            if (!EqualRect(&work, &lastWork) && !g_drag && g_moves.empty()) {
                 bool first = lastWork.right == 0;
-                lastWork = mi.rcWork;
+                lastWork = work;
                 (void)first;  // também na primeira: os widgets podem ter nascido com a área antiga (sem a barra)
                 for (auto& w : g_w) if (w.on) { Position(w, false); Paint(w); }
             }

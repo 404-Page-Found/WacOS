@@ -381,8 +381,10 @@ void LoadWallpapers() {
 RECT Work() {  // área de trabalho do monitor principal, em coordenadas da janela dele
     Mon* p = Primary();
     MONITORINFO mi{ sizeof(mi) };
-    GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
-    RECT r = mi.rcWork;
+    // a área que o Shell reserva, e não a do Windows: se outro programa a devolver para a tela inteira por um
+    // instante, os ícones não sobem para baixo da barra de menus (issue #1)
+    RECT r = shell::WorkAreaFor(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));
+    (void)mi;
     if (p) OffsetRect(&r, -p->r.left, -p->r.top);
     return r;
 }

@@ -546,6 +546,7 @@ static void TurnShellOff() {
     SetShellAutoStart(false);
     RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --padrao off --quieto");  // pastas voltam para o Explorador
     SetSetting(L"finder_padrao", L"0");
+    SetSetting(L"finder_volta", L"1");  // o Shell, ao abrir de novo, religa o Finder (issue #1: o Win+E ficava no Explorador)
     if (HWND h = FindWindowW(L"ShellMensagens", nullptr)) PostMessageW(h, WM_HOTKEY, 1, 0);  // o mesmo do "sair do Shell"
 }
 

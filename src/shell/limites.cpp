@@ -65,8 +65,9 @@ void Clamp(HWND h) {
     if (GetPropW(h, L"MacJanela") && GetWindowRgnBox(h, &box) != ERROR && box.right > box.left)
         vis = { wr.left + box.left, wr.top + box.top, wr.left + box.right, wr.top + box.bottom };
     MONITORINFO mi{ sizeof(mi) };
-    if (!GetMonitorInfoW(MonitorFromRect(&vis, MONITOR_DEFAULTTONEAREST), &mi)) return;
-    RECT wa = mi.rcWork, mon = mi.rcMonitor;
+    HMONITOR hm = MonitorFromRect(&vis, MONITOR_DEFAULTTONEAREST);
+    if (!GetMonitorInfoW(hm, &mi)) return;
+    RECT wa = shell::WorkAreaFor(hm), mon = mi.rcMonitor;  // a do Shell: a do Windows pode estar trocada por um instante (issue #1)
     if (vis.left <= mon.left && vis.top <= mon.top && vis.right >= mon.right && vis.bottom >= mon.bottom) return;  // tela cheia
     if (EqualRect(&wa, &mon)) return;  // sem barra nem Dock reservando espaço (Dock escondido, monitor sem barra)
     int w = vis.right - vis.left, hh = vis.bottom - vis.top;
