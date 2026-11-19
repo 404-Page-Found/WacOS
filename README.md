@@ -2,8 +2,8 @@
 
 A macOS-style desktop shell for Windows 11. WacOS runs on top of Windows (same kernel, drivers and apps) and
 replaces what you see and touch: the menu bar, the Dock, Finder, Spotlight, Control Center, Notification Center,
-Mission Control, Launchpad, window title bars and a set of built-in apps. It supports the macOS Sequoia look and
-the macOS Tahoe look with Liquid Glass.
+Mission Control, Launchpad, window title bars and a set of built-in apps. It supports the macOS Sequoia look,
+the macOS Tahoe look with Liquid Glass and the new macOS 27 **Golden Gate** look.
 
 Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views.
 
@@ -18,6 +18,31 @@ Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no w
 | ![Finder](docs/screenshots/finder.png) **Finder** | ![System Settings](docs/screenshots/system-settings.png) **System Settings** |
 | ![Activity Monitor](docs/screenshots/activity-monitor.png) **Activity Monitor** | ![Force Quit Applications](docs/screenshots/force-quit.png) **Force Quit Applications** (Ctrl+Alt+Esc) |
 | ![macOS alert](docs/screenshots/alert.png) Windows message boxes become **macOS alerts** | ![Dock icon styles](docs/screenshots/dock-icon-styles.png) **Dock icon styles**: Default, Dark, Clear and Tinted |
+
+### macOS 27 Golden Gate theme (new)
+
+The newest look, matched to Apple's macOS 27 screenshots: frosted Liquid Glass on windows, menus and the Dock,
+unified toolbars, the macOS 27 icons and the Golden Gate wallpaper. Pick it in System Settings > Appearance; switching
+themes never changes your own wallpaper.
+
+![WacOS desktop in the Golden Gate theme](docs/screenshots/golden-gate-desktop.png)
+
+| | |
+|---|---|
+| ![Quick Look, Golden Gate](docs/screenshots/golden-gate-quick-look.png) **Quick Look** plays video and music, with a frosted header and an animated open/close | ![Photos, Golden Gate](docs/screenshots/golden-gate-photos.png) **Photos** with search |
+| ![Finder, Golden Gate](docs/screenshots/golden-gate-finder.png) **Finder** | ![System Settings, Golden Gate](docs/screenshots/golden-gate-system-settings.png) **System Settings** > Appearance, for every theme |
+| ![Notes, Golden Gate](docs/screenshots/golden-gate-notes.png) **Notes** | ![Calendar, Golden Gate](docs/screenshots/golden-gate-calendar.png) **Calendar** |
+| ![Reminders, Golden Gate](docs/screenshots/golden-gate-reminders.png) **Reminders** | ![Music, Golden Gate](docs/screenshots/golden-gate-music.png) **Music** with search |
+| ![Clock, Golden Gate](docs/screenshots/golden-gate-clock.png) **Clock** with sunrise and sunset times | ![Weather, Golden Gate](docs/screenshots/golden-gate-weather.png) **Weather** |
+| ![Activity Monitor, Golden Gate](docs/screenshots/golden-gate-activity-monitor.png) **Activity Monitor** | ![Preview, Golden Gate](docs/screenshots/golden-gate-preview.png) **Preview** |
+| ![Calculator, Golden Gate](docs/screenshots/golden-gate-calculator.png) **Calculator** | ![Terminal, Golden Gate](docs/screenshots/golden-gate-terminal.png) **Terminal** |
+| ![TextEdit, Golden Gate](docs/screenshots/golden-gate-textedit.png) **TextEdit** | |
+
+Also new with this theme: QuickTime Player with a frosted title bar over the video, the option to hide desktop icons,
+**Edit Widgets…** on the desktop menu, clicking the empty strip beside the Dock to show the desktop, Win+D handled by
+the shell, grouped notifications that open on click, and smoother glass over animated wallpapers.
+
+**Coming next: a Mac OS X Leopard theme** (Aqua, the glossy 3D Dock with reflections, the translucent menu bar and Stacks).
 
 ### macOS Sequoia theme
 
@@ -44,6 +69,7 @@ The same shell with the macOS 15 look (System Settings > Appearance > Theme).
   Reminders, Calendar, TextEdit, Preview, Photos, Music, QuickTime Player, Clock, Weather, Contacts,
   Time Machine, Screenshot and Force Quit.
 - **Memory management like macOS**: memory pressure, App Nap and purgeable memory.
+- **Themes**: macOS 27 Golden Gate, macOS Tahoe and macOS Sequoia.
 - **Icon styles** (Default, Dark, Clear, Tinted), accent colors, light and dark appearance.
 - **English and Portuguese** interface (English is the default; System Settings > General > Language).
 
