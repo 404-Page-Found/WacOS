@@ -1418,3 +1418,6 @@
 { L"%d notas", L"%d notes" },
 { L"Apagar Nota", L"Delete Note" },
 { L"Ordem Padrão", L"Default Order" },
+{ L"Ocultar Ícones da Mesa", L"Hide Desktop Icons" },
+{ L"Mostrar Ícones na Mesa", L"Show Desktop Icons" },
+{ L"Mostrar ícones na mesa", L"Show icons on desktop" },

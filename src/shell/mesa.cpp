@@ -125,6 +125,8 @@ std::map<std::wstring, std::pair<float, float>> g_off;  // e o deslocamento livr
 // Como no Mac (botão direito > Ordenar Por): "Nenhum" (padrão) deixa cada ícone onde foi solto; "Alinhar à Grade"
 // encaixa nas casas. mesa_grade=1 liga a grade.
 bool Livre() { return shell::Setting(L"mesa_grade", L"0") != L"1"; }
+// "Ocultar Ícones da Mesa" (menu da mesa e Ajustes > Mesa e Dock): os arquivos continuam lá, só não aparecem
+bool IconesOn() { return shell::Setting(L"mesa_icones", L"1") != L"0"; }
 POINT g_grab{ -1, -1 };  // onde o ícone foi pego (px, a partir do canto do ícone), para soltar exatamente ali
 IDWriteTextFormat* g_tf = nullptr;
 float g_tfScale = 0;
@@ -665,6 +667,7 @@ D2D1_RECT_F LabelBox(const Item& it) {
     return D2D1::RectF(c.left + 3 * s, ib.bottom + LABEL_GAP * s, c.right - 3 * s, ib.bottom + (LABEL_GAP + LABEL_H) * s);
 }
 int HitClient(POINT p) {
+    if (!IconesOn()) return -1;  // ícones ocultos: clique na mesa vazia
     for (int i = (int)g_items.size() - 1; i >= 0; i--) {
         auto& it = g_items[i];
         if (it.col < 0) continue;
@@ -697,6 +700,7 @@ void DrawIcons(ID2D1RenderTarget* rt) {
     EnsureFormat();
     if (!g_br) rt->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &g_br);
     if (!g_tf || !g_br) return;
+    if (!IconesOn()) return;  // "Ocultar Ícones da Mesa"
     float s = Sc();
     for (int i = 0; i < (int)g_items.size(); i++) {
         auto& it = g_items[i];
@@ -1191,7 +1195,7 @@ void ItemMenu(HWND h, POINT screen, int idx) {
 
 void BackgroundMenu(HWND h, POINT screen) {
     enum { ID_NEW = 1, ID_INFO, ID_PASTE, ID_WALL, ID_CLEAN, ID_BY_NAME, ID_BY_KIND, ID_BY_DATE, ID_BY_SIZE, ID_MORE, ID_DISPLAY, ID_PERSONAL, ID_STACKS,
-           ID_SORT_NONE, ID_SORT_GRID };
+           ID_SORT_NONE, ID_SORT_GRID, ID_WIDGETS, ID_ICONS };
     bool canPaste = IsClipboardFormatAvailable(CF_HDROP) || IsClipboardFormatAvailable(RegisterClipboardFormatW(CFSTR_SHELLIDLIST));
     std::vector<ctxmenu::Item> items;
     auto add = [&](const wchar_t* t, int id, bool dis = false) { ctxmenu::Item i; i.label = t; i.id = id; i.disabled = dis; items.push_back(i); return &items.back(); };
@@ -1202,7 +1206,9 @@ void BackgroundMenu(HWND h, POINT screen) {
     add(Tr(L"Colar"), ID_PASTE, !canPaste)->shortcut = L"Ctrl+V";
     sep();
     add(Tr(L"Alterar Fundo da Mesa…"), ID_WALL);
+    add(Tr(L"Editar Widgets…"), ID_WIDGETS);  // como no macOS: traz de volta os widgets removidos
     sep();
+    add(IconesOn() ? Tr(L"Ocultar Ícones da Mesa") : Tr(L"Mostrar Ícones na Mesa"), ID_ICONS);
     add(Tr(L"Usar Pilhas"), ID_STACKS)->checked = g_stacks;
     if (!g_stacks) {  // como no Mac: Ordenar Por > Nenhum (solto) / Alinhar à Grade
         ctxmenu::Item sb; sb.label = Tr(L"Ordenar Por");
@@ -1236,6 +1242,8 @@ void BackgroundMenu(HWND h, POINT screen) {
         break;
     }
     case ID_WALL: shell::OpenSettings(L"fundo"); break;
+    case ID_WIDGETS: widgets::EditMenu(screen); break;
+    case ID_ICONS: shell::SetSetting(L"mesa_icones", IconesOn() ? L"0" : L"1"); for (auto& it : g_items) it.sel = false; Redraw(); break;
     case ID_STACKS: SetStacks(!g_stacks); break;
     case ID_SORT_NONE: shell::SetSetting(L"mesa_grade", L"0"); Redraw(); break;
     case ID_SORT_GRID:  // encaixa todos nas casas (a mais perto de onde cada um está)
@@ -1818,6 +1826,7 @@ void mesa::Start(HINSTANCE hi, HWND msgWnd) {
 void mesa::SettingsChanged() {
     Log(L"mesa: ajustes mudaram (explorer=%ls)", shell::Setting(L"explorer", L"1").c_str());
     if (g_ctl) { g_closeTries = 0; Tick(); }
+    { static int lastIcons = -1; int on = IconesOn() ? 1 : 0; if (lastIcons >= 0 && on != lastIcons && Primary()) Redraw(); lastIcons = on; }  // ícones ligados/desligados nos Ajustes
     if ((shell::Setting(L"mesa_pilhas", L"0") == L"1") != g_stacks && Primary()) {  // Pilhas ligadas/desligadas fora do menu da mesa
         g_openStacks.clear();
         for (auto& it : g_items) it.col = it.row = -1;

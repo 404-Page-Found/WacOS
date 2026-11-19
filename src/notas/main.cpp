@@ -354,7 +354,7 @@ void LayoutButtons() {
         if (gg) { g_btn[B_TRASH].shown = false; put(B_MORE, ListR() - 28, L"", 36, 16, 4); g_btn[B_MORE].r.top = TOOL_CY - 18; g_btn[B_MORE].r.bottom = TOOL_CY + 18; }
     }
     float e1 = c.width;
-    put(B_COMPOSE, e0 + 29, L"square.and.pencil", 32, 16, 16);
+    put(B_COMPOSE, e0 + 29, L"square.and.pencil", semaforo::Aqua() ? 28.f : 32.f, 16, 16);  // macOS 27: com a cápsula de 4, um círculo de 36
     put(B_FORMAT, e0 + 92, L"textformat", 34, 20, 13);
     put(B_CHECK, e0 + 133, L"checklist", 32, 17, 15);
     put(B_TABLE, e0 + 176, L"tablecells", 32, 17, 14);
@@ -472,7 +472,7 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
         auto r = SideRowRect(s);
         bool sel = s.id == g_folder && !Searching();
         bool drop = g_dragging && s.id == g_dropFolder;
-        if (sel) { br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, g_focus == F_SIDE ? 0.16f : 0.11f) : D2D1::ColorF(0, 0, 0, g_focus == F_SIDE ? 0.12f : 0.085f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br); }
+        if (sel) { br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, g_focus == F_SIDE ? 0.16f : 0.11f) : D2D1::ColorF(0, 0, 0, g_focus == F_SIDE ? 0.12f : 0.085f)); float fr2 = semaforo::Aqua() ? 10.f : 6.f; dc->FillRoundedRectangle(D2D1::RoundedRect(r, fr2, fr2), br); }
         if (drop) {
             auto a = Accent(); br->SetColor(D2D1::ColorF(a.r, a.g, a.b, 0.30f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br);
             br->SetColor(a); dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1), 5, 5), br, 2);
@@ -544,7 +544,11 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
         if (!b.shown) continue;
         if (b.enabled && (g_hoverBtn == i || g_pressBtn == i || (i == B_FORMAT && g_fmtOpen)) && i != B_LIST && i != B_GALLERY) {
             br->SetColor(g_pressBtn == i || (i == B_FORMAT && g_fmtOpen) ? (g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.09f)) : pal.hover);
-            dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, 7, 7), br);
+            float rr = semaforo::Aqua() ? (b.r.bottom - b.r.top) / 2 : 7.f;  // macOS 27: o realce segue o vidro redondo
+            if (semaforo::Aqua() && (i == B_COMPOSE || i == B_SHARE || i == B_SIDEBAR || i == B_FOLDER || i == B_MORE || i == B_SEARCH)) {
+                float cx2 = (b.r.left + b.r.right) / 2, cy2 = (b.r.top + b.r.bottom) / 2, rad = i == B_SEARCH ? 0 : 16.f;
+                if (rad > 0) dc->FillEllipse(D2D1::Ellipse({ cx2, cy2 }, rad, rad), br); else dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, 18, 18), br);
+            } else dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, rr, rr), br);
         }
         D2D1_COLOR_F col = b.enabled ? pal.icon : pal.iconOff;
         if ((i == B_LIST && !g_gallery) || (i == B_GALLERY && g_gallery)) col = g_dark ? D2D1::ColorF(1, 1, 1, 0.85f) : D2D1::ColorF(0, 0, 0, 0.75f);
@@ -605,7 +609,7 @@ void DrawList(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) 
         Note* n = r.n;
         bool sel = n == g_sel;
         D2D1_RECT_F rr{ L + 10, y + 1, R - 10, y + r.h - 1 };
-        if (sel) { br->SetColor(listFocus ? pal.selFocus : pal.sel); dc->FillRoundedRectangle(D2D1::RoundedRect(rr, 8, 8), br); }
+        if (sel) { float sr = semaforo::Aqua() ? 12.f : 8.f; br->SetColor(listFocus ? pal.selFocus : pal.sel); dc->FillRoundedRectangle(D2D1::RoundedRect(rr, sr, sr), br); }  // macOS 27: mais redonda
         else {  // divisória fina entre as notas (não encosta na selecionada)
             bool nextSel = i + 1 < g_rows.size() && g_rows[i + 1].n == g_sel && g_sel;
             bool nextHeader = i + 1 >= g_rows.size() || g_rows[i + 1].header;
@@ -829,7 +833,17 @@ void Paint() {
     ID2D1DeviceContext* dc = gfx::Begin(g_dpi);
     if (!dc) return;
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
+    // os cantos redondos da janela (16 no Tahoe e no Golden Gate, 12 no Sequoia): sem isso o conteúdo ia até o canto
+    // reto e sobrava um pedaço branco fora do arco da borda
+    ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+    ID2D1RoundedRectangleGeometry* rg = nullptr;
+    auto c = ClientDip();
+    float R = IsZoomed(g_hwnd) ? 0.f : semaforo::Liquid() ? 16.f : 12.f;
+    if (f && R > 0) f->CreateRoundedRectangleGeometry(D2D1::RoundedRect(D2D1::RectF(0, 0, c.width, c.height), R, R), &rg);
+    if (rg) dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), rg), nullptr);
     Render(dc);
+    if (rg) { dc->PopLayer(); rg->Release(); }
+    if (f) f->Release();
     gfx::End();
 }
 

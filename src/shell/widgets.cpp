@@ -830,13 +830,13 @@ void Click(Widget& wd) {
     if (target) ShellExecuteW(nullptr, L"open", target, nullptr, nullptr, SW_SHOWNORMAL);
 }
 
-void Menu(Widget& wd, POINT pt) {
+void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só ligar/desligar e organizar)
     std::vector<ctxmenu::Item> items;
     for (size_t i = 0; i < g_w.size(); i++) {
         ctxmenu::Item it; it.label = Tr(g_w[i].name); it.id = 10 + (int)i; it.checked = g_w[i].on; items.push_back(it);
     }
     ctxmenu::Item sep; sep.separator = true; items.push_back(sep);
-    ctxmenu::Item rm; rm.label = Tr(L"Remover Widget"); rm.id = 1; items.push_back(rm);
+    if (wd) { ctxmenu::Item rm; rm.label = Tr(L"Remover Widget"); rm.id = 1; items.push_back(rm); }
     ctxmenu::Item reset; reset.label = Tr(L"Organizar Widgets"); reset.id = 2; items.push_back(reset);
     HWND fg = GetForegroundWindow();
     DWORD ft = fg ? GetWindowThreadProcessId(fg, nullptr) : 0, me = GetCurrentThreadId();
@@ -844,7 +844,7 @@ void Menu(Widget& wd, POINT pt) {
     SetForegroundWindow(g_menuOwner);
     if (att) AttachThreadInput(me, ft, FALSE);
     int id = ctxmenu::ShowItems(g_menuOwner, pt, items);
-    if (id == 1) { Show(wd, false); shell::SetSetting((std::wstring(L"widget.") + wd.id + L".on").c_str(), L"0"); }
+    if (id == 1 && wd) { Show(*wd, false); shell::SetSetting((std::wstring(L"widget.") + wd->id + L".on").c_str(), L"0"); }
     else if (id == 2) {
         for (auto& w : g_w) w.rc = -1;
         for (auto& w : g_w) { shell::SetSetting((std::wstring(L"widget.") + w.id).c_str(), L""); if (w.on) Position(w, true, true); }
@@ -914,7 +914,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         }
         return 0;
     case WM_RBUTTONUP:
-        if (wd) { POINT c; GetCursorPos(&c); Menu(*wd, c); }
+        if (wd) { POINT c; GetCursorPos(&c); Menu(wd, c); }
         return 0;
     }
     return DefWindowProcW(h, m, wp, lp);
@@ -978,6 +978,10 @@ LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 }  // namespace
+
+// "Editar Widgets…" (menu da mesa e da Central): a lista dos widgets para ligar ou desligar, mesmo sem nenhum na
+// tela (antes só dava pelo menu de um widget: removidos todos, não havia como trazer de volta)
+void widgets::EditMenu(POINT pt) { if (!g_w.empty()) Menu(nullptr, pt); }
 
 void widgets::Create(HINSTANCE hi) {
     WNDCLASSW bc{}; bc.lpfnWndProc = BackProc; bc.hInstance = hi; bc.lpszClassName = L"ShellWidgetFundo";

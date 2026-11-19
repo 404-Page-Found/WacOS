@@ -27,6 +27,7 @@ struct Moved {
     RECT from{}, to{};
     bool minimized = false;  // estava maximizada: foi minimizada
     bool failed = false;     // o Windows recusou mover (janela de administrador)
+    bool atEdge = false;     // foi mesmo para a borda (para devolver também se for minimizada lá)
     RECT src{};              // parte visível da janela (sem a borda invisível; nas maximizadas ela fica fora da tela)
 };
 
@@ -287,7 +288,21 @@ void MoveReal(float k) {
     for (auto& m : g_moved) {
         if (!IsWindow(m.h)) continue;
         RECT r = At(m, k);
-        if (!SetWindowPos(m.h, nullptr, r.left, r.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS) && !m.failed) {
+        if (IsIconic(m.h)) {
+            // minimizada com as janelas na borda (Win+D, ocultar): mover a janela minimizada não muda onde ela volta.
+            // Muda o lugar de restaurar, a partir da borda (onde ela foi minimizada), sem tirar do Dock
+            WINDOWPLACEMENT wp{ sizeof(wp) };
+            if (m.atEdge && k < 0.5f && GetWindowPlacement(m.h, &wp)) {
+                m.atEdge = false;
+                OffsetRect(&wp.rcNormalPosition, r.left - m.to.left, 0);
+                wp.flags = 0; wp.showCmd = SW_SHOWMINNOACTIVE;
+                SetWindowPlacement(m.h, &wp);
+            }
+            continue;
+        }
+        bool ok = SetWindowPos(m.h, nullptr, r.left, r.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS) != FALSE;
+        if (ok) m.atEdge = k > 0.5f;
+        if (!ok && !m.failed) {
             m.failed = true;
             wchar_t t[80] = {}; GetWindowTextW(m.h, t, 80);
             Log(L"revelar: o Windows não deixou mover \"%ls\" (%lu)", t, GetLastError());

@@ -122,6 +122,10 @@ void SyncBack();
 void KeepTop() {
     if (!g_wnd || !IsWindowVisible(g_wnd)) return;
     bool want = WantTop(), is = (GetWindowLongW(g_wnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+    // como no Mac: saiu do Finder (outro app na frente), o Quick Look fecha. Duas leituras seguidas (0,6 s), para
+    // não fechar no instante em que o Windows troca a janela da frente
+    static int away;
+    if (!want && GetForegroundWindow()) { if (++away >= 2) { away = 0; quicklook::Close(); return; } } else away = 0;
     if (want != is) { SetWindowPos(g_wnd, want ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); SyncBack(); }
 }
 
@@ -390,19 +394,21 @@ void DrawGolden(ID2D1RenderTarget* rt, float W, float H, bool dark, bool glass) 
     }
     if (g_isIcon || (g_text.empty() && !g_bmp)) {  // sem prévia: ícone grande e informações, direto no vidro
         float k = g_media ? 1.f : H / 440;  // música: posições fixas (a barra fica embaixo)
+        float nameY = 311 * k;  // o nome fica abaixo do ícone desenhado (os de documento são altos e encostavam nele)
         if (g_bmp) {
             float s = std::min(200.f / g_iw, 200.f / g_ih), w = g_iw * s, h = g_ih * s, x = W / 2, y = 210 * k;
+            nameY = std::max(nameY, y + h / 2 + 18);
             rt->DrawBitmap(g_bmp, D2D1::RectF(x - w / 2, y - h / 2, x + w / 2, y + h / 2), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         }
         static IDWriteTextFormat* tfN = ui::Format(14, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
         static IDWriteTextFormat* tfI = ui::Format(11.5f, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
         for (auto* f : { tfN, tfI }) if (f) { f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); DWRITE_TRIMMING tr{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 }; f->SetTrimming(&tr, nullptr); }
         br->SetColor(text);
-        if (tfN) rt->DrawTextW(g_name.c_str(), (UINT32)g_name.size(), tfN, D2D1::RectF(20, 311 * k - 11, W - 20, 311 * k + 11), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        if (tfN) rt->DrawTextW(g_name.c_str(), (UINT32)g_name.size(), tfN, D2D1::RectF(20, nameY - 11, W - 20, nameY + 11), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         br->SetColor(text2);
         if (tfI) {
-            rt->DrawTextW(g_info.c_str(), (UINT32)g_info.size(), tfI, D2D1::RectF(20, 354 * k - 9, W - 20, 354 * k + 9), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-            rt->DrawTextW(g_date.c_str(), (UINT32)g_date.size(), tfI, D2D1::RectF(20, 372 * k - 9, W - 20, 372 * k + 9), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawTextW(g_info.c_str(), (UINT32)g_info.size(), tfI, D2D1::RectF(20, nameY + 43 - 9, W - 20, nameY + 43 + 9), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawTextW(g_date.c_str(), (UINT32)g_date.size(), tfI, D2D1::RectF(20, nameY + 61 - 9, W - 20, nameY + 61 + 9), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
         br->Release(); fac->Release();
         return;
@@ -879,6 +885,7 @@ bool Ensure() {
 }
 
 }  // namespace
+
 
 bool quicklook::IsOpen() { return g_wnd && IsWindowVisible(g_wnd); }
 std::wstring quicklook::Path() { return IsOpen() ? g_path : L""; }

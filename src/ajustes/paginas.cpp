@@ -1377,7 +1377,9 @@ Page MesaDock() {
     Row dl = Toggle(L"Mostrar a pasta Downloads no Dock", flag(L"dock_downloads", L"1"), setFlag(L"dock_downloads"));
     p.groups.push_back(G({ size, mag, magSize, pos, monRow, hide, anim, ind, dl }, L"Dock"));
     // como no macOS 15/26 (Mesa e Dock > Área de Trabalho e Organizador Visual)
-    p.groups.push_back(G({ Popup(L"Clicar no papel de parede para mostrar a mesa", { L"Sempre", L"Só no Organizador Visual", L"Nunca" },
+    // macOS 14+: "Mostrar Itens: Na Mesa" (o mesmo que o menu da mesa "Ocultar Ícones da Mesa")
+    Row icons = Toggle(L"Mostrar ícones na mesa", [] { return Setting(L"mesa_icones", L"1") != L"0"; }, [](bool v) { SetSetting(L"mesa_icones", v ? L"1" : L"0"); });
+    p.groups.push_back(G({ icons, Popup(L"Clicar no papel de parede para mostrar a mesa", { L"Sempre", L"Só no Organizador Visual", L"Nunca" },
                                  [] { std::wstring v = Setting(L"clique_mostra_mesa", L"palco"); return v == L"1" ? 0 : v == L"0" ? 2 : 1; },
                                  [](int i) { SetSetting(L"clique_mostra_mesa", i == 0 ? L"1" : i == 2 ? L"0" : L"palco"); }) }, L"Área de Trabalho"));
     p.groups.push_back(G({ Toggle(L"Arrastar janelas para as bordas da tela para organizar", [] { return sys::SnapEnabled(); }, [](bool on) { sys::SetSnapEnabled(on); }),

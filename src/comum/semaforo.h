@@ -16,7 +16,7 @@ namespace semaforo {
 enum Kind { FILL, RING, GLYPH };
 
 // lê destaque= e o tema (golden_gate=1 junto com liquid_glass=1 = macOS Golden Gate) do ajustes.txt
-struct Estado { bool grafite = false, aqua = false; };
+struct Estado { bool grafite = false, aqua = false, liquid = false; };
 inline const Estado& Ler() {
     static Estado st;
     static DWORD lastCheck = 0;
@@ -44,6 +44,7 @@ inline const Estado& Ler() {
     fclose(f);
     st.grafite = g;
     st.aqua = liquid && golden;
+    st.liquid = liquid;
     return st;
 }
 
@@ -57,6 +58,7 @@ inline bool Grafite() { return Ler().grafite; }
 //   minim.  (251,185,39)  -> (254,211,66);  aro (157,9,9)
 //   zoom    (96,208,40)   -> (152,218,120); aro (9,85,9)
 inline bool Aqua() { return Ler().aqua; }
+inline bool Liquid() { return Ler().liquid; }  // Tahoe ou Golden Gate (cantos de 16)
 
 #include "semaforo_mac27.inc"  // os três botões do macOS 27 tirados da captura 2x (tools/semaforo-mac27.py)
 

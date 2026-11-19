@@ -67,7 +67,7 @@ inline float WidgetR() { return liquid::On() ? 26.f : WIDGET_R_SEQ; }
 const int MAX_GROUPS = 6;  // grupos mostrados antes de "N notificações a mais"
 
 const UINT WM_NC_FRAME = WM_APP + 90, WM_NC_DATA = WM_APP + 91, WM_NC_NEW = WM_APP + 92, WM_NC_BFRAME = WM_APP + 93;
-const UINT_PTR T_TICK = 1;
+const UINT_PTR T_TICK = 1, T_FOCO = 2;  // T_FOCO: confere quem ficou na frente depois de perder o foco "para ninguém"
 
 HWND g_wnd, g_back;
 bool IsOurBanner(HWND h) { wchar_t c[64] = {}; GetClassNameW(h, c, 64); return wcsstr(c, L"Notifica") != nullptr || wcsstr(c, L"Banner") != nullptr; }
@@ -1134,7 +1134,8 @@ void Click(D2D1_POINT_2F p) {
     case A_MORE: g_showAll = true; break;
     case A_EDIT:
         Close();
-        if (g_editWidgets) g_editWidgets(); else shell::OpenSettings(L"notificacoes");
+        if (g_editWidgets) g_editWidgets();
+        else { POINT c; GetCursorPos(&c); widgets::EditMenu(c); }  // os widgets da mesa: ligar/desligar cada um
         return;
     case A_SETTINGS: Close(); shell::OpenSettings(L"notificacoes"); return;
     case A_PERMISSION: Close(); ShellExecuteW(nullptr, L"open", L"ms-settings:privacy-notifications", nullptr, nullptr, SW_SHOWNORMAL); return;
@@ -1172,6 +1173,14 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_TIMER:
         if (w == T_TICK && g_open) Paint();  // horas relativas e o relógio
+        if (w == T_FOCO) {
+            KillTimer(h, T_FOCO);
+            if (!g_open || g_menu) return 0;
+            HWND f = GetForegroundWindow(); DWORD pid = 0;
+            if (f) GetWindowThreadProcessId(f, &pid);
+            if (f && pid != GetCurrentProcessId()) { Log(L"notificações: fechou (outro programa na frente)"); Close(); }
+            else SetForegroundWindow(g_wnd);  // ninguém (ou o próprio Shell) na frente: continua aberta
+        }
         return 0;
     case WM_LBUTTONDOWN: if (g_open) Click(Pt(l)); return 0;
     case WM_RBUTTONUP: return 0;
@@ -1197,6 +1206,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SetForegroundWindow(g_wnd);
                 return 0;
             }
+            if (!to) { SetTimer(h, T_FOCO, 150, nullptr); return 0; }  // "para ninguém" (ao abrir uma pilha): confere já já
             wchar_t cls[64] = {}; if (to) GetClassNameW(to, cls, 64);
             Log(L"notificações: fechou (perdeu o foco para %ls)", cls);
             Close();
