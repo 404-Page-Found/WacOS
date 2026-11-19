@@ -473,31 +473,8 @@ static void GlassIcon(UINT w, UINT h, std::vector<BYTE>& px, bool tinted, float 
 
 // Escuro: o fundo claro do ícone vira grafite e o desenho colorido fica (um pouco mais vivo);
 // Transparente e Tingido: o ícone vira vidro (GlassIcon).
-static void StyleIconRaw(UINT w, UINT h, std::vector<BYTE>& px, const std::wstring& style);
-// O selo vermelho que o app pinta no próprio ícone (WhatsApp, Discord: o número de mensagens no canto de cima à
-// direita) continua vermelho nos estilos Escuro, Transparente e Tingido, como no Mac. Antes ele virava vidro branco.
 void ui::StyleIcon(UINT w, UINT h, std::vector<BYTE>& px, const std::wstring& style) {
     if (style == L"padrao" || style.empty() || px.size() < (size_t)w * h * 4) return;
-    std::vector<BYTE> orig = px;
-    StyleIconRaw(w, h, px, style);
-    // vermelho forte só no quarto de cima à direita: a caixa dele é o selo (com o número branco dentro)
-    UINT x0 = w, y0 = h, x1 = 0, y1 = 0, n = 0;
-    for (UINT y = 0; y < h / 2; y++)
-        for (UINT x = w / 2; x < w; x++) {
-            const BYTE* q = &orig[((size_t)y * w + x) * 4];
-            if (q[3] < 200) continue;
-            int r = q[2], g = q[1], b = q[0];
-            if (r > 170 && g < r * 0.45f && b < r * 0.45f) { n++; x0 = std::min(x0, x); y0 = std::min(y0, y); x1 = std::max(x1, x); y1 = std::max(y1, y); }
-        }
-    if (n < (w * h) / 200 || x1 <= x0 || y1 <= y0) return;  // pouco vermelho: não é selo
-    if ((x1 - x0) > w / 2 || (y1 - y0) > h / 2) return;     // grande demais: é o desenho do ícone, não um selo
-    for (UINT y = y0; y <= y1; y++)
-        for (UINT x = x0; x <= x1; x++) {
-            size_t i = ((size_t)y * w + x) * 4;
-            if (orig[i + 3] > 0) memcpy(&px[i], &orig[i], 4);
-        }
-}
-static void StyleIconRaw(UINT w, UINT h, std::vector<BYTE>& px, const std::wstring& style) {
     float tr = 0.04f, tg = 0.52f, tb = 1.0f;  // azul do Mac
     {
         static const std::pair<const wchar_t*, UINT32> acc[] = { { L"roxo", 0x953D96 }, { L"rosa", 0xF74F9E }, { L"vermelho", 0xE0383E },
