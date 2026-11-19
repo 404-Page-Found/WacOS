@@ -90,7 +90,10 @@ void Invalidate() { if (g_hwnd) InvalidateRect(g_hwnd, nullptr, FALSE); }
 
 float SideW() { return g_sideHidden ? 0.f : g_sideW; }
 float ListL() { return SideW(); }
-float ListR() { return g_gallery ? ClientDip().width : SideW() + g_listW; }
+// macOS 27 com a lateral escondida: a coluna das notas carrega os três botões, o da lateral, o nome da pasta e o
+// "⋯" na barra; com menos de 310 pt ficava tudo apertado ("Not…")
+float ListW() { return g_sideHidden && semaforo::Aqua() ? std::max(g_listW, 310.f) : g_listW; }
+float ListR() { return g_gallery ? ClientDip().width : SideW() + ListW(); }
 float EdL() { return g_gallery ? SideW() : ListR(); }
 bool EditorShown() { return !g_gallery || g_galleryOpen; }
 float ToolStart() { return g_sideHidden ? 128.f : SideW(); }  // onde começam os botões da lista (sem barra lateral, depois das bolinhas)
