@@ -2,6 +2,8 @@
 // estudo em docs/estudo-bandeja.md). Recebe Shell_NotifyIcon dos apps e repassa tudo ao Explorador.
 #include "shell.h"
 #include <shellapi.h>
+#include <shlwapi.h>
+#pragma comment(lib, "shlwapi.lib")
 #include <algorithm>
 
 #pragma pack(push, 4)
@@ -121,6 +123,31 @@ bool tray::DoExplorer(COPYDATASTRUCT* cd, LRESULT* res) {
     return true;
 }
 
+// Outra Shell_TrayWnd de um WacOSShell (o Shell antigo, num reinício, ainda fechando): o aviso "TaskbarCreated"
+// espera ela sumir. Antes ele ia na hora, os apps mandavam os ícones para a bandeja do Shell antigo, que logo fechava
+// levando os ícones junto (a bandeja ficava vazia depois de reiniciar o Shell)
+static bool g_avisoPendente;
+static DWORD g_avisoDesde;
+static bool OutroShellComBandeja() {
+    HWND h = nullptr;
+    while ((h = FindWindowExW(nullptr, h, L"Shell_TrayWnd", nullptr))) {
+        if (h == g_tray) continue;
+        DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+        if (!pid || pid == GetCurrentProcessId()) continue;
+        if (HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+            wchar_t p[MAX_PATH] = {}; DWORD n = MAX_PATH;
+            bool shell = QueryFullProcessImageNameW(ph, 0, p, &n) && StrStrIW(p, L"WacOSShell") != nullptr;
+            CloseHandle(ph);
+            if (shell) return true;
+        }
+    }
+    return false;
+}
+static void AvisarApps() {
+    g_avisoPendente = false;
+    SendNotifyMessageW(HWND_BROADCAST, RegisterWindowMessageW(L"TaskbarCreated"), 0, 0);  // os apps mandam os ícones de novo
+}
+
 void tray::Start(std::function<void()> changed) {
     g_changed = changed;
     if (shell::nativo) {
@@ -141,7 +168,8 @@ void tray::Start(std::function<void()> changed) {
                              tb.left, tb.top, tb.right - tb.left, tb.bottom - tb.top, nullptr, nullptr, shell::inst, nullptr);
     g_notify = CreateWindowExW(0, L"TrayNotifyWnd", nullptr, WS_CHILD, 0, 0, 1, 1, g_tray, nullptr, shell::inst, nullptr);
     apps::ours.push_back(g_tray);
-    SendNotifyMessageW(HWND_BROADCAST, RegisterWindowMessageW(L"TaskbarCreated"), 0, 0);
+    if (OutroShellComBandeja()) { g_avisoPendente = true; g_avisoDesde = GetTickCount(); Log(L"bandeja: esperando o Shell antigo fechar para chamar os ícones"); }
+    else AvisarApps();
     Log(L"bandeja: Shell_TrayWnd próprio criado");
 }
 
@@ -159,6 +187,11 @@ void tray::Stop() {
 }
 
 void tray::Keepalive() {
+    if (g_avisoPendente && (!OutroShellComBandeja() || GetTickCount() - g_avisoDesde > 15000)) {  // no máximo 15 s
+        Log(L"bandeja: Shell antigo fechou, chamando os ícones");
+        if (g_tray) SetWindowPos(g_tray, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        AvisarApps();
+    }
     if (g_tray && FindWindowW(L"Shell_TrayWnd", nullptr) != g_tray)
         SetWindowPos(g_tray, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 }

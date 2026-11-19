@@ -1085,8 +1085,10 @@ const Hit* HitAt(D2D1_POINT_2F p) {
 }
 
 DWORD g_expandedAt = 0;  // quando uma pilha foi aberta
+DWORD g_clickAt = 0;     // último clique dentro da Central: o foco que some logo depois não fecha (abrir a pilha)
 
 void Click(D2D1_POINT_2F p) {
+    g_clickAt = GetTickCount();
     const Hit* h = HitAt(p);
     if (!h) { Close(); return; }  // clique no vazio da coluna: fecha, como clicar fora
     Hit hit = *h;
@@ -1108,7 +1110,7 @@ void Click(D2D1_POINT_2F p) {
     }
     switch (hit.act) {
     case A_STACK:
-        if (hit.group >= 0 && hit.group < (int)g_groups.size()) { g_expanded.insert(g_groups[hit.group].aumid); g_expandedAt = GetTickCount(); }
+        if (hit.group >= 0 && hit.group < (int)g_groups.size()) { g_expanded.insert(g_groups[hit.group].aumid); g_expandedAt = GetTickCount(); Log(L"notificações: abriu a pilha de %ls", g_groups[hit.group].app.c_str()); }
         break;
     case A_CARD:
         // segundo clique de um clique duplo na pilha: só abre o grupo (não abre o app nem fecha a central)
@@ -1178,7 +1180,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (!g_open || g_menu) return 0;
             HWND f = GetForegroundWindow(); DWORD pid = 0;
             if (f) GetWindowThreadProcessId(f, &pid);
-            if (f && pid != GetCurrentProcessId()) { Log(L"notificações: fechou (outro programa na frente)"); Close(); }
+            if (f && pid != GetCurrentProcessId() && GetTickCount() - g_clickAt >= 800) { Log(L"notificações: fechou (outro programa na frente)"); Close(); }
             else SetForegroundWindow(g_wnd);  // ninguém (ou o próprio Shell) na frente: continua aberta
         }
         return 0;
@@ -1207,6 +1209,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 return 0;
             }
             if (!to) { SetTimer(h, T_FOCO, 150, nullptr); return 0; }  // "para ninguém" (ao abrir uma pilha): confere já já
+            if (GetTickCount() - g_clickAt < 800) { SetTimer(h, T_FOCO, 150, nullptr); return 0; }  // logo depois de um clique aqui dentro: não foi clique fora
             wchar_t cls[64] = {}; if (to) GetClassNameW(to, cls, 64);
             Log(L"notificações: fechou (perdeu o foco para %ls)", cls);
             Close();
