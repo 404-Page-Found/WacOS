@@ -1729,7 +1729,13 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 // Win+D sem o Explorador: minimiza as janelas dos apps; de novo, devolve
 std::vector<HWND> g_shown;
 void ShowDesktopToggle() {
+    // já voltaram por outro caminho (Dock, Alt+Tab)? Então este Win+D esconde de novo, em vez de "devolver" nada
+    bool anyHidden = false;
+    for (HWND h : g_shown) if (IsWindow(h) && IsIconic(h)) { anyHidden = true; break; }
+    if (!anyHidden) g_shown.clear();
     if (!g_shown.empty()) {
+        // devolve de trás para a frente: a que estava na frente termina na frente
+        // (SW_RESTORE: a maximizada volta maximizada; a de cima é a última, e fica com o foco)
         for (auto it = g_shown.rbegin(); it != g_shown.rend(); ++it) if (IsWindow(*it) && IsIconic(*it)) ShowWindowAsync(*it, SW_RESTORE);
         g_shown.clear();
         return;
@@ -1743,6 +1749,7 @@ void ShowDesktopToggle() {
         wchar_t c[64]; GetClassNameW(h, c, 64);
         if (mesa::IsDeskClass(c) || !wcscmp(c, L"Shell_TrayWnd")) return TRUE;
         g_shown.push_back(h);
+        genio::Pause(1200);  // todas de uma vez, sem o gênio (várias animações juntas travavam com Win+D repetido)
         ShowWindowAsync(h, SW_MINIMIZE);
         return TRUE;
     }, 0);

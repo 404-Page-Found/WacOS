@@ -33,7 +33,7 @@ const float SEARCH_H = 28, ACCOUNT_H = 50;
 const float PAD = 20, GROUP_R = 8, GROUP_GAP = 11;
 float ROW_H = 38;
 const UINT WM_APP_REBUILD = WM_APP + 1, WM_APP_BITMAP = WM_APP + 2;
-const UINT_PTR T_REFRESH = 1, T_ANIM = 2, T_CARET = 3;
+const UINT_PTR T_REFRESH = 1, T_ANIM = 2, T_CARET = 3, T_FRENTE = 4;  // T_FRENTE: vem para a frente depois de aparecer
 
 HWND g_hwnd;
 HINSTANCE g_inst;
@@ -1509,6 +1509,12 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_TIMER:
+        if (w == T_FRENTE) {  // já à mostra (o Shell terminou a animação de abrir): para a frente de verdade
+            KillTimer(h, T_FRENTE);
+            if (GetForegroundWindow() != h) { keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); }
+            BringWindowToTop(h);
+            return 0;
+        }
         if (w == T_REFRESH) {
             if (tahoe::Reload()) { g_tahoe = tahoe::On(); ApplyWindowTheme(); shadow::Update(); Invalidate(); }
             if (!g_sheet.open && g_drag.g < 0 && !ctxmenu::IsOpen()) {
@@ -1576,7 +1582,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else if (id == L"atualizacao") { int g = SidebarIndexFor(L"geral"); if (g >= 0) SelectSide(g); OpenUpdatePage(); }
         }
         if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
-        SetForegroundWindow(h);
+        keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);  // já aberta: para a frente mesmo atrás de outro app
+        BringWindowToTop(h);
         return TRUE;
     }
     case WM_APP_REBUILD:
@@ -1724,6 +1731,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     DwmFlush();
     ampliacao::Revelar(g_hwnd);  // abrir animado (o Shell mostra no fim) ou já
     SetTimer(g_hwnd, T_REFRESH, 2500, nullptr);
+    // aberta pelo Dock (o Shell não está na frente para passar a vez): o SetForegroundWindow lá em cima, com a
+    // janela ainda escondida, não pegava e os Ajustes abriam atrás do app da frente
+    SetTimer(g_hwnd, T_FRENTE, 350, nullptr);
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }

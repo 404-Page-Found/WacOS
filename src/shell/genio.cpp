@@ -505,9 +505,11 @@ bool Wanted(HWND h) {
     return true;
 }
 
+DWORD g_pauseUntil;  // Win+D: sem gênio até esta hora (genio::Pause)
 void CALLBACK OnMinimize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (obj != OBJID_WINDOW || ev != EVENT_SYSTEM_MINIMIZESTART || !Wanted(h)) return;
     if (revelar::Owns(h) || apps::IsHidden(h)) return;  // Ocultar: some sem o gênio
+    if ((int)(g_pauseUntil - GetTickCount()) > 0) return;  // Win+D: sem o gênio
     if (g_running && g_a.target == h) { Log(L"gênio: aviso de minimizou %.1f ms depois do começo", anim::Now() - g_a.t0); return; }  // já começou pela pergunta do Windows
     RECT slot = dock::MinimizeTarget();
     Start(h, slot, false);
@@ -546,11 +548,12 @@ void genio::Stop() {
 }
 
 bool genio::Busy(HWND h) { return g_running && g_a.target == h; }
+void genio::Pause(DWORD ms) { g_pauseUntil = GetTickCount() + ms; }
 
 // HSHELL_GETMINRECT: o Windows vai minimizar `h` (ela ainda está na tela). Começa o gênio agora e responde
 // com o lugar no Dock. false: não é uma janela nossa de animar (ou é a volta de uma restauração).
 bool genio::OnMinRect(HWND h, RECT* out) {
-    if (!g_ov || !Wanted(h) || revelar::Owns(h) || IsIconic(h) || apps::IsHidden(h)) return false;
+    if (!g_ov || !Wanted(h) || revelar::Owns(h) || IsIconic(h) || apps::IsHidden(h) || (int)(g_pauseUntil - GetTickCount()) > 0) return false;
     if (g_running && g_a.target == h) { *out = g_a.slot; return true; }
     RECT slot = dock::MinimizeTarget();
     if (slot.right <= slot.left) return false;

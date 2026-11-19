@@ -328,6 +328,7 @@ bool Busy(HWND h);                 // a janela está no meio do gênio (o Dock a
 int Phase(HWND h);                 // 0 parada, 1 minimizando (indo para o Dock), 2 restaurando (saindo dele)
 bool Restore(HWND h, RECT fromSlot);
 bool OnMinRect(HWND h, RECT* out);  // HSHELL_GETMINRECT: começa o gênio antes da janela sumir
+void Pause(DWORD ms);               // Win+D: minimiza tudo de uma vez, sem o gênio (pesado em várias janelas)
 }
 namespace seletor {  // Alt+Tab: o seletor de apps do Mac (seletor.cpp)
 bool Create(HINSTANCE hi);

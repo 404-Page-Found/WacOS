@@ -735,10 +735,18 @@ void Ordem(Info& in) {
         SetWindowPos(in.faixa, (GetWindowLongW(in.alvo, GWL_EXSTYLE) & WS_EX_TOPMOST) ? HWND_TOPMOST : HWND_TOP, 0, 0, 0, 0, F);
         return;
     }
+    // A faixa fica na mesma camada da janela. Antes ela ia para logo abaixo da janela de cima, que podia ser "sempre no
+    // topo" (Dock, barra de menus): a faixa virava "sempre no topo" e, no passo de baixo, a janela do app também
+    // (Chrome, Claude, Finder ficavam por cima de tudo e os outros apps não vinham mais para a frente; Win+D repetido)
+    const bool alvoTop = (GetWindowLongW(in.alvo, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+    if (((GetWindowLongW(in.faixa, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0) != alvoTop)
+        SetWindowPos(in.faixa, alvoTop ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, F);
     HWND prev = GetWindow(in.alvo, GW_HWNDPREV);
+    if (prev && !alvoTop && (GetWindowLongW(prev, GWL_EXSTYLE) & WS_EX_TOPMOST)) prev = nullptr;  // a 1ª da camada comum
     SetWindowPos(in.faixa, prev ? prev : HWND_TOP, 0, 0, 0, 0, F);
     if (GetWindow(in.alvo, GW_HWNDPREV) == in.faixa) return;
     // não ficou colada: põe a faixa embaixo da janela e a janela embaixo da faixa (sem esperar o programa)
+    if (((GetWindowLongW(in.faixa, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0) != alvoTop) return;  // camadas diferentes: não arrasta o app
     SetWindowPos(in.faixa, in.alvo, 0, 0, 0, 0, F);
     SetWindowPos(in.alvo, in.faixa, 0, 0, 0, 0, F | SWP_ASYNCWINDOWPOS);
 }

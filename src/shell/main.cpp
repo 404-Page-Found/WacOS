@@ -238,6 +238,12 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 g_winCombo = g_winEaten = true;
                 PostMessageW(g_msg, WM_APP_WINKEY, 'E', 0);
                 return 1;
+            } else if (g_winDown && down && !g_winCombo && !shell::nativo && k->vkCode == 'D') {
+                // Win+D é sempre nosso: com o Explorador de fundo, o "mostrar a área de trabalho" dele punha a mesa
+                // DELE na frente e a nossa voltava por cima em seguida (piscava, os widgets sumiam e voltavam)
+                g_winCombo = g_winEaten = true;
+                PostMessageW(g_msg, WM_APP_WINKEY, 'D', 0);
+                return 1;
             } else if (g_winDown && down && !g_winCombo && mesa::Standalone() && (k->vkCode == 'E' || k->vkCode == 'R' || k->vkCode == 'D')) {
                 // sem o Explorador ninguém trata Win+E/R/D: fazemos nós (Finder, Executar, mostrar a mesa)
                 g_winCombo = g_winEaten = true;
