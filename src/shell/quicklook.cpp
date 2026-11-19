@@ -106,6 +106,39 @@ std::wstring g_kind, g_info, g_date; // "Pasta · 5 itens", "Modificado: 13 de n
 
 float Sc() { return ui::Scale(g_wnd); }
 
+// Abrir e fechar animados, como o painel do Mac: abre crescendo de 94% com a opacidade subindo (180 ms, mola sem
+// repique) e fecha sumindo e encolhendo um pouco (130 ms). É o vidro inteiro (o desenho está dentro dele) que anima.
+float g_qlOp = 1, g_qlSc = 1;
+double g_qlAnimT0 = -1;
+bool g_qlAnimOut;
+const UINT_PTR T_QLANIM = 9;
+void CloseNow();
+void ApplyFade() {
+    if (!g_back) return;
+    RECT wr; GetWindowRect(g_wnd, &wr);
+    backdrop::Fade(g_back, g_qlOp, g_qlSc, (wr.right - wr.left) / 2.f, (wr.bottom - wr.top) / 2.f);
+}
+void AnimStep() {
+    if (g_qlAnimT0 < 0) return;
+    double dur = g_qlAnimOut ? 130.0 : 180.0;
+    float t = (float)std::clamp((anim::Now() - g_qlAnimT0) / dur, 0.0, 1.0);
+    float e = 1 - (1 - t) * (1 - t) * (1 - t);  // sai rápido e assenta
+    if (g_qlAnimOut) { g_qlOp = 1 - e; g_qlSc = 1 - 0.04f * e; }
+    else { g_qlOp = e; g_qlSc = 0.94f + 0.06f * e; }
+    ApplyFade();
+    if (t >= 1) {
+        KillTimer(g_wnd, T_QLANIM);
+        g_qlAnimT0 = -1;
+        if (g_qlAnimOut) { g_qlAnimOut = false; g_qlOp = g_qlSc = 1; CloseNow(); }
+        else { g_qlOp = g_qlSc = 1; ApplyFade(); }
+    }
+}
+void AnimStart(bool out) {
+    g_qlAnimOut = out;
+    g_qlAnimT0 = anim::Now();
+    SetTimer(g_wnd, T_QLANIM, 8, nullptr);
+}
+
 // Por cima do Finder (como o painel do Mac): fica "sempre visível" enquanto a janela da frente é do Finder ou do
 // próprio Shell; trocando para outro app, volta a ser uma janela comum e fica atrás dele.
 bool WantTop() {
@@ -445,7 +478,7 @@ void PaintGolden(ID2D1RenderTarget* rt, RECT wr, int wpx, int hpx, float sc, boo
         if (ID2D1DeviceContext* dc = backdrop::ContentBegin(g_back, wpx, hpx, sc)) {
             DrawGolden(dc, W, H, dark, true);
             backdrop::ContentEnd(g_back);
-            backdrop::Fade(g_back, 1, 1, 0, 0);
+            ApplyFade();
             // a janela de cima só pega o mouse: um véu de 1/255 (pixel transparente deixaria o clique passar)
             ID2D1SolidColorBrush* b = nullptr;
             rt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1.f / 255), &b);
@@ -762,6 +795,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         if (w == 7) { if (g_media) PaintCtl(); return 0; }
         if (w == 8) { KeepTop(); return 0; }
+        if (w == T_QLANIM) { AnimStep(); return 0; }
         break;
     case WM_QL_READY: {
         auto* r = (std::tuple<int, UINT, UINT, std::vector<BYTE>>*)l;
@@ -890,8 +924,10 @@ bool Ensure() {
 bool quicklook::IsOpen() { return g_wnd && IsWindowVisible(g_wnd); }
 std::wstring quicklook::Path() { return IsOpen() ? g_path : L""; }
 
-void quicklook::Close() {
+namespace {
+void CloseNow() {
     if (!g_wnd) return;
+    KillTimer(g_wnd, T_QLANIM); g_qlAnimT0 = -1; g_qlAnimOut = false; g_qlOp = g_qlSc = 1;
     MediaStop();
     KillTimer(g_wnd, 8);
     SetWindowPos(g_wnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -902,11 +938,26 @@ void quicklook::Close() {
     if (g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
     g_px.clear(); g_text.clear();
 }
+}  // namespace
+
+void quicklook::Close() {
+    if (!g_wnd) return;
+    if (g_qlAnimOut) return;  // já fechando
+    if (IsWindowVisible(g_wnd) && g_glass && liquid::Golden()) {  // some animado; o vídeo para já
+        MediaStop();
+        AnimStart(true);
+        return;
+    }
+    CloseNow();
+}
 
 void quicklook::Toggle(const std::wstring& path, bool activate) {
     if (path.empty() || GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    if (g_qlAnimOut) CloseNow();  // fechando ainda: termina já e abre o novo
     if (IsOpen() && !_wcsicmp(path.c_str(), g_path.c_str())) { Close(); return; }
     if (!Ensure()) return;
+    bool opening = !IsOpen();
+    if (opening && g_glass && liquid::Golden()) { g_qlOp = 0; g_qlSc = 0.94f; }  // a primeira pintura já sai do começo da animação
     Load(path);
     Place();  // fechado: no meio do monitor do mouse; aberto: fica onde está, no tamanho da prévia nova
     // do Finder: não tira o foco dele (as setas trocam o arquivo e o espaço fecha, como no Mac)
@@ -917,5 +968,6 @@ void quicklook::Toggle(const std::wstring& path, bool activate) {
     if (activate) SetForegroundWindow(g_wnd);
     Paint();
     SyncBack();
+    if (opening && g_glass && liquid::Golden()) AnimStart(false);
     Log(L"quick look: %ls", path.c_str());
 }

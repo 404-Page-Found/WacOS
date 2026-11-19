@@ -452,6 +452,10 @@ std::mutex areasMx;
 std::vector<RECT> areasSnap;
 std::atomic<int> st_frames, st_composes, st_redraws, st_skipped;  // contagem a cada 10 s (diagnóstico de CPU)
 std::map<std::wstring, int> st_frameBy;               // quadros por classe de janela atrás das peças
+// quadro novo de uma janela que não é o papel de parede (Progman/WorkerW/SequoiaMesa). Só o papel de parede animado
+// mudando (Lively: ~58 quadros/s, o tempo todo) remonta o vidro a 30/s, não a 60: o vidro parado sobre um papel de
+// parede animado custava uma montagem a cada quadro da tela e roubava a fluidez das animações
+std::atomic<bool> st_nonDesk{ true };
 std::mutex st_mx;
 void Dump();
 
@@ -484,13 +488,16 @@ LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // (frameDirty, ver Poll)
         if (w == 1) frameDirty = true; else capDirty = true;
         static double last = 0;
-        if (anim::Now() - last >= 15.5) { last = anim::Now(); Poll(w != 1); }
-        else SetTimer(h, T_RG + 1, 16, nullptr);  // cedo demais: monta no próximo tique (uma vez só)
+        bool soPapel = w == 1 && !capDirty && !st_nonDesk.load();  // só o papel de parede animado: 30 por segundo
+        double gap = soPapel ? 33.0 : 15.5;
+        if (anim::Now() - last >= gap) { last = anim::Now(); st_nonDesk = false; Poll(w != 1); }
+        else SetTimer(h, T_RG + 1, soPapel ? 33 : 16, nullptr);  // cedo demais: monta no próximo tique (uma vez só)
         return 0;
     }
     // o que ficou pendente; o temporizador só existe enquanto há algo (antes acordava 60 vezes/s sempre)
     if (m == WM_TIMER && w == T_RG + 1) {
         KillTimer(h, T_RG + 1);
+        st_nonDesk = false;
         Poll(false);
         if (frameDirty || capDirty) SetTimer(h, T_RG + 1, 16, nullptr);
         return 0;
@@ -607,7 +614,11 @@ std::shared_ptr<WinCap> StartCap(HWND h) {
                 if (!touches) { st_skipped++; return; }  // o quadro fica guardado (a próxima montagem já usa o mais novo)
             }
             c->fresh = true;
-            if (c->relevant) { wchar_t cl[48] = {}; GetClassNameW(c->h, cl, 48); std::lock_guard<std::mutex> lk(st_mx); st_frameBy[cl]++; }
+            if (c->relevant) {
+                wchar_t cl[48] = {}; GetClassNameW(c->h, cl, 48);
+                if (wcscmp(cl, L"Progman") && wcscmp(cl, L"WorkerW") && wcscmp(cl, L"SequoiaMesa")) st_nonDesk = true;
+                std::lock_guard<std::mutex> lk(st_mx); st_frameBy[cl]++;
+            }
             if (c->relevant && !posted.exchange(true)) PostMessageW(msgWnd, WM_RG_FRAME, 1, 0);
         });
         c->session.StartCapture();
