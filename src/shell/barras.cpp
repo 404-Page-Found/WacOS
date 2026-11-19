@@ -297,6 +297,7 @@ void Pintar(Info& in) {
             if (lit && in.press == k) { col.r *= 0.78f; col.g *= 0.78f; col.b *= 0.78f; }
             b->SetColor(col);
             rt->FillEllipse(D2D1::Ellipse(c, LR, LR), b);
+            semaforo::Gloss(rt, c, LR, b);
             b->SetColor(D2D1::ColorF(0, 0, 0, 0.12f));
             rt->DrawEllipse(D2D1::Ellipse(c, LR - 0.25f, LR - 0.25f), b, 0.5f);
             if (!in.hover || !can[k]) continue;

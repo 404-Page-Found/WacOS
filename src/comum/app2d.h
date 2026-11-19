@@ -20,6 +20,10 @@
 #include <string>
 #include <vector>
 #include "idioma.h"
+#include "semaforo.h"  // semaforo::Aqua(): tema macOS Golden Gate
+#include <commctrl.h>
+#include <shellapi.h>
+#pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
 #pragma comment(lib, "dwmapi.lib")
@@ -30,7 +34,9 @@ inline ID2D1Factory* d2d;
 inline IDWriteFactory* dw;
 inline std::wstring family = L"Segoe UI";
 inline HWND wnd;
-inline ID2D1HwndRenderTarget* rt;
+inline ID2D1RenderTarget* rt;        // onde se desenha agora (a janela, ou a foto do --foto)
+inline ID2D1HwndRenderTarget* hrt;   // o da janela
+inline ID2D1SolidColorBrush* hbr;
 inline ID2D1SolidColorBrush* br;
 
 inline bool HasFont(const wchar_t* name) {
@@ -99,26 +105,159 @@ inline void Circle(D2D1_POINT_2F c, float r, D2D1_COLOR_F col, bool fill, float 
 inline D2D1_COLOR_F Rgb(int r, int g, int b, float a = 1) { return D2D1::ColorF(r / 255.f, g / 255.f, b / 255.f, a); }
 inline bool In(D2D1_RECT_F r, float x, float y) { return x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
 
+// ---- macOS 27 (Golden Gate): barra de ferramentas unificada. Sem a barra de título do Windows: a área do app
+// começa no topo da janela e os primeiros BAR pt são a barra dele (botões redondos de vidro na mesma linha dos
+// três botões da janela, que a WacOSWindow.dll desenha por cima a 26 pt da borda). Arrasta pela barra, menos
+// pelos botões que o app registra ao pintar (BarButton).
+inline float BAR = 0;          // 0: barra comum do Windows (Sequoia/Tahoe)
+inline float barWanted = 0;    // o app que já tem o layout do macOS 27 pede (52) antes do CreateMain
+inline std::vector<D2D1_RECT_F> barButtons;
+inline void BarButton(D2D1_RECT_F r) { barButtons.push_back(r); }
+inline LRESULT CALLBACK UnifiedSub(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
+    if (m == WM_NCCALCSIZE && w) {  // tira só a barra de cima; as bordas de redimensionar continuam
+        auto* p = (NCCALCSIZE_PARAMS*)l;
+        LONG top = p->rgrc[0].top;
+        LRESULT r = DefSubclassProc(h, m, w, l);
+        p->rgrc[0].top = top;
+        if (IsZoomed(h)) { UINT dpi = GetDpiForWindow(h); p->rgrc[0].top += GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi); }
+        return r;
+    }
+    if (m == WM_NCHITTEST) {
+        LRESULT r = DefSubclassProc(h, m, w, l);
+        if (r != HTCLIENT) return r;
+        POINT p{ GET_X_LPARAM(l), GET_Y_LPARAM(l) }; ScreenToClient(h, &p);
+        float s = GetDpiForWindow(h) / 96.f, x = p.x / s, y = p.y / s;
+        if (!IsZoomed(h) && p.y < (int)(5 * s)) return HTTOP;
+        if (y >= BAR || x < (BAR > 40 ? 84 : 72)) return HTCLIENT;
+        for (auto& b : barButtons) if (x >= b.left && x < b.right && y >= b.top && y < b.bottom) return HTCLIENT;
+        return HTCAPTION;
+    }
+    return DefSubclassProc(h, m, w, l);
+}
+
+// Botão redondo de vidro da barra do macOS 27 (círculo de 36 ou cápsula): branco leitoso com contorno fino e
+// sombra curta no claro; cinza translúcido no escuro
+inline void GlassButton(D2D1_RECT_F r, bool dark, bool hot = false) {
+    float rad = (r.bottom - r.top) / 2;
+    for (int k = 3; k >= 1; k--) {
+        br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.10f : 0.035f));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k * 0.5f, r.top + k * 0.6f, r.right + k * 0.5f, r.bottom + k * 1.1f), rad + k, rad + k), br);
+    }
+    br->SetColor(dark ? D2D1::ColorF(0.24f, 0.24f, 0.245f, 1) : D2D1::ColorF(hot ? 0.95f : 0.985f, hot ? 0.95f : 0.985f, hot ? 0.95f : 0.985f, 1));
+    if (dark && hot) br->SetColor(D2D1::ColorF(0.29f, 0.29f, 0.295f, 1));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br);
+    br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.13f) : D2D1::ColorF(0, 0, 0, 0.09f));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), rad - 0.25f, rad - 0.25f), br, 0.5f);
+}
+// campo de busca em cápsula do macOS 27 (barra lateral): vidro claro com contorno
+inline void GlassField(D2D1_RECT_F r, bool dark) {
+    float rad = (r.bottom - r.top) / 2;
+    br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.12f : 0.03f));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1.5f), rad, rad), br);
+    br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.08f) : D2D1::ColorF(0.975f, 0.98f, 0.985f, 1));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br);
+    br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), rad - 0.25f, rad - 0.25f), br, 0.5f);
+}
+// ícone de "barra lateral" (retângulo com a coluna da esquerda e três tracinhos) e lupa, desenhados
+inline void IconSidebar(D2D1_POINT_2F c, D2D1_COLOR_F col) {
+    br->SetColor(col);
+    D2D1_RECT_F r = D2D1::RectF(c.x - 9, c.y - 7, c.x + 9, c.y + 7);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(r, 3, 3), br, 1.5f);
+    rt->DrawLine({ c.x - 3, r.top }, { c.x - 3, r.bottom }, br, 1.5f);
+    for (int i = 0; i < 3; i++) rt->DrawLine({ c.x - 7, c.y - 3.5f + i * 2.5f }, { c.x - 5, c.y - 3.5f + i * 2.5f }, br, 1.1f);
+}
+inline void IconPlus(D2D1_POINT_2F c, D2D1_COLOR_F col, float s = 7) {
+    br->SetColor(col);
+    rt->DrawLine({ c.x - s, c.y }, { c.x + s, c.y }, br, 1.6f);
+    rt->DrawLine({ c.x, c.y - s }, { c.x, c.y + s }, br, 1.6f);
+}
+inline void IconSearch(D2D1_POINT_2F c, D2D1_COLOR_F col, float s = 1) {
+    br->SetColor(col);
+    rt->DrawEllipse(D2D1::Ellipse({ c.x - 1.5f * s, c.y - 1.5f * s }, 5 * s, 5 * s), br, 1.5f);
+    rt->DrawLine({ c.x + 2.2f * s, c.y + 2.2f * s }, { c.x + 6 * s, c.y + 6 * s }, br, 1.6f);
+}
+
+// --foto <arquivo.png> (teste): o app abre escondido, desenha a janela inteira num bitmap e salva (sem passar pela
+// tela). Assim dá para conferir o desenho mesmo quando a tela não mostra o app (programas abertos de dentro de
+// outros contêineres).
+inline ID2D1RenderTarget* fotoRt;
+inline ID2D1SolidColorBrush* fotoBr;
+inline IWICBitmap* fotoBmp;
+inline std::wstring FotoPath() {
+    static int done = 0; static std::wstring p;
+    if (done) return p;
+    done = 1;
+    int n = 0; LPWSTR* a = CommandLineToArgvW(GetCommandLineW(), &n);
+    for (int i = 1; a && i + 1 < n; i++) if (!wcscmp(a[i], L"--foto")) p = a[i + 1];
+    if (a) LocalFree(a);
+    return p;
+}
+// no modo foto tudo é desenhado desde o começo no bitmap (miniaturas e ícones criados lá valem no desenho final)
+inline void FotoTarget() {
+    if (fotoRt || FotoPath().empty() || !wnd) return;
+    RECT r; GetClientRect(wnd, &r);
+    if (r.right <= 0 || r.bottom <= 0) return;
+    float dpi = (float)GetDpiForWindow(wnd);
+    IWICImagingFactory* wic = nullptr;
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    if (!wic) return;
+    if (SUCCEEDED(wic->CreateBitmap(r.right, r.bottom, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &fotoBmp)))
+        d2d->CreateWicBitmapRenderTarget(fotoBmp, D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+                                         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi), &fotoRt);
+    if (fotoRt) { fotoRt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &fotoBr); rt = fotoRt; br = fotoBr; }
+    wic->Release();
+}
 inline bool BeginPaint() {
-    if (!rt) {
+    FotoTarget();
+    if (fotoRt) {  // desenhando para a foto
+        rt = fotoRt; br = fotoBr;
+        rt->BeginDraw();
+        barButtons.clear();
+        return true;
+    }
+    if (!hrt) {
         RECT r; GetClientRect(wnd, &r);
         float dpi = (float)GetDpiForWindow(wnd);
         d2d->CreateHwndRenderTarget(D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi),
-                                    D2D1::HwndRenderTargetProperties(wnd, D2D1::SizeU(r.right, r.bottom)), &rt);
-        if (rt) rt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+                                    D2D1::HwndRenderTargetProperties(wnd, D2D1::SizeU(r.right, r.bottom)), &hrt);
+        if (hrt) hrt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &hbr);
     }
+    rt = hrt; br = hbr;
     if (!rt) return false;
     rt->BeginDraw();
+    barButtons.clear();
     return true;
 }
 inline void EndPaint() {
-    if (rt->EndDraw() == D2DERR_RECREATE_TARGET) { br->Release(); br = nullptr; rt->Release(); rt = nullptr; InvalidateRect(wnd, nullptr, FALSE); }
+    if (rt->EndDraw() == D2DERR_RECREATE_TARGET && rt == hrt) { hbr->Release(); hbr = nullptr; hrt->Release(); hrt = nullptr; rt = nullptr; br = nullptr; InvalidateRect(wnd, nullptr, FALSE); }
 }
-inline void OnSize(LPARAM l) { if (rt) rt->Resize(D2D1::SizeU(LOWORD(l), HIWORD(l))); InvalidateRect(wnd, nullptr, FALSE); }
+inline void OnSize(LPARAM l) { if (hrt) hrt->Resize(D2D1::SizeU(LOWORD(l), HIWORD(l))); InvalidateRect(wnd, nullptr, FALSE); }
 inline void OnDpi(WPARAM w, LPARAM l) {
     RECT* r = (RECT*)l;
     SetWindowPos(wnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
-    if (rt) rt->SetDpi((float)HIWORD(w), (float)HIWORD(w));
+    if (hrt) hrt->SetDpi((float)HIWORD(w), (float)HIWORD(w));
+}
+inline void CALLBACK FotoTick(HWND, UINT, UINT_PTR id, DWORD) {
+    KillTimer(nullptr, id);
+    FotoTarget();
+    std::wstring path = FotoPath();
+    if (fotoRt && fotoBmp) {
+        SendMessageW(wnd, WM_PAINT, 0, 0);
+        UINT w = 0, h = 0; fotoBmp->GetSize(&w, &h);
+        IWICImagingFactory* wic = nullptr;
+        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+        IWICStream* st = nullptr; IWICBitmapEncoder* enc = nullptr; IWICBitmapFrameEncode* fr = nullptr;
+        if (wic && SUCCEEDED(wic->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
+            SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) && SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) &&
+            SUCCEEDED(enc->CreateNewFrame(&fr, nullptr)) && SUCCEEDED(fr->Initialize(nullptr))) {
+            fr->SetSize(w, h);
+            WICPixelFormatGUID f = GUID_WICPixelFormat32bppPBGRA; fr->SetPixelFormat(&f);
+            fr->WriteSource(fotoBmp, nullptr); fr->Commit(); enc->Commit();
+        }
+        if (fr) fr->Release(); if (enc) enc->Release(); if (st) st->Release(); if (wic) wic->Release();
+    }
+    DestroyWindow(wnd);
 }
 inline D2D1_SIZE_F Size() { RECT r; GetClientRect(wnd, &r); float s = Sc(); return { r.right / s, r.bottom / s }; }
 
@@ -277,6 +416,12 @@ inline HWND CreateMain(HINSTANCE hi, const wchar_t* cls, const wchar_t* title, W
     wnd = CreateWindowExW(0, cls, title, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - W) / 2,
                           mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - H) / 2, W, H, nullptr, nullptr, hi, nullptr);
     if (wnd) { BOOL dark = Dark(); DwmSetWindowAttribute(wnd, 20, &dark, sizeof(dark)); }
+    if (wnd && semaforo::Aqua() && barWanted > 0) {  // macOS 27: barra de ferramentas unificada
+        BAR = barWanted;
+        SetPropW(wnd, L"WacOSBarraUnificada", (HANDLE)(INT_PTR)std::lround(BAR));
+        SetWindowSubclass(wnd, UnifiedSub, 0x55A1, 0);
+        SetWindowPos(wnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     return wnd;
 }
 
@@ -330,9 +475,14 @@ inline D2D1_COLOR_F Tinted(D2D1_COLOR_F base) {
     auto cl = [](float v) { return std::clamp(v, 0.f, 1.f); };
     return D2D1::ColorF(cl(base.r + dr * k), cl(base.g + dg * k), cl(base.b + db * k), base.a);
 }
-inline D2D1_COLOR_F SidebarColor() { return Tinted(Dark() ? D2D1::ColorF(40 / 255.f, 40 / 255.f, 42 / 255.f) : D2D1::ColorF(242 / 255.f, 242 / 255.f, 245 / 255.f)); }
+// macOS 27 Golden Gate (capturas do 512 Pixels): a barra lateral é uma cor cheia, sem a tinta do papel de parede
+inline D2D1_COLOR_F SidebarColor() {
+    if (semaforo::Aqua()) return Dark() ? D2D1::ColorF(43 / 255.f, 41 / 255.f, 40 / 255.f) : D2D1::ColorF(237 / 255.f, 237 / 255.f, 236 / 255.f);
+    return Tinted(Dark() ? D2D1::ColorF(40 / 255.f, 40 / 255.f, 42 / 255.f) : D2D1::ColorF(242 / 255.f, 242 / 255.f, 245 / 255.f));
+}
 
 inline int Run() {
+    if (!FotoPath().empty() && wnd) SetTimer(nullptr, 0, 1800, FotoTick);  // teste: espera carregar e salva a foto
     MSG m;
     while (GetMessageW(&m, nullptr, 0, 0)) { TranslateMessage(&m); DispatchMessageW(&m); }
     return 0;

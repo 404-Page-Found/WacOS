@@ -19,3 +19,6 @@ docs/vm-barra/
 docs/**/*.dll
 docs/**/*.exe
 docs/nativo-fontes-*.zip
+
+# macOS 27 icons (Apple, exported by zagnut531): personal use, rebuilt by tools/icones-goldengate.py
+icones/goldengate/

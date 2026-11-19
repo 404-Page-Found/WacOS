@@ -424,6 +424,7 @@ void ctxmenu::SetGlass(const Glass& g) { g_glass = g; g_glassSet = true; }
 
 // Tema Tahoe ligado (Ajustes > Aparência: liquid_glass=1 em %APPDATA%\Shell\ajustes.txt). O Shell avisa
 // pelo SetGlass; os outros apps (Finder, Notas...) leem o arquivo, no máximo a cada 2 s.
+static bool g_fileGolden;  // golden_gate=1 lido do arquivo (apps fora do Shell)
 static bool Tahoe() {
     if (g_glassSet) return g_glass.liquid;
     static DWORD last; static bool on;
@@ -439,9 +440,18 @@ static bool Tahoe() {
         while (!l.empty() && (l.back() == L'\n' || l.back() == L'\r' || l.back() == L' ')) l.pop_back();
         if (l == L"liquid_glass=1") on = true;
         if (l == L"liquid_glass=0") on = false;
+        if (l == L"golden_gate=1") g_fileGolden = true;
+        if (l == L"golden_gate=0") g_fileGolden = false;
     }
     fclose(f);
     return on;
+}
+// macOS 27 Golden Gate (menu Go do Finder, captura 2x): linhas de 24, separador de 11, 5,5 de folga e de recuo do
+// destaque, destaque com canto 7, menu com canto 11, texto a 16 da borda (41 com símbolo) e símbolo só em Ajustes…
+static bool Golden() { bool t = Tahoe(); return t && (g_glassSet ? g_glass.golden : g_fileGolden); }
+static bool GoldenIcon(const std::wstring& l) {
+    for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })  // macOS 27: o menu da Apple tem símbolo nestes if (l.rfind(k, 0) == 0) return true;
+    return false;
 }
 
 // Ícone do Tahoe pelo nome do item, para os menus que não escolhem os seus (glifos da Segoe Fluent Icons).
@@ -462,6 +472,8 @@ wchar_t ctxmenu::AutoIcon(const std::wstring& label) {
     if (has(L"lixo") || has(L"excluir") || has(L"apagar") || has(L"delete") || has(L"trash")) return 0xE74D;
     if (has(L"remover do dock") || has(L"desafixar")) return 0xE77A;
     if (has(L"manter no dock") || has(L"fixar")) return 0xE718;
+    if (starts(L"sobre este") || starts(L"about this")) return 0xE7F8;  // notebook (menu da Apple do macOS 27)
+    if (has(L"app store") || has(L"microsoft store")) return 0xE719;   // sacola da loja
     if (has(L"informaç") || has(L"propriedades") || has(L"properties") || starts(L"sobre")) return 0xE946;
     if (has(L"renomear") || has(L"rename")) return 0xE8AC;
     if (has(L"comprimir") || has(L"compactar") || has(L"compress") || has(L"zip")) return 0xF012;
@@ -529,10 +541,11 @@ static bool Selectable(const MItem& m) { return !m.sep && !m.header && !m.disabl
 // raio ~8. Bolinhas das etiquetas: 12 a cada 20, numa linha de 22.
 static float SepH() { return Tahoe() ? 11.f : M::SEP_H; }
 static float ItemH() { return Tahoe() ? 24.f : M::ITEM_H; }
-static float PadY() { return Tahoe() ? 5.f : M::PAD_Y; }
+static float PadY() { return Golden() ? 5.5f : Tahoe() ? 5.f : M::PAD_Y; }
+static float Inset() { return Golden() ? 5.5f : M::INSET; }
 const float DOT_D = 12, DOT_PITCH = 20, DOT_ROW_H = 22, ICON_CX = 23, ICON_TEXT_L = 34;
-static float IconCx() { return Tahoe() ? 22.5f : ICON_CX; }   // ícone 13 de largura começando em x 16
-static float HotR() { return Tahoe() ? 8.f : M::RADIUS; }
+static float IconCx() { return Golden() ? 23.f : Tahoe() ? 22.5f : ICON_CX; }   // ícone 13 de largura começando em x 16
+static float HotR() { return Golden() ? 7.f : Tahoe() ? 8.f : M::RADIUS; }
 
 // Bolinha da fileira sob o x (pixels da janela) ou -1
 static int DotAt(const Level& L, const MItem& m, float x) {
@@ -551,7 +564,8 @@ static wuc::CompositionGraphicsDevice g_wgfx{ nullptr };
 static winrt::Windows::System::DispatcherQueueController g_wdq{ nullptr };
 static ID2D1Device* g_wd2d;
 static bool g_wcTried, g_wcOk;
-const float CARD_R = 12;  // raio do canto do menu (DIP)
+const float CARD_R_TAHOE = 12;  // raio do canto do menu (DIP)
+#define CARD_R (Golden() ? 11.f : CARD_R_TAHOE)  // macOS 27: 11 (medido)
 
 static bool CompReady() {
     if (g_wcTried) return g_wcOk;
@@ -742,7 +756,7 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     L.tf = MakeFormat(M::FONT * sc, DWRITE_FONT_WEIGHT_NORMAL);
     L.tfHdr = MakeFormat(M::HDR_FONT * sc, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     if (Tahoe() && !g_plain)
-        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && m.dots.empty()) m.icon = ctxmenu::AutoIcon(m.label);
+        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
     bool hasCheck = false, hasSub = false, hasIcon = false;
     float maxW = 0, maxShort = 0;
     for (auto& m : *items) {
@@ -756,7 +770,7 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
         g_dw->CreateTextFormat(L"Segoe Fluent Icons", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13 * sc, L"", &L.tfIcon);
         if (L.tfIcon) { L.tfIcon->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); L.tfIcon->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); }
     }
-    L.textL = (hasIcon ? (Tahoe() ? 33.f : ICON_TEXT_L) : hasCheck ? 26.f : Tahoe() ? 14.f : 16.f) * sc;
+    L.textL = (hasIcon ? (Golden() ? 41.f : Tahoe() ? 33.f : ICON_TEXT_L) : hasCheck ? 26.f : Golden() ? 16.f : Tahoe() ? 14.f : 16.f) * sc;
     L.textR = (hasSub ? 34.f : Tahoe() ? 8.f + 6.f : 18.f) * sc;  // Tahoe: o atalho termina 8 antes da borda (+ folga do texto)
     float W = L.textL + ceilf(maxW) + 2 * sc + L.textR;
     W = std::clamp(W, M::MIN_W * sc, M::MAX_W * sc);
@@ -988,6 +1002,8 @@ static void DrawLevel(Session& s, int li) {
     // claro = 0,23 × fundo + 0,74. Em alfa sobre o desfoque: escuro 85 % de 0,165; claro 77 % de 0,96.
     if (Tahoe()) bg = dk ? D2D1::ColorF(0.165f, 0.165f, 0.172f, 0.85f) : D2D1::ColorF(0.96f, 0.96f, 0.965f, 0.77f);
     if (g_glass.alpha) bg.a = g_glass.alpha(bg.a);
+    // macOS 27 Golden Gate: o menu de contexto é vidro fosco (leitoso), não o Liquid Glass transparente do Dock
+    if (Golden()) { bg = dk ? D2D1::ColorF(0.17f, 0.165f, 0.165f, 0.88f) : D2D1::ColorF(0.95f, 0.945f, 0.94f, 0.84f); }
     ID2D1SolidColorBrush *text, *dim, *sep, *hdr, *accent, *white;
     rt->CreateSolidColorBrush(dk ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f), &text);
     rt->CreateSolidColorBrush(dk ? D2D1::ColorF(1, 1, 1, 0.30f) : D2D1::ColorF(0, 0, 0, 0.30f), &dim);
@@ -1008,7 +1024,7 @@ static void DrawLevel(Session& s, int li) {
         D2D1_RECT_F r = L.rects[i];
         if (m.sep) {
             float yy = floorf((r.top + r.bottom) / 2) + 0.5f;
-            rt->DrawLine(D2D1::Point2F(M::INSET * sc + 5 * sc, yy), D2D1::Point2F(W - M::INSET * sc - 5 * sc, yy), sep, 1.0f);
+            rt->DrawLine(D2D1::Point2F(Inset() * sc + 5 * sc, yy), D2D1::Point2F(W - Inset() * sc - 5 * sc, yy), sep, 1.0f);
             continue;
         }
         D2D1_RECT_F tr = D2D1::RectF(L.textL, r.top, W - L.textR, r.bottom);
@@ -1038,7 +1054,7 @@ static void DrawLevel(Session& s, int li) {
         }
         bool hot = (int)i == L.hover || ((int)i == L.openChild && L.hover < 0);
         if (hot && !m.disabled) {
-            D2D1_ROUNDED_RECT rr{ D2D1::RectF(M::INSET * sc, r.top, W - M::INSET * sc, r.bottom), HotR() * sc, HotR() * sc };
+            D2D1_ROUNDED_RECT rr{ D2D1::RectF(Inset() * sc, r.top, W - Inset() * sc, r.bottom), HotR() * sc, HotR() * sc };
             rt->FillRoundedRectangle(rr, accent);
         }
         ID2D1SolidColorBrush* fg = m.disabled ? dim : (hot ? white : text);
@@ -1254,7 +1270,14 @@ static MItem* RunMenu(HWND owner, std::vector<MItem>& items, POINT pt) {
             break;
         case WM_LBUTTONDOWN: case WM_MBUTTONDOWN:
         case WM_NCLBUTTONDOWN: case WM_NCRBUTTONDOWN:
-            if (!onPopup) { s.done = true; continue; }  // clique fora fecha e é consumido, como no macOS
+            if (!onPopup) {
+                // clique na barra de menus (outro título, relógio, Central...): fecha este e o clique segue para a barra,
+                // que abre o próximo — antes o clique era consumido e era preciso clicar duas vezes
+                wchar_t cls[64] = {}; GetClassNameW(msg.hwnd, cls, 64);
+                s.done = true;
+                if (!wcscmp(cls, L"ShellBarraDeMenus")) PostMessageW(msg.hwnd, msg.message, msg.wParam, msg.lParam);  // a barra recebe depois que este fechar
+                continue;  // clique fora fecha e é consumido, como no macOS
+            }
             break;
         }
         TranslateMessage(&msg);

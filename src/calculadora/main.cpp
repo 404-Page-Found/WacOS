@@ -1214,6 +1214,7 @@ void DrawLights(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br) {
         bool enabled = k < 2;  // a Calculadora não amplia (o verde fica apagado, como no Mac)
         br->SetColor(lit && enabled ? fill[k] : off);
         rt->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(rt, c, 7, br);
         br->SetColor(lit && enabled ? ring[k] : offRing);
         rt->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
         if (!g_hoverLights || !enabled) continue;

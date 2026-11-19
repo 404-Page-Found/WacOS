@@ -594,7 +594,7 @@ void Paint(Widget& wd) {
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(WHITE, &br);
     ID2D1StrokeStyle* st = RoundCaps(dc);
-    std::wstring est = liquid::On() ? shell::Setting(L"estilo_icones", L"padrao") : L"padrao";
+    std::wstring est = ui::IconStyle();  // Tahoe/Golden Gate: Aparência > Estilo de ícones e widgets (Escuro "Auto" incluído)
     g_vidroWidgets = est == L"transparente" || est == L"tingido";
     bool dark = g_dark || g_vidroWidgets;  // vidro: o conteúdo em branco, como no modo escuro
     if (br) {

@@ -39,6 +39,11 @@ float APP_CELL_H = 92, APP_ICON = 77, APP_COLS = 7, APP_ICON_TOP = 1, APP_NAME_T
 const float CHIPS_H = 42;
 float WIN_H = FIELD_H + 1 + MAX_LIST_H;  // as janelas têm sempre este tamanho; só o recorte do vidro anima
 float CIRC_GAP = 12;
+// macOS 27 Golden Gate (capturas 2x do 512 Pixels: Spotlight-Search-v2, Spotlight-Actions, Apps): a barra é uma
+// cápsula escura e esfumada de 520 × 85 e os resultados vêm num painel de vidro separado, 11 abaixo, com cantos de 30;
+// linhas de 63,5 com ícone de 36 e a escolhida numa pílula clara (não azul). Sem a cápsula com os quatro círculos.
+float GG_GAP = 0;
+const float GG_BAR_W = 520;
 // Tahoe, guia macOS26-Theme-Reference (seções 39 e 56, medido com Acessibilidade): barra de 640 × 56 (a cápsula e
 // os 4 círculos de modo, um a cada 64), lista de 640 de largura, linhas de 57 com ícone de 38, topo a 30 % da
 // altura da tela; com resultados, cantos de 26
@@ -49,7 +54,14 @@ void Metricas() {
     FIELD_H = t ? 56.f : 60.f;
     CARD_H = t ? 57.f : 66.f;
     CIRC_GAP = t ? 8.f : 12.f;
-    WIN_H = FIELD_H + 1 + MAX_LIST_H;
+    GG_GAP = 0;
+    if (t && liquid::Golden()) {
+        W = g_mode == 1 ? 842.f : GG_BAR_W;  // Apps (captura Apps.png): painel de 842 sob a barra de 520 centrada
+        FIELD_H = 85;
+        CARD_H = 63.5f;
+        GG_GAP = 11;
+    }
+    WIN_H = FIELD_H + 1 + GG_GAP + MAX_LIST_H;
 }
 const UINT WM_SP_FILES = WM_APP + 60, WM_SP_ICON = WM_APP + 61, WM_SP_APPS = WM_APP + 62, WM_SP_FRAME = WM_APP + 63, WM_SP_SUGG = WM_APP + 64;
 const UINT_PTR T_SEARCH = 1, T_CARET = 2, T_ICONS = 3, T_REGRAB = 4;
@@ -62,7 +74,7 @@ struct Result {
     int score = 0;
 };
 
-enum RowType { R_HEAD, R_CARD, R_ROW, R_TILE, R_APP };  // R_APP: célula da grade de apps do Tahoe (ícone e nome embaixo)
+enum RowType { R_HEAD, R_CARD, R_ROW, R_TILE, R_APP, R_MODE };  // R_MODE: macOS 27, os modos na lista do Spotlight vazio  // R_APP: célula da grade de apps do Tahoe (ícone e nome embaixo)
 struct Row {  // cabeçalho (res < 0), cartão do melhor resultado, linha ou miniatura
     std::wstring head;
     int res = -1;
@@ -100,6 +112,8 @@ bool g_glass, g_open, g_visible;  // open: aceita teclado; visible: na tela (inc
 // animação (no ritmo do monitor): altura do painel, destaque e rolagem deslizam até o alvo; abrir e
 // fechar esmaecem com uma leve mudança de escala, como no Mac
 float g_h = FIELD_H, g_selTop = -1, g_selBot = -1, g_scrollNow = 0;
+bool g_keyNav;          // macOS 27: o app escolhido só aparece realçado depois das setas (a grade abre sem realce)
+double g_panelInAt = -1e9;  // macOS 27: quando o painel de baixo apareceu (entra esmaecendo, sem crescer)
 double g_openAt, g_closeAt, g_lastFrame;  // ms de anim::Now (relógio de alta precisão)
 ui::GpuSurface g_s;
 IDWriteTextFormat *g_tfField, *g_tfRow, *g_tfHead, *g_tfTitle, *g_tfSub, *g_tfCell, *g_tfChip;
@@ -173,23 +187,65 @@ std::wstring LearnFile() {
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { f = std::wstring(p) + L"\\Shell\\spotlight-uso.txt"; CoTaskMemFree(p); }
     return f;
 }
+// Roda a cada vez que a lista de apps é refeita: SUBSTITUI o que está na memória. Antes somava os textos do
+// arquivo aos que já estavam carregados; a cada recarga a lista dobrava e o próximo SaveLearned gravava a lista
+// dobrada (spotlight-uso.txt chegou a 442 MB e o Shell a 30 GB de memória). Agora cada app guarda no máximo 8
+// textos diferentes, e um arquivo inchado por esse erro é consertado aqui mesmo (lido em pedaços, campo a campo:
+// as linhas dele passam de milhões de caracteres) e regravado.
+constexpr size_t MAX_QUERIES = 8;
+void SaveLearned();
 void LoadLearned() {
+    std::wstring file = LearnFile();
     FILE* f = nullptr;
-    if (_wfopen_s(&f, LearnFile().c_str(), L"r, ccs=UTF-8") || !f) return;
-    wchar_t line[4096];
-    std::lock_guard<std::mutex> l(g_learnMu);
-    while (fgetws(line, 4096, f)) {
-        std::wstring ln = line;
-        while (!ln.empty() && (ln.back() == L'\n' || ln.back() == L'\r')) ln.pop_back();
-        std::vector<std::wstring> parts; size_t a = 0, b;
-        while ((b = ln.find(L'\t', a)) != std::wstring::npos) { parts.push_back(ln.substr(a, b - a)); a = b + 1; }
-        parts.push_back(ln.substr(a));
-        if (parts.size() < 3 || parts[0].empty()) continue;
-        Learned& L = g_learn[parts[0]];
-        L.opens = _wtoi(parts[1].c_str()); L.last = _wtoi64(parts[2].c_str());
-        for (size_t i = 3; i < parts.size(); i++) if (!parts[i].empty()) L.queries.push_back(parts[i]);
+    if (_wfopen_s(&f, file.c_str(), L"r, ccs=UTF-8") || !f) return;
+    std::map<std::wstring, Learned> got;
+    bool repaired = false;
+    std::vector<std::wstring> fields;
+    std::wstring cur;
+    bool curTooLong = false;
+    auto endField = [&] {
+        if (curTooLong) { cur.clear(); repaired = true; }  // texto absurdo: não é algo que alguém digitou
+        fields.push_back(std::move(cur));
+        cur.clear(); curTooLong = false;
+        if (fields.size() > 3) {  // textos digitados: sem repetir, até 8
+            auto& q = fields.back();
+            bool drop = q.empty() || fields.size() > 3 + MAX_QUERIES || std::find(fields.begin() + 3, fields.end() - 1, q) != fields.end() - 1;
+            if (drop) { if (!q.empty()) repaired = true; fields.pop_back(); }
+        }
+    };
+    auto endLine = [&] {
+        endField();
+        if (fields.size() >= 3 && !fields[0].empty()) {
+            Learned& L = got[fields[0]];
+            L.opens = _wtoi(fields[1].c_str()); L.last = _wtoi64(fields[2].c_str());
+            L.queries.assign(fields.begin() + 3, fields.end());
+        }
+        fields.clear();
+    };
+    static wchar_t buf[64 * 1024];
+    bool any = false;
+    while (fgetws(buf, (int)std::size(buf), f)) {
+        for (const wchar_t* p = buf; *p; p++) {
+            wchar_t c = *p;
+            if (c == 0xFEFF) continue;
+            any = true;
+            if (c == L'\n') { endLine(); any = false; }
+            else if (c == L'\r') {}
+            else if (c == L'\t') endField();
+            else if (cur.size() < 256) cur += c;
+            else curTooLong = true;
+        }
     }
+    if (any) endLine();
     fclose(f);
+    {
+        std::lock_guard<std::mutex> l(g_learnMu);
+        g_learn = std::move(got);
+    }
+    if (repaired) {
+        SaveLearned();
+        Log(L"spotlight: spotlight-uso.txt consertado (textos repetidos de versões antigas)");
+    }
 }
 void SaveLearned() {
     FILE* f = nullptr;
@@ -197,7 +253,7 @@ void SaveLearned() {
     std::lock_guard<std::mutex> l(g_learnMu);
     for (auto& [t, L] : g_learn) {
         fwprintf(f, L"%ls\t%d\t%lld", t.c_str(), L.opens, L.last);
-        for (auto& q : L.queries) fwprintf(f, L"\t%ls", q.c_str());
+        for (size_t i = 0; i < L.queries.size() && i < MAX_QUERIES; i++) fwprintf(f, L"\t%ls", L.queries[i].c_str());
         fputwc(L'\n', f);
     }
     fclose(f);
@@ -793,15 +849,17 @@ std::vector<std::wstring> Chips() {
     std::vector<std::wstring> v;
     if (!liquid::On()) return v;
     if (g_mode == 1) for (int k = 1; k < launchpad::CategoryCount(); k++) v.push_back(launchpad::CategoryName(k));
-    else if (g_mode == 2) v = { Tr(L"Documentos"), Tr(L"Pastas"), Tr(L"Imagens"), Tr(L"Músicas e Filmes"), Tr(L"Outros") };
+    else if (g_mode == 2 || (g_mode == 0 && liquid::Golden())) v = { Tr(L"Documentos"), Tr(L"Pastas"), Tr(L"Imagens"), Tr(L"Músicas e Filmes"), Tr(L"Outros") };
     return v;
 }
-bool HasChips() { return ModePanel() && g_mode != 3; }
-float ListTop() { return FIELD_H + 1 + (HasChips() ? CHIPS_H : 0); }
+bool HasChips() { return (ModePanel() && g_mode != 3) || (liquid::Golden() && g_mode == 0 && !g_query.empty()); }
+// macOS 27: com fichas, a lista começa 6 abaixo delas (fichas de 26 com o centro a 33 do alto do painel)
+float ListTop() { return liquid::Golden() && HasChips() ? FIELD_H + GG_GAP + 52 : FIELD_H + 1 + GG_GAP + (HasChips() ? CHIPS_H : 0); }
 bool ChipAllows(Kind k, const std::wstring& name) {
-    if (!g_chip || !ModePanel()) return true;
+    bool ggAll = liquid::Golden() && g_mode == 0;  // macOS 27: as fichas também no Spotlight comum
+    if (!g_chip || (!ModePanel() && !ggAll)) return true;
     if (g_mode == 1) return k != K_APP || launchpad::Category(name) == g_chip;
-    if (g_mode == 2) {
+    if (g_mode == 2 || ggAll) {
         static const Kind kinds[] = { K_OTHER, K_DOC, K_FOLDER, K_IMAGE, K_MEDIA, K_OTHER };
         return g_chip < 6 && k == kinds[g_chip];
     }
@@ -923,7 +981,20 @@ void BuildMode() {
             auto rk = [&](const Result& r) { auto it = rank.find(r.name); return it == rank.end() ? 1 << 30 : it->second; };
             std::stable_sort(v.begin(), v.end(), [&](const Result& a, const Result& b) { return rk(a) < rk(b); });
         }
-        for (auto& r : v) { g_res.push_back(r); g_rows.push_back({ L"", (int)g_res.size() - 1, g_appsList ? R_ROW : R_APP }); }
+        // macOS 27 (Apps.png): a primeira fileira são os 7 apps mais usados, separada do resto por uma linha fina
+        if (liquid::Golden() && !g_appsList && g_chip == 0 && v.size() > 14) {
+            std::vector<Result> top = v;
+            std::stable_sort(top.begin(), top.end(), [](const Result& a, const Result& b) { return a.score > b.score; });
+            for (int k = 0; k < 7; k++) { g_res.push_back(top[k]); Row s{ L"", (int)g_res.size() - 1, R_APP }; s.sect = 7; g_rows.push_back(s); }
+        }
+        bool firstAfter = true;
+        for (auto& r : v) {
+            g_res.push_back(r);
+            Row a{ L"", (int)g_res.size() - 1, g_appsList ? R_ROW : R_APP };
+            if (firstAfter && !g_rows.empty() && g_rows.back().sect == 7) a.sect = 8;  // a primeira depois da linha
+            firstAfter = false;
+            g_rows.push_back(a);
+        }
     } else if (g_mode == 2) {
         // lidos do disco no máximo a cada 5 s (trocar de filtro e voltar não relê)
         static std::vector<Result> cache;
@@ -954,7 +1025,14 @@ void Rebuild() {
     g_scroll = 0;
     std::wstring q = Fold(g_query);
     while (!q.empty() && q.back() == L' ') q.pop_back();
-    if (q.empty()) { if (ModePanel()) BuildMode(); return; }
+    if (q.empty()) {
+        if (ModePanel()) BuildMode();
+        else if (liquid::Golden() && g_mode == 0) {
+            // macOS 27 (vídeo do MacVince, 5:56): com o campo vazio, a lista mostra os modos com os atalhos à direita
+            for (int k = 0; k < 4; k++) { Row m; m.type = R_MODE; m.sect = k; g_rows.push_back(m); }
+        }
+        return;
+    }
     std::vector<Result> appsR, setR;
     {
         std::lock_guard<std::mutex> l(g_mu);
@@ -1026,11 +1104,14 @@ void Rebuild() {
         }
         groups.push_back({ Tr(L"Sugestões do Google"), web });
     }
+    // macOS 27 Golden Gate: uma lista só, sem cabeçalhos, sem o cartão do melhor resultado e sem miniaturas (cada
+    // resultado numa linha de 63,5 com o nome e, embaixo, o tipo e o lugar em cinza)
+    const bool flat = liquid::Golden();
     for (size_t g = 0; g < groups.size(); g++) {
         auto& [head, list] = groups[g];
-        bool card = hasTop && g == 0;   // melhor resultado: cartão, sem cabeçalho
-        bool tiles = !wcscmp(head, Section(K_IMAGE));
-        if (!card) {
+        bool card = hasTop && g == 0 && !flat;   // melhor resultado: cartão, sem cabeçalho
+        bool tiles = !flat && !wcscmp(head, Section(K_IMAGE));
+        if (!card && !flat) {
             Row hr{ head, -1, R_HEAD };
             for (int k = K_APP; k <= K_OTHER; k++) if (!wcscmp(head, Section((Kind)k))) hr.sect = k;
             g_rows.push_back(hr);
@@ -1044,18 +1125,22 @@ void Rebuild() {
 
 // posições de tudo no conteúdo (a partir do topo da lista); devolve a altura total
 float Layout() {
-    float y = 8, x = PAD;
+    const bool gg = liquid::Golden();
+    float y = gg ? (g_mode == 1 ? 17.5f : HasChips() ? 7.5f : 8.f) : 8, x = PAD;  // (a lista já começa 6 abaixo das fichas)
     bool inTiles = false;
-    const float cellW = (W - 2 * PAD) / APP_COLS;
+    // macOS 27 (Apps.png): 7 colunas de 115 a 18,5 da borda, fileiras de 102, linha de 15 depois dos mais usados
+    const float gpad = gg ? 18.5f : PAD, cellW = gg ? 115.f : (W - 2 * PAD) / APP_COLS, cellH = gg ? 102.f : APP_CELL_H;
     int col = 0;
     for (auto& row : g_rows) {
         if (row.type == R_APP) {  // grade de 5, como o Apps do macOS 26
-            if (col == (int)APP_COLS) { col = 0; y += APP_CELL_H; }
-            row.r = D2D1::RectF(PAD + col * cellW, y, PAD + (col + 1) * cellW, y + APP_CELL_H);
+            if (row.sect == 8 && col) { col = 0; y += cellH; }
+            if (row.sect == 8) y += 15;
+            if (col == (int)APP_COLS) { col = 0; y += cellH; }
+            row.r = D2D1::RectF(gpad + col * cellW, y, gpad + (col + 1) * cellW, y + cellH);
             col++;
             continue;
         }
-        if (col) { y += APP_CELL_H; col = 0; }
+        if (col) { y += cellH; col = 0; }
         if (row.type == R_TILE) {
             if (!inTiles) { x = PAD + 4; inTiles = true; }
             if (x + TILE > W - PAD) { x = PAD + 4; y += TILE + TILE_GAP; }
@@ -1064,12 +1149,12 @@ float Layout() {
             continue;
         }
         if (inTiles) { y += TILE + TILE_GAP; inTiles = false; }
-        float h = row.type == R_HEAD ? HEAD_H : row.type == R_CARD ? CARD_H : ROW_H;
+        float h = row.type == R_MODE ? 47.f : row.type == R_HEAD ? HEAD_H : row.type == R_CARD ? CARD_H : liquid::Golden() ? CARD_H : ROW_H;
         row.r = D2D1::RectF(PAD, y, W - PAD, y + h);
         y += h + (row.type == R_CARD ? 4 : 0);
     }
     if (inTiles) y += TILE + TILE_GAP;
-    if (col) y += APP_CELL_H;
+    if (col) y += cellH;
     return y + 6;
 }
 
@@ -1081,6 +1166,11 @@ float Sc() { return ui::Scale(g_wnd); }
 
 struct Pal { D2D1_COLOR_F tint, text, text2, sep, sel, hi, card, place; };
 Pal Colors() {
+    // macOS 27: o Spotlight é sempre escuro e esfumado, com texto branco, também no modo claro (captura e vídeo)
+    if (liquid::Golden())
+        return { D2D1::ColorF(0.09f, 0.07f, 0.06f, 0.42f), D2D1::ColorF(1, 1, 1, 0.95f), D2D1::ColorF(1, 1, 1, 0.55f),
+                 D2D1::ColorF(1, 1, 1, 0.10f), D2D1::ColorF(0.04f, 0.45f, 0.96f, 1), D2D1::ColorF(1, 1, 1, 0.14f),
+                 D2D1::ColorF(1, 1, 1, 0.08f), D2D1::ColorF(1, 1, 1, 0.50f) };
     if (ui::Dark()) return { D2D1::ColorF(0.12f, 0.12f, 0.13f, 0.62f), D2D1::ColorF(1, 1, 1, 0.92f), D2D1::ColorF(1, 1, 1, 0.50f),
                              D2D1::ColorF(1, 1, 1, 0.10f), D2D1::ColorF(0.04f, 0.40f, 0.86f, 1), D2D1::ColorF(1, 1, 1, 0.12f),
                              D2D1::ColorF(1, 1, 1, 0.07f), D2D1::ColorF(1, 1, 1, 0.32f) };
@@ -1187,7 +1277,7 @@ void Transition(float& fade, float& scale);
 // altura) seguida de 4 círculos de vidro do tamanho da altura: Aplicativos, Arquivos, Ações e Área de
 // Transferência. Escolher um círculo põe o campo nesse modo (só aquele tipo de resultado).
 // (g_mode: declarado antes de Rebuild; a área de transferência abre a do Windows)
-bool Compact() { return liquid::On() && g_query.empty() && g_mode == 0 && g_h <= FIELD_H + 1.5f; }
+bool Compact() { return liquid::On() && !liquid::Golden() && g_query.empty() && g_mode == 0 && g_h <= FIELD_H + 1.5f; }
 // Tahoe (vídeo do macOS 26, quadro a quadro): o Spotlight abre como uma cápsula comprida, sem círculos. Com o
 // ponteiro em cima, a ponta direita recua rápido (passa um pouco e volta, numa mola) e o que sobra vira uma gota
 // ondulada que se divide nos quatro círculos: eles saem juntos, quase encostados, e se afastam um depois do outro;
@@ -1207,7 +1297,7 @@ float CircE(int i) {  // 0 = ainda na gota, 1 = no lugar (medido no vídeo: se s
 bool GooAnimating() { return g_reveal && anim::Now() - g_revealAt < 950; }
 unsigned g_broken;           // pescoços da gosma que já romperam (não religam)
 float PillW() { return W - 4 * (FIELD_H + CIRC_GAP); }
-float MorphT() { return liquid::On() && g_pill >= 0 ? std::clamp((g_pill - PillW()) / (W - PillW()), 0.f, 1.f) : 1.f; }  // 0 cápsula, 1 painel
+float MorphT() { return liquid::On() && !liquid::Golden() && g_pill >= 0 ? std::clamp((g_pill - PillW()) / (W - PillW()), 0.f, 1.f) : 1.f; }  // 0 cápsula, 1 painel
 D2D1_RECT_F CircleRect(int i) { float x = PillW() + CIRC_GAP + i * (FIELD_H + CIRC_GAP); return D2D1::RectF(x, 0, x + FIELD_H, FIELD_H); }
 // o círculo i agora (DIP): começa agrupado logo depois da ponta da cápsula (a gota), cresce e vai para o lugar
 D2D1_RECT_F CircleNow(int i, float cdx) {
@@ -1228,7 +1318,7 @@ float CapEnd(float pw) {
     float e = anim::Spring(Since(), 0.20f, 0.64f);  // recua ~50% em 70 ms, passa um pouco em ~170 ms e assenta em ~400
     return W - (W - pw) * e;
 }
-const wchar_t* ModeName(int m) { return m == 1 ? Tr(L"Aplicativos") : m == 2 ? Tr(L"Arquivos") : m == 3 ? Tr(L"Ações") : Tr(L"Busca do Spotlight"); }
+const wchar_t* ModeName(int m) { return m == 1 ? Tr(L"Aplicativos") : m == 2 ? Tr(L"Arquivos") : m == 3 ? Tr(L"Ações") : liquid::Golden() ? Tr(L"Pesquisar ou Perguntar") : Tr(L"Busca do Spotlight"); }
 const wchar_t* ModeSymbol(int m) { return m == 1 ? L"square.grid.2x2" : m == 2 ? L"folder" : m == 3 ? L"slider.horizontal.3" : L"magnifyingglass"; }
 bool ModeAllows(int k) {
     if (g_mode == 1) return k == K_APP || k == K_CALC;
@@ -1317,37 +1407,83 @@ void Paint() {
         }
         if (ca > 0.01f) dc->PopLayer();
     } else if (liquid::On()) {
-        if (!backdrop::Liquid() || backdrop::Real()) liquid::Rim(dc, D2D1::RectF(0, 0, W, H), R, ui::Dark());  // vidro real em peças: o contorno é nosso
+        if ((!backdrop::Liquid() || backdrop::Real()) && !liquid::Golden()) liquid::Rim(dc, D2D1::RectF(0, 0, W, H), R, ui::Dark());  // vidro real em peças: o contorno é nosso (Golden Gate: cada peça tem o seu)
     } else {
     br->SetColor(ui::Dark() ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.10f));
     dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R - 0.5f, R - 0.5f), br, 1);
     }
 
+    // Golden Gate: a barra é uma cápsula escura e esfumada (preto 88 % em cima -> 62 % embaixo), com texto branco, e
+    // fica centrada quando o painel é mais largo (Apps)
+    const bool gg = liquid::Golden();
+    const float fpw = gg ? std::min(W, GG_BAR_W) : pw, fx0 = gg ? (W - fpw) / 2 : 0;
+    Pal pf = p;
+    D2D1_MATRIX_3X2_F fieldOld; dc->GetTransform(&fieldOld);
+    if (gg) {
+        pf.text = D2D1::ColorF(1, 1, 1, 0.96f); pf.text2 = D2D1::ColorF(1, 1, 1, 0.62f); pf.place = D2D1::ColorF(1, 1, 1, 0.50f);
+        D2D1_RECT_F bar = D2D1::RectF(fx0, 0, fx0 + fpw, FIELD_H);
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0, 0, 0, 0.88f) }, { 1, D2D1::ColorF(0.10f, 0.08f, 0.07f, 0.62f) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, 0 }, { 0, FIELD_H }), gs, &lb)))
+            dc->FillRoundedRectangle(D2D1::RoundedRect(bar, FIELD_H / 2, FIELD_H / 2), lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        liquid::Rim(dc, bar, FIELD_H / 2, true, 0.8f);
+        if (H > FIELD_H + 1.5f) liquid::Rim(dc, D2D1::RectF(0, FIELD_H + GG_GAP, W, H), 30, ui::Dark(), 0.8f);
+        dc->SetTransform(D2D1::Matrix3x2F::Translation(fx0 + 18, 0) * fieldOld);  // texto a 38 da borda (20 + 18)
+    }
     // campo
-    br->SetColor(p.text2);
-    simbolo::Draw(dc, ModeSymbol(g_mode), D2D1::RectF(20, FIELD_H / 2 - 12, 44, FIELD_H / 2 + 12), br);
-    D2D1_RECT_F field = D2D1::RectF(56, 0, pw - 20, FIELD_H);
+    br->SetColor(pf.text2);
+    // macOS 27: o símbolo do modo só aparece com o campo vazio (a 31,5 da borda, o texto a 76); digitando, sem símbolo
+    // e o texto a 38 (texto de 22 pt)
+    if (!gg) simbolo::Draw(dc, ModeSymbol(g_mode), D2D1::RectF(20, FIELD_H / 2 - 12, 44, FIELD_H / 2 + 12), br);
+    else if (g_query.empty() && g_mode != 0) simbolo::Draw(dc, ModeSymbol(g_mode), D2D1::RectF(13.5f, FIELD_H / 2 - 12, 37.5f, FIELD_H / 2 + 12), br);
+    D2D1_RECT_F field = gg ? D2D1::RectF(g_query.empty() && g_mode != 0 ? 58.f : 20.f, 0, fpw - 38, FIELD_H) : D2D1::RectF(56, 0, fpw - 20, FIELD_H);
+    static IDWriteTextFormat* tfFieldGG = ui::Format(22, DWRITE_FONT_WEIGHT_NORMAL);
+    IDWriteTextFormat* const tfF = gg && tfFieldGG ? tfFieldGG : g_tfField;
+    if (g_query.empty() && gg && g_mode == 0) {  // macOS 27: microfone (contorno) a ~50 da borda direita, só com o campo vazio
+        float mx = fpw - 50 - 18, my = FIELD_H / 2;
+        br->SetColor(pf.text2);
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(mx - 4.5f, my - 11, mx + 4.5f, my + 3), 4.5f, 4.5f), br, 1.6f);
+        ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
+        ID2D1PathGeometry* pg = nullptr;
+        if (fac && SUCCEEDED(fac->CreatePathGeometry(&pg))) {
+            ID2D1GeometrySink* sk = nullptr;
+            if (SUCCEEDED(pg->Open(&sk))) {
+                sk->BeginFigure({ mx - 8, my - 3 }, D2D1_FIGURE_BEGIN_HOLLOW);
+                sk->AddArc(D2D1::ArcSegment({ mx + 8, my - 3 }, { 8, 8 }, 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                sk->EndFigure(D2D1_FIGURE_END_OPEN);
+                sk->Close(); sk->Release();
+            }
+            dc->DrawGeometry(pg, br, 1.6f);
+            pg->Release();
+        }
+        if (fac) fac->Release();
+        dc->DrawLine({ mx, my + 5 }, { mx, my + 10 }, br, 1.6f);
+        dc->DrawLine({ mx - 4, my + 10.5f }, { mx + 4, my + 10.5f }, br, 1.6f);
+    }
     if (g_query.empty()) {
-        Text(dc, ModeName(g_mode), g_tfField, field, br, p.place);
-        if (g_mode >= 1 && g_mode <= 3) {  // o atalho do modo, à direita (o "⌘1" do Mac; aqui Ctrl+1)
+        Text(dc, ModeName(g_mode), tfF, field, br, pf.place);
+        if (g_mode >= 1 && g_mode <= 3 && !gg) {  // o atalho do modo, à direita (o "⌘1" do Mac; aqui Ctrl+1); macOS 27: sem
             static IDWriteTextFormat* tfKey = ui::Format(13, DWRITE_FONT_WEIGHT_MEDIUM, false, DWRITE_TEXT_ALIGNMENT_TRAILING);
             wchar_t k[16]; swprintf_s(k, L"Ctrl %d", g_mode);
-            float right = (ModePanel() && g_mode == 1) ? W - 60 : pw - 20;
-            if (tfKey) Text(dc, k, tfKey, D2D1::RectF(right - 90, 0, right, FIELD_H), br, p.place);
+            float right = gg ? fpw - 56 : (ModePanel() && g_mode == 1) ? W - 60 : fpw - 20;  // Golden Gate: a 38 da borda (o desenho vai 18 para a direita)
+            if (tfKey) Text(dc, k, tfKey, D2D1::RectF(right - 90, 0, right, FIELD_H), br, pf.place);
         }
     } else {
-        float tw = ui::TextWidth(g_tfField, g_query);
+        float tw = ui::TextWidth(tfF, g_query);
         if (g_selAll) {  // tudo selecionado (Ctrl+A / ao reabrir)
             br->SetColor(D2D1::ColorF(p.sel.r, p.sel.g, p.sel.b, 0.45f));
             dc->FillRectangle(D2D1::RectF(field.left - 1, FIELD_H / 2 - 17, field.left + tw + 1, FIELD_H / 2 + 17), br);
         }
-        Text(dc, g_query, g_tfField, field, br, p.text);
+        Text(dc, g_query, tfF, field, br, pf.text);
         // completa o melhor resultado em cinza ("saf" → "ari"), como no Mac
         if (!g_selAll && g_sel >= 0 && g_rows[g_sel].res >= 0) {
             const Result& r = g_res[g_rows[g_sel].res];
             if (r.kind != K_WEB && r.kind != K_CALC && Lower(r.name).rfind(Lower(g_query), 0) == 0 && r.name.size() > g_query.size())
-                Text(dc, r.name.substr(g_query.size()), g_tfField, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, p.place);
-            else if (r.kind == K_CALC) Text(dc, L" = " + r.name, g_tfField, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, p.place);
+                Text(dc, r.name.substr(g_query.size()), tfF, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, pf.place);
+            else if (r.kind == K_CALC) Text(dc, L" = " + r.name, tfF, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, pf.place);
         }
         if (g_caretOn && !g_selAll) {
             br->SetColor(p.sel);
@@ -1356,50 +1492,70 @@ void Paint() {
     }
 
     if (ModePanel() && g_query.empty() && g_mode == 1) {  // botão ⋯ (grade ou lista), à direita do campo
-        g_moreR = D2D1::RectF(W - 20 - 30, FIELD_H / 2 - 15, W - 20, FIELD_H / 2 + 15);
+        float mr = gg ? fpw - 18 - 30 : W - 20;  // Golden Gate: "⋯" solto, sem círculo, centrado a 45 da borda da barra
+        g_moreR = D2D1::RectF(mr - 30, FIELD_H / 2 - 15, mr, FIELD_H / 2 + 15);
         float cx = (g_moreR.left + g_moreR.right) / 2;
-        br->SetColor(p.text2);
-        dc->DrawEllipse(D2D1::Ellipse({ cx, FIELD_H / 2 }, 11, 11), br, 1.5f);
+        br->SetColor(pf.text2);
+        if (!gg) dc->DrawEllipse(D2D1::Ellipse({ cx, FIELD_H / 2 }, 11, 11), br, 1.5f);
         for (int k = -1; k <= 1; k++) dc->FillEllipse(D2D1::Ellipse({ cx + k * 5.f, FIELD_H / 2 }, 1.5f, 1.5f), br);
+        if (gg) { g_moreR.left += fx0 + 18; g_moreR.right += fx0 + 18; }  // o clique é sem o deslocamento do desenho
     } else g_moreR = {};
+    dc->SetTransform(fieldOld);
     if (H > FIELD_H + 1.5f) {
         br->SetColor(p.sep);
-        if (liquid::On()) dc->FillRectangle(D2D1::RectF(20, FIELD_H, W - 20, FIELD_H + 1), br);  // Tahoe: divisa solta das bordas
+        if (gg) {}  // Golden Gate: barra e painel separados, sem divisa
+        else if (liquid::On()) dc->FillRectangle(D2D1::RectF(20, FIELD_H, W - 20, FIELD_H + 1), br);  // Tahoe: divisa solta das bordas
         else dc->FillRectangle(D2D1::RectF(0, FIELD_H, W, FIELD_H + 1), br);
         float listTop = ListTop();
         Layout();
         // conteúdo novo (trocou de modo): entra esmaecendo e subindo 10 pt, como no Mac
         float lin = anim::Ease(std::clamp((float)((anim::Now() - g_listIn) / 240.0), 0.f, 1.f));
+        // macOS 27: o painel entra só esmaecendo (~140 ms), sem subir
+        const float ggIn = gg ? anim::Ease(std::clamp((float)((anim::Now() - g_panelInAt) / 140.0), 0.f, 1.f)) : 1.f;
         D2D1_MATRIX_3X2_F listOld; dc->GetTransform(&listOld);
-        const bool listAnim = lin < 0.999f;
+        const bool listAnim = lin < 0.999f || ggIn < 0.999f;
         if (listAnim) {
-            dc->SetTransform(D2D1::Matrix3x2F::Translation(0, (1 - lin) * 10) * listOld);
-            dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), lin), nullptr);
+            dc->SetTransform(D2D1::Matrix3x2F::Translation(0, gg ? 0.f : (1 - lin) * 10) * listOld);
+            dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), (gg ? 1.f : lin) * ggIn), nullptr);
         }
         if (HasChips()) {  // Tahoe: fileira de filtros (categorias / tipos), pílulas de vidro fracas
             auto chips = Chips();
             g_chipR.clear();
-            float x = PAD + 4, cy = FIELD_H + 1 + CHIPS_H / 2;
+            float x = PAD + 4, cy = gg ? FIELD_H + GG_GAP + 33 : FIELD_H + 1 + GG_GAP + CHIPS_H / 2;  // macOS 27: centro a 33 do alto do painel
             bool dark = ui::Dark();
+            static IDWriteTextFormat* tfChipGG = ui::Format(15, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+            IDWriteTextFormat* tfC = gg && tfChipGG ? tfChipGG : g_tfChip;
+            if (tfC) tfC->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            if (gg) x = 20;  // macOS 27: fichas de 26 com texto de 15, a 20 da borda do painel
             for (int i = 0; i < (int)chips.size(); i++) {
-                float tw = ui::TextWidth(g_tfChip, chips[i]);
-                D2D1_RECT_F c = D2D1::RectF(x, cy - 12, x + tw + 26, cy + 12);  // pílulas de 24 de altura (guia, seção 39)
+                float tw = ui::TextWidth(tfC, chips[i]), ch = gg ? 13.f : 12.f;
+                D2D1_RECT_F c = D2D1::RectF(x, cy - ch, x + tw + (gg ? 24 : 26), cy + ch);  // pílulas de 24 de altura (guia, seção 39)
                 if (c.right > W - PAD) break;
                 bool on = g_chip == i + 1;
                 br->SetColor(on ? D2D1::ColorF(p.sel.r, p.sel.g, p.sel.b, 0.85f) : dark ? D2D1::ColorF(1, 1, 1, 0.07f) : D2D1::ColorF(1, 1, 1, 0.38f));
-                dc->FillRoundedRectangle(D2D1::RoundedRect(c, 12, 12), br);
-                if (!on) liquid::Rim(dc, c, 12, dark, 0.6f);
-                Text(dc, chips[i], g_tfChip, c, br, on ? D2D1::ColorF(1, 1, 1, 1) : p.text2);
+                dc->FillRoundedRectangle(D2D1::RoundedRect(c, ch, ch), br);
+                if (!on) liquid::Rim(dc, c, ch, dark, 0.6f);
+                Text(dc, chips[i], tfC, c, br, on ? D2D1::ColorF(1, 1, 1, 1) : gg ? p.text : p.text2);
                 g_chipR.push_back(c);
                 x = c.right + 8;
             }
         }
         dc->PushAxisAlignedClip(D2D1::RectF(0, listTop, W, H - 1), D2D1_ANTIALIAS_MODE_ALIASED);
+        // macOS 27: o que rola some esmaecendo nos 26 de cima da lista (antes cortava seco, colado nas fichas)
+        ID2D1LinearGradientBrush* edgeMask = nullptr;
+        if (gg && g_scrollNow > 0.5f) {
+            D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0, 0, 0, 0) }, { 1, D2D1::ColorF(0, 0, 0, 1) } };
+            ID2D1GradientStopCollection* gs = nullptr;
+            if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)))
+                dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, listTop }, { 0, listTop + 26 }), gs, &edgeMask);
+            if (gs) gs->Release();
+            if (edgeMask) dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), 1, edgeMask), nullptr);
+        }
         float oy = listTop - g_scrollNow;
         // destaque que desliza entre as linhas
         if (g_sel >= 0 && g_rows[g_sel].type == R_ROW && g_selBot > g_selTop) {
-            br->SetColor(p.hi);
-            float hr = liquid::On() ? std::min(16.f, (g_selBot - g_selTop) / 2) : 9.f;  // Tahoe: destaque em cápsula
+            br->SetColor(gg ? (ui::Dark() ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(1, 1, 1, 0.30f)) : p.hi);  // Golden Gate: pílula clara
+            float hr = gg ? std::min(22.f, (g_selBot - g_selTop) / 2) : liquid::On() ? std::min(16.f, (g_selBot - g_selTop) / 2) : 9.f;  // Tahoe: destaque em cápsula
             dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(PAD, g_selTop + oy, W - PAD, g_selBot + oy), hr, hr), br);
         }
         for (int i = 0; i < (int)g_rows.size(); i++) {
@@ -1407,6 +1563,20 @@ void Paint() {
             D2D1_RECT_F r = D2D1::RectF(row.r.left, row.r.top + oy, row.r.right, row.r.bottom + oy);
             if (r.bottom < listTop || r.top > H) continue;
             bool s = i == g_sel;
+            if (row.type == R_MODE) {  // macOS 27: símbolo de 24 a 36 da borda, nome de 17 a 70 e o atalho em cinza à direita
+                static IDWriteTextFormat* tfM = ui::Format(17, DWRITE_FONT_WEIGHT_NORMAL);
+                static IDWriteTextFormat* tfK = ui::Format(17, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_TRAILING);
+                static const wchar_t* names[4] = { L"Aplicativos", L"Arquivos", L"Ações", L"Área de Transferência" };
+                static const wchar_t* syms[4] = { L"square.grid.2x2", L"folder", L"slider.horizontal.3", L"rectangle.on.rectangle" };
+                float cy = (r.top + r.bottom) / 2, ix = r.left + 24;
+                if (g_spHover.x >= r.left && g_spHover.x < r.right && g_spHover.y >= r.top && g_spHover.y < r.bottom) { br->SetColor(D2D1::ColorF(1, 1, 1, 0.10f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 14, 14), br); }
+                br->SetColor(p.text);
+                simbolo::Draw(dc, syms[row.sect], D2D1::RectF(ix - 12, cy - 11, ix + 12, cy + 11), br);
+                Text(dc, Tr(names[row.sect]), tfM, D2D1::RectF(r.left + 58, r.top, r.right - 90, r.bottom), br, p.text);
+                wchar_t k[16]; swprintf_s(k, L"Ctrl %d", row.sect + 1);
+                if (tfK) Text(dc, k, tfK, D2D1::RectF(r.right - 140, r.top, r.right - 28, r.bottom), br, p.text2);
+                continue;
+            }
             if (row.type == R_HEAD) {
                 Text(dc, row.head, g_tfHead, D2D1::RectF(r.left + 10, r.top + 8, r.right - 10, r.bottom), br, p.text2);
                 bool open = g_more.count(row.sect) > 0;
@@ -1418,11 +1588,15 @@ void Paint() {
             }
             const Result& res = g_res[row.res];
             if (row.type == R_APP) {  // ícone grande e o nome embaixo (duas linhas no máximo)
+                if (gg && row.sect == 8) {  // macOS 27: a linha fina entre os mais usados e o resto
+                    br->SetColor(D2D1::ColorF(1, 1, 1, 0.24f));
+                    dc->FillRectangle(D2D1::RectF(18.5f, r.top - 8, W - 18.5f, r.top - 7), br);
+                }
                 if (g_dragging && i == g_press) continue;  // o arrastado vai por cima, no ponteiro
                 if (auto it = g_cellAt.find(res.target); it != g_cellAt.end())  // deslizando até o lugar novo
                     r = D2D1::RectF(it->second.x, it->second.y + oy, it->second.x + (row.r.right - row.r.left), it->second.y + oy + (row.r.bottom - row.r.top));
                 bool edit = g_edit && CanArrange();
-                if (s && !edit) { br->SetColor(p.hi); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 6, r.top + 4, r.right - 6, r.bottom - 4), 16, 16), br); }
+                if (s && !edit && (!gg || g_keyNav)) { br->SetColor(p.hi); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 6, r.top + 4, r.right - 6, r.bottom - 4), 16, 16), br); }
                 float cx = (r.left + r.right) / 2;
                 D2D1_RECT_F ir = D2D1::RectF(cx - APP_ICON / 2, r.top + APP_ICON_TOP, cx + APP_ICON / 2, r.top + APP_ICON_TOP + APP_ICON);
                 D2D1_MATRIX_3X2_F base; dc->GetTransform(&base);
@@ -1442,7 +1616,21 @@ void Paint() {
                     dc->DrawLine({ xc.x - 4, xc.y - 4 }, { xc.x + 4, xc.y + 4 }, br, 1.8f);
                     dc->DrawLine({ xc.x - 4, xc.y + 4 }, { xc.x + 4, xc.y - 4 }, br, 1.8f);
                 }
-                Text(dc, res.name, g_tfCell, D2D1::RectF(r.left + 4, r.top + APP_NAME_TOP, r.right - 4, r.top + APP_NAME_TOP + 18), br, p.text);
+                {
+                    static IDWriteTextFormat* tfCellGG = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+                    float nt = gg ? 78.f : APP_NAME_TOP;  // macOS 27: nome de 13 com o centro 47 abaixo do centro do ícone
+                    static bool trimmed;
+                    if (gg && tfCellGG && !trimmed) {  // uma linha só, terminando em "…" (System Informat…), como no macOS 27
+                        trimmed = true;
+                        tfCellGG->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                        IDWriteInlineObject* dots = nullptr;
+                        ui::dw->CreateEllipsisTrimmingSign(tfCellGG, &dots);
+                        DWRITE_TRIMMING tr{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+                        tfCellGG->SetTrimming(&tr, dots);
+                        if (dots) dots->Release();
+                    }
+                    Text(dc, res.name, gg && tfCellGG ? tfCellGG : g_tfCell, D2D1::RectF(r.left + 2, r.top + nt, r.right - 2, r.top + nt + 18), br, p.text);
+                }
                 if (edit) dc->SetTransform(base);
                 continue;
             }
@@ -1475,6 +1663,21 @@ void Paint() {
                 dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 13.5f, 13.5f), br, 1);
                 }
             }
+            if (gg && !card) {  // macOS 27: ícone de 36 a 30 da borda, nome de 17 a 80 e o tipo · lugar em cinza de 15 embaixo
+                static IDWriteTextFormat* tfT = ui::Format(17, DWRITE_FONT_WEIGHT_NORMAL);
+                static IDWriteTextFormat* tfS = ui::Format(15, DWRITE_FONT_WEIGHT_NORMAL);
+                float cy2 = (r.top + r.bottom) / 2;
+                DrawIcon(dc, br, res, D2D1::RectF(r.left + 18, cy2 - 18, r.left + 54, cy2 + 18), p);
+                std::wstring name = res.kind == K_CALC ? res.detail + L" = " + res.name : res.name;
+                NameText(dc, name, tfT, D2D1::RectF(r.left + 68, r.top + 11, r.right - 14, r.top + 33), br, p.text);
+                const wchar_t* kindName = res.kind == K_APP ? L"Aplicativo" : res.kind == K_FOLDER ? L"Pasta" : res.kind == K_DOC ? L"Documento" :
+                                          res.kind == K_IMAGE ? L"Imagem" : res.kind == K_WEB ? L"Pesquisar na Web" : nullptr;
+                std::wstring acc = Accessory(res), sub = kindName ? Tr(kindName) : L"";
+                if (res.kind == K_WEB) acc.clear();
+                if (!acc.empty()) sub += (sub.empty() ? L"" : L" · ") + acc;
+                if (!sub.empty()) Text(dc, sub, tfS, D2D1::RectF(r.left + 68, r.top + 33, r.right - 14, r.top + 53), br, p.text2);
+                continue;
+            }
             float ic = card ? (liquid::On() ? 38.f : 40.f) : 24.f, cy = (r.top + r.bottom) / 2;
             if (card) {  // ícone num círculo, como no cartão do Mac (apps ficam com o ícone deles)
                 if (res.kind != K_APP) {
@@ -1494,6 +1697,7 @@ void Paint() {
             float k = APP_ICON * 1.12f;
             DrawIcon(dc, br, g_res[g_rows[g_press].res], D2D1::RectF(g_dragPt.x - k / 2, g_dragPt.y - k / 2, g_dragPt.x + k / 2, g_dragPt.y + k / 2), p);
         }
+        if (edgeMask) { dc->PopLayer(); edgeMask->Release(); }
         dc->PopAxisAlignedClip();
         if (listAnim) { dc->PopLayer(); dc->SetTransform(listOld); }
     }
@@ -1534,6 +1738,12 @@ void Paint() {
                     }
             }
             backdrop::SetPieces(g_back, W * sc, H * sc, pcs, tint, 10.f);
+        } else if (gg && backdrop::Real()) {  // Golden Gate: a barra e o painel em duas peças de vidro
+            tint = D2D1::ColorF(0.09f, 0.07f, 0.06f, 0.42f);  // tinta escura por cima do fundo bem desfocado (nunca transparente)
+            const float fpw2 = std::min(W, GG_BAR_W), fx2 = (W - fpw2) / 2;
+            std::vector<backdrop::Piece> pcs{ { D2D1::RectF(fx2 * sc, 0, (fx2 + fpw2) * sc, FIELD_H * sc), FIELD_H / 2 * sc } };
+            if (H > FIELD_H + 1.5f) pcs.push_back({ D2D1::RectF(0, (FIELD_H + GG_GAP) * sc, W * sc, H * sc), 30 * sc });
+            backdrop::SetPieces(g_back, W * sc, H * sc, pcs, tint, 10.f);  // o desfoque segue o controle (mínimo igual ao do Tahoe)
         } else if (liquid::On() && backdrop::Real()) {  // Tahoe: vidro claro atrás do texto, como o Spotlight do macOS 26
             std::vector<backdrop::Piece> pcs{ { D2D1::RectF(0, 0, pw * sc, H * sc), SpotR(H) * sc } };
             backdrop::SetPieces(g_back, W * sc, H * sc, pcs, tint, 10.f);
@@ -1593,6 +1803,13 @@ bool Step() {
     }
     float targetH = PanelH();
     float listH = std::max(0.f, targetH - ListTop());
+    if (liquid::Golden()) {
+        // macOS 27 (vídeo, 5:58,8–5:58,9, quadro a quadro): o painel não cresce; aparece já do tamanho final, esmaecido e
+        // desfocado, e fica nítido em ~140 ms. Ao mudar de tamanho (digitando), troca direto
+        if (g_h <= FIELD_H + 1.5f && targetH > FIELD_H + 1.5f) g_panelInAt = now + (now - g_openAt < 100 ? 110 : 0);  // ao abrir, a barra vem antes e a lista ~110 ms depois (vídeo)
+        g_h = targetH;
+        moving |= now - g_panelInAt < 160;  // (inclui a espera antes de começar)
+    } else
     moving |= ease(g_h, targetH, 0.045f);  // cresce/encolhe rápido, como o do Mac
     // rolagem para mostrar o escolhido (com o cabeçalho dele)
     if (g_sel >= 0 && g_sel < (int)g_rows.size()) {
@@ -1855,7 +2072,7 @@ void EndEdit() {
 }
 void SaveOrder() {  // a ordem de agora (todos os apps não tirados)
     std::vector<std::wstring> v;
-    for (auto& row : g_rows) if (row.type == R_APP && row.res >= 0) v.push_back(g_res[row.res].name);
+    for (auto& row : g_rows) if (row.type == R_APP && row.res >= 0 && row.sect != 7) v.push_back(g_res[row.res].name);  // sem a fileira dos mais usados
     shell::SetSetting(L"apps_ordem", JoinBar(v));
     Log(L"spotlight: ordem dos apps guardada (%zu)", v.size());
 }
@@ -1999,6 +2216,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             break;
         case VK_UP: case VK_DOWN: {  // nas miniaturas, sobe/desce pula a fileira inteira
+            g_keyNav = true;
             int dir = w == VK_UP ? -1 : 1;
             if (g_sel >= 0 && g_rows[g_sel].type == R_APP) {  // grade de apps: a mesma coluna na fileira de cima/baixo
                 int i = g_sel + dir * 5;
@@ -2014,6 +2232,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         case VK_LEFT: case VK_RIGHT:  // entre as miniaturas
+            g_keyNav = true;
             if (g_sel >= 0 && (g_rows[g_sel].type == R_TILE || g_rows[g_sel].type == R_APP)) {
                 int i = g_sel + (w == VK_LEFT ? -1 : 1);
                 if (i >= 0 && i < (int)g_rows.size() && g_rows[i].type == g_rows[g_sel].type) { g_sel = i; Animate(); Paint(); }
@@ -2091,6 +2310,20 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         int i = RowAt(Pt(l));
         if (i < 0) { if (g_edit) EndEdit(); return 0; }  // clicar no vazio termina a edição
+        if (g_rows[i].type == R_MODE) {  // macOS 27: a linha do modo entra nele (Área de Transferência: o Win+V)
+            int k = g_rows[i].sect;
+            if (k == 3) {
+                Close();
+                INPUT in[4]{};
+                for (auto& x : in) x.type = INPUT_KEYBOARD;
+                in[0].ki.wVk = VK_LWIN; in[1].ki.wVk = 'V'; in[2].ki.wVk = 'V'; in[2].ki.dwFlags = KEYEVENTF_KEYUP;
+                in[3].ki.wVk = VK_LWIN; in[3].ki.dwFlags = KEYEVENTF_KEYUP;
+                SendInput(4, in, sizeof(INPUT));
+                return 0;
+            }
+            g_mode = k + 1; g_chip = 0; g_scroll = 0; ModeChanged(); Refresh();
+            return 0;
+        }
         if (g_rows[i].type == R_APP && CanArrange()) {
             g_press = i; g_dragging = false; g_downPt = Pt(l); g_pressWasSel = i == g_sel;
             SetCapture(h);
@@ -2336,6 +2569,7 @@ static void OpenWith(int mode) {
     if (!g_visible) Metricas();  // tema (ou o modo Apps, mais largo) pode ter mudado desde a última vez
     g_scroll = 0;
     g_openAt = anim::Now();
+    g_keyNav = false;
     const bool wasVisible = g_visible;
     if (!g_visible) { g_h = FIELD_H; g_scrollNow = 0; }  // nasce só com o campo; os resultados crescem dele
     g_visible = true;

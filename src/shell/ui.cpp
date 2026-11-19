@@ -294,7 +294,7 @@ std::vector<Clock*> g_clocks;
 // ---- Estilo dos ícones do macOS 26 (Aparência > Estilo de ícones e widgets)
 D2D1_COLOR_F ui::Accent() {
     static const std::pair<const wchar_t*, UINT32> acc[] = { { L"azul", 0x007AFF }, { L"roxo", 0x953D96 }, { L"rosa", 0xF74F9E }, { L"vermelho", 0xE0383E },
-        { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C } };
+        { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C }, { L"lavanda", 0x98A8D9 } };  // lavanda: a 10ª cor do macOS 27
     std::wstring d = shell::Setting(L"destaque", L"azul");
     UINT32 c = 0x007AFF;
     for (auto& [n, v] : acc) if (d == n) c = v;
@@ -308,7 +308,10 @@ std::wstring ui::IconStyleKey() {
 
 std::wstring ui::IconStyle() {
     if (!liquid::On()) return L"padrao";
-    return shell::Setting(L"estilo_icones", L"padrao");
+    std::wstring st = shell::Setting(L"estilo_icones", L"padrao");
+    // macOS 27: Escuro com "Auto" (estilo_escuro_auto=1) só vale no modo escuro
+    if (st == L"escuro" && shell::Setting(L"estilo_escuro_auto", L"0") == L"1" && !Dark()) return L"padrao";
+    return st;
 }
 
 // Ícones "Transparente" e "Tingido" do macOS 26: o ícone não ganha só um filtro de cor, vira uma peça de Liquid Glass.
@@ -475,7 +478,7 @@ void ui::StyleIcon(UINT w, UINT h, std::vector<BYTE>& px, const std::wstring& st
     float tr = 0.04f, tg = 0.52f, tb = 1.0f;  // azul do Mac
     {
         static const std::pair<const wchar_t*, UINT32> acc[] = { { L"roxo", 0x953D96 }, { L"rosa", 0xF74F9E }, { L"vermelho", 0xE0383E },
-            { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C } };
+            { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C }, { L"lavanda", 0x98A8D9 } };  // lavanda: a 10ª cor do macOS 27
         std::wstring d = shell::Setting(L"destaque", L"azul");
         for (auto& [n, c] : acc) if (d == n) { tr = ((c >> 16) & 255) / 255.f; tg = ((c >> 8) & 255) / 255.f; tb = (c & 255) / 255.f; }
     }
@@ -670,6 +673,10 @@ std::wstring ui::PackIcon(const std::wstring& name) {
     std::wstring root = shell::dir.substr(0, shell::dir.find_last_of(L'\\')) + L"\\icones";
     std::wstring extra = root + L"\\extra\\" + name + L".png";  // escolhidos pelo usuário vencem
     if (GetFileAttributesW(extra.c_str()) != INVALID_FILE_ATTRIBUTES) return extra;
+    if (liquid::Golden()) {  // Golden Gate: os ícones do macOS 27 (icones\goldengate, tools\icones-goldengate.py)
+        std::wstring g = root + L"\\goldengate\\" + name + L".png";
+        if (GetFileAttributesW(g.c_str()) != INVALID_FILE_ATTRIBUTES) return g;
+    }
     if (liquid::On()) {  // Tema Tahoe: icones\tahoe antes do pacote do Sequoia
         std::wstring t = root + L"\\tahoe\\" + name + L".png";
         if (GetFileAttributesW(t.c_str()) != INVALID_FILE_ATTRIBUTES) return t;

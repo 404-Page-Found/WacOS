@@ -27,8 +27,9 @@ float SIDE_W = 215;
 const float TOOL_H = 52;
 float SIDE_ROW = 28;
 const float SIDE_GAP = 12;
-const float SEARCH_Y = 52, SEARCH_H = 28;
-const float ACCOUNT_Y = 90, ACCOUNT_H = 50;
+// SEARCH_Y e ACCOUNT_Y mudam no Golden Gate (ApplyWindowTheme): busca com o centro a 75 e a conta 6 mais abaixo (captura)
+float SEARCH_Y = 52, ACCOUNT_Y = 90;
+const float SEARCH_H = 28, ACCOUNT_H = 50;
 const float PAD = 20, GROUP_R = 8, GROUP_GAP = 11;
 float ROW_H = 38;
 const UINT WM_APP_REBUILD = WM_APP + 1, WM_APP_BITMAP = WM_APP + 2;
@@ -40,6 +41,10 @@ FILE* g_log;
 float g_dpi = 96, g_scale = 1;
 bool g_dark, g_winActive = true, g_hoverLights;
 bool g_tahoe;  // tema macOS Tahoe (liquid_glass=1): janela de cantos grandes, barra lateral flutuante, cápsulas
+// macOS 27 Golden Gate (golden_gate=1 junto com o Tahoe), medido nas capturas do 512 Pixels (Ajustes do Sistema, 2x):
+// barra lateral de 231 pt que vai até a borda (cor cheia 236,235,236; sem painel flutuante), linhas de 32 pt com a
+// seleção na cor de destaque pura, 10 pt de recuo e raio 8; conteúdo branco com caixas (247) a ~20 pt das bordas
+bool Golden() { return g_tahoe && tahoe::Golden(); }
 float GroupR() { return g_tahoe ? 11.f : GROUP_R; }  // caixas mais redondas no Tahoe (guia: group_radius 11)
 // Tahoe: estilo de ícones "transparente" (Aparência > Estilo de ícones): símbolos na cor do texto, sem o
 // quadradinho colorido; na barra lateral, só o símbolo (como nas capturas do Ajustes do macOS 26)
@@ -48,7 +53,7 @@ bool g_tileBare;  // desenhando a barra lateral: no estilo transparente, sem fun
 float PanelR() { return std::max(10.f, tahoe::Radius(g_hwnd) - 7); }
 D2D1_RECT_F PanelRect(float H) { return D2D1::RectF(7, 7, SIDE_W - 1, std::floor(H - 7)); }  // bordas no grid de pixels
 
-IDWriteTextFormat *g_tfBody, *g_tfSmall, *g_tfBold, *g_tfTitle, *g_tfGlyph, *g_tfGlyphSmall, *g_tfSide, *g_tfCenter, *g_tfSmallCenter,
+IDWriteTextFormat *g_tfSmallBoldCenter, *g_tfBody, *g_tfSmall, *g_tfBold, *g_tfTitle, *g_tfGlyph, *g_tfGlyphSmall, *g_tfSide, *g_tfCenter, *g_tfSmallCenter,
     *g_tfName, *g_tfTileText;
 ID2D1StrokeStyle* g_round;
 
@@ -180,7 +185,7 @@ D2D1_COLOR_F aj::Accent() {
     std::wstring d = Setting(L"destaque", L"azul");
     static const std::pair<const wchar_t*, UINT32> cols[] = {
         { L"azul", 0x007AFF }, { L"roxo", 0x953D96 }, { L"rosa", 0xF74F9E }, { L"vermelho", 0xE0383E },
-        { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C } };
+        { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C }, { L"lavanda", 0x98A8D9 } };  // lavanda: a 10ª cor do macOS 27
     for (auto& [n, c] : cols) if (d == n) return Rgb(c);
     return Rgb(g_dark ? 0x0A84FF : 0x007AFF);
 }
@@ -238,6 +243,7 @@ void aj::Tile(Ctx& c, D2D1_RECT_F r, wchar_t glyph, UINT32 color, const std::wst
     // Tahoe: os ícones seguem Aparência > Estilo de ícones e widgets, como no Ajustes do macOS 26 — Escuro (quadrado
     // grafite com o símbolo na cor dele), Transparente (vidro claro, símbolo claro) e Tingido (vidro na cor de destaque)
     std::wstring est = g_tahoe ? aj::Setting(L"estilo_icones", L"padrao") : L"padrao";
+    if (est == L"escuro" && aj::Setting(L"estilo_escuro_auto", L"0") == L"1" && !g_dark) est = L"padrao";  // macOS 27: Escuro "Auto"
     if (est == L"escuro" || est == L"transparente" || est == L"tingido") {
         auto rr = D2D1::RoundedRect(r, w * 0.24f, w * 0.24f);
         D2D1_COLOR_F ink = D2D1::ColorF(1, 1, 1, 1);
@@ -444,7 +450,8 @@ void CreateFormats() {
     g_tfTitle = Format(disp.c_str(), 15, DWRITE_FONT_WEIGHT_BOLD, L);
     g_tfName = Format(disp.c_str(), 22, DWRITE_FONT_WEIGHT_BOLD, C);
     g_tfCenter = Format(ui.c_str(), 13, body, C);
-    g_tfSmallCenter = Format(ui.c_str(), 11, body, C);  // uma linha só, com "…" (nomes das imagens de fundo)
+    g_tfSmallCenter = Format(ui.c_str(), 11, body, C);
+    g_tfSmallBoldCenter = Format(ui.c_str(), 11, DWRITE_FONT_WEIGHT_SEMI_BOLD, C);  // uma linha só, com "…" (nomes das imagens de fundo)
     g_tfGlyph = Format(icons.c_str(), 14, DWRITE_FONT_WEIGHT_NORMAL, C);
     g_tfGlyphSmall = Format(icons.c_str(), 11.5f, DWRITE_FONT_WEIGHT_NORMAL, C);
     g_tfTileText = Format(ui.c_str(), 13, DWRITE_FONT_WEIGHT_BOLD, C);
@@ -478,6 +485,16 @@ struct Pal {
 Pal ColorsBase();
 Pal Colors() {  // Tahoe: o fundo da janela leva 10 % da cor do papel de parede (tahoe::Tint)
     Pal p = ColorsBase();
+    if (Golden()) {
+        // medido: claro = barra (236,235,236), conteúdo branco, caixas 247; escuro = conteúdo (29,28,29), caixas (49,48,48),
+        // barra lateral (43,41,40); seleção na cor de destaque pura (0,122,255 no azul)
+        p.side = g_dark ? D2D1::ColorF(43 / 255.f, 41 / 255.f, 40 / 255.f, 1) : D2D1::ColorF(236 / 255.f, 235 / 255.f, 236 / 255.f, 1);
+        p.content = g_dark ? D2D1::ColorF(29 / 255.f, 28 / 255.f, 29 / 255.f, 1) : D2D1::ColorF(1, 1, 1, 1);
+        p.group = g_dark ? D2D1::ColorF(1, 1, 1, 0.088f) : D2D1::ColorF(0, 0, 0, 0.031f);
+        p.divider = g_dark ? D2D1::ColorF(0, 0, 0, 0.5f) : D2D1::ColorF(0, 0, 0, 0.06f);
+        if (g_winActive) p.sideSel = aj::Accent();
+        return p;
+    }
     if (g_tahoe) p.content = tahoe::Tint(p.content);
     return p;
 }
@@ -549,8 +566,8 @@ void UpdateSideVisible() {
 
 // ================= Layout do conteúdo
 float RowHeight(const aj::Row& r, float w) {
-    if (r.kind == aj::Kind::Custom) return r.height;
-    float h = r.icon ? 42.f : ROW_H;
+    if (r.kind == aj::Kind::Custom || r.height > 0) return r.height;
+    float h = r.icon ? (Golden() ? 49.f : 42.f) : ROW_H;
     if (r.kind == aj::Kind::Slider && r.hasDef) h += 14;  // espaço para a marca "Padrão" embaixo do trilho
     if (!r.detail.empty()) {
         float textW = w - 20 - (r.icon ? 34 : 0) - (r.kind == aj::Kind::Toggle ? 50 : r.kind == aj::Kind::Button ? 120 : 0);
@@ -672,6 +689,9 @@ float SliderValue(const aj::Row& r) { return r.getF ? std::clamp((r.getF() - r.m
 
 // trilho do slider (à direita da linha, com espaço para os ícones/rótulos das pontas)
 D2D1_RECT_F SliderTrack(const aj::Row& r, D2D1_RECT_F row) {
+    // macOS 27 (Ajustes > Aparência, 2x): trilho de 5,75 de 213 da borda da caixa até 33,5 da outra, centro 15,75 abaixo
+    // do topo da linha
+    if (r.gg) return D2D1::RectF(row.left + 213, row.top + 15.75f - 2.875f, row.right - 33.5f, row.top + 15.75f + 2.875f);
     float maxW = r.maxGlyph.empty() ? 0 : (r.maxGlyph[0] >= 0xE000 ? 22 : TextWidth(r.maxGlyph, g_tfSmall) + 10);
     float minW = r.minGlyph.empty() ? 0 : (r.minGlyph[0] >= 0xE000 ? 22 : TextWidth(r.minGlyph, g_tfSmall) + 10);
     float right = row.right - 12 - maxW;
@@ -689,6 +709,46 @@ float SliderDefault(const aj::Row& r) { return std::clamp((r.def - r.min) / std:
 void DrawSlider(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F row) {
     D2D1_RECT_F t = SliderTrack(r, row);
     float v = SliderValue(r);
+    if (r.gg) {
+        // macOS 27: trilho arredondado (cinza claro / azul), botão em cápsula branca de 20 × 16 com sombra, os dois
+        // pontinhos embaixo das pontas e, nas pontas, os ícones de "transparente" (contorno) e "opaco" (cheio)
+        float cy = (t.top + t.bottom) / 2, rad = (t.bottom - t.top) / 2;
+        c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.09f));
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, rad, rad), c.br);
+        float kx = t.left + 10 + v * (t.right - t.left - 20);
+        c.br->SetColor(c.accent);
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left, t.top, kx, t.bottom), rad, rad), c.br);
+        c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.3f) : D2D1::ColorF(0, 0, 0, 0.25f));
+        c.dc->FillEllipse(D2D1::Ellipse({ t.left + 9.5f, cy + 8 }, 1.1f, 1.1f), c.br);
+        c.dc->FillEllipse(D2D1::Ellipse({ t.right - 9.5f, cy + 8 }, 1.1f, 1.1f), c.br);
+        D2D1_RECT_F kb = D2D1::RectF(kx - 10, cy - 8, kx + 10, cy + 8);
+        for (int s = 3; s >= 1; s--) {
+            c.br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.10f : 0.045f));
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(kb.left - s * 0.5f, kb.top + s * 0.4f, kb.right + s * 0.5f, kb.bottom + s * 0.8f), 8 + s * 0.5f, 8 + s * 0.5f), c.br);
+        }
+        c.br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(kb, 8, 8), c.br);
+        auto twoBoxes = [&](float cx, bool filled) {
+            D2D1_RECT_F back = D2D1::RectF(cx - 7.5f, cy - 6, cx + 3, cy + 2), front = D2D1::RectF(cx - 4.5f, cy - 3, cx + 7.5f, cy + 6);
+            c.br->SetColor(c.text2);
+            if (filled) {
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(back, 2.5f, 2.5f), c.br);
+                c.br->SetColor(g_dark ? D2D1::ColorF(0.19f, 0.19f, 0.19f, 1) : D2D1::ColorF(0.97f, 0.97f, 0.97f, 1));
+                c.dc->DrawRoundedRectangle(D2D1::RoundedRect(front, 4, 4), c.br, 1.4f);
+                c.br->SetColor(c.text2);
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(front, 4, 4), c.br);
+            } else {
+                c.dc->DrawRoundedRectangle(D2D1::RoundedRect(back, 2.5f, 2.5f), c.br, 1.1f);
+                c.br->SetColor(g_dark ? D2D1::ColorF(0.19f, 0.19f, 0.19f, 1) : D2D1::ColorF(0.97f, 0.97f, 0.97f, 1));
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(front, 4, 4), c.br);
+                c.br->SetColor(c.text2);
+                c.dc->DrawRoundedRectangle(D2D1::RoundedRect(front, 4, 4), c.br, 1.1f);
+            }
+        };
+        twoBoxes(row.left + 199, false);
+        twoBoxes(row.right - 20, true);
+        return;
+    }
     float cy = (t.top + t.bottom) / 2;
     c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.10f));
     c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, 2, 2), c.br);
@@ -765,6 +825,32 @@ void DrawRow(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F rr, int gi, int ri) {
     }
     case aj::Kind::Popup: {
         std::wstring v = r.value ? r.value() : (r.getIdx && r.getIdx() >= 0 && r.getIdx() < (int)r.options.size() ? r.options[r.getIdx()] : L"");
+        if (r.gg) {
+            // macOS 27 (Ajustes > Aparência, 2x): botão redondo de 19,5 a 13,5 da borda da caixa, o valor a 13 dele e a
+            // bolinha de 16 a 8,5 do texto
+            float sx = rr.right - 13.5f - 9.75f;
+            c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.075f));
+            c.dc->FillEllipse(D2D1::Ellipse({ sx, cy }, 9.75f, 9.75f), c.br);
+            DrawUpDown(c, sx, cy, text);
+            float w = TextWidth(v, g_tfBody), tx = sx - 9.75f - 13 - w;
+            aj::Text(c, v, D2D1::RectF(tx, rr.top, sx - 9.75f - 13 + 2, rr.bottom), g_tfBody, text);
+            float dx = tx - 8.5f - 8;
+            if (r.dot) {
+                D2D1_COLOR_F col = r.dot(r.getIdx ? r.getIdx() : 0);
+                if (col.a < 0) {
+                    D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.62f, 0.55f, 0.85f, 1) }, { 1, D2D1::ColorF(1.0f, 0.60f, 0.60f, 1) } };
+                    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+                    if (SUCCEEDED(c.dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                        SUCCEEDED(c.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ dx - 8, cy }, { dx + 8, cy }), gs, &lb)))
+                        c.dc->FillEllipse(D2D1::Ellipse({ dx, cy }, 8, 8), lb);
+                    if (lb) lb->Release();
+                    if (gs) gs->Release();
+                } else { c.br->SetColor(col); c.dc->FillEllipse(D2D1::Ellipse({ dx, cy }, 8, 8), c.br); }
+            }
+            g_hits.push_back({ H_POPUP, D2D1::RectF(dx - 10, rr.top, rr.right - 8, rr.bottom), gi, ri });
+            right = dx - 16;
+            break;
+        }
         if (g_tahoe) {  // Tahoe: ⌃⌄ num círculo cinza
             c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.06f));
             c.dc->FillEllipse(D2D1::Ellipse({ right - 4, cy }, 10, 10), c.br);
@@ -840,6 +926,7 @@ void DrawLights(aj::Ctx& c) {
         bool lit = g_winActive || g_hoverLights;
         c.br->SetColor(lit ? on[k] : (g_dark ? D2D1::ColorF(1, 1, 1, 0.18f) : D2D1::ColorF(0, 0, 0, 0.16f)));
         c.dc->FillEllipse(D2D1::Ellipse(p, 7, 7), c.br);
+        semaforo::Gloss(c.dc, p, 7, c.br);
         c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.14f));
         c.dc->DrawEllipse(D2D1::Ellipse(p, 6.75f, 6.75f), c.br, 0.5f);
         g_hits.push_back({ H_LIGHT, D2D1::RectF(p.x - 9, p.y - 9, p.x + 9, p.y + 9), k });
@@ -853,7 +940,8 @@ void DrawLights(aj::Ctx& c) {
 }
 
 void DrawSearch(aj::Ctx& c, const Pal& pal) {
-    D2D1_RECT_F sr = g_tahoe ? D2D1::RectF(15, SEARCH_Y - 2, SIDE_W - 9, SEARCH_Y + SEARCH_H + 2) : D2D1::RectF(10, SEARCH_Y, SIDE_W - 10, SEARCH_Y + SEARCH_H);
+    D2D1_RECT_F sr = Golden() ? D2D1::RectF(10, SEARCH_Y - 1, SIDE_W - 10, SEARCH_Y + SEARCH_H) :
+                     g_tahoe ? D2D1::RectF(15, SEARCH_Y - 2, SIDE_W - 9, SEARCH_Y + SEARCH_H + 2) : D2D1::RectF(10, SEARCH_Y, SIDE_W - 10, SEARCH_Y + SEARCH_H);
     float srR = g_tahoe ? (sr.bottom - sr.top) / 2 : 6;  // Tahoe: busca em cápsula
     if (g_tahoe) {
         // Tahoe: a busca flutua sobre a lista (que rola por baixo dela, desfocada): cápsula translúcida com
@@ -893,11 +981,11 @@ void DrawSidebar(aj::Ctx& c, const Pal& pal, float H) {
     // Tahoe: a lista rola por baixo dos botões da janela e da busca (borda de rolagem desfocada)
     ID2D1DeviceContext* mainDc = c.dc;
     ID2D1DeviceContext* sdc = g_tahoe ? tahoe::SceneBegin(mainDc, 1, ClientDip(), g_dpi) : nullptr;
-    D2D1_RECT_F panel = PanelRect(H);
+    D2D1_RECT_F panel = Golden() ? D2D1::RectF(0, 0, SIDE_W - 0.5f, H) : PanelRect(H);
     { static int n; if (g_tahoe && !sdc && n++ < 3) Log(L"tahoe: cena da barra lateral indisponível (%ls)", tahoe::SceneError()); }
     if (!sdc) { DrawLights(c); DrawSearch(c, pal); }
     else c.dc = sdc;
-    c.dc->PushAxisAlignedClip(D2D1::RectF(0, sdc ? panel.top : SEARCH_Y + SEARCH_H + 6, SIDE_W, H - (g_tahoe ? 9 : 0)), D2D1_ANTIALIAS_MODE_ALIASED);
+    c.dc->PushAxisAlignedClip(D2D1::RectF(0, sdc ? panel.top : SEARCH_Y + SEARCH_H + 6, SIDE_W, H - (g_tahoe && !Golden() ? 9 : 0)), D2D1_ANTIALIAS_MODE_ALIASED);
     float y = ACCOUNT_Y - g_sideScroll;
     auto& items = SidebarItems();
     // conta (no topo, como "Iniciar sessão com sua Conta Apple")
@@ -932,9 +1020,9 @@ void DrawSidebar(aj::Ctx& c, const Pal& pal, float H) {
         auto& it = items[i];
         if (g_search.text.empty() && lastGroup != -100 && it.group != lastGroup) y += SIDE_GAP;
         lastGroup = it.group;
-        D2D1_RECT_F rr = g_tahoe ? D2D1::RectF(13, y, SIDE_W - 8, y + SIDE_ROW) : D2D1::RectF(10, y, SIDE_W - 10, y + SIDE_ROW);
+        D2D1_RECT_F rr = g_tahoe && !Golden() ? D2D1::RectF(13, y, SIDE_W - 8, y + SIDE_ROW) : D2D1::RectF(10, y, SIDE_W - 10, y + SIDE_ROW);
         bool sel = i == cur;
-        float selR = g_tahoe ? 9.f : 6.f;
+        float selR = Golden() ? 8.f : g_tahoe ? 9.f : 6.f;
         if (sel) { c.br->SetColor(pal.sideSel); c.dc->FillRoundedRectangle(D2D1::RoundedRect(rr, selR, selR), c.br); }
 
         g_tileBare = true;
@@ -1021,14 +1109,23 @@ void Render() {
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(pal.text, &br);
     aj::Ctx c{ dc, br, g_dark, pal.text, pal.text2, pal.text3, aj::Accent(), pal.line, pal.group, pal.control,
-               g_tfBody, g_tfSmall, g_tfBold, g_tfTitle, g_tfGlyph, g_tfGlyphSmall, g_tfCenter, g_tfSmallCenter };
+               g_tfBody, g_tfSmall, g_tfBold, g_tfTitle, g_tfGlyph, g_tfGlyphSmall, g_tfCenter, g_tfSmallCenter, g_tfSmallBoldCenter };
     g_hits.clear();
     auto s = ClientDip();
 
     // fundo: barra lateral translúcida (acrílico do sistema) e conteúdo opaco
     float winR = g_tahoe ? tahoe::Radius(g_hwnd) : 0;
     bool winClip = g_tahoe && tahoe::PushWindowClip(dc, s, winR);
-    if (g_tahoe) {
+    if (Golden()) {
+        // Golden Gate: a barra lateral é uma coluna de cor cheia até a borda (sem o vidro flutuante do Tahoe)
+        tahoe::SetPanel(g_hwnd, D2D1::RectF(0, 0, 0, 0), 0);
+        br->SetColor(pal.side);
+        dc->FillRectangle(D2D1::RectF(0, 0, SIDE_W, s.height), br);
+        br->SetColor(pal.content);
+        dc->FillRectangle(D2D1::RectF(SIDE_W, 0, s.width, s.height), br);
+        br->SetColor(pal.divider);
+        dc->FillRectangle(D2D1::RectF(SIDE_W - 0.5f, 0, SIDE_W, s.height), br);
+    } else if (g_tahoe) {
         // Tahoe: janela inteira na cor do conteúdo; a barra lateral é um painel de vidro flutuante
         D2D1_RECT_F panel = PanelRect(s.height);
         tahoe::SetPanel(g_hwnd, panel, PanelR());
@@ -1060,17 +1157,23 @@ void Render() {
     }
 
     // conteúdo
-    float x0 = SIDE_W + PAD, x1 = s.width - PAD, w = x1 - x0;
+    // Golden Gate (Aparência do macOS 27, 2x): caixas a 21 da barra lateral e 20,5 da direita, a primeira a 64,5 do alto
+    float x0 = SIDE_W + (Golden() ? 21.f : PAD), x1 = s.width - (Golden() ? 20.5f : PAD), w = x1 - x0;
     // Tahoe: o conteúdo rola por baixo de Voltar/Avançar e do título (borda de rolagem desfocada), sem faixa opaca
     ID2D1DeviceContext* mainDc = dc;
     ID2D1DeviceContext* cdc = g_tahoe ? tahoe::SceneBegin(mainDc, 0, s, g_dpi) : nullptr;
     if (cdc) { dc = cdc; c.dc = cdc; }
     const float clipTop = cdc ? 0.f : TOOL_H;
     dc->PushAxisAlignedClip(D2D1::RectF(SIDE_W + 0.5f, clipTop, s.width, s.height), D2D1_ANTIALIAS_MODE_ALIASED);
-    float y = TOOL_H + 6 - g_scroll;
+    float y = (Golden() ? 64.5f : TOOL_H + 6) - g_scroll;
     for (int gi = 0; gi < (int)g_page.groups.size(); gi++) {
         auto& g = g_page.groups[gi];
-        if (gi > 0) y += GROUP_GAP;
+        if (Golden() && !g.title.empty() && g.subtitle.empty()) {
+            // macOS 27: 57,5 entre as caixas, com o título em negrito centrado a 39,5 da caixa de cima
+            if (gi > 0) { aj::Text(c, g.title, D2D1::RectF(x0 + 10, y + 30.5f, x1 - 10, y + 48.5f), g_tfBold, pal.text); y += 57.5f; }
+            else { aj::Text(c, g.title, D2D1::RectF(x0 + 10, y, x1 - 10, y + 18), g_tfBold, pal.text); y += 25; }
+        } else {
+        if (gi > 0) y += Golden() ? 10.5f : GROUP_GAP;
         float hh = HeaderHeight(g, w);
         if (hh > 0) {
             if (gi > 0) y += 10;
@@ -1083,6 +1186,7 @@ void Render() {
                 g_tfSmall->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             }
             y += hh;
+        }
         }
         float gh = 0;
         for (auto& r : g.rows) gh += RowHeight(r, w);
@@ -1101,7 +1205,7 @@ void Render() {
             float rh = RowHeight(g.rows[ri], w);
             D2D1_RECT_F rr = D2D1::RectF(x0, ry, x1, ry + rh);
             if (rr.bottom > clipTop - 50 && rr.top < s.height + 50) {
-                if (ri > 0 && g.box) {
+                if (ri > 0 && g.box && !g.rows[ri].noLine) {
                     br->SetColor(pal.line);
                     dc->FillRectangle(D2D1::RectF(x0 + 10, ry - 0.5f, x1 - 10, ry + 0.5f), br);
                 }
@@ -1139,9 +1243,10 @@ void Render() {
     chev(SIDE_W + 64, false, canFwd);
     g_hits.push_back({ H_BACK, D2D1::RectF(SIDE_W + 14, 10, SIDE_W + 44, 40) });
     g_hits.push_back({ H_FWD, D2D1::RectF(SIDE_W + 50, 10, SIDE_W + 80, 40) });
-    aj::Text(c, g_page.title, D2D1::RectF(SIDE_W + (g_tahoe ? 94 : 88), 0, s.width - 20, 50), g_tfTitle, pal.text);
+    if (!(Golden() && g_page.title == L"Geral"))  // macOS 27: a Geral não tem título na barra (tem o cartão grande)
+        aj::Text(c, g_page.title, D2D1::RectF(SIDE_W + (g_tahoe ? 94 : 88), 0, s.width - 20, 50), g_tfTitle, pal.text);
 
-    if (g_tahoe) tahoe::Panel(dc, br, PanelRect(s.height), PanelR(), g_dark);
+    if (g_tahoe && !Golden()) tahoe::Panel(dc, br, PanelRect(s.height), PanelR(), g_dark);  // Golden Gate: sem painel flutuante
     DrawSidebar(c, pal, s.height);
     if (g_sheet.open) { g_hits.clear(); DrawSheet(c, pal); }
     if (winClip) { dc->PopLayer(); tahoe::WindowRim(dc, br, s, winR, g_dark); }
@@ -1232,16 +1337,18 @@ LRESULT HitTestNC(HWND h, LPARAM l) {
 }
 
 void ApplyWindowTheme() {
-    SIDE_W = g_tahoe ? 247.f : 215.f;  // Tahoe: 8 de recuo + 239 do painel
+    SIDE_W = g_tahoe ? (Golden() ? 231.f : 247.f) : 215.f;  // Tahoe: 8 de recuo + 239 do painel; Golden Gate: 231 até a borda
     SIDE_ROW = g_tahoe ? 32.f : 28.f;
-    ROW_H = g_tahoe ? 42.f : 38.f;
+    ROW_H = g_tahoe ? (Golden() ? 37.5f : 42.f) : 38.f;  // macOS 27: linhas de 37,5 (as com ícone, 49)
+    SEARCH_Y = Golden() ? 62.f : 52.f;
+    ACCOUNT_Y = Golden() ? 96.f : 90.f;
     BOOL dark = g_dark;
     DwmSetWindowAttribute(g_hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &dark, sizeof(dark));
     if (g_tahoe) {  // Tahoe: cantos de 26 pt com o vidro da Composição (finder/tahoe.cpp)
         tahoe::Frame(g_hwnd, true);
         RECT rc; GetClientRect(g_hwnd, &rc);
         tahoe::Size(g_hwnd, (float)rc.right, (float)rc.bottom, g_dark);
-        shadow::SetRadius(tahoe::WINDOW_R);
+        shadow::SetRadius(tahoe::WindowR());
         return;
     }
     tahoe::Frame(g_hwnd, false);
@@ -1583,8 +1690,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     UINT dpi = GetDpiForSystem();
     g_dpi = (float)dpi; g_scale = g_dpi / 96.f;
     RECT wa; SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
-    const bool th0 = tahoe::On();  // Tahoe: 801 × 625 (guia, seção 43)
-    int ww = (int)((th0 ? 801 : 715) * g_scale), wh = (int)(std::min(th0 ? 625.f : 640.f, (wa.bottom - wa.top) / g_scale - 60) * g_scale);
+    const bool th0 = tahoe::On(), gg0 = th0 && tahoe::Golden();  // Tahoe: 801 × 625 (guia, seção 43); macOS 27: 740 × 690 (captura)
+    int ww = (int)((gg0 ? 740 : th0 ? 801 : 715) * g_scale), wh = (int)(std::min(gg0 ? 690.f : th0 ? 625.f : 640.f, (wa.bottom - wa.top) / g_scale - 60) * g_scale);
     int wx = wa.left + (wa.right - wa.left - ww) / 2, wy = wa.top + (wa.bottom - wa.top - wh) / 2 - (int)(20 * g_scale);
     g_hwnd = CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP, wc.lpszClassName, TrPick(L"Ajustes do Sistema", L"System Settings"), WS_OVERLAPPEDWINDOW,
                              wx, std::max<int>(wy, wa.top), ww, wh, nullptr, nullptr, hi, nullptr);

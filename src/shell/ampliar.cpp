@@ -224,6 +224,7 @@ void DrawChrome(ID2D1DeviceContext* dc, HWND h, UINT w, UINT hh, const std::vect
         D2D1_POINT_2F p{ x0 + k * pitch, cap / 2 };
         b->SetColor(on[k]);
         dc->FillEllipse(D2D1::Ellipse(p, r, r), b);
+        semaforo::Gloss(dc, p, r, b);
         b->SetColor(D2D1::ColorF(0, 0, 0, 0.12f));
         dc->DrawEllipse(D2D1::Ellipse(p, r - 0.25f * sc, r - 0.25f * sc), b, 0.5f * sc);
     }

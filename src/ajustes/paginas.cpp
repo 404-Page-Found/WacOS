@@ -13,6 +13,7 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <mferror.h>
+#include "../comum/simbolos.h"  // símbolos SF da prévia do Liquid Glass (Golden Gate)
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
@@ -552,6 +553,26 @@ static void TurnShellOff() {
 
 Page Geral() {
     Page p;
+    if (Setting(L"liquid_glass", L"0") == L"1" && Setting(L"golden_gate", L"0") == L"1") {
+        // macOS 27 (captura Settings-General, 2x): cartão de 163,5 no alto com o ícone de 50 (centro a 50), "Geral" em
+        // negrito de 22 (centro a 99) e a descrição cinza de 13 centrada embaixo
+        Row hero; hero.kind = Kind::Custom; hero.height = 163.5f;
+        hero.draw = [](Ctx& c, D2D1_RECT_F rr) {
+            float cx = (rr.left + rr.right) / 2;
+            Tile(c, D2D1::RectF(cx - 25, rr.top + 25, cx + 25, rr.top + 75), 0xE713, C_GRAY, L"gearshape.fill");
+            static IDWriteTextFormat* tfBig = nullptr;
+            if (!tfBig) { IDWriteFactory* dw = nullptr; DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)&dw);
+                if (dw) { dw->CreateTextFormat(L"SF Pro Display", nullptr, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 22, L"", &tfBig); dw->Release(); }
+                if (tfBig) { tfBig->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); tfBig->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); } }
+            if (tfBig) Text(c, L"Geral", D2D1::RectF(rr.left, rr.top + 85, rr.right, rr.top + 113), tfBig, c.text);
+            DWRITE_WORD_WRAPPING ww = c.noteCenter->GetWordWrapping();
+            c.noteCenter->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+            Text(c, L"Gerencie a configuração geral e as preferências do computador, como atualizações de software, idioma, compartilhamento e mais.",
+                 D2D1::RectF(rr.left + 30, rr.top + 106, rr.right - 30, rr.top + 146), c.noteCenter, c.text2);
+            c.noteCenter->SetWordWrapping(ww);
+        };
+        p.groups.push_back(G({ hero }));
+    }
     p.groups.push_back(G({ Link(L"Sobre", [] { Push(L"Sobre", Sobre); }, 0xE7F4, C_GRAY),
                            Link(L"Atualização de Software", [] { Push(L"Atualização de Software", Atualizacao); }, 0xE895, C_GRAY) }));
     p.groups.push_back(G({ Link(L"Armazenamento", [] { Push(L"Armazenamento", Armazenamento); }, 0xEDA2, C_GRAY) }));
@@ -622,7 +643,62 @@ const wchar_t* ACCENT_NAMES[] = { L"Multicor", L"Azul", L"Roxo", L"Rosa", L"Verm
 
 Page TransparenciaEfeitos();
 
+Row TemaRow() {
+    // Tema: o vidro do Sequoia, o Liquid Glass do macOS Tahoe ou o macOS Golden Gate (macOS 27: o Tahoe com botões
+    // Aqua de vidro, um canto só e menor em todas as janelas e o controle de transparência). Golden Gate =
+    // liquid_glass=1 + golden_gate=1, então tudo o que só conhece o Tahoe continua funcionando. Detalhes do vidro em
+    // Transparência e Efeitos.
+    return Popup(L"Tema", { L"macOS Sequoia", L"macOS Tahoe", L"macOS Golden Gate" },
+                     [] { return Setting(L"liquid_glass", L"0") != L"1" ? 0 : Setting(L"golden_gate", L"0") == L"1" ? 2 : 1; },
+                     [](int i) {
+                         if (i == 2) SetSetting(L"liquid_estilo", L"nitido");  // o vidro do Golden Gate é o controle deslizante
+                         SetSetting(L"golden_gate", i == 2 ? L"1" : L"0");
+                         SetSetting(L"liquid_glass", i >= 1 ? L"1" : L"0");
+                         // o papel de parede do usuário nunca muda ao trocar de tema (o usuário pediu)
+                         Rebuild();
+                     });
+}
+
+Row GlassEstiloRow(bool title = true) {  // title = false: embaixo da foto da página nova, que já tem o título
+    Row glass; glass.kind = Kind::Custom; glass.height = 96;
+    glass.enabled = Setting(L"reduzir_transparencia", L"0") != L"1";
+    glass.draw = [title](Ctx& c, D2D1_RECT_F rr) {
+        if (title) Text(c, L"Liquid Glass", D2D1::RectF(rr.left + 10, rr.top + 8, rr.left + 160, rr.top + 28), c.body, c.text);
+        const wchar_t* names[2] = { L"Transparente", L"Tingido" };
+        int cur = Setting(L"liquid_estilo", L"nitido") == L"tingido" ? 1 : 0;
+        float w = 66, h = 44, gap = 16, x = rr.right - 10 - 2 * w - gap;
+        for (int k = 0; k < 2; k++, x += w + gap) {
+            D2D1_RECT_F t = D2D1::RectF(x, rr.top + 12, x + w, rr.top + 12 + h);
+            // papel de parede colorido atrás e uma placa de vidro por cima: clara (transparente) ou fosca (tingida)
+            ID2D1GradientStopCollection* gs = nullptr;
+            D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.30f, 0.55f, 0.98f, 1) }, { 1, D2D1::ColorF(0.95f, 0.50f, 0.55f, 1) } };
+            c.dc->CreateGradientStopCollection(st, 2, &gs);
+            ID2D1LinearGradientBrush* lg = nullptr;
+            if (gs) c.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ t.left, t.top }, { t.right, t.bottom }), gs, &lg);
+            if (lg) { c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, 6, 6), lg); lg->Release(); }
+            if (gs) gs->Release();
+            D2D1_RECT_F pl = D2D1::RectF(t.left + 9, t.top + 9, t.right - 9, t.bottom - 9);
+            c.br->SetColor(k == 0 ? D2D1::ColorF(1, 1, 1, 0.18f) : (c.dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.82f) : D2D1::ColorF(0.97f, 0.97f, 0.98f, 0.85f)));
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(pl, 8, 8), c.br);
+            c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.75f));
+            c.dc->DrawRoundedRectangle(D2D1::RoundedRect(pl, 8, 8), c.br, 0.8f);
+            if (k == cur) { c.br->SetColor(c.accent); c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left - 3, t.top - 3, t.right + 3, t.bottom + 3), 8, 8), c.br, 2.5f); }
+            Text(c, names[k], D2D1::RectF(t.left - 12, t.bottom + 6, t.right + 12, t.bottom + 24), c.noteCenter, k == cur ? c.text : c.text2);
+        }
+    };
+    glass.clickAt = [](D2D1_POINT_2F pt, D2D1_RECT_F rr) {
+        float w = 66, gap = 16, x = rr.right - 10 - 2 * w - gap;
+        for (int k = 0; k < 2; k++, x += w + gap)
+            if (pt.x >= x - 6 && pt.x <= x + w + 6) { SetSetting(L"liquid_estilo", k == 0 ? L"nitido" : L"tingido"); Rebuild(); }
+    };
+    return glass;
+}
+
+Page AparenciaGolden();
 Page Aparencia() {
+    // a página do macOS 27 vale para os três temas (o usuário pediu): no Tahoe a foto ganha a escolha Transparente /
+    // Tingido no lugar do controle; no Sequoia (sem Liquid Glass) só Aparência, Tema e o resto. A antiga fica de reserva.
+    if (true) return AparenciaGolden();
     Page p;
     Row modes; modes.kind = Kind::Custom; modes.height = 108;
     auto modeIdx = [] { return Setting(L"aparencia_auto", L"0") == L"1" ? 0 : sys::Theme() == 0 ? 1 : 2; };
@@ -705,10 +781,7 @@ Page Aparencia() {
         for (int k = 0; k < 9; k++, x += 22)
             if (std::fabs(pt.x - x) <= 10 && std::fabs(pt.y - (rr.top + 19)) <= 10) { SetSetting(L"destaque", k == 0 ? L"azul" : ACCENTS[k].first); Rebuild(); }
     };
-    // Tema: o vidro do Sequoia ou o Liquid Glass do macOS Tahoe (detalhes em Transparência e Efeitos)
-    Row tema = Popup(L"Tema", { L"macOS Sequoia", L"macOS Tahoe" },
-                     [] { return Setting(L"liquid_glass", L"0") == L"1" ? 1 : 0; },
-                     [](int i) { SetSetting(L"liquid_glass", i == 1 ? L"1" : L"0"); Rebuild(); });
+    Row tema = TemaRow();
     // o Tema fica sempre livre: com "Reduzir transparência" o vidro só fica opaco (como no Mac)
     bool tahoeOn = Setting(L"liquid_glass", L"0") == L"1";
     if (!tahoeOn) { p.groups.push_back(G({ tema, modes, acc })); }
@@ -716,37 +789,7 @@ Page Aparencia() {
         // macOS 26 (Aparência): "Liquid Glass" com a escolha Transparente / Tingido (26.1) e "Estilo de ícones e widgets"
         // em miniaturas — Padrão, Escuro, Transparente (o modo translúcido) e Tingido. A transparência fina continua em
         // Transparência e Efeitos.
-        Row glass; glass.kind = Kind::Custom; glass.height = 96;
-        glass.enabled = Setting(L"reduzir_transparencia", L"0") != L"1";
-        glass.draw = [](Ctx& c, D2D1_RECT_F rr) {
-            Text(c, L"Liquid Glass", D2D1::RectF(rr.left + 10, rr.top + 8, rr.left + 160, rr.top + 28), c.body, c.text);
-            const wchar_t* names[2] = { L"Transparente", L"Tingido" };
-            int cur = Setting(L"liquid_estilo", L"nitido") == L"tingido" ? 1 : 0;
-            float w = 66, h = 44, gap = 16, x = rr.right - 10 - 2 * w - gap;
-            for (int k = 0; k < 2; k++, x += w + gap) {
-                D2D1_RECT_F t = D2D1::RectF(x, rr.top + 12, x + w, rr.top + 12 + h);
-                // papel de parede colorido atrás e uma placa de vidro por cima: clara (transparente) ou fosca (tingida)
-                ID2D1GradientStopCollection* gs = nullptr;
-                D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.30f, 0.55f, 0.98f, 1) }, { 1, D2D1::ColorF(0.95f, 0.50f, 0.55f, 1) } };
-                c.dc->CreateGradientStopCollection(st, 2, &gs);
-                ID2D1LinearGradientBrush* lg = nullptr;
-                if (gs) c.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ t.left, t.top }, { t.right, t.bottom }), gs, &lg);
-                if (lg) { c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, 6, 6), lg); lg->Release(); }
-                if (gs) gs->Release();
-                D2D1_RECT_F pl = D2D1::RectF(t.left + 9, t.top + 9, t.right - 9, t.bottom - 9);
-                c.br->SetColor(k == 0 ? D2D1::ColorF(1, 1, 1, 0.18f) : (c.dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.82f) : D2D1::ColorF(0.97f, 0.97f, 0.98f, 0.85f)));
-                c.dc->FillRoundedRectangle(D2D1::RoundedRect(pl, 8, 8), c.br);
-                c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.75f));
-                c.dc->DrawRoundedRectangle(D2D1::RoundedRect(pl, 8, 8), c.br, 0.8f);
-                if (k == cur) { c.br->SetColor(c.accent); c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left - 3, t.top - 3, t.right + 3, t.bottom + 3), 8, 8), c.br, 2.5f); }
-                Text(c, names[k], D2D1::RectF(t.left - 12, t.bottom + 6, t.right + 12, t.bottom + 24), c.noteCenter, k == cur ? c.text : c.text2);
-            }
-        };
-        glass.clickAt = [](D2D1_POINT_2F pt, D2D1_RECT_F rr) {
-            float w = 66, gap = 16, x = rr.right - 10 - 2 * w - gap;
-            for (int k = 0; k < 2; k++, x += w + gap)
-                if (pt.x >= x - 6 && pt.x <= x + w + 6) { SetSetting(L"liquid_estilo", k == 0 ? L"nitido" : L"tingido"); Rebuild(); }
-        };
+        Row glass = GlassEstiloRow();
         p.groups.push_back(G({ tema, modes, glass }));
         static const wchar_t* ESTILOS[] = { L"padrao", L"escuro", L"transparente", L"tingido" };
         Row icons; icons.kind = Kind::Custom; icons.height = 96;
@@ -795,6 +838,337 @@ Page Aparencia() {
                                  }) }));
     if (Setting(L"liquid_glass", L"0") == L"1") p.groups.back().title = L"Janelas";
     p.groups.push_back(G({ Link(L"Transparência e Efeitos", [] { Push(L"Transparência e Efeitos", TransparenciaEfeitos); }, 0xE790, C_BLUE) }));
+    return p;
+}
+
+// ================= Aparência no macOS 27 Golden Gate
+// Copiada da captura 2x dos Ajustes do macOS 27 (512 Pixels, Settings-Appearance.png), medidas em pt a partir da
+// caixa (ver Documents\macOS27-Theme-Reference\MEDIDAS.md):
+//   caixa 1: Aparência (85,5) com miniaturas 71,5 x 48,5 de passo 82 (Claro, Escuro, Automático), a última a 11 da
+//            borda, 10,5 do alto, rótulos centrados a 69; Liquid Glass (196 + 36) com a foto 267,5 x 179,5 a 10 da
+//            borda e 11 do alto, e o controle (trilho a 213 / 33,5 das bordas)
+//   "Tema" (57,5 entre as caixas); caixa 2: Cor (61) com bolinhas de 23,5, passo 36, a última a 21,75 da borda e o
+//            centro a 21,25 do alto, nome da escolhida embaixo; Cor do realce do texto (37,5)
+//   caixa 3: Estilo de ícones e widgets (87,5) com quadrinhos de 29,5, passo 51,5, a 13 da borda e 24 do alto, rótulos
+//            a 54; Cor das pastas (40). Menus: bolinha de 16, texto a 8,5 dela e o botão redondo a 13,5 da borda.
+static D2D1_COLOR_F GGRgb(UINT32 c, float a = 1) { return D2D1::ColorF(((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f, a); }
+
+// Cor do realce do texto: a cor de seleção do Windows (HKCU\Control Panel\Colors\Hilight + SetSysColors, vale na hora
+// para os programas clássicos). A original é guardada em realce_original na 1ª troca e volta com "Automática"
+// (registrado em docsegistro-mudancas.txt).
+static const UINT32 GG_REALCE[9] = { 0, 0x007AFF, 0x953D96, 0xF74F9E, 0xE0383E, 0xF7821B, 0xFFC726, 0x62BA46, 0x989898 };
+static void GGAplicaRealce(int i) {
+    wchar_t cur[64] = {}; DWORD cb = sizeof(cur);
+    RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Colors", L"Hilight", RRF_RT_REG_SZ, nullptr, cur, &cb);
+    std::wstring orig = Setting(L"realce_original", L"");
+    if (i <= 0) {
+        if (orig.empty()) { SetSetting(L"realce_texto", L"0"); return; }
+        int r = 0, g = 0, b = 0;
+        if (swscanf_s(orig.c_str(), L"%d %d %d", &r, &g, &b) == 3) {
+            RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Colors", L"Hilight", REG_SZ, orig.c_str(), (DWORD)((orig.size() + 1) * sizeof(wchar_t)));
+            INT el = COLOR_HIGHLIGHT; COLORREF cr = RGB(r, g, b); SetSysColors(1, &el, &cr);
+        }
+        SetSetting(L"realce_original", L"");
+        SetSetting(L"realce_texto", L"0");
+        return;
+    }
+    if (orig.empty() && cur[0]) SetSetting(L"realce_original", cur);
+    UINT32 c = GG_REALCE[i];
+    int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+    wchar_t v[32]; swprintf_s(v, L"%d %d %d", r, g, b);
+    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Colors", L"Hilight", REG_SZ, v, (DWORD)((wcslen(v) + 1) * sizeof(wchar_t)));
+    INT el = COLOR_HIGHLIGHT; COLORREF cr = RGB(r, g, b); SetSysColors(1, &el, &cr);
+    SetSetting(L"realce_texto", std::to_wstring(i));
+}
+
+Page AparenciaGolden() {
+    Page p;
+    // ---- Aparência: Claro, Escuro, Automático
+    Row modes; modes.kind = Kind::Custom; modes.height = 85.5f;
+    auto modeIdx = [] { return Setting(L"aparencia_auto", L"0") == L"1" ? 2 : sys::Theme() == 0 ? 0 : 1; };
+    modes.draw = [modeIdx](Ctx& c, D2D1_RECT_F rr) {
+        Text(c, L"Aparência", D2D1::RectF(rr.left + 10, rr.top + 8, rr.left + 160, rr.top + 28), c.body, c.text);
+        const wchar_t* names[3] = { L"Claro", L"Escuro", L"Automático" };
+        int cur = modeIdx();
+        float w = 71.5f, h = 48.5f, pitch = 82, x = rr.right - 11 - w - 2 * pitch;
+        for (int k = 0; k < 3; k++, x += pitch) {
+            D2D1_RECT_F t = D2D1::RectF(x, rr.top + 10.5f, x + w, rr.top + 10.5f + h);
+            ID2D1Factory* fac = nullptr; c.dc->GetFactory(&fac);
+            ID2D1RoundedRectangleGeometry* rg = nullptr; fac->CreateRoundedRectangleGeometry(D2D1::RoundedRect(t, 7, 7), &rg);
+            c.dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), rg), nullptr);
+            auto mini = [&](bool dark, D2D1_RECT_F clip) {
+                c.dc->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
+                // o papel de parede azul das miniaturas do macOS 27 (claro: céu pálido -> azul; escuro: anil profundo)
+                D2D1_GRADIENT_STOP st[3] = { { 0, dark ? D2D1::ColorF(0.33f, 0.33f, 0.72f, 1) : D2D1::ColorF(0.80f, 0.82f, 0.86f, 1) },
+                                             { 0.55f, dark ? D2D1::ColorF(0.14f, 0.16f, 0.52f, 1) : D2D1::ColorF(0.35f, 0.58f, 0.92f, 1) },
+                                             { 1, dark ? D2D1::ColorF(0.05f, 0.07f, 0.28f, 1) : D2D1::ColorF(0.10f, 0.36f, 0.85f, 1) } };
+                ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+                if (SUCCEEDED(c.dc->CreateGradientStopCollection(st, 3, &gs)) &&
+                    SUCCEEDED(c.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ t.left, t.top }, { t.right, t.bottom }), gs, &lb)))
+                    c.dc->FillRectangle(t, lb);
+                if (lb) lb->Release();
+                if (gs) gs->Release();
+                // janelinha de cima à esquerda com a barra na cor de destaque
+                D2D1_RECT_F top = D2D1::RectF(t.left + 3, t.top + 3, t.left + 44, t.top + 21);
+                c.br->SetColor(dark ? D2D1::ColorF(0.10f, 0.10f, 0.22f, 0.85f) : D2D1::ColorF(1, 1, 1, 0.72f));
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(top, 3.5f, 3.5f), c.br);
+                c.br->SetColor(c.accent);
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(top.left + 3, top.top + 8, top.right - 3, top.top + 14), 1.5f, 1.5f), c.br);
+                // janela de baixo à direita com os três botões
+                D2D1_RECT_F win = D2D1::RectF(t.left + 19, t.top + 26, t.right + 6, t.bottom + 6);
+                c.br->SetColor(dark ? D2D1::ColorF(0.07f, 0.07f, 0.09f, 1) : D2D1::ColorF(0.97f, 0.97f, 0.97f, 1));
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(win, 5, 5), c.br);
+                const UINT32 lights[3] = { 0xFF6159, 0xFEBC2E, 0x28C840 };
+                for (int d = 0; d < 3; d++) {
+                    c.br->SetColor(GGRgb(lights[d]));
+                    c.dc->FillEllipse(D2D1::Ellipse({ win.left + 11 + d * 7.5f, win.top + 11 }, 2.6f, 2.6f), c.br);
+                }
+                c.dc->PopAxisAlignedClip();
+            };
+            if (k == 2) { mini(false, D2D1::RectF(t.left, t.top, (t.left + t.right) / 2, t.bottom)); mini(true, D2D1::RectF((t.left + t.right) / 2, t.top, t.right, t.bottom)); }
+            else mini(k == 1, t);
+            c.dc->PopLayer();
+            if (rg) rg->Release();
+            if (fac) fac->Release();
+            c.br->SetColor(c.dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.10f));
+            c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left + 0.25f, t.top + 0.25f, t.right - 0.25f, t.bottom - 0.25f), 7, 7), c.br, 0.5f);
+            if (k == cur) { c.br->SetColor(c.accent); c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left - 2, t.top - 2, t.right + 2, t.bottom + 2), 9, 9), c.br, 3); }
+            // rótulo de 11 pt (escolhido em negrito), centrado a 69 do alto da linha
+            Text(c, names[k], D2D1::RectF(t.left - 20, rr.top + 61, t.right + 20, rr.top + 77), k == cur && c.noteBoldCenter ? c.noteBoldCenter : c.noteCenter, k == cur ? c.text : c.text2);
+        }
+    };
+    modes.clickAt = [](D2D1_POINT_2F pt, D2D1_RECT_F rr) {
+        float w = 71.5f, pitch = 82, x = rr.right - 11 - w - 2 * pitch;
+        for (int k = 0; k < 3; k++, x += pitch) {
+            if (pt.x < x - 4 || pt.x > x + w + 4) continue;
+            if (k == 2) {  // automático: claro de dia, escuro à noite (o Shell troca na hora certa)
+                SetSetting(L"aparencia_auto", L"1");
+                SYSTEMTIME st; GetLocalTime(&st);
+                sys::SetTheme(st.wHour >= 7 && st.wHour < 19 ? 0 : 1);
+            } else {
+                SetSetting(L"aparencia_auto", L"0");
+                sys::SetTheme(k == 0 ? 0 : 1);
+            }
+            SetSetting(L"tema", L"auto");
+            Rebuild();
+        }
+    };
+    // ---- Liquid Glass: a foto com a barra de vidro de exemplo e o controle embaixo
+    bool reduce = Setting(L"reduzir_transparencia", L"0") == L"1";
+    const bool liquidOn = Setting(L"liquid_glass", L"0") == L"1", goldenOn = liquidOn && Setting(L"golden_gate", L"0") == L"1";
+    Row prev; prev.kind = Kind::Custom; prev.height = 196;
+    prev.enabled = !reduce;
+    prev.draw = [](Ctx& c, D2D1_RECT_F rr) {
+        Text(c, L"Liquid Glass", D2D1::RectF(rr.left + 10, rr.top + 9.5f, rr.left + 160, rr.top + 29.5f), c.body, c.text);
+        float w = 267.5f, h = 179.5f;
+        D2D1_RECT_F t = D2D1::RectF(rr.right - 10 - w, rr.top + 11, rr.right - 10, rr.top + 11 + h);
+        ID2D1Factory* fac = nullptr; c.dc->GetFactory(&fac);
+        ID2D1RoundedRectangleGeometry* rg = nullptr; fac->CreateRoundedRectangleGeometry(D2D1::RoundedRect(t, 14, 14), &rg);
+        c.dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), rg), nullptr);
+        c.br->SetColor(D2D1::ColorF(0.45f, 0.62f, 0.80f, 1));
+        c.dc->FillRectangle(t, c.br);
+        D2D1_RECT_F card = D2D1::RectF(t.left, t.bottom - 34.5f, t.right, t.bottom);
+        std::wstring photo;
+        wchar_t prof[MAX_PATH];
+        if (GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) photo = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\macOS 27\\macos-27-golden-4096x2160-27635.jpg";
+        if (photo.empty() || GetFileAttributesW(photo.c_str()) == INVALID_FILE_ATTRIBUTES) photo = sys::Wallpaper();
+        if (ID2D1Bitmap* b = BitmapFromFile(photo, 640)) {  // a foto ocupa o que fica acima do cartão
+            auto s2 = b->GetSize();
+            float ph = card.top - t.top, k = std::max(w / s2.width, ph / s2.height);
+            float bw = s2.width * k, bh = s2.height * k, cx = (t.left + t.right) / 2, cy = t.top + ph / 2;
+            c.dc->PushAxisAlignedClip(D2D1::RectF(t.left, t.top, t.right, card.top), D2D1_ANTIALIAS_MODE_ALIASED);
+            c.dc->DrawBitmap(b, D2D1::RectF(cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            c.dc->PopAxisAlignedClip();
+        }
+        // cartão de baixo (medido: 234,230,224 no claro) com o título em negrito, cortado pela borda como na referência
+        c.br->SetColor(c.dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 1) : GGRgb(0xEAE6E0));
+        c.dc->FillRectangle(card, c.br);
+        Text(c, L"Golden Gate Bridge", D2D1::RectF(card.left + 16.5f, card.top + 9, card.right - 10, card.top + 42), c.title, c.dark ? c.text : D2D1::ColorF(0, 0, 0, 0.85f));
+        // barra de vidro: quanto mais para a direita o controle, mais opaco o vidro
+        // Golden Gate: o controle; Tahoe: Transparente (quase nada) ou Tingido (fosco)
+        float v = Setting(L"golden_gate", L"0") == L"1" ? std::clamp((float)_wtof(Setting(L"vidro_tinta", L"0.5").c_str()), 0.f, 1.f)
+                                                        : Setting(L"liquid_estilo", L"nitido") == L"tingido" ? 0.85f : 0.15f;
+        D2D1_COLOR_F fill = c.dark ? D2D1::ColorF(0.20f, 0.20f, 0.21f, 0.18f + 0.72f * v) : D2D1::ColorF(1, 1, 1, 0.28f + 0.66f * v);
+        D2D1_COLOR_F ink = c.dark ? D2D1::ColorF(1, 1, 1, 0.9f) : D2D1::ColorF(0, 0, 0, 0.82f);
+        auto pill = [&](D2D1_RECT_F q) {
+            float rad = (q.bottom - q.top) / 2;
+            c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.08f));
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(q.left, q.top + 1, q.right, q.bottom + 1.5f), rad, rad), c.br);
+            c.br->SetColor(fill);
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(q, rad, rad), c.br);
+            c.br->SetColor(D2D1::ColorF(1, 1, 1, c.dark ? 0.25f : 0.8f));
+            c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(q.left + 0.5f, q.top + 0.5f, q.right - 0.5f, q.bottom - 0.5f), rad - 0.5f, rad - 0.5f), c.br, 0.8f);
+        };
+        float y0 = t.top + 8, hh = 36;
+        D2D1_RECT_F g1 = D2D1::RectF(t.left + 8, y0, t.left + 8 + 73.5f, y0 + hh);
+        D2D1_RECT_F g2 = D2D1::RectF(g1.right + 7.5f, y0, g1.right + 7.5f + hh, y0 + hh);
+        D2D1_RECT_F g3 = D2D1::RectF(g2.right + 7.5f, y0, t.right - 8.5f, y0 + hh);
+        pill(g1); pill(g2); pill(g3);
+        c.br->SetColor(ink);
+        simbolo::Draw(c.dc, L"square.and.arrow.up", D2D1::RectF(g1.left + 11, y0 + 8, g1.left + 29, y0 + 28), c.br);
+        for (int k = 0; k < 3; k++) c.dc->FillEllipse(D2D1::Ellipse({ g1.left + 49.5f + k * 5.5f, y0 + hh / 2 }, 1.5f, 1.5f), c.br);
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(g2.left + 13, y0 + 13, g2.right - 8, y0 + 27), 3, 3), c.br, 1.5f);
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(g2.left + 9, y0 + 9, g2.right - 12, y0 + 23), 3, 3), c.br, 1.5f);
+        simbolo::Draw(c.dc, L"magnifyingglass", D2D1::RectF(g3.left + 10, y0 + 11, g3.left + 24, y0 + 25), c.br);
+        Text(c, L"Buscar", D2D1::RectF(g3.left + 32, y0, g3.right - 6, y0 + hh), c.body, c.dark ? D2D1::ColorF(1, 1, 1, 0.6f) : D2D1::ColorF(0, 0, 0, 0.5f));
+        c.dc->PopLayer();
+        if (rg) rg->Release();
+        if (fac) fac->Release();
+    };
+    Row gg = Slider(L"", 0, 1, [] { return (float)_wtof(Setting(L"vidro_tinta", L"0.5").c_str()); },
+                    [](float v) { wchar_t b[16]; swprintf_s(b, L"%.2f", v); SetSetting(L"vidro_tinta", b); Redraw(); }, L"", L"");
+    gg.height = 36; gg.noLine = true; gg.gg = true; gg.enabled = !reduce;
+    if (goldenOn) p.groups.push_back(G({ modes, prev, gg }));
+    else if (liquidOn) { Row ge = GlassEstiloRow(false); ge.noLine = true; p.groups.push_back(G({ modes, prev, ge })); }
+    else p.groups.push_back(G({ modes }));
+
+    // ---- Tema: cor de destaque (Multicor + 10 cores; as do macOS 27 lidas na captura) e cor do realce do texto
+    Row color; color.kind = Kind::Custom; color.height = 61;
+    static const UINT32 GG_COLS[10] = { 0, 0x007AFF, 0x953D96, 0xF74F9E, 0xE0383E, 0xF7821B, 0xFFC726, 0x62BA46, 0x989898, 0x98A8D9 };
+    static const wchar_t* GG_KEYS[10] = { L"multicor", L"azul", L"roxo", L"rosa", L"vermelho", L"laranja", L"amarelo", L"verde", L"grafite", L"lavanda" };
+    static const wchar_t* GG_NAMES[10] = { L"Multicor", L"Azul", L"Roxo", L"Rosa", L"Vermelho", L"Laranja", L"Amarelo", L"Verde", L"Grafite", L"Lavanda" };
+    color.draw = [](Ctx& c, D2D1_RECT_F rr) {
+        Text(c, L"Cor", D2D1::RectF(rr.left + 10, rr.top + 8, rr.left + 120, rr.top + 28), c.body, c.text);
+        std::wstring cur = Setting(L"destaque", L"azul");
+        int sel = 1;
+        for (int k = 0; k < 10; k++) if (cur == GG_KEYS[k]) sel = k;
+        ID2D1Factory* f = nullptr; c.dc->GetFactory(&f);
+        for (int k = 0; k < 10; k++) {
+            D2D1_POINT_2F m{ rr.right - 21.75f - (9 - k) * 36.f, rr.top + 21.25f };
+            if (k == 0) {  // multicor: disco de cores feito em fatias
+                for (int s = 0; s < 36 && f; s++) {
+                    float a0 = s * 10.f * 3.14159f / 180, a1 = (s + 1.2f) * 10.f * 3.14159f / 180;
+                    float hue = s / 36.f;
+                    float r = std::clamp(std::fabs(hue * 6 - 3) - 1, 0.f, 1.f), g = std::clamp(2 - std::fabs(hue * 6 - 2), 0.f, 1.f), b = std::clamp(2 - std::fabs(hue * 6 - 4), 0.f, 1.f);
+                    ID2D1PathGeometry* pg = nullptr;
+                    if (SUCCEEDED(f->CreatePathGeometry(&pg))) {
+                        ID2D1GeometrySink* sk = nullptr;
+                        if (SUCCEEDED(pg->Open(&sk))) {
+                            sk->BeginFigure(m, D2D1_FIGURE_BEGIN_FILLED);
+                            sk->AddLine({ m.x + 11.75f * std::cos(a0), m.y + 11.75f * std::sin(a0) });
+                            sk->AddLine({ m.x + 11.75f * std::cos(a1), m.y + 11.75f * std::sin(a1) });
+                            sk->EndFigure(D2D1_FIGURE_END_CLOSED);
+                            sk->Close(); sk->Release();
+                        }
+                        c.br->SetColor(D2D1::ColorF(r, g, b, 1));
+                        c.dc->FillGeometry(pg, c.br);
+                        pg->Release();
+                    }
+                }
+            } else {
+                c.br->SetColor(GGRgb(GG_COLS[k]));
+                c.dc->FillEllipse(D2D1::Ellipse(m, 11.75f, 11.75f), c.br);
+            }
+            if (k == sel) {  // anel na cor de destaque, com um respiro da cor da caixa
+                c.br->SetColor(c.dark ? D2D1::ColorF(0.19f, 0.19f, 0.19f, 1) : D2D1::ColorF(0.97f, 0.97f, 0.97f, 1));
+                c.dc->DrawEllipse(D2D1::Ellipse(m, 12.9f, 12.9f), c.br, 1.5f);
+                c.br->SetColor(c.accent);
+                c.dc->DrawEllipse(D2D1::Ellipse(m, 14.5f, 14.5f), c.br, 2.5f);
+                Text(c, GG_NAMES[k], D2D1::RectF(m.x - 50, rr.top + 36, m.x + 50, rr.top + 52), c.noteCenter, c.text2);  // 11 pt, a 44 do alto
+            }
+        }
+        if (f) f->Release();
+    };
+    color.clickAt = [](D2D1_POINT_2F pt, D2D1_RECT_F rr) {
+        for (int k = 0; k < 10; k++) {
+            float x = rr.right - 21.75f - (9 - k) * 36.f;
+            if (std::fabs(pt.x - x) <= 15 && std::fabs(pt.y - (rr.top + 21.25f)) <= 15) { SetSetting(L"destaque", k == 0 ? L"azul" : GG_KEYS[k]); Rebuild(); }
+        }
+    };
+    Row hl = Popup(L"Cor do realce do texto", { L"Automática", L"Azul", L"Roxo", L"Rosa", L"Vermelho", L"Laranja", L"Amarelo", L"Verde", L"Grafite" },
+                   [] { return std::clamp(_wtoi(Setting(L"realce_texto", L"0").c_str()), 0, 8); }, [](int i) { GGAplicaRealce(i); Rebuild(); });
+    hl.gg = true; hl.height = 37.5f;
+    hl.dot = [](int i) { return i <= 0 ? D2D1::ColorF(0, 0, 0, -1) : GGRgb(GG_REALCE[std::clamp(i, 0, 8)]); };
+    p.groups.push_back(G({ color, hl }, L"Tema"));
+
+    // ---- Estilo de ícones e widgets (o símbolo do Tempo em cada estilo) e cor das pastas
+    static const wchar_t* ESTILOS[] = { L"padrao", L"escuro", L"transparente", L"tingido" };
+    Row icons; icons.kind = Kind::Custom;
+    // com Escuro escolhido o macOS 27 mostra embaixo "Sempre / Auto" (Auto: escuro só no modo escuro) e a linha cresce
+    icons.height = Setting(L"estilo_icones", L"padrao") == L"escuro" ? 102.5f : 87.5f;
+    icons.draw = [](Ctx& c, D2D1_RECT_F rr) {
+        Text(c, L"Estilo de ícones e widgets", D2D1::RectF(rr.left + 10, rr.top + 8, rr.left + 220, rr.top + 28), c.body, c.text);
+        const wchar_t* names[4] = { L"Padrão", L"Escuro", L"Transparente", L"Tingido" };
+        std::wstring v = Setting(L"estilo_icones", L"padrao");
+        int cur = 0;
+        for (int k = 0; k < 4; k++) if (v == ESTILOS[k]) cur = k;
+        const float s = 29.5f, pitch = 51.5f;
+        for (int k = 0; k < 4; k++) {
+            float x = rr.right - 13 - s - (3 - k) * pitch;
+            D2D1_RECT_F t = D2D1::RectF(x, rr.top + 13, x + s, rr.top + 13 + s);  // medido: 13 do alto da linha
+            D2D1_COLOR_F top, bot;
+            if (k == 0) { top = GGRgb(0x5AB8F5); bot = GGRgb(0x1E7AE6); }
+            else if (k == 1) { top = GGRgb(0x2A2A2C); bot = GGRgb(0x0E0E10); }
+            else if (k == 2) { top = GGRgb(0xA9A9AE); bot = GGRgb(0x7E7E84); }
+            else { top = D2D1::ColorF(std::min(1.f, c.accent.r + 0.25f), std::min(1.f, c.accent.g + 0.25f), std::min(1.f, c.accent.b + 0.25f), 1); bot = c.accent; }
+            D2D1_GRADIENT_STOP st[2] = { { 0, top }, { 1, bot } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(c.dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                SUCCEEDED(c.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ t.left, t.top }, { t.left, t.bottom }), gs, &lb)))
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, 7, 7), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            // nuvem com o sol atrás (o ícone do Tempo da referência)
+            float cx = (t.left + t.right) / 2, cy = (t.top + t.bottom) / 2;
+            if (k <= 1) { c.br->SetColor(GGRgb(0xFFC52E)); c.dc->FillEllipse(D2D1::Ellipse({ cx + 4.5f, cy - 4 }, 5.5f, 5.5f), c.br); }
+            c.br->SetColor(k == 2 ? D2D1::ColorF(0.93f, 0.93f, 0.95f, 1) : D2D1::ColorF(1, 1, 1, 1));
+            c.dc->FillEllipse(D2D1::Ellipse({ cx - 4, cy + 2.5f }, 5, 4.5f), c.br);
+            c.dc->FillEllipse(D2D1::Ellipse({ cx + 1, cy }, 5.5f, 5.5f), c.br);
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - 9, cy + 1.5f, cx + 9, cy + 7.5f), 3, 3), c.br);
+            if (k == cur) { c.br->SetColor(c.accent); c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left - 2.5f, t.top - 2.5f, t.right + 2.5f, t.bottom + 2.5f), 9, 9), c.br, 3); }
+            Text(c, names[k], D2D1::RectF(t.left - 22, rr.top + 46, t.right + 22, rr.top + 62), k == cur && c.noteBoldCenter ? c.noteBoldCenter : c.noteCenter, k == cur ? c.text : c.text2);
+        }
+        if (cur == 1) {  // medido: bolinhas a 123,5 e 52,5 da borda, textos a 13 delas, centro a 85,5 do alto
+            bool autoOn = Setting(L"estilo_escuro_auto", L"0") == L"1";
+            float cy = rr.top + 85.5f;
+            const wchar_t* labels[2] = { L"Sempre", L"Automático" };
+            float xs[2] = { rr.right - 123.5f, rr.right - 52.5f };
+            for (int k = 0; k < 2; k++) {
+                bool on = (k == 1) == autoOn;
+                D2D1_POINT_2F m{ xs[k], cy };
+                if (on) {
+                    c.br->SetColor(c.accent); c.dc->FillEllipse(D2D1::Ellipse(m, 7, 7), c.br);
+                    c.br->SetColor(D2D1::ColorF(1, 1, 1, 1)); c.dc->FillEllipse(D2D1::Ellipse(m, 2.8f, 2.8f), c.br);
+                } else {
+                    c.br->SetColor(c.dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.08f)); c.dc->FillEllipse(D2D1::Ellipse(m, 7, 7), c.br);
+                }
+                Text(c, labels[k], D2D1::RectF(m.x + 13, cy - 10, m.x + 80, cy + 10), c.body, c.text);
+            }
+        }
+    };
+    icons.clickAt = [](D2D1_POINT_2F pt, D2D1_RECT_F rr) {
+        const float s = 29.5f, pitch = 51.5f;
+        for (int k = 0; k < 4; k++) {
+            float x = rr.right - 13 - s - (3 - k) * pitch;
+            if (pt.x >= x - 10 && pt.x <= x + s + 10 && pt.y >= rr.top + 8 && pt.y <= rr.top + 64) { SetSetting(L"estilo_icones", ESTILOS[k]); Rebuild(); }
+        }
+        if (Setting(L"estilo_icones", L"padrao") == L"escuro" && std::fabs(pt.y - (rr.top + 85.5f)) <= 10) {
+            if (pt.x >= rr.right - 132 && pt.x < rr.right - 60) { SetSetting(L"estilo_escuro_auto", L"0"); Rebuild(); }
+            else if (pt.x >= rr.right - 60) { SetSetting(L"estilo_escuro_auto", L"1"); Rebuild(); }
+        }
+    };
+    // Cor das pastas: "Automática" segue a cor de destaque; as outras retingem as pastas comuns do Finder (as mesmas cores
+    // de Personalizar Pasta, finder\pastacor.cpp), gravado em cor_pastas (-1 = automática)
+    static const UINT32 GG_PASTAS[9] = { 0xFF453A, 0xFF9F0A, 0xFFD60A, 0x30D158, 0x64D2FF, 0x0A84FF, 0xBF5AF2, 0xFF375F, 0x8E8E93 };
+    Row folder = Popup(L"Cor das pastas", { L"Automática", L"Vermelho", L"Laranja", L"Amarelo", L"Verde", L"Menta", L"Azul", L"Roxo", L"Rosa", L"Cinza" },
+                       [] { return std::clamp(_wtoi(Setting(L"cor_pastas", L"-1").c_str()) + 1, 0, 9); },
+                       [](int i) { SetSetting(L"cor_pastas", std::to_wstring(i - 1)); Rebuild(); });
+    folder.gg = true; folder.height = 40;
+    folder.dot = [](int i) { return i <= 0 ? Accent() : GGRgb(GG_PASTAS[std::clamp(i - 1, 0, 8)]); };
+    p.groups.push_back(G({ icons, folder }));
+
+    // ---- Janelas (barras de rolagem), Transparência e Efeitos e o tema do WacOS
+    p.groups.push_back(G({ Popup(L"Mostrar barras de rolagem", { L"Ao rolar", L"Sempre" },
+                                 [] { DWORD v = 1, cb = sizeof(v); RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Accessibility", L"DynamicScrollbars", RRF_RT_REG_DWORD, nullptr, &v, &cb); return v ? 0 : 1; },
+                                 [](int i) {
+                                     DWORD v = i == 0 ? 1 : 0;
+                                     RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Accessibility", L"DynamicScrollbars", REG_DWORD, &v, sizeof(v));
+                                     SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Accessibility", SMTO_ABORTIFHUNG, 200, nullptr);
+                                 }) }, L"Janelas"));
+    p.groups.push_back(G({ Link(L"Transparência e Efeitos", [] { Push(L"Transparência e Efeitos", TransparenciaEfeitos); }, 0xE790, C_BLUE) }));
+    Row tema = TemaRow();
+    tema.label = L"Estilo do WacOS";
+    p.groups.push_back(G({ tema }));
     return p;
 }
 
@@ -869,13 +1243,13 @@ Page TransparenciaEfeitos() {
         float w = 92, gap = 16, x = rr.right - 10 - 3 * w - 2 * gap;
         for (int k = 0; k < 3; k++, x += w + gap) {
             if (pt.x < x - 6 || pt.x > x + w + 6) continue;
-            if (k == 0) SetSetting(L"liquid_glass", L"0");
+            if (k == 0) { SetSetting(L"liquid_glass", L"0"); SetSetting(L"golden_gate", L"0"); }  // Sequoia: sai do Golden Gate também
             else { SetSetting(L"liquid_estilo", k == 1 ? L"nitido" : L"tingido"); SetSetting(L"liquid_glass", L"1"); }
             Rebuild();
         }
     };
     Row lg = Toggle(L"Liquid Glass", [] { return Setting(L"liquid_glass", L"0") == L"1"; },
-                    [](bool v) { SetSetting(L"liquid_glass", v ? L"1" : L"0"); Rebuild(); },
+                    [](bool v) { SetSetting(L"liquid_glass", v ? L"1" : L"0"); if (!v) SetSetting(L"golden_gate", L"0"); Rebuild(); },
                     L"O vidro do macOS Tahoe: pouco fosco e mais vivo, com brilho nas bordas e cantos mais redondos.");
     lg.enabled = !reduce;
     // vidro real: a tela por baixo, com refração de verdade na borda (como o Tahoe); desligado, o vidro

@@ -28,7 +28,10 @@ struct Row {
     bool hasDef = false; float def = 0;                                    // Slider: valor padrão (marca "Padrão" embaixo e ímã ao arrastar)
     std::function<void()> click;                                           // Link/Button
     std::wstring button;                                                   // Button: texto do botão à direita
-    float height = 0;                                                      // Custom: altura (pt)
+    float height = 0;                                                      // Custom: altura (pt); nas outras, > 0 fixa a altura
+    bool noLine = false;                                                   // sem a divisória em cima (continua a linha de cima)
+    bool gg = false;                                                       // Slider/Popup no desenho do macOS 27 (Aparência)
+    std::function<D2D1_COLOR_F(int)> dot;                                  // Popup do macOS 27: bolinha da opção (a < 0: degradê "automático")
     std::function<void(Ctx&, D2D1_RECT_F)> draw;                           // Custom
     std::function<void(D2D1_POINT_2F, D2D1_RECT_F)> clickAt;               // Custom: clique (ponto, área da linha)
 };
@@ -52,6 +55,7 @@ struct Ctx {
     bool dark;
     D2D1_COLOR_F text, text2, text3, accent, line, group, control;
     IDWriteTextFormat *body, *note, *bold, *title, *glyph, *glyphSmall, *center, *noteCenter;
+    IDWriteTextFormat* noteBoldCenter = nullptr;  // 11 pt em negrito, centrado (rótulo escolhido das miniaturas do macOS 27)
 };
 
 void Push(const std::wstring& title, Builder b);  // abre uma subpágina (com Voltar)

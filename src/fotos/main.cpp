@@ -23,7 +23,7 @@ using namespace app2d;
 
 namespace {
 
-const float SB = 210, TB = 52, GAP = 3, HEADH = 40;
+float SB = 210, TB = 52, GAP = 3, HEADH = 40;  // macOS 27: lateral 216 (0 escondida), 17,5 entre as fotos
 const UINT WM_SCAN = WM_APP + 3, WM_THUMB = WM_APP + 4;
 
 struct Item { std::wstring path; FILETIME time; bool video, shot; };
@@ -37,6 +37,7 @@ int g_sel = -1;  // índice em g_shown
 std::vector<int> g_shown;
 bool g_scanning = true;
 IDWriteTextFormat *g_tfSide2, *g_tfSmallC, *g_tfSide, *g_tfHead, *g_tfTitle, *g_tfSmall, *g_tfIcon, *g_tfBadge;
+IDWriteTextFormat *g_tfTitleG, *g_tfSideB, *g_tfSec, *g_tfSeg, *g_tfFootB;  // macOS 27
 
 // ---- miniaturas
 struct Thumb { ID2D1Bitmap* bmp = nullptr; bool asked = false; ULONGLONG used = 0; };
@@ -111,8 +112,11 @@ void Scan() {
 void LoadFav() { g_fav.clear(); for (auto& l : ReadLines(g_favFile)) if (!l.empty() && l[0] != L'#') g_fav.insert(l); }
 void SaveFav() { std::vector<std::wstring> v{ L"# Fotos favoritas" }; for (auto& f : g_fav) v.push_back(f); WriteLines(g_favFile, v); }
 
+std::wstring g_search;  // macOS 27: a lupa filtra pelo nome do arquivo
+int g_showMode = 2;  // 0 anos, 1 meses, 2 todas: a grade ganha um cabeçalho por ano ou por mês
 void Filter() {
     g_shown.clear();
+    std::wstring q = g_search; for (auto& c : q) c = towlower(c);
     FILETIME now; GetSystemTimeAsFileTime(&now);
     ULONGLONG n = ((ULONGLONG)now.dwHighDateTime << 32) | now.dwLowDateTime, month = 30ULL * 24 * 3600 * 10000000ULL;
     std::lock_guard<std::mutex> l(g_mx);
@@ -120,6 +124,7 @@ void Filter() {
         auto& it = g_all[i];
         ULONGLONG t = ((ULONGLONG)it.time.dwHighDateTime << 32) | it.time.dwLowDateTime;
         bool ok = g_view == 0 || (g_view == 1 && g_fav.count(it.path)) || (g_view == 2 && n - t < month) || (g_view == 3 && it.shot) || (g_view == 4 && it.video);
+        if (ok && !q.empty()) { std::wstring nm = it.path.substr(it.path.find_last_of(L"\\/") + 1); for (auto& c : nm) c = towlower(c); ok = nm.find(q) != std::wstring::npos; }
         if (ok) g_shown.push_back(i);
     }
     if (g_sel >= (int)g_shown.size()) g_sel = -1;
@@ -132,38 +137,214 @@ std::vector<Cell> g_cells; std::vector<Head> g_heads; float g_total = 0;
 void Layout() {
     g_cells.clear(); g_heads.clear();
     D2D1_SIZE_F sz = Size();
-    float W = sz.width - SB - 2 * 16;
+    const bool gg = BAR > 0;  // macOS 27: margens de 17, sem cabeçalhos de mês
+    float M = gg ? 17.f : 16.f;
+    float W = sz.width - SB - 2 * M;
     int cols = std::max(1, (int)((W + GAP) / (g_cell + GAP)));
     float cw = (W - (cols - 1) * GAP) / cols;
-    float y = 8; int col = 0, lastKey = -1;
+    float y = gg ? 6.f : 8.f; int col = 0, lastKey = -1;
     std::lock_guard<std::mutex> l(g_mx);
     for (int k = 0; k < (int)g_shown.size(); k++) {
         auto& it = g_all[g_shown[k]];
         SYSTEMTIME st; FILETIME loc; FileTimeToLocalFileTime(&it.time, &loc); FileTimeToSystemTime(&loc, &st);
-        int key = st.wYear * 12 + st.wMonth;
-        if (key != lastKey) {
+        bool years = gg && g_showMode == 0;
+        int key = years ? st.wYear : st.wYear * 12 + st.wMonth;
+        if (key != lastKey && (!gg || g_showMode < 2)) {  // macOS 27: Anos e Meses separam a grade; Todas as Fotos não
             if (col) { y += cw + GAP; col = 0; }
             lastKey = key;
-            wchar_t b[64]; swprintf_s(b, idioma::En() ? L"%ls %d" : L"%ls de %d", MonthName(st.wMonth), st.wYear);
+            wchar_t b[64];
+            if (years) swprintf_s(b, L"%d", st.wYear);
+            else swprintf_s(b, idioma::En() ? L"%ls %d" : L"%ls de %d", MonthName(st.wMonth), st.wYear);
             g_heads.push_back({ b, y });
             y += HEADH;
         }
-        float x = SB + 16 + col * (cw + GAP);
+        float x = SB + M + col * (cw + GAP);
         g_cells.push_back({ k, D2D1::RectF(x, TB + y, x + cw, TB + y + cw) });
         if (++col >= cols) { col = 0; y += cw + GAP; }
     }
     if (col) y += cw + GAP;
-    g_total = y + 20;
+    g_total = y + (gg ? 70.f : 20.f);
 }
 
 bool EdOn();
 void PaintEditor(D2D1_SIZE_F sz, bool dark);
+std::wstring SelPath();
+// ---- macOS 27 (captura Photos do 512 Pixels, 2x, medida em pt): barra lateral de 216 com o botão redondo de
+// "barra lateral" (centro 190, 26); linhas de 32 com o ícone azul a 37 e o nome a 55, a escolhida numa pílula cinza
+// (10–206); "Fixados" em cinza. Em cima, à esquerda do conteúdo, o nome em negrito e as datas em cinza; à direita
+// grupos de vidro: −|+ (73), Anos/Meses/Todas as Fotos (253), três ícones (110), quatro ícones (146) e a lupa (36),
+// a 8 da borda. Divisa a 52. Grade sem cabeçalhos: fotos inteiras (sem cortar) em quadrados de 176 com 17,5 entre
+// eles e cantos 8; no fim, "N Fotos" em negrito.
+struct GHit { int kind, arg; D2D1_RECT_F r; };  // 1 lado, 2 barra lateral, 3 −, 4 +, 5 favoritar, 6 compartilhar, 7 info, 8 editar, 10 mostrar
+std::vector<GHit> g_gh;
+bool g_sbHidden;
+// g_showMode: lá em cima, antes do Layout
+
+void Glyph(wchar_t g, D2D1_RECT_F r, D2D1_COLOR_F c) { wchar_t s[2] = { g, 0 }; Text(s, g_tfIcon, r, c); }
+
+void PaintGolden2(D2D1_SIZE_F sz, bool dark) {
+    g_gh.clear();
+    D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
+    D2D1_COLOR_F accent = Rgb(0, 136, 255), sep = dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.09f);
+    rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    Layout();
+    g_scroll = std::clamp(g_scroll, 0.f, std::max(0.f, g_total - (sz.height - TB)));
+    float X0 = SB;
+    // grade
+    rt->PushAxisAlignedClip(D2D1::RectF(X0, TB, sz.width, sz.height), D2D1_ANTIALIAS_MODE_ALIASED);
+    ULONGLONG now = GetTickCount64();
+    float lastBottom = TB;
+    {
+        std::lock_guard<std::mutex> l(g_mx);
+        for (auto& c : g_cells) {
+            D2D1_RECT_F r = c.r; r.top -= g_scroll; r.bottom -= g_scroll;
+            lastBottom = std::max(lastBottom, r.bottom);
+            if (r.bottom < TB - 200 || r.top > sz.height + 200) continue;
+            auto& it = g_all[g_shown[c.idx]];
+            Thumb& t = g_thumbs[it.path];
+            t.used = now;
+            if (!t.bmp && !t.asked) { t.asked = true; std::lock_guard<std::mutex> q(g_qmx); g_queue.push_back(it.path); g_qcv.notify_one(); }
+            D2D1_RECT_F ir = r;
+            if (t.bmp) {  // a foto inteira dentro do quadrado (como no Mac 27)
+                D2D1_SIZE_F bs = t.bmp->GetSize();
+                float k = std::min((r.right - r.left) / bs.width, (r.bottom - r.top) / bs.height);
+                float w = bs.width * k, hh = bs.height * k, cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+                ir = D2D1::RectF(cx - w / 2, cy - hh / 2, cx + w / 2, cy + hh / 2);
+                ID2D1BitmapBrush* bb = nullptr;
+                rt->CreateBitmapBrush(t.bmp, D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR), &bb);
+                if (bb) {
+                    bb->SetTransform(D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation(ir.left, ir.top));
+                    rt->FillRoundedRectangle(D2D1::RoundedRect(ir, 8, 8), bb);
+                    bb->Release();
+                }
+            } else {
+                float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, w = (r.right - r.left), hh = w * 0.66f;
+                ir = D2D1::RectF(r.left, cy - hh / 2, r.right, cy + hh / 2);
+                Fill(ir, dark ? Rgb(48, 48, 50) : Rgb(238, 238, 240), 8);
+                (void)cx;
+            }
+            if (it.video) Glyph(0xE714, D2D1::RectF(ir.left + 4, ir.bottom - 22, ir.left + 24, ir.bottom - 2), Rgb(255, 255, 255));
+            if (g_fav.count(it.path)) Text(L"♥", g_tfBadge, D2D1::RectF(ir.left + 4, ir.bottom - 22, ir.left + 24, ir.bottom - 2), Rgb(255, 255, 255));
+            if (c.idx == g_sel) { br->SetColor(accent); rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(ir.left - 2, ir.top - 2, ir.right + 2, ir.bottom + 2), 10, 10), br, 3); }
+        }
+    }
+    for (auto& hd : g_heads) {  // Anos / Meses
+        float y = TB + hd.y - g_scroll;
+        if (y < TB - HEADH || y > sz.height) continue;
+        Text(hd.text, g_tfTitleG, D2D1::RectF(X0 + 17, y + 8, sz.width - 17, y + HEADH - 6), text);
+    }
+    if (g_shown.empty()) Text(g_scanning ? Tr(L"Lendo a biblioteca…") : !g_search.empty() ? Tr(L"Nenhum Resultado") : Tr(L"Nenhuma Foto"), g_tfTitle, D2D1::RectF(X0, TB, sz.width, sz.height), gray);
+    else {  // rodapé: "N Fotos"
+        int nv = 0; { std::lock_guard<std::mutex> l(g_mx); for (int k : g_shown) if (g_all[k].video) nv++; }
+        int np = (int)g_shown.size() - nv;
+        wchar_t b[96];
+        if (nv && np) swprintf_s(b, Tr(L"%d Fotos, %d Vídeos"), np, nv); else if (nv) swprintf_s(b, Tr(L"%d Vídeos"), nv); else swprintf_s(b, Tr(L"%d Fotos"), np);
+        Text(b, g_tfFootB, D2D1::RectF(X0, lastBottom + 22, sz.width, lastBottom + 40), text);
+    }
+    rt->PopAxisAlignedClip();
+    // barra de cima
+    Fill(D2D1::RectF(X0, 0, sz.width, TB), dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    Fill(D2D1::RectF(X0, TB - 0.5f, sz.width, TB), sep);
+    const wchar_t* names[] = { L"Biblioteca", L"Favoritos", L"Recentes", L"Capturas de Tela", L"Vídeos" };
+    float tx = X0 + (g_sbHidden ? 140.f : 20.f);
+    Text(Tr(names[g_view]), g_tfTitleG, D2D1::RectF(tx, 10, tx + 300, 29), text);
+    {
+        std::wstring range;
+        std::lock_guard<std::mutex> l(g_mx);
+        if (!g_shown.empty()) {
+            auto fmt = [](const FILETIME& f) {
+                SYSTEMTIME st; FILETIME loc; FileTimeToLocalFileTime(&f, &loc); FileTimeToSystemTime(&loc, &st);
+                static const wchar_t* en[] = { L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec" };
+                static const wchar_t* pt[] = { L"jan.", L"fev.", L"mar.", L"abr.", L"mai.", L"jun.", L"jul.", L"ago.", L"set.", L"out.", L"nov.", L"dez." };
+                wchar_t b[48];
+                if (idioma::En()) swprintf_s(b, L"%ls %d, %d", en[st.wMonth - 1], st.wDay, st.wYear); else swprintf_s(b, L"%d de %ls de %d", st.wDay, pt[st.wMonth - 1], st.wYear);
+                return std::wstring(b);
+            };
+            range = fmt(g_all[g_shown.front()].time) + L" – " + fmt(g_all[g_shown.back()].time);
+        }
+        Text(range, g_tfSmall, D2D1::RectF(tx, 27, tx + 320, 42), gray);
+    }
+    // botões da direita, da borda para dentro
+    float R = sz.width - 8, cy = 26;
+    auto group = [&](float w) { D2D1_RECT_F r = D2D1::RectF(R - w, cy - 18, R, cy + 18); GlassButton(r, dark); BarButton(r); R = r.left; return r; };
+    {   // lupa (com busca: o campo aberto com o texto)
+        D2D1_RECT_F r = group(g_search.empty() ? 36.f : 200.f);
+        IconSearch({ g_search.empty() ? (r.left + r.right) / 2 - 0.5f : r.left + 18, cy - 0.5f }, text, 1.05f);
+        if (!g_search.empty()) Text(g_search, g_tfSeg, D2D1::RectF(r.left + 32, r.top, r.right - 10, r.bottom), text);
+        g_gh.push_back({ 11, 0, r });
+        R -= 8;
+    }
+    {   // info, compartilhar, favoritar, girar/editar
+        D2D1_RECT_F r = group(146);
+        wchar_t gl[4] = { 0xE946, 0xE72D, (wchar_t)(g_sel >= 0 && g_fav.count(SelPath()) ? 0xEB52 : 0xEB51), 0xE7AD };
+        int kinds[4] = { 7, 6, 5, 8 };
+        for (int i = 0; i < 4; i++) {
+            D2D1_RECT_F c = D2D1::RectF(r.left + 6 + i * 33.5f, r.top, r.left + 6 + (i + 1) * 33.5f, r.bottom);
+            Glyph(gl[i], c, i == 0 || g_sel >= 0 ? text : gray);
+            g_gh.push_back({ kinds[i], 0, c });
+        }
+        R -= 7;
+    }
+    {   // tamanho, ordem, mais
+        D2D1_RECT_F r = group(110);
+        wchar_t gl[3] = { 0xE9A6, 0xE8CB, 0xE712 };
+        for (int i = 0; i < 3; i++) Glyph(gl[i], D2D1::RectF(r.left + 6 + i * 32.6f, r.top, r.left + 6 + (i + 1) * 32.6f, r.bottom), text);
+        R -= 12;
+    }
+    if (R - 253 - 16 - 73 > tx + 160) {
+        D2D1_RECT_F r = group(253);
+        const wchar_t* seg[3] = { L"Anos", L"Meses", L"Todas as Fotos" };
+        float ws[3] = { 70, 76, 107 }, x = r.left;
+        for (int i = 0; i < 3; i++) {
+            D2D1_RECT_F c = D2D1::RectF(x, r.top, x + ws[i], r.bottom);
+            if (i == g_showMode) Fill(D2D1::RectF(c.left + 4, c.top + 4, c.right - 4, c.bottom - 4), dark ? Rgb(255, 255, 255, 0.14f) : Rgb(0, 0, 0, 0.08f), 14);
+            Text(Tr(seg[i]), g_tfSeg, c, text);
+            g_gh.push_back({ 10, i, c });
+            x += ws[i];
+        }
+        R -= 16;
+        D2D1_RECT_F z = group(73);
+        D2D1_RECT_F a = D2D1::RectF(z.left, z.top, z.left + 36.5f, z.bottom), b = D2D1::RectF(z.left + 36.5f, z.top, z.right, z.bottom);
+        br->SetColor(text);
+        rt->DrawLine({ a.left + 11, cy }, { a.right - 11, cy }, br, 1.6f);
+        IconPlus({ (b.left + b.right) / 2, cy }, text, 7);
+        Fill(D2D1::RectF(z.left + 36.25f, cy - 9, z.left + 36.75f, cy + 9), sep);
+        g_gh.push_back({ 3, 0, a }); g_gh.push_back({ 4, 0, b });
+    }
+    // barra lateral
+    if (!g_sbHidden) {
+        Fill(D2D1::RectF(0, 0, SB, sz.height), SidebarColor());
+        Fill(D2D1::RectF(SB - 0.5f, 0, SB, sz.height), dark ? Rgb(0, 0, 0, 0.5f) : Rgb(0, 0, 0, 0.08f));
+        D2D1_RECT_F tb = D2D1::RectF(190 - 18, cy - 18, 190 + 18, cy + 18);
+        GlassButton(tb, dark); IconSidebar({ 190, cy }, text);
+        g_gh.push_back({ 2, 0, tb }); BarButton(tb);
+        wchar_t icons[] = { 0xE8B9, 0xEB51, 0xE823, 0xE714, 0xE722 };
+        int order[5] = { 0, 1, 2, 4, 3 };  // Biblioteca; Fixados: Favoritos, Recentes, Vídeos, Capturas de Tela
+        float ys[5] = { 68, 132, 164, 196, 228 };
+        Text(Tr(L"Fixados"), g_tfSec, D2D1::RectF(16, 98, SB, 114), gray);
+        for (int k = 0; k < 5; k++) {
+            int v = order[k];
+            D2D1_RECT_F r = D2D1::RectF(10, ys[k] - 16, SB - 10, ys[k] + 16);
+            bool on = v == g_view;
+            if (on) Fill(r, dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.07f), 9);
+            Glyph(icons[k], D2D1::RectF(26, r.top, 48, r.bottom), accent);
+            Text(Tr(names[v]), on ? g_tfSideB : g_tfSide, D2D1::RectF(55, r.top, r.right - 6, r.bottom), text);
+            g_gh.push_back({ 1, v, r });
+        }
+    } else {
+        D2D1_RECT_F tb = D2D1::RectF(108 - 18, cy - 18, 108 + 18, cy + 18);
+        GlassButton(tb, dark); IconSidebar({ 108, cy }, text);
+        g_gh.push_back({ 2, 0, tb }); BarButton(tb);
+    }
+}
+
 void Paint() {
     if (!BeginPaint()) return;
     bool dark = Dark();
     D2D1_SIZE_F sz = Size();
     D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
     if (EdOn()) { PaintEditor(sz, dark); EndPaint(); return; }  // editando uma foto
+    if (BAR > 0) { PaintGolden2(sz, dark); EndPaint(); return; }
     rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
     Layout();
     g_scroll = std::clamp(g_scroll, 0.f, std::max(0.f, g_total - (sz.height - TB)));
@@ -499,7 +680,32 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: case WM_RBUTTONUP: {
         float s = Sc(), x = GET_X_LPARAM(l) / s, y = GET_Y_LPARAM(l) / s;
         if (g_ed.on) { if (m != WM_RBUTTONUP) EditMouse(WM_LBUTTONDOWN, x, y); return 0; }
-        if (x < SB) {
+        if (BAR > 0) {  // macOS 27: botões da barra e da lateral
+            for (auto& gh : g_gh) if (In(gh.r, x, y)) {
+                if (m == WM_RBUTTONUP) return 0;
+                switch (gh.kind) {
+                case 1: g_view = gh.arg; g_sel = -1; Filter(); g_scroll = 1e9f; break;
+                case 2: g_sbHidden = !g_sbHidden; SB = g_sbHidden ? 0.f : 216.f; break;
+                case 3: Zoom(1 / 1.2f); break;
+                case 4: Zoom(1.2f); break;
+                case 5: ToggleFav(); break;
+                case 6: { std::wstring p = SelPath(); if (!p.empty()) { SHELLEXECUTEINFOW se{ sizeof(se) }; se.fMask = SEE_MASK_INVOKEIDLIST; se.lpVerb = L"windows.modernshare"; se.lpFile = p.c_str(); se.nShow = SW_SHOWNORMAL; ShellExecuteExW(&se); } break; }
+                case 7: { std::wstring p = SelPath(); if (!p.empty()) { SHELLEXECUTEINFOW se{ sizeof(se) }; se.fMask = SEE_MASK_INVOKEIDLIST; se.lpVerb = L"properties"; se.lpFile = p.c_str(); se.nShow = SW_SHOWNORMAL; ShellExecuteExW(&se); } break; }
+                case 8: EditOpen(SelPath()); break;
+                case 10: g_showMode = gh.arg; g_scroll = 0; break;
+                case 11: {  // busca: o campo abre na barra e filtra pelo nome enquanto digita
+                    D2D1_RECT_F fr = D2D1::RectF(gh.r.right - 200 + 32, gh.r.top + 9, gh.r.right - 10, gh.r.bottom - 9);
+                    FieldOpen(fr, g_search, 13, false, [](const std::wstring& q, int key) {
+                        g_search = key == VK_ESCAPE ? L"" : q; g_sel = -1; Filter(); g_scroll = 0; InvalidateRect(wnd, nullptr, FALSE);
+                    });
+                    return 0;
+                }
+                }
+                InvalidateRect(h, nullptr, FALSE);
+                return 0;
+            }
+            if (x < SB || y < TB) return 0;
+        } else if (x < SB) {
             int i = (int)((y - 48) / 34);
             if (y >= 48 && i >= 0 && i < 5) { g_view = i; g_sel = -1; Filter(); g_scroll = 1e9f; InvalidateRect(h, nullptr, FALSE); }
             return 0;
@@ -567,7 +773,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfSmall = Fmt(12);
     g_tfIcon = Fmt(15, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
     g_tfBadge = Fmt(13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
-    if (!CreateMain(hi, L"FotosJanela", Tr(L"Fotos"), Proc, 1200, 800)) return 1;
+    g_tfTitleG = Fmt(13, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfSideB = Fmt(13, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfSec = Fmt(11, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfSeg = Fmt(13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfFootB = Fmt(12, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    barWanted = 52;  // macOS 27: barra unificada
+    if (!CreateMain(hi, L"FotosJanela", Tr(L"Fotos"), Proc, semaforo::Aqua() ? 1222 : 1200, semaforo::Aqua() ? 720 : 800)) return 1;
+    if (BAR > 0) { SB = 216; GAP = 17.5f; g_cell = 176; }
     g_px = (int)std::lround(256 * Sc());
     for (int i = 0; i < 2; i++) std::thread(ThumbWorker).detach();
     Scan();

@@ -32,6 +32,7 @@ const float PAD_SEQUOIA = 10;     // espaço de cada lado de um ícone de status
 // Tahoe (guia, seção 35): cada item da direita = o ícone + ~8 pt de respiro de cada lado (31–42 pt por item)
 #define PAD (liquid::On() ? 8.f : PAD_SEQUOIA)
 
+bool g_overflow;  // macOS 27: algum ícone da bandeja não coube na barra (mostra a »)
 enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT };
 struct Hit { D2D1_RECT_F r; Kind kind; int index; };
 
@@ -130,6 +131,7 @@ const KeyCmd g_keyCmds[] = {
     { 1040, L"Voltar", L"Alt+←", { VK_MENU, VK_LEFT } },
     { 1041, L"Avançar", L"Alt+→", { VK_MENU, VK_RIGHT } },
     { 1042, L"Pasta Superior", L"Ctrl+↑", { VK_CONTROL, VK_UP } },
+    { 1043, L"Ir para a Pasta…", L"Ctrl+Shift+G", { VK_CONTROL, VK_SHIFT, 'G' } },
     { 1050, L"Ajuda", L"F1", { VK_F1 } },
     { 1051, L"Ajustes…", L"Ctrl+,", { VK_CONTROL, VK_OEM_COMMA } },
     // menus próprios dos apps sem menu Win32 (AppMenus): os atalhos do Windows de cada um
@@ -704,8 +706,36 @@ void Render() {
     if (g_st.batt && shell::Setting(L"barra_bateria", L"1") == L"1") {
         const wchar_t* name = g_st.charging ? L"battery.100percent.bolt" : g_st.pct > 87 ? L"battery.100percent" : g_st.pct > 62 ? L"battery.75percent"
                             : g_st.pct > 37 ? L"battery.50percent" : g_st.pct > 12 ? L"battery.25percent" : L"battery.0percent";
+        if (liquid::Golden()) {
+            // macOS 27 (vídeo do MacVince, 2:44): a porcentagem DENTRO do ícone — corpo cheio de 25 × 12 com canto 4,
+            // o número vazado (e o raio quando carrega) e a ponta à direita
+            auto bx = slot(29, K_BATT, 0);
+            float cy = H / 2;
+            D2D1_RECT_F body = D2D1::RectF(bx.left, cy - 6, bx.left + 25, cy + 6);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(body, 4, 4), br);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(body.right + 1, cy - 2.5f, body.right + 2.8f, cy + 2.5f), 1, 1), br);
+            static IDWriteTextFormat* tfB = ui::Format(9.5f, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+            wchar_t num[8]; swprintf_s(num, L"%d", std::clamp(g_st.pct, 0, 100));
+            br->SetColor(dark ? D2D1::ColorF(0.15f, 0.13f, 0.12f, 0.92f) : D2D1::ColorF(1, 1, 1, 0.95f));
+            D2D1_RECT_F tr = D2D1::RectF(body.left, body.top - 0.5f, body.right - (g_st.charging ? 6.f : 0.f), body.bottom - 0.5f);
+            if (tfB) { tfB->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); rt->DrawTextW(num, (UINT32)wcslen(num), tfB, tr, br); }
+            if (g_st.charging) {  // raio
+                float bx0 = body.right - 6.5f;
+                ID2D1PathGeometry* g = nullptr;
+                if (SUCCEEDED(ui::d2d->CreatePathGeometry(&g))) {
+                    ID2D1GeometrySink* sk = nullptr; g->Open(&sk);
+                    sk->BeginFigure({ bx0 + 2.6f, cy - 4.5f }, D2D1_FIGURE_BEGIN_FILLED);
+                    D2D1_POINT_2F pts[] = { { bx0, cy + 0.6f }, { bx0 + 1.9f, cy + 0.6f }, { bx0 + 1.1f, cy + 4.5f }, { bx0 + 3.8f, cy - 0.8f }, { bx0 + 1.9f, cy - 0.8f } };
+                    sk->AddLines(pts, 5); sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+                    rt->FillGeometry(g, br);
+                    g->Release();
+                }
+            }
+            br->SetColor(fgc);
+        } else {
         auto bx = slot(27, K_BATT, 0);
         sym(name, bx, 13);
+        }
     }
     // Som e Bluetooth: no Mac ficam fora da barra por padrão (Ajustes > Central de Controle liga)
     if (g_st.sound && shell::Setting(L"barra_som", L"0") == L"1") {
@@ -734,7 +764,7 @@ void Render() {
     for (int i = (int)tray::icons.size() - 1; i >= 0; i--) {
         auto& t = tray::icons[i];
         if (t.hidden || !t.icon || !IsShown(t)) continue;
-        if (r - 37 < leftEnd + 60) break;  // sem espaço: some, como no Mac
+        if (r - 37 < leftEnd + 60) { g_overflow = true; break; }  // sem espaço: some, como no Mac (macOS 27: aparece a »)
         auto bx = slot(17, K_TRAY, i);
         std::vector<BYTE> mono = IconPixels(t.icon, px);
         // como os ícones-modelo do Mac: uma cor só, a mesma do texto da barra (branco no escuro, preto no claro);
@@ -773,6 +803,18 @@ void Render() {
     }
     bool anyHidden = false;
     for (auto& t : tray::icons) if (!t.hidden && t.icon && !IsShown(t)) anyHidden = true;
+    if (liquid::Golden() && (g_overflow || anyHidden)) {
+        // macOS 27 (vídeo, 2:16): quando os ícones não cabem, uma seta dupla » mostra os escondidos
+        auto bx = slot(14, K_MORE, 0);
+        float cx = (bx.left + bx.right) / 2, cy = H / 2;
+        for (int k = 0; k < 2; k++) {
+            float ox = cx - 3.5f + k * 5.5f;
+            rt->DrawLine({ ox - 2.2f, cy - 4.5f }, { ox + 2.2f, cy }, br, 1.5f);
+            rt->DrawLine({ ox + 2.2f, cy }, { ox - 2.2f, cy + 4.5f }, br, 1.5f);
+        }
+        anyHidden = false;  // já desenhada
+    }
+    g_overflow = false;
     // setinha dos ícones guardados: não existe no Mac, desligada por padrão (barra_seta=1 liga); a lista abre
     // também no botão direito da Central de Controle
     if (anyHidden && shell::Setting(L"barra_seta", L"0") == L"1") {  // setinha dos ícones guardados: o chevron do SF Symbols, apontando para onde eles abrem
@@ -906,7 +948,7 @@ std::vector<ctxmenu::Item> GenericMenu(const std::wstring& title, App* app) {
     }
     if (title == Tr(L"Editar")) return { K(1010), K(1011), Sep(), K(1012), K(1013), K(1014), K(1015), Sep(), K(1016) };
     if (title == Tr(L"Visualizar")) return { K(1030), K(1031), K(1032), K(1033), Sep(), K(1034) };
-    if (title == Tr(L"Ir")) return { K(1040), K(1041), K(1042), Sep(), I(Tr(L"Recentes"), 1100), I(Tr(L"Documentos"), 1101), I(Tr(L"Mesa"), 1102), I(Tr(L"Downloads"), 1103), I(Tr(L"Início"), 1104), I(Tr(L"Este Computador"), 1105), I(Tr(L"Aplicativos"), 1106) };
+    if (title == Tr(L"Ir")) return { K(1040), K(1041), K(1042), Sep(), K(1043), Sep(), I(Tr(L"Recentes"), 1100), I(Tr(L"Documentos"), 1101), I(Tr(L"Mesa"), 1102), I(Tr(L"Downloads"), 1103), I(Tr(L"Início"), 1104), I(Tr(L"Este Computador"), 1105), I(Tr(L"Aplicativos"), 1106) };
     if (title == Tr(L"Janela")) {
         std::vector<ctxmenu::Item> v{ I(Tr(L"Minimizar"), 1200), I(Tr(L"Zoom"), 1201), Sep(), I(Tr(L"Trazer Tudo para a Frente"), 1202) };
         v.insert(v.begin(), pre.begin(), pre.end());
@@ -1028,6 +1070,7 @@ void Run(int id, App* app) {
     }
 }
 
+int g_closedHit = -1; DWORD g_closedHitAt;  // o título cujo menu acabou de fechar (clicar nele de novo só fecha)
 void ShowAt(int hit, const std::vector<ctxmenu::Item>& items, std::function<void(int)> done) {
     g_open = hit;
     g_openBar = Cur();
@@ -1039,6 +1082,7 @@ void ShowAt(int hit, const std::vector<ctxmenu::Item>& items, std::function<void
     if (liquid::On()) pt = { wr.left + (LONG)std::lround((g_hits[hit].r.left + 6) * sc), wr.bottom + (LONG)std::lround(sc) };
     SetForegroundWindow(g_owner);  // o menu fecha se a janela dona não estiver na frente
     int id = ctxmenu::ShowItems(g_owner, pt, items);
+    g_closedHit = hit; g_closedHitAt = GetTickCount();
     g_open = -1;
     Render();
     if (g_fg && IsWindow(g_fg)) SetForegroundWindow(g_fg);
@@ -1050,6 +1094,8 @@ void Click(D2D1_POINT_2F p, bool right) {
     for (int i = 0; i < (int)g_hits.size(); i++)
         if (p.x >= g_hits[i].r.left && p.x < g_hits[i].r.right) { hit = i; break; }
     if (hit < 0) return;
+    if (!right && hit == g_closedHit && GetTickCount() - g_closedHitAt < 400) { g_closedHit = -1; return; }  // clique no mesmo título: só fechou
+    g_closedHit = -1;
     Hit h = g_hits[hit];
     App* app = ActiveApp();
     float sc = ui::Scale(Cur());

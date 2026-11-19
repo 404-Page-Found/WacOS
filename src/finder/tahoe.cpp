@@ -59,7 +59,8 @@ struct Fx : winrt::implements<Fx, IGraphicsEffect, IGraphicsEffectSource, abifx:
     HRESULT __stdcall GetSourceCount(UINT* c) noexcept override { *c = 1; return S_OK; }
 };
 
-bool g_on = false, g_reduce = false, g_tint = true;
+bool g_on = false, g_reduce = false, g_tint = true, g_golden = false;
+int g_folderColor = -1;  // Aparência > Cor das pastas (cor_pastas; -1 = automática)
 std::wstring g_accent = L"azul";  // Ajustes > Aparência > Cor de destaque (destaque=)
 FILETIME g_stamp{};
 bool g_read = false;
@@ -84,19 +85,24 @@ std::wstring Path() {
 bool ReadOn() {
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, Path().c_str(), L"r, ccs=UTF-8") || !fp) return false;
-    bool liquid = false, reduce = false;
+    bool liquid = false, reduce = false, golden = false;
+    int folder = -1;
     wchar_t line[512];
     while (fgetws(line, 512, fp)) {
         std::wstring s = line;
         while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r' || s.back() == L' ')) s.pop_back();
         if (s == L"liquid_glass=1") liquid = true;
         if (s == L"reduzir_transparencia=1") reduce = true;
+        if (s == L"golden_gate=1") golden = true;
+        if (s.rfind(L"cor_pastas=", 0) == 0) folder = _wtoi(s.c_str() + 11);
         if (s.rfind(L"destaque=", 0) == 0) g_accent = s.substr(9);
         if (s == L"tingir_janelas=0") g_tint = false;
         if (s == L"tingir_janelas=1") g_tint = true;
     }
     fclose(fp);
     g_reduce = reduce;
+    g_golden = liquid && golden;
+    g_folderColor = folder;
     return liquid;
 }
 
@@ -149,7 +155,7 @@ D2D1_COLOR_F tahoe::Accent(bool dark) {
     if (!g_read) Reload();
     static const std::pair<const wchar_t*, UINT32> cols[] = {
         { L"azul", 0x007AFF }, { L"roxo", 0x953D96 }, { L"rosa", 0xF74F9E }, { L"vermelho", 0xE0383E },
-        { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C } };
+        { L"laranja", 0xF7821B }, { L"amarelo", 0xFCB827 }, { L"verde", 0x62BA46 }, { L"grafite", 0x8C8C8C }, { L"lavanda", 0x98A8D9 } };  // lavanda: a 10ª cor do macOS 27
     UINT32 c = 0x007AFF;
     for (auto& [n, v] : cols) if (g_accent == n) c = v;
     float r = ((c >> 16) & 255) / 255.f, g = ((c >> 8) & 255) / 255.f, b = (c & 255) / 255.f;
@@ -211,11 +217,12 @@ bool tahoe::Reload() {
     if (g_read && !CompareFileTime(&fa.ftLastWriteTime, &g_stamp)) return false;
     g_stamp = fa.ftLastWriteTime;
     std::wstring accWas = g_accent;
-    bool was = g_on, first = !g_read;
+    bool was = g_on, goldWas = g_golden, first = !g_read;
+    int folderWas = g_folderColor;
     g_read = true;
     g_on = ReadOn();
-    if (first || was != g_on) Log(L"tema: liquid_glass=%d reduzir=%d (%ls)", (int)g_on, (int)g_reduce, Path().c_str());
-    return !first && (was != g_on || accWas != g_accent);  // a cor de destaque também redesenha
+    if (first || was != g_on || goldWas != g_golden) Log(L"tema: liquid_glass=%d golden_gate=%d reduzir=%d (%ls)", (int)g_on, (int)g_golden, (int)g_reduce, Path().c_str());
+    return !first && (was != g_on || goldWas != g_golden || accWas != g_accent || folderWas != g_folderColor);  // a cor de destaque também redesenha
 }
 
 void tahoe::Frame(HWND h, bool on) {
@@ -292,6 +299,7 @@ void tahoe::SetPanel(HWND h, D2D1_RECT_F r, float radius) {
     float k = GetDpiForWindow(h) / 96.f;
     try {
         auto& g = it->second.geo;
+        if (r.right <= r.left || r.bottom <= r.top) { g.Size({ 0, 0 }); return; }  // sem painel de vidro (Golden Gate)
         // 1 px para FORA: o conteúdo opaco do D2D cobre a sobra; para dentro, os pixels de borda
         // (meio transparentes no D2D) mostravam o que está atrás da janela como um tracejado escuro
         g.Offset({ r.left * k - 1, r.top * k - 1 });
@@ -301,7 +309,11 @@ void tahoe::SetPanel(HWND h, D2D1_RECT_F r, float radius) {
     } catch (...) {}
 }
 
-float tahoe::Radius(HWND h) { return IsZoomed(h) ? 0 : WINDOW_R; }
+float tahoe::Radius(HWND h) { return IsZoomed(h) ? 0 : WindowR(); }
+// macOS 27 Golden Gate: todas as janelas com o mesmo canto, 16 pt (medido nas capturas do 512 Pixels), bem menos redondo que os 26 pt do Tahoe
+float tahoe::WindowR() { if (!g_read) Reload(); return g_golden ? 16.f : 26.f; }
+bool tahoe::Golden() { if (!g_read) Reload(); return g_golden; }
+int tahoe::FolderColor() { if (!g_read) Reload(); return g_on ? g_folderColor : -1; }
 
 // Cápsula de vidro desenhada em D2D (botões da barra de ferramentas, campos, painéis): corpo claro
 // translúcido, sombra curta e difusa, contorno especular claro em cima e uma linha escura fina embaixo.

@@ -712,6 +712,12 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else if (w >= 3 && w <= 6) spotlight::OpenMode((int)w - 2);
         else if (w == 7) spotlight::Toggle();
         else if (w == 8) sobre::Show();  // Sobre Este Mac
+        else if (w == 9) central::Toggle();        // Central de Controle (testes)
+        else if (w == 10) notificacoes::Toggle();  // Central de Notificações (testes)
+        else if (w == 11) {  // Quick Look de uma foto do macOS 27 (testes)
+            wchar_t p[MAX_PATH] = {}; GetEnvironmentVariableW(L"USERPROFILE", p, MAX_PATH);
+            quicklook::Toggle(std::wstring(p) + L"\\Pictures\\Wallpapers macOS\\macOS 27\\macos-27-golden-4096x2160-27635.jpg");
+        }
         if (att) AttachThreadInput(me, ft, FALSE);
         return 0;
     }
@@ -728,6 +734,23 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         while (!p.empty() && !p.back()) p.pop_back();
         mesa::WallpaperNow(p);
         return TRUE;
+    }
+    if (m == WM_COPYDATA && l && ((COPYDATASTRUCT*)l)->dwData == 0x514C4F4B /*'QLOK'*/) {  // Finder: Quick Look (vazio = fechar)
+        auto* cd = (COPYDATASTRUCT*)l;
+        if (cd->cbData > 8192) return FALSE;
+        std::wstring p = cd->lpData ? std::wstring((const wchar_t*)cd->lpData, cd->cbData / sizeof(wchar_t)) : L"";
+        while (!p.empty() && !p.back()) p.pop_back();
+        // responde já e abre logo depois: o vídeo leva mais que o tempo de espera do Finder (0,8 s), e ele achava
+        // que tinha falhado e abria também o painel antigo dele
+        auto* copy = new std::wstring(p);
+        PostMessageW(h, WM_APP + 77, 0, (LPARAM)copy);
+        return TRUE;
+    }
+    if (m == WM_APP + 77 && l) {  // o Quick Look pedido pelo Finder (acima)
+        std::unique_ptr<std::wstring> p((std::wstring*)l);
+        if (p->empty()) quicklook::Close();
+        else quicklook::Toggle(*p, false);  // o Finder fica com o foco
+        return 0;
     }
     if (m == WM_COPYDATA && l && ((COPYDATASTRUCT*)l)->dwData == 0x414D504C /*'AMPL'*/) {  // MacJanela.dll: ampliar animado
         struct Msg { unsigned long long hwnd; RECT from, to; int flags; COLORREF cap; };
@@ -767,7 +790,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == reload && reload) {  // o Ajustes do Sistema gravou ajustes.txt
         g_macKeys = shell::Setting(L"atalhos_mac", L"1") == L"1";
         static int lastLiquid = -1;
-        if (lastLiquid < 0) lastLiquid = liquid::On();
+        if (lastLiquid < 0) lastLiquid = liquid::Golden() ? 2 : liquid::On();
         LoadSettings();
         static int lastEn = -1;
         if (lastEn < 0) lastEn = idioma::En();
@@ -778,8 +801,8 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             dock::IconsChanged();
             Log(L"idioma: %ls", en ? L"en" : L"pt");
         }
-        if ((int)liquid::On() != lastLiquid) {  // tema Sequoia/Tahoe: outro pacote de ícones (antes só ao reiniciar)
-            lastLiquid = liquid::On();
+        if ((liquid::Golden() ? 2 : (int)liquid::On()) != lastLiquid) {  // tema Sequoia/Tahoe/Golden Gate: outro pacote de ícones
+            lastLiquid = liquid::Golden() ? 2 : liquid::On();
             for (auto& a : apps::list) { a.icon.clear(); a.iw = a.ih = 0; a.mac = false; }
             dock::IconsChanged();
             seletor::IconsChanged();

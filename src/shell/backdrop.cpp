@@ -1154,6 +1154,8 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
     float dmax = std::min(H * 0.8f, 60 * px) * (0.4f + 1.0f * k);
     float scale = 2 * dmax + 2;
     // Transparência (vidro_tinta): 0 = quase nítido, 0,5 = o do Tahoe, 1 = bem fosco
+    // macOS 27 Golden Gate: mesmo no mínimo o vidro continua fosco (o controle vai de "quase transparente" a opaco;
+    // vídeo do MacVince e capturas do 512 Pixels: o fundo sempre aparece bem desfocado)
     float sigma = std::max(0.6f + 11.f * st.tintK, minFrost) * px;
     float m = 3 * sigma + dmax + 2;
     ID2D1Effect *crop = Fx(dc, 0, CLSID_D2D1Crop), *blur = Fx(dc, 1, CLSID_D2D1GaussianBlur), *sat = Fx(dc, 2, CLSID_D2D1Saturation),
@@ -1228,7 +1230,7 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
     }
     {   // véu branco de 5% por dentro (rgba(255,255,255,0.05) do estudo; a referência é mais clara por dentro)
         ID2D1SolidColorBrush* v = nullptr;
-        dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.05f * std::min(1.f, 2 * g_style.tintK)), &v);  // some com a transparência no mínimo
+        dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.05f * std::min(1.f, 2 * g_style.tintK)), &v);  // some com a transparência no mínimo (no Golden Gate fica)
         if (v) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), v); v->Release(); }
     }
     if (noise) {  // ruído de 2,5%: some com os degraus de cor do desfoque
@@ -1336,6 +1338,7 @@ void backdrop::Reload() {
     Style s;
     s.liquid = shell::Setting(L"liquid_glass", L"0") == L"1";
     s.tinted = shell::Setting(L"liquid_estilo", L"nitido") == L"tingido";
+    s.golden = s.liquid && shell::Setting(L"golden_gate", L"0") == L"1";
     s.refraction = (float)_wtof(shell::Setting(L"liquid_refracao", L"0.6").c_str());
     s.reduce = shell::Setting(L"reduzir_transparencia", L"0") == L"1";
     s.tintK = (float)_wtof(shell::Setting(L"vidro_tinta", L"0.5").c_str());
@@ -1347,9 +1350,10 @@ void backdrop::Reload() {
     // menus (barra de menus, Dock, Central): mais opacos que os painéis, para ler bem
     ctxmenu::Glass mg;
     mg.liquid = s.liquid && !s.reduce;
+    mg.golden = s.golden;
     mg.alpha = [](float a) {
         const auto& st = g_style;
-        if (st.tintK < 0.5f) a *= 0.25f + 1.5f * st.tintK;  // menus: no mínimo 25 % (texto legível)
+        if (st.tintK < 0.5f) a *= 0.25f + 1.5f * st.tintK;  // menus: no mínimo 25 % (texto legível); Golden Gate 60 %
         else a += (1 - a) * (st.tintK - 0.5f) * 1.4f;
         if (st.reduce) return std::max(a, 0.97f);
         if (st.liquid) a = st.tinted ? a + (1 - a) * 0.3f : a * 0.72f;

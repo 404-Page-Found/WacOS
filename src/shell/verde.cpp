@@ -140,6 +140,11 @@ void Paint() {
     ui::GpuEnd(g_s);
     if (g_glass) {
         D2D1_COLOR_F tint = dark ? D2D1::ColorF(0.165f, 0.165f, 0.172f, 0.85f) : D2D1::ColorF(0.96f, 0.96f, 0.965f, 0.77f);  // vidro dos menus (seção 52)
+        // é um menu: vidro fosco que não segue o controle de transparência (no mínimo ele sumia e o texto de trás aparecia)
+        if (liquid::On()) {
+            tint = dark ? D2D1::ColorF(0.17f, 0.165f, 0.165f, 0.90f) : D2D1::ColorF(0.95f, 0.945f, 0.94f, 0.86f);
+            backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), R * sc } }, tint, 24.f);
+        } else
         backdrop::Set(g_back, (float)wpx, (float)hpx, R * sc, tint);
         backdrop::Fade(g_back, 1, 1, 0, 0);
     }

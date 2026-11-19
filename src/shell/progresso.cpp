@@ -27,7 +27,14 @@
 namespace {
 
 const UINT WM_PG_SHOWN = WM_APP + 90, WM_PG_SNAP = WM_APP + 91, WM_PG_FRAME = WM_APP + 92;
-const float W = 452, ROW = 68, PAD = 16, ICON = 38, BTN = 16;
+// macOS 27 Golden Gate (Finder-Copy.png, 2x): janela opaca de 404 de largura, sem título, botões da janela de 14
+// centrados em (16, 16) a cada 23, cantos 16; cada cópia em 56: documento de 32 a 22 da borda, texto a 62, barra azul
+// de 8 de altura até 33 da borda direita, o "x" cinza de 11 depois dela e a linha de baixo em cinza de 13
+#define W (liquid::Golden() ? 404.f : 452.f)
+#define ROW (liquid::Golden() ? 56.f : 68.f)
+#define PAD (liquid::Golden() ? 22.f : 16.f)
+#define ICON (liquid::Golden() ? 32.f : 38.f)
+#define BTN (liquid::Golden() ? 11.f : 16.f)
 
 enum Kind { K_COPY, K_MOVE, K_DELETE, K_EXTRACT, K_COMPRESS, K_OTHER };
 
@@ -77,7 +84,7 @@ std::thread g_worker;
 float Sc() { return ui::Scale(g_wnd); }
 bool Tahoe() { return liquid::On(); }
 float TitleH() { return Tahoe() ? 32.f : 28.f; }
-float Radius() { return Tahoe() ? 22.f : 10.f; }
+float Radius() { return liquid::Golden() ? 16.f : Tahoe() ? 22.f : 10.f; }
 float PanelH() { return TitleH() + std::max<size_t>(g_rows.size(), 1) * ROW + 6; }
 
 std::wstring Lower(std::wstring s) { for (auto& c : s) c = towlower(c); return s; }
@@ -376,8 +383,10 @@ std::wstring Title() {
 // ---------------------------------------------------------------------------
 // Desenho
 
-D2D1_RECT_F CloseRect() { float cy = TitleH() / 2, d = Tahoe() ? 14.f : 12.f; return { 13, cy - d / 2, 13 + d, cy + d / 2 }; }
-D2D1_RECT_F StopRect(int i) { float y = TitleH() + i * ROW + 31; return { W - PAD - BTN, y - BTN / 2, W - PAD, y + BTN / 2 }; }
+D2D1_RECT_F CloseRect() { float cy = TitleH() / 2, d = Tahoe() ? 14.f : 12.f, x = liquid::Golden() ? 9.f : 13.f; return { x, cy - d / 2, x + d, cy + d / 2 }; }
+D2D1_RECT_F StopRect(int i) {
+    if (liquid::Golden()) { float y = TitleH() + i * ROW + 23.5f; return { W - 14 - BTN, y - BTN / 2, W - 14, y + BTN / 2 }; }
+    float y = TitleH() + i * ROW + 31; return { W - PAD - BTN, y - BTN / 2, W - PAD, y + BTN / 2 }; }
 D2D1_RECT_F PauseRect(int i) { auto r = StopRect(i); return { r.left - BTN - 8, r.top, r.left - 8, r.bottom }; }
 
 bool In(const D2D1_RECT_F& r, D2D1_POINT_2F p) { return p.x >= r.left - 3 && p.x < r.right + 3 && p.y >= r.top - 3 && p.y < r.bottom + 3; }
@@ -414,9 +423,10 @@ void Paint() {
     float sc = Sc();
     float H = PanelH();
     int wpx = (int)std::lround(W * sc), hpx = (int)std::lround(H * sc);
-    bool dark = ui::Dark(), tahoe = Tahoe();
+    bool dark = ui::Dark(), tahoe = Tahoe(), golden = liquid::Golden();
     const float R = Radius();
     if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), R * sc } },
+                                     golden ? (dark ? D2D1::ColorF(0.17f, 0.17f, 0.17f, 0.98f) : D2D1::ColorF(1, 1, 1, 0.98f)) :  // macOS 27: janela opaca
                                      dark ? D2D1::ColorF(0.15f, 0.15f, 0.16f, tahoe ? 0.62f : 0.84f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, tahoe ? 0.55f : 0.80f), 30.f);
     ID2D1DeviceContext* dc = g_glass ? backdrop::ContentBegin(g_back, wpx, hpx, sc) : nullptr;
     g_inGlass = dc != nullptr;
@@ -429,7 +439,10 @@ void Paint() {
         br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.97f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.97f));
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H), R, R), br);
     }
-    if (tahoe) liquid::Rim(dc, D2D1::RectF(0, 0, W, H), R, dark);
+    if (golden) {
+        br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.10f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R - 0.5f, R - 0.5f), br, 1);
+    } else if (tahoe) liquid::Rim(dc, D2D1::RectF(0, 0, W, H), R, dark);
     else {
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.14f));
         dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R - 0.5f, R - 0.5f), br, 1);
@@ -444,7 +457,9 @@ void Paint() {
         for (int k = 0; k < 3; k++) {
             D2D1_ELLIPSE e = D2D1::Ellipse({ c.left + d / 2 + k * (d + gap), (c.top + c.bottom) / 2 }, d / 2, d / 2);
             br->SetColor(k == 0 ? semaforo::Close() : (dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.13f)));
+            if (golden && k == 1) br->SetColor(D2D1::ColorF(0.996f, 0.737f, 0.18f));  // macOS 27: minimizar aceso, zoom apagado
             dc->FillEllipse(e, br);
+            semaforo::Gloss(dc, e.point, d / 2, br);
             if (k == 0) {
                 br->SetColor(D2D1::ColorF(0.75f, 0.2f, 0.18f, 0.6f));
                 dc->DrawEllipse(D2D1::Ellipse(e.point, d / 2 - 0.25f, d / 2 - 0.25f), br, 0.5f);
@@ -459,12 +474,12 @@ void Paint() {
         IDWriteTextFormat* tt = Trimmed(13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
         if (tt) tt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.80f) : D2D1::ColorF(0, 0, 0, 0.75f));
-        DrawText(dc, Title(), tt, D2D1::RectF(90, 0, W - 90, TitleH()), br);
+        if (!golden) DrawText(dc, Title(), tt, D2D1::RectF(90, 0, W - 90, TitleH()), br);  // macOS 27: sem título
         if (tt) tt->Release();
     }
 
     IDWriteTextFormat* t1 = Trimmed(12.5f, DWRITE_FONT_WEIGHT_NORMAL);
-    IDWriteTextFormat* t2 = Trimmed(11, DWRITE_FONT_WEIGHT_NORMAL);
+    IDWriteTextFormat* t2 = Trimmed(golden ? 13.f : 11.f, DWRITE_FONT_WEIGHT_NORMAL);
     const D2D1_COLOR_F accent = dark ? D2D1::ColorF(0.04f, 0.52f, 1.0f) : D2D1::ColorF(0.0f, 0.48f, 1.0f);
     float now = (float)(anim::Now() / 1000.0);
     for (int i = 0; i < (int)g_rows.size(); i++) {
@@ -474,14 +489,14 @@ void Paint() {
             br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.09f));
             dc->FillRectangle(D2D1::RectF(PAD + ICON + 12, y, W - PAD, y + 1 / std::max(1.f, Sc())), br);
         }
-        D2D1_RECT_F ic = D2D1::RectF(PAD, y + 14, PAD + ICON, y + 14 + ICON);
+        D2D1_RECT_F ic = golden ? D2D1::RectF(PAD, y + 8, PAD + ICON, y + 8 + ICON) : D2D1::RectF(PAD, y + 14, PAD + ICON, y + 14 + ICON);
         if (r.kind == K_DELETE) ui::DrawTrash(dc, ic, true);
         else ui::DrawFolder(dc, ic, 0);
-        float x0 = PAD + ICON + 12, xr = (r.canPause ? PauseRect(i).left : StopRect(i).left) - 10;
+        float x0 = golden ? 62.f : PAD + ICON + 12, xr = (r.canPause ? PauseRect(i).left : StopRect(i).left) - 10;
         br->SetColor(text);
-        DrawText(dc, r.line1, t1, D2D1::RectF(x0, y + 9, W - PAD, y + 26), br);
+        DrawText(dc, r.line1, t1, golden ? D2D1::RectF(x0, y + 4, W - 14, y + 20) : D2D1::RectF(x0, y + 9, W - PAD, y + 26), br);
         // barra fina do Mac: trilho cinza e o azul crescendo (calculando: um pedaço indo e voltando)
-        float bh = tahoe ? 6.f : 5.f, by = y + 31 - bh / 2;
+        float bh = golden ? 8.f : tahoe ? 6.f : 5.f, by = golden ? y + 23.5f - bh / 2 : y + 31 - bh / 2;
         D2D1_RECT_F track = D2D1::RectF(x0, by, xr, by + bh);
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.10f));
         dc->FillRoundedRectangle(D2D1::RoundedRect(track, bh / 2, bh / 2), br);
@@ -497,7 +512,7 @@ void Paint() {
             dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(track.left, by, track.left + wfill, by + bh), bh / 2, bh / 2), br);
         }
         br->SetColor(gray);
-        DrawText(dc, r.line2, t2, D2D1::RectF(x0, y + 40, W - PAD, y + 56), br);
+        DrawText(dc, r.line2, t2, golden ? D2D1::RectF(x0, y + 33, W - 14, y + 51) : D2D1::RectF(x0, y + 40, W - PAD, y + 56), br);
         // pausar/continuar e parar: círculos cinza com o desenho branco (o "xmark.circle.fill" do Mac)
         for (int b = r.canPause ? 0 : 1; b < 2; b++) {
             D2D1_RECT_F rc = b == 0 ? PauseRect(i) : StopRect(i);

@@ -96,7 +96,9 @@ void SetRadius(float dip);  // cantos da janela (0 = retângulo, como no Sequoia
 
 // ---- tahoe.cpp: tema macOS Tahoe (Liquid Glass) quando liquid_glass=1 no ajustes.txt do Shell.
 namespace tahoe {
-const float WINDOW_R = 26;     // cantos das janelas com barra de ferramentas no Tahoe (pt)
+float WindowR();               // cantos das janelas: 26 pt no Tahoe, 16 pt no Golden Gate (um raio só para todas)
+int FolderColor();             // Aparência > Cor das pastas (índice de pastacor::colors; -1 = automática)
+bool Golden();                 // tema macOS Golden Gate (liquid_glass=1 e golden_gate=1): o Tahoe com os ajustes do macOS 27
 bool On();                     // tema Tahoe (liquid_glass=1)
 bool Reduced();                // reduzir_transparencia=1: o vidro fica opaco
 D2D1_COLOR_F Tint(D2D1_COLOR_F base);  // 10 % da cor do papel de parede (tingir_janelas), só no Tahoe

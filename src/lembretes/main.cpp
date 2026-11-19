@@ -13,7 +13,11 @@ using namespace app2d;
 
 namespace {
 
-const float SB = 250, ROW = 40, ROW2 = 54, HEAD = 76, PADX = 22;
+const float ROW = 40, ROW2 = 54, PADX = 22;
+float SB = 250, HEAD = 76;  // macOS 27: 358 e 143
+bool g_hideSide;            // macOS 27: o botão da barra lateral a esconde
+std::wstring g_filter;      // macOS 27: a busca da barra filtra pelo nome
+IDWriteTextFormat *g_tfCardG, *g_tfCardNumG, *g_tfTitleG, *g_tfTitleRG, *g_tfRowG, *g_tfSubG, *g_tfListG, *g_tfListBoldG, *g_tfHeadG, *g_tfInfoG, *g_tfInfoRG;
 const UINT WM_FIELDLOST = WM_APP + 77;
 
 struct List { int id; std::wstring name; int color; };
@@ -87,7 +91,12 @@ int Count(int sel) { int n = 0; for (auto& r : g_rems) if ((sel == S_DONE ? r.do
 
 std::vector<Rem*> Shown() {
     std::vector<Rem*> v;
-    for (auto& r : g_rems) if (Visible(r, g_sel)) v.push_back(&r);
+    std::wstring lf = g_filter; for (auto& c : lf) c = towlower(c);
+    for (auto& r : g_rems) {
+        if (!Visible(r, g_sel)) continue;
+        if (!lf.empty()) { std::wstring tt = r.title + L" " + r.notes; for (auto& c : tt) c = towlower(c); if (tt.find(lf) == std::wstring::npos) continue; }
+        v.push_back(&r);
+    }
     if (g_sel == S_SCHED || g_sel == S_TODAY) { std::stable_sort(v.begin(), v.end(), [](Rem* a, Rem* b) { return a->due < b->due; }); return v; }
     // subtarefas logo abaixo da tarefa de cima (como no Mac); sem a de cima à vista, ficam soltas
     std::vector<Rem*> o;
@@ -127,9 +136,174 @@ std::vector<Hit> g_hits;
 struct RowPos { int id; float top, bottom; D2D1_RECT_F circle, title; };
 std::vector<RowPos> g_rows;
 
+// ================= macOS 27 (captura Reminders do 512 Pixels, 2x, medida em pt)
+// Barra unificada de 52. Lateral de 358 (tingida): botões de vidro redondos de 36 (nova lista e esconder a lateral) a
+// 271 e 315; cartões de 162,5 × 59 em degradê (cantos 10) a cada 66 a partir de 53,5, a 17,5 e 186,5 da borda, com
+// o símbolo e o número (negrito de 18) em cima e o nome (negrito de 15) embaixo; "Minhas Listas" e as listas em
+// linhas de 36 com o círculo de 24 a 38 e o nome a 63, a contagem à direita; a escolhida numa pílula cinza.
+// Conteúdo: cápsula de vidro (compartilhar, formato, +) de 110 e a busca de 224,5 a 8 da borda; título em negrito de
+// 31 na cor da lista a 17 do conteúdo (centro 78,5) com a contagem à direita; "N Concluídos • Limpar" e "Mostrar" a
+// 125,5; linha a 142; lembretes em linhas de 32 (com notas, 49,5) com o círculo de 17 a 26,5 e o nome a 47.
+void PaintGolden() {
+    bool dark = Dark();
+    D2D1_SIZE_F sz = Size();
+    D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
+    rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    float S0 = g_hideSide ? 0.f : SB;
+    if (!g_hideSide) {
+        Fill(D2D1::RectF(0, 0, SB, sz.height), dark ? Rgb(43, 41, 40) : Rgb(237, 237, 236));
+        Fill(D2D1::RectF(SB - 0.5f, 0, SB, sz.height), dark ? Rgb(0, 0, 0, 0.5f) : Rgb(0, 0, 0, 0.08f));
+        D2D1_RECT_F nl = D2D1::RectF(271, 8, 307, 44), tg = D2D1::RectF(315, 8, 351, 44);
+        GlassButton(nl, dark); GlassButton(tg, dark);
+        {   // nova lista: a lista com o "+" no canto
+            float cx = 289, cy = 26;
+            br->SetColor(text);
+            rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - 8, cy - 7, cx + 7, cy + 7), 2.5f, 2.5f), br, 1.4f);
+            rt->DrawEllipse(D2D1::Ellipse({ cx - 4, cy - 2.5f }, 1.2f, 1.2f), br, 1.1f); rt->DrawLine({ cx - 1.5f, cy - 2.5f }, { cx + 4, cy - 2.5f }, br, 1.3f);
+            rt->DrawEllipse(D2D1::Ellipse({ cx - 4, cy + 2.5f }, 1.2f, 1.2f), br, 1.1f); rt->DrawLine({ cx - 1.5f, cy + 2.5f }, { cx + 2, cy + 2.5f }, br, 1.3f);
+            Circle({ cx + 6, cy + 5.5f }, 4.6f, text, true);
+            br->SetColor(dark ? Rgb(60, 58, 57) : Rgb(245, 245, 245));
+            rt->DrawLine({ cx + 3.6f, cy + 5.5f }, { cx + 8.4f, cy + 5.5f }, br, 1.3f); rt->DrawLine({ cx + 6, cy + 3.1f }, { cx + 6, cy + 7.9f }, br, 1.3f);
+        }
+        IconSidebar({ 333, 26 }, text);
+        g_hits.push_back({ 3, 0, nl }); g_hits.push_back({ 9, 0, tg }); BarButton(nl); BarButton(tg);
+        struct T { int sel; const wchar_t* name; wchar_t glyph; UINT32 top, bot; } tiles[] = {
+            { S_TODAY, L"Hoje", 0xE787, 0x6EB6EB, 0x4A96DE }, { S_SCHED, L"Agendados", 0xE787, 0xEE8C8C, 0xE1696E },
+            { S_ALL, L"Todos", 0xE8FD, 0x737373, 0x505050 }, { S_FLAG, L"Sinalizados", 0xE7C1, 0xF3BE8C, 0xE8A064 },
+            { S_DONE, L"Concluídos", 0xE73E, 0xA5AAAF, 0x82878E } };
+        for (int i = 0; i < 5; i++) {
+            float x = i % 2 ? 186.5f : 17.5f, y = 53.5f + (i / 2) * 66.f;
+            D2D1_RECT_F r = D2D1::RectF(x, y, x + 162.5f, y + 59);
+            auto col = [](UINT32 c) { return Rgb((c >> 16) & 255, (c >> 8) & 255, c & 255); };
+            D2D1_GRADIENT_STOP st[2] = { { 0, col(tiles[i].top) }, { 1, col(tiles[i].bot) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) && SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ r.left, r.top }, { r.right, r.bottom }), gs, &lb)))
+                rt->FillRoundedRectangle(D2D1::RoundedRect(r, 10, 10), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            if (g_sel == tiles[i].sel) { br->SetColor(Rgb(255, 255, 255, 0.85f)); rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1), 9, 9), br, 2); }
+            wchar_t g[2] = { tiles[i].glyph, 0 };
+            Text(g, g_tfIcon, D2D1::RectF(x + 8, y + 6, x + 32, y + 30), Rgb(255, 255, 255));
+            Text(std::to_wstring(Count(tiles[i].sel)), g_tfCardNumG, D2D1::RectF(x, y + 6, x + 162.5f - 12, y + 32), Rgb(255, 255, 255));
+            Text(tiles[i].sel == S_ALL ? TrPick(L"Todos", L"All") : Tr(tiles[i].name), g_tfCardG, D2D1::RectF(x + 10, y + 28, x + 158, y + 52), Rgb(255, 255, 255));
+            g_hits.push_back({ 1, tiles[i].sel, r });
+        }
+        float y = 53.5f + 3 * 66.f + 12;
+        Text(Tr(L"Minhas Listas"), g_tfHeadG, D2D1::RectF(25, y, SB - 10, y + 22), gray);
+        y += 26;
+        for (auto& l : g_lists) {
+            D2D1_RECT_F r = D2D1::RectF(13, y, SB - 6, y + 36);
+            bool on = g_sel == l.id;
+            if (on) Fill(r, dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.075f), 10);
+            Circle({ 38, y + 18 }, 12, ListColor(l.color), true);
+            br->SetColor(Rgb(255, 255, 255));
+            for (int k = -1; k <= 1; k++) { rt->FillEllipse(D2D1::Ellipse({ 33.5f, y + 18 + k * 4.f }, 1.2f, 1.2f), br); rt->DrawLine({ 36, y + 18 + k * 4.f }, { 43.5f, y + 18 + k * 4.f }, br, 1.4f); }
+            Text(l.name, on ? g_tfListBoldG : g_tfListG, D2D1::RectF(63, r.top, r.right - 40, r.bottom), text);
+            Text(std::to_wstring(Count(l.id)), g_tfInfoRG, D2D1::RectF(r.right - 60, r.top, r.right - 14, r.bottom), gray);
+            g_hits.push_back({ 2, l.id, r });
+            y += 36;
+        }
+        D2D1_RECT_F add = D2D1::RectF(17.5f, sz.height - 40, SB - 10, sz.height - 10);
+        Text(L"+  " + std::wstring(Tr(L"Adicionar Lista")), g_tfInfoG, add, gray);
+        g_hits.push_back({ 3, 0, add });
+    }
+    // ---- barra do conteúdo
+    float W = sz.width;
+    if (g_hideSide) {  // a lateral escondida: o botão de mostrar vai para a barra, depois dos três botões
+        D2D1_RECT_F tg = D2D1::RectF(84, 8, 120, 44);
+        GlassButton(tg, dark); IconSidebar({ 102, 26 }, text);
+        g_hits.push_back({ 9, 0, tg }); BarButton(tg);
+    }
+    D2D1_RECT_F srch = D2D1::RectF(W - 8 - 224.5f, 8, W - 8, 44);
+    D2D1_RECT_F grp = D2D1::RectF(srch.left - 7 - 110, 8, srch.left - 7, 44);
+    GlassButton(grp, dark); GlassButton(srch, dark);
+    BarButton(grp); BarButton(srch);
+    br->SetColor(text);
+    {   // compartilhar
+        float cx = grp.left + 20, cy = 27;
+        rt->DrawLine({ cx - 2.5f, cy - 3 }, { cx - 6, cy - 3 }, br, 1.4f); rt->DrawLine({ cx - 6, cy - 3 }, { cx - 6, cy + 8 }, br, 1.4f);
+        rt->DrawLine({ cx - 6, cy + 8 }, { cx + 6, cy + 8 }, br, 1.4f); rt->DrawLine({ cx + 6, cy + 8 }, { cx + 6, cy - 3 }, br, 1.4f); rt->DrawLine({ cx + 6, cy - 3 }, { cx + 2.5f, cy - 3 }, br, 1.4f);
+        rt->DrawLine({ cx, cy + 3 }, { cx, cy - 9 }, br, 1.4f); rt->DrawLine({ cx - 3.5f, cy - 5.5f }, { cx, cy - 9 }, br, 1.4f); rt->DrawLine({ cx, cy - 9 }, { cx + 3.5f, cy - 5.5f }, br, 1.4f);
+        g_hits.push_back({ 10, 0, D2D1::RectF(grp.left + 2, 10, grp.left + 38, 42) });
+    }
+    {   // mostrar/esconder concluídos (o símbolo da lista com o "+")
+        float cx = grp.left + 55, cy = 26;
+        for (int k = 0; k < 3; k++) rt->DrawLine({ cx - 7 + k * 1.f, cy - 4 + k * 4.f }, { cx + (k == 0 ? 3.f : 7.f), cy - 4 + k * 4.f }, br, 1.4f);
+        Circle({ cx + 6.5f, cy - 5 }, 4, g_showDone ? SelColor() : text, true);
+        g_hits.push_back({ 7, 0, D2D1::RectF(grp.left + 38, 10, grp.left + 72, 42) });
+    }
+    {   // + novo lembrete
+        float cx = grp.right - 20, cy = 26;
+        rt->DrawLine({ cx - 7, cy }, { cx + 7, cy }, br, 1.6f); rt->DrawLine({ cx, cy - 7 }, { cx, cy + 7 }, br, 1.6f);
+        if (g_sel != S_DONE) g_hits.push_back({ 6, 0, D2D1::RectF(grp.right - 38, 10, grp.right - 2, 42) });
+    }
+    IconSearch({ srch.left + 18, 26 }, gray);
+    Text(g_filter.empty() ? std::wstring(Tr(L"Buscar")) : g_filter, g_tfInfoG, D2D1::RectF(srch.left + 32, 8, srch.right - 12, 44), g_filter.empty() ? gray : text);
+    g_hits.push_back({ 11, 0, srch });
+    // ---- título, concluídos e a lista
+    float X = S0 + 17, R = W - 15.5f;
+    D2D1_COLOR_F sc = SelColor();
+    int n = 0; for (auto* r : Shown()) if (!r->done || g_sel == S_DONE) n++;
+    Text(SelName(), g_tfTitleG, D2D1::RectF(X, 58, R - 90, 99), sc);
+    Text(std::to_wstring(n), g_tfTitleRG, D2D1::RectF(R - 90, 58, R, 99), sc);
+    if (g_sel >= 0) {
+        int done = 0; for (auto& r : g_rems) if (r.list == g_sel && r.done) done++;
+        wchar_t b[64]; swprintf_s(b, Tr(L"%d Concluídos"), done);
+        std::wstring s = b;
+        float w1 = TextW(g_tfInfoG, s);
+        Text(s, g_tfInfoG, D2D1::RectF(X, 115, X + w1 + 4, 136), gray);
+        if (done) {
+            Text(L"•", g_tfInfoG, D2D1::RectF(X + w1 + 8, 115, X + w1 + 20, 136), gray);
+            D2D1_RECT_F clr = D2D1::RectF(X + w1 + 22, 115, X + w1 + 22 + TextW(g_tfInfoG, Tr(L"Limpar")) + 4, 136);
+            Text(Tr(L"Limpar"), g_tfInfoG, clr, Rgb(10, 132, 255));
+            g_hits.push_back({ 12, 0, clr });
+        }
+        std::wstring sh = g_showDone ? Tr(L"Ocultar") : Tr(L"Mostrar");
+        D2D1_RECT_F shr = D2D1::RectF(R - TextW(g_tfInfoG, sh) - 4, 115, R, 136);
+        Text(sh, g_tfInfoRG, shr, Rgb(10, 132, 255));
+        g_hits.push_back({ 7, 0, shr });
+    }
+    Fill(D2D1::RectF(X, 141.5f, R + 3, 142), dark ? Rgb(255, 255, 255, 0.12f) : Rgb(0, 0, 0, 0.12f));
+    rt->PushAxisAlignedClip(D2D1::RectF(S0, HEAD, sz.width, sz.height), D2D1_ANTIALIAS_MODE_ALIASED);
+    float ry = HEAD + 2 - g_scroll;
+    for (Rem* r : Shown()) {
+        bool sub = !r->notes.empty() || r->due || r->repeat || (g_sel < 0 && g_sel != S_DONE);
+        float h = sub ? 49.5f : 32;
+        RowPos rp{ r->id, ry, ry + h };
+        D2D1_COLOR_F lc = g_sel >= 0 ? sc : (FindList(r->list) ? ListColor(FindList(r->list)->color) : sc);
+        float ind = r->parent && FindRem(r->parent) ? 30.f : 0.f;
+        D2D1_POINT_2F cc{ X + 9.5f + ind, ry + 16 };
+        rp.circle = D2D1::RectF(cc.x - 12, cc.y - 12, cc.x + 12, cc.y + 12);
+        if (r->done) { Circle(cc, 8.5f, lc, false, 1.3f); Circle(cc, 5.5f, lc, true); }
+        else Circle(cc, 8.5f, dark ? Rgb(110, 110, 114) : Rgb(190, 190, 195), false, 1.3f);
+        rp.title = D2D1::RectF(X + 30 + ind, ry + 4, R - 30, ry + 28);
+        if (r->id != g_editing) Text(r->title.empty() ? L" " : r->title, g_tfRowG, rp.title, r->done ? gray : text);
+        if (r->flag) { wchar_t f[2] = { 0xE7C1, 0 }; Text(f, g_tfSmall, D2D1::RectF(R - 24, ry + 4, R, ry + 28), Rgb(255, 159, 10)); }
+        if (sub) {
+            std::wstring s;
+            if (r->due) s = DueText(r->due, true);
+            if (r->repeat) { static const wchar_t* rn[] = { L"", L"Diariamente", L"Dias de Semana", L"Semanalmente", L"Mensalmente", L"Anualmente" }; s += L"  ↻ " + std::wstring(Tr(rn[std::clamp(r->repeat, 0, 5)])); }
+            if (g_sel < 0 && g_sel != S_DONE) { List* l = FindList(r->list); if (l) s = s.empty() ? l->name : s + L"  ·  " + l->name; }
+            if (!r->notes.empty()) s = s.empty() ? r->notes : r->notes + L"  ·  " + s;
+            bool late = r->due && r->due < NowMin() && !r->done;
+            Text(s, g_tfSubG, D2D1::RectF(X + 30 + ind, ry + 26, R - 30, ry + 44), late ? Rgb(255, 69, 58) : gray);
+        }
+        g_rows.push_back(rp);
+        ry += h;
+    }
+    if (g_rows.empty() && g_editing < 0) {
+        const wchar_t* tx = g_sel == S_DONE ? Tr(L"Nenhum Lembrete Concluído") : Tr(L"Nenhum Lembrete");
+        static IDWriteTextFormat* tfC = Fmt(17, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER);
+        Text(tx, tfC, D2D1::RectF(S0, HEAD, sz.width, sz.height * 0.7f), gray);  // no meio, como no Mac
+    }
+    rt->PopAxisAlignedClip();
+}
+
 void Paint() {
     if (!BeginPaint()) return;
     g_hits.clear(); g_rows.clear();
+    barButtons.clear();
+    if (BAR > 0) { PaintGolden(); EndPaint(); return; }
     bool dark = Dark();
     D2D1_SIZE_F sz = Size();
     D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
@@ -146,6 +320,19 @@ void Paint() {
         float x = 10 + (i % 2) * (tw + 10), y = 14 + (i / 2) * (th + 10);
         D2D1_RECT_F r = D2D1::RectF(x, y, x + tw, y + th);
         bool on = g_sel == tiles[i].sel;
+        if (semaforo::Aqua()) {
+            // macOS 27 (captura Reminders): os cartões são da cor da lista, cheios, com o símbolo, o número e o nome
+            // brancos; o escolhido fica um pouco mais escuro
+            D2D1_COLOR_F c = tiles[i].c;
+            if (on) { c.r *= 0.85f; c.g *= 0.85f; c.b *= 0.85f; }
+            Fill(r, c, 12);
+            wchar_t g[2] = { tiles[i].glyph, 0 };
+            Text(g, g_tfIcon, D2D1::RectF(x + 6, y + 6, x + 30, y + 30), Rgb(255, 255, 255));
+            Text(std::to_wstring(Count(tiles[i].sel)), g_tfTileNum, D2D1::RectF(x, y + 4, x + tw - 10, y + 32), Rgb(255, 255, 255));
+            Text(tiles[i].sel == S_ALL ? TrPick(L"Todos", L"All") : Tr(tiles[i].name), g_tfTile, D2D1::RectF(x + 10, y + 36, x + tw - 6, y + th - 4), Rgb(255, 255, 255));
+            g_hits.push_back({ 1, tiles[i].sel, r });
+            continue;
+        }
         Fill(r, on ? tiles[i].c : (dark ? Rgb(58, 58, 60) : Rgb(255, 255, 255)), 10);
         Circle({ x + 18, y + 18 }, 12, on ? Rgb(255, 255, 255) : tiles[i].c, true);
         wchar_t g[2] = { tiles[i].glyph, 0 };
@@ -482,10 +669,30 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else if (ht.kind == 3) { NewList(); return 0; }
             else if (ht.kind == 6) { NewReminder(); return 0; }
             else if (ht.kind == 7) g_showDone = !g_showDone;
+            else if (ht.kind == 9) g_hideSide = !g_hideSide;
+            else if (ht.kind == 12) {  // Limpar: apaga os concluídos da lista
+                int list = g_sel;
+                g_rems.erase(std::remove_if(g_rems.begin(), g_rems.end(), [list](const Rem& r) { return r.list == list && r.done; }), g_rems.end());
+                Save();
+            } else if (ht.kind == 10) {  // compartilhar: a lista como texto na área de transferência
+                std::wstring s = SelName() + L"\r\n";
+                for (auto* r : Shown()) s += std::wstring(r->done ? L"☑ " : L"☐ ") + r->title + L"\r\n";
+                if (OpenClipboard(h)) {
+                    EmptyClipboard();
+                    HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (s.size() + 1) * sizeof(wchar_t));
+                    if (g) { memcpy(GlobalLock(g), s.c_str(), (s.size() + 1) * sizeof(wchar_t)); GlobalUnlock(g); SetClipboardData(CF_UNICODETEXT, g); }
+                    CloseClipboard();
+                }
+            } else if (ht.kind == 11) {  // busca: filtra enquanto digita
+                FieldOpen(D2D1::RectF(ht.r.left + 32, ht.r.top + 8, ht.r.right - 12, ht.r.bottom - 8), g_filter, 13, false, [](const std::wstring& q, int key) {
+                    g_filter = key == VK_ESCAPE ? L"" : q; g_scroll = 0; InvalidateRect(wnd, nullptr, FALSE);
+                });
+                return 0;
+            }
             InvalidateRect(h, nullptr, FALSE);
             return 0;
         }
-        for (auto& rp : g_rows) if (x > SB && y >= rp.top && y < rp.bottom && y >= HEAD) {
+        for (auto& rp : g_rows) if (x > (BAR > 0 && g_hideSide ? 0 : SB) && y >= rp.top && y < rp.bottom && y >= HEAD) {
             Rem* r = FindRem(rp.id);
             if (!r) return 0;
             if (right) { RowMenu(rp.id, scr); return 0; }
@@ -496,7 +703,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             InvalidateRect(h, nullptr, FALSE);
             return 0;
         }
-        if (!right && x > SB && y > HEAD) NewReminder();  // clique no vazio: lembrete novo
+        if (!right && x > (BAR > 0 && g_hideSide ? 0 : SB) && y > HEAD) NewReminder();  // clique no vazio: lembrete novo
         return 0;
     }
     case WM_KEYDOWN:
@@ -526,7 +733,20 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfTileNum = Fmt(22, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING);
     g_tfIcon = Fmt(14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
     g_tfSmall = Fmt(11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
-    if (!CreateMain(hi, L"LembretesJanela", Tr(L"Lembretes"), Proc, 900, 620)) return 1;
+    g_tfCardG = Fmt(15, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfCardNumG = Fmt(18, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    g_tfTitleG = Fmt(31, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfTitleRG = Fmt(31, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    g_tfRowG = Fmt(15);
+    g_tfSubG = Fmt(13);
+    g_tfListG = Fmt(15);
+    g_tfListBoldG = Fmt(15, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfHeadG = Fmt(13, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfInfoG = Fmt(15);
+    g_tfInfoRG = Fmt(15, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    barWanted = 52;  // macOS 27: barra unificada
+    if (semaforo::Aqua()) { SB = 358; HEAD = 143; }
+    if (!CreateMain(hi, L"LembretesJanela", Tr(L"Lembretes"), Proc, semaforo::Aqua() ? 900 : 900, semaforo::Aqua() ? 708 : 620)) return 1;
     g_tfBigR = Fmt(28, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING);
     SetTimer(wnd, 1, 20000, nullptr);
     ShowWindow(wnd, show);

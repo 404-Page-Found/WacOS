@@ -11,7 +11,8 @@ using namespace app2d;
 
 namespace {
 
-const float TB = 64, WEEKHEAD = 30, HOUR = 48, ALLDAY = 26, LEFTCOL = 56;
+float TB = 64;  // macOS 27: 112 (barra de 52 + a linha do título)
+const float WEEKHEAD = 30, HOUR = 48, ALLDAY = 26, LEFTCOL = 56;
 const UINT WM_FIELDLOST = WM_APP + 77;
 
 struct Ev { int id; long long start, end; bool allDay; std::wstring title; int color; std::wstring notes; int cal = 1; };
@@ -20,7 +21,8 @@ std::vector<Ev> g_ev;
 struct Cal { int id; std::wstring name; int color; bool on; };
 std::vector<Cal> g_cals;
 bool g_side = true;
-const float SIDE = 200;
+float SIDE = 200;  // macOS 27: 218,5
+std::wstring g_search;  // macOS 27: busca (Enter vai ao próximo evento com o texto)
 Cal* FindCal(int id) { for (auto& c : g_cals) if (c.id == id) return &c; return nullptr; }
 bool CalOn(const Ev& e) { Cal* c = FindCal(e.cal); return !c || c->on; }
 int g_nextId = 1;
@@ -32,6 +34,7 @@ long long g_selDay;  // dia escolhido
 int g_selEv = -1;
 float g_scrollH = 8 * 48;  // Semana/Dia: rolagem (começa às 8h)
 int g_editing = -1;
+IDWriteTextFormat *g_tfTitleG, *g_tfTitleYG, *g_tfSeg, *g_tfSideG, *g_tfSideBold, *g_tfSecG, *g_tfMiniT, *g_tfMiniD, *g_tfMiniW;
 IDWriteTextFormat *g_tfYearDay, *g_tfMonth, *g_tfYear, *g_tfBtn, *g_tfDay, *g_tfDayNum, *g_tfEv, *g_tfEvSmall, *g_tfHour, *g_tfHeadDay, *g_tfIcon;
 
 D2D1_COLOR_F EvColor(int i) {
@@ -268,9 +271,146 @@ void PaintYear(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray) 
     }
 }
 
+// ================= macOS 27 (captura Calendar do 512 Pixels, 2x, medida em pt)
+// Barra unificada de 52: na barra lateral (218,5, tingida) os botões de vidro calendários/caixa de entrada (77,5 × 36 a
+// 133,5); no conteúdo o "+" redondo de 37 a 6 da lateral, a cápsula Dia/Semana/Mês/Ano de 241 × 36 no meio do conteúdo
+// e a busca redonda de 36 a 8 da borda. Embaixo da barra o título (mês em negrito de 34 + ano normal) a 16,5 do
+// conteúdo, centro a 79, e "‹ Hoje ›" (cápsulas cinza de 24) à direita. Lateral: seção a 68, linhas de 31,5 com a
+// caixinha de 13 a 17,5 e o nome a 41,5; o mini mês embaixo (título a 190 do fundo, letras a 157,5, dias a cada
+// 28 × 23,5 a partir de 133,5 do fundo).
+void MiniMonth(float x0, float bottom, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray) {
+    D2D1_COLOR_F soft = dark ? Rgb(255, 255, 255, 0.5f) : Rgb(0, 0, 0, 0.45f), faint = dark ? Rgb(255, 255, 255, 0.28f) : Rgb(0, 0, 0, 0.25f);
+    Fill(D2D1::RectF(x0 + 19, bottom - 223.5f, x0 + 199, bottom - 223), dark ? Rgb(255, 255, 255, 0.12f) : Rgb(0, 0, 0, 0.10f));
+    long long ms = MonthStart(g_selDay ? g_selDay : g_anchor), first = WeekStart(ms);
+    SYSTEMTIME am = FromMin(ms);
+    std::wstring mn = MonthName(am.wMonth);
+    if (!idioma::En() && !mn.empty()) mn[0] = towupper(mn[0]);
+    float ty = bottom - 190;
+    Text(mn + L" " + std::to_wstring(am.wYear), g_tfMiniT, D2D1::RectF(x0 + 40, ty - 10, x0 + 180, ty + 10), soft);
+    D2D1_RECT_F pv = D2D1::RectF(x0 + 16, ty - 10, x0 + 36, ty + 10), nx = D2D1::RectF(x0 + 184.5f, ty - 10, x0 + 204.5f, ty + 10);
+    Text(L"‹", g_tfMonth, D2D1::RectF(pv.left, pv.top - 8, pv.right, pv.bottom + 4), soft);
+    Text(L"›", g_tfMonth, D2D1::RectF(nx.left, nx.top - 8, nx.right, nx.bottom + 4), soft);
+    g_hits.push_back({ 10, -1, 0, pv }); g_hits.push_back({ 10, 1, 0, nx });
+    for (int d = 0; d < 7; d++) {
+        float cx = x0 + 26.5f + d * 28;
+        Text(std::wstring(1, WeekdayShort(d)[0]), g_tfMiniW, D2D1::RectF(cx - 12, bottom - 167.5f, cx + 12, bottom - 147.5f), soft);
+    }
+    long long today = DayStart(NowMin());
+    for (int i = 0; i < 42; i++) {
+        long long day = AddDays(first, i);
+        SYSTEMTIME s = FromMin(day);
+        float cx = x0 + 26.5f + (i % 7) * 28, cy = bottom - 133.5f + (i / 7) * 23.5f;
+        D2D1_RECT_F c = D2D1::RectF(cx - 12, cy - 11, cx + 12, cy + 11);
+        bool other = s.wMonth != am.wMonth, wk = s.wDayOfWeek == 0 || s.wDayOfWeek == 6;
+        if (day == today) Circle({ cx, cy }, 9.5f, Rgb(255, 59, 48), true);
+        else if (day == g_selDay) Circle({ cx, cy }, 9.5f, dark ? Rgb(255, 255, 255, 0.14f) : Rgb(0, 0, 0, 0.08f), true);
+        Text(std::to_wstring(s.wDay), g_tfMiniD, c, day == today ? Rgb(255, 255, 255) : other ? faint : wk ? soft : text);
+        g_hits.push_back({ 11, -1, day, c });
+    }
+}
+
+void PaintGolden() {
+    bool dark = Dark();
+    D2D1_SIZE_F sz = Size();
+    D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
+    rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    auto rems = Reminders();
+    float X0 = g_side ? SIDE : 0;
+    D2D1_SIZE_F csz{ sz.width - X0, sz.height };
+    rt->SetTransform(D2D1::Matrix3x2F::Translation(X0, 0));
+    size_t h0 = g_hits.size();
+    if (g_view == V_YEAR) PaintYear(csz, dark, text, gray);
+    else if (g_view == V_MONTH) PaintMonth(csz, dark, text, gray, rems); else PaintGrid(csz, dark, text, gray, rems);
+    rt->SetTransform(D2D1::Matrix3x2F::Identity());
+    for (size_t i = h0; i < g_hits.size(); i++) { g_hits[i].r.left += X0; g_hits[i].r.right += X0; }
+    // a faixa de cima do conteúdo (barra + título) por cima da grade
+    Fill(D2D1::RectF(X0, 0, sz.width, TB), dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    if (g_side) {
+        Fill(D2D1::RectF(0, 0, SIDE, sz.height), dark ? Rgb(43, 41, 40) : Rgb(237, 237, 236));
+        Fill(D2D1::RectF(SIDE - 0.5f, 0, SIDE, sz.height), dark ? Rgb(0, 0, 0, 0.5f) : Rgb(0, 0, 0, 0.08f));
+        // calendários / caixa de entrada (vidro): o primeiro esconde a lateral
+        D2D1_RECT_F grp = D2D1::RectF(133.5f, 8, 211, 44);
+        GlassButton(grp, dark);
+        D2D1_RECT_F b1 = D2D1::RectF(grp.left + 4, 12, grp.left + 35, 40), b2 = D2D1::RectF(grp.right - 35, 12, grp.right - 4, 40);
+        Fill(b1, dark ? Rgb(255, 255, 255, 0.14f) : Rgb(0, 0, 0, 0.08f), 14);
+        IconSidebar({ (b1.left + b1.right) / 2, (b1.top + b1.bottom) / 2 }, text);
+        {   // bandeja (caixa de entrada)
+            float cx = (b2.left + b2.right) / 2, cy = (b2.top + b2.bottom) / 2;
+            br->SetColor(text);
+            rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - 8, cy - 5, cx + 8, cy + 6), 2.5f, 2.5f), br, 1.4f);
+            rt->DrawLine({ cx - 8, cy + 0.5f }, { cx - 3, cy + 0.5f }, br, 1.4f); rt->DrawLine({ cx + 3, cy + 0.5f }, { cx + 8, cy + 0.5f }, br, 1.4f);
+            rt->DrawLine({ cx - 3, cy + 0.5f }, { cx - 2, cy + 2.5f }, br, 1.4f); rt->DrawLine({ cx - 2, cy + 2.5f }, { cx + 2, cy + 2.5f }, br, 1.4f); rt->DrawLine({ cx + 2, cy + 2.5f }, { cx + 3, cy + 0.5f }, br, 1.4f);
+        }
+        g_hits.push_back({ 5, 0, 0, b1 }); BarButton(grp);
+        Text(Tr(L"Calendários"), g_tfSecG, D2D1::RectF(20, 58, SIDE - 14, 78), gray);
+        float y = 84.5f;
+        for (int i = 0; i < (int)g_cals.size(); i++) {
+            auto& c = g_cals[i];
+            D2D1_RECT_F r = D2D1::RectF(10, y, SIDE - 10, y + 31.5f);
+            D2D1_RECT_F box = D2D1::RectF(17.5f, y + 9.25f, 30.5f, y + 22.25f);
+            D2D1_COLOR_F col = EvColor(c.color);
+            if (c.on) {
+                Fill(box, col, 3);
+                br->SetColor(Rgb(255, 255, 255));
+                rt->DrawLine({ box.left + 3, box.top + 6.8f }, { box.left + 5.5f, box.top + 9.3f }, br, 1.6f);
+                rt->DrawLine({ box.left + 5.5f, box.top + 9.3f }, { box.left + 10, box.top + 3.8f }, br, 1.6f);
+            } else { br->SetColor(col); rt->DrawRoundedRectangle(D2D1::RoundedRect(box, 3, 3), br, 1.3f); }
+            Text(c.name, g_tfSideG, D2D1::RectF(41.5f, r.top, r.right, r.bottom), text);
+            g_hits.push_back({ 6, i, 0, r });
+            y += 31.5f;
+        }
+        D2D1_RECT_F add = D2D1::RectF(17.5f, y + 2, SIDE - 14, y + 30);
+        Text(L"+  " + std::wstring(Tr(L"Novo Calendário")), g_tfSideG, add, gray);
+        g_hits.push_back({ 7, 0, 0, add });
+        MiniMonth(0, sz.height, dark, text, gray);
+    }
+    // barra: "+" redondo, Dia/Semana/Mês/Ano, busca
+    float cl = X0, cr = sz.width;
+    float plusL = g_side ? cl + 6 : 84;
+    D2D1_RECT_F plus = D2D1::RectF(plusL, 7.5f, plusL + 37, 44.5f);
+    GlassButton(plus, dark);
+    br->SetColor(text);
+    { float cx = (plus.left + plus.right) / 2, cy = 26; rt->DrawLine({ cx - 7, cy }, { cx + 7, cy }, br, 1.6f); rt->DrawLine({ cx, cy - 7 }, { cx, cy + 7 }, br, 1.6f); }
+    g_hits.push_back({ 9, 0, 0, plus }); BarButton(plus);
+    const wchar_t* names[] = { L"Dia", L"Semana", L"Mês", L"Ano" };
+    float segW = 241, mid = (cl + cr) / 2;
+    D2D1_RECT_F seg = D2D1::RectF(mid - segW / 2, 8, mid + segW / 2, 44);
+    GlassButton(seg, dark);
+    BarButton(seg);
+    float iw = (segW - 8) / 4;
+    for (int i = 0; i < 4; i++) {
+        D2D1_RECT_F r = D2D1::RectF(seg.left + 4 + i * iw, 12, seg.left + 4 + (i + 1) * iw, 40);
+        if (g_view == i) Fill(r, dark ? Rgb(255, 255, 255, 0.16f) : Rgb(0, 0, 0, 0.075f), 14);
+        Text(Tr(names[i]), g_tfSeg, r, text);
+        g_hits.push_back({ 4, i, 0, r });
+    }
+    D2D1_RECT_F srch = D2D1::RectF(cr - 8 - 36, 8, cr - 8, 44);
+    GlassButton(srch, dark);
+    IconSearch({ (srch.left + srch.right) / 2, 26 }, text);
+    g_hits.push_back({ 12, 0, 0, srch }); BarButton(srch);
+    // título
+    SYSTEMTIME a = FromMin(g_anchor);
+    std::wstring mon = g_view == V_YEAR ? L"" : MonthName(a.wMonth);
+    if (!idioma::En() && !mon.empty()) mon[0] = towupper(mon[0]);
+    float tx = cl + 16.5f, mw = mon.empty() ? 0 : TextW(g_tfTitleG, mon) + 10;
+    if (!mon.empty()) Text(mon, g_tfTitleG, D2D1::RectF(tx, 58, tx + mw + 4, 100), text);
+    Text(std::to_wstring(a.wYear), g_tfTitleYG, D2D1::RectF(tx + mw, 58, tx + mw + 160, 100), text);
+    // ‹ Hoje ›
+    D2D1_COLOR_F pill = dark ? Rgb(255, 255, 255, 0.12f) : Rgb(234, 234, 234);
+    D2D1_RECT_F nx = D2D1::RectF(cr - 34.5f, 69, cr - 10.5f, 93), td = D2D1::RectF(nx.left - 71, 69, nx.left - 6, 93), pv = D2D1::RectF(td.left - 29.5f, 69, td.left - 5.5f, 93);
+    Fill(pv, pill, 12); Fill(td, pill, 12); Fill(nx, pill, 12);
+    Text(Tr(L"Hoje"), g_tfSeg, td, text);
+    br->SetColor(text);
+    { float cx = (pv.left + pv.right) / 2, cy = 81; rt->DrawLine({ cx + 2, cy - 5 }, { cx - 3, cy }, br, 1.6f); rt->DrawLine({ cx - 3, cy }, { cx + 2, cy + 5 }, br, 1.6f); }
+    { float cx = (nx.left + nx.right) / 2, cy = 81; rt->DrawLine({ cx - 2, cy - 5 }, { cx + 3, cy }, br, 1.6f); rt->DrawLine({ cx + 3, cy }, { cx - 2, cy + 5 }, br, 1.6f); }
+    g_hits.push_back({ 3, -1, 0, pv }); g_hits.push_back({ 3, 0, 0, td }); g_hits.push_back({ 3, 1, 0, nx });
+}
+
 void Paint() {
     if (!BeginPaint()) return;
     g_hits.clear();
+    barButtons.clear();
+    if (BAR > 0) { PaintGolden(); EndPaint(); return; }
     bool dark = Dark();
     D2D1_SIZE_F sz = Size();
     D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
@@ -489,6 +629,27 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         for (auto& ht : g_hits) if (ht.kind == 3 && In(ht.r, x, y)) { Nav(ht.ev); return 0; }
+        for (auto& ht : g_hits) if (ht.kind == 9 && In(ht.r, x, y)) { NewEvent(g_selDay, g_selDay + 9 * 60, g_view == V_MONTH); return 0; }
+        for (auto& ht : g_hits) if (ht.kind == 10 && In(ht.r, x, y)) { g_selDay = AddMonths(MonthStart(g_selDay), ht.ev); InvalidateRect(h, nullptr, FALSE); return 0; }
+        for (auto& ht : g_hits) if (ht.kind == 11 && In(ht.r, x, y)) { g_anchor = g_selDay = ht.day; InvalidateRect(h, nullptr, FALSE); return 0; }
+        for (auto& ht : g_hits) if (ht.kind == 12 && In(ht.r, x, y)) {  // busca: digita e Enter vai ao próximo evento com o texto
+            D2D1_RECT_F fr = D2D1::RectF(ht.r.left - 200, ht.r.top + 8, ht.r.left - 8, ht.r.bottom - 8);
+            FieldOpen(fr, g_search, 13, false, [](const std::wstring& q, int key) {
+                g_search = q;
+                if (key != VK_RETURN || q.empty()) return;
+                std::wstring lq = q; for (auto& c : lq) c = towlower(c);
+                const Ev* best = nullptr;
+                for (auto& e : g_ev) {
+                    std::wstring tt = e.title; for (auto& c : tt) c = towlower(c);
+                    if (tt.find(lq) == std::wstring::npos) continue;
+                    if (!best || (e.start >= g_selDay && (best->start < g_selDay || e.start < best->start))) best = &e;
+                }
+                if (best) { g_anchor = g_selDay = DayStart(best->start); g_selEv = best->id; }
+                else MessageBeep(MB_ICONASTERISK);
+                InvalidateRect(wnd, nullptr, FALSE);
+            });
+            return 0;
+        }
         for (int i = (int)g_hits.size() - 1; i >= 0; i--) {
             auto& ht = g_hits[i];
             if (ht.kind != 1 || !In(ht.r, x, y)) continue;
@@ -555,7 +716,18 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfHour = Fmt(10.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING);
     g_tfIcon = Fmt(14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
     if (g_tfMonth) { g_tfMonth->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING); }
-    if (!CreateMain(hi, L"CalendarioJanela", Tr(L"Calendário"), Proc, 1100, 760)) return 1;
+    g_tfTitleG = Fmt(34, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, false, disp.c_str());
+    g_tfTitleYG = Fmt(34, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, false, disp.c_str());
+    g_tfSeg = Fmt(13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfSideG = Fmt(13);
+    g_tfSideBold = Fmt(13, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfSecG = Fmt(11, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfMiniT = Fmt(13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfMiniD = Fmt(12.5f, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfMiniW = Fmt(11.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    barWanted = 52;  // macOS 27: barra unificada
+    if (semaforo::Aqua()) { TB = 112; SIDE = 218.5f; }
+    if (!CreateMain(hi, L"CalendarioJanela", Tr(L"Calendário"), Proc, semaforo::Aqua() ? 1137 : 1100, semaforo::Aqua() ? 760 : 760)) return 1;
     SetTimer(wnd, 1, 30000, nullptr);
     ShowWindow(wnd, show);
     return Run();

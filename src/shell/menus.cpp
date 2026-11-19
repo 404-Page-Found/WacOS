@@ -133,8 +133,17 @@ void Formats(float scale) {
 // Medidas do menu do macOS: linhas de 22, 5 de folga em cima/embaixo, texto a 21 da borda (espaço
 // do ✓), destaque azul arredondado com 5 de margem, separador de 11.
 const float ROW = 22, SEP = 11, PADY = 5, TEXTL = 21, TEXTR = 14, INSET = 5;
-const float MENU_R = 12;     // canto do menu (DIP), como o menu de contexto do Tahoe
+const float MENU_R_TAHOE = 12;  // canto do menu (DIP), como o menu de contexto do Tahoe
 const float ARROW = 18;      // faixa com a setinha em cima/embaixo de um menu que rola
+// macOS 27 Golden Gate (menu Go do Finder, captura 2x do 512 Pixels): linhas de 24, separador de 11, 5,5 de folga,
+// destaque (0,122,255) com 5,5 de margem e canto 7, canto do menu 11; texto a 16 da borda (a 41 com símbolo) e
+// símbolos só em poucos itens (Ajustes…), como no Golden Gate
+bool GoldenMenus() { return backdrop::Liquid() && backdrop::Current().golden; }
+#define MENU_R (GoldenMenus() ? 11.f : MENU_R_TAHOE)  // Golden Gate: canto de 11 (medido)
+bool GoldenIcon(const std::wstring& label) {
+    for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })  // macOS 27: o menu da Apple tem símbolo nestes if (label.rfind(k, 0) == 0) return true;
+    return false;
+}
 
 bool Scrolls(const Level& l) { return l.h > l.view + 0.5f; }
 float MaxScroll(const Level& l) { return std::max(0.f, l.h - l.view); }
@@ -156,19 +165,20 @@ void Measure(Level& l) {
     bool anySub = false, anyIcon = false;
     for (auto& it : l.items) {
         if (it.sep) continue;
-        it.icon = backdrop::Liquid() ? ctxmenu::AutoIcon(it.label) : 0;  // Tahoe: símbolo em cada item
+        it.icon = backdrop::Liquid() && (!GoldenMenus() || GoldenIcon(it.label)) ? ctxmenu::AutoIcon(it.label) : 0;  // Tahoe: símbolo em cada item
         anyIcon |= it.icon != 0;
         maxL = std::max(maxL, ui::TextWidth(g_tf, it.label));
         if (!it.shortcut.empty()) maxS = std::max(maxS, ui::TextWidth(g_tf, it.shortcut));
         anySub |= it.sub;
     }
-    l.textL = anyIcon ? 34.f : TEXTL;
+    l.textL = GoldenMenus() ? (anyIcon ? 41.f : 16.f) : anyIcon ? 34.f : TEXTL;
     l.w = std::max(160.f, l.textL + maxL + (maxS > 0 ? 30 + maxS : 0) + (anySub ? 22 : 0) + TEXTR);
     bool tahoe = backdrop::Liquid();  // medidas do menu do Tahoe: linhas de 20, separador de 9, 6 de folga
-    float pad = tahoe ? 6.f : PADY;
+    bool golden = GoldenMenus();
+    float pad = golden ? 5.5f : tahoe ? 6.f : PADY;
     float y = pad;
     for (auto& it : l.items) {
-        float h = it.sep ? (tahoe ? 9.f : SEP) : (tahoe ? 20.f : ROW);
+        float h = it.sep ? (golden ? 11.f : tahoe ? 9.f : SEP) : (golden ? 24.f : tahoe ? 20.f : ROW);
         it.r = D2D1::RectF(0, y, l.w, y + h);
         y += h;
     }
@@ -201,8 +211,10 @@ void Paint(Level& l) {
         }
         bool hot = i == l.hover && !it.disabled;
         if (hot) {
-            br->SetColor(D2D1::ColorF(0.04f, 0.40f, 0.95f, 1));  // azul de destaque do Mac
-            rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(INSET, it.r.top, l.w - INSET, it.r.bottom), 4, 4), br);
+            bool golden = GoldenMenus();
+            br->SetColor(golden ? D2D1::ColorF(0, 122 / 255.f, 1, 1) : D2D1::ColorF(0.04f, 0.40f, 0.95f, 1));  // azul de destaque do Mac
+            float in = golden ? 5.5f : INSET, rad = golden ? 7.f : 4.f;
+            rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(in, it.r.top, l.w - in, it.r.bottom), rad, rad), br);
         }
         br->SetColor(it.disabled ? dim : hot ? D2D1::ColorF(1, 1, 1, 1) : text);
         float cy = (it.r.top + it.r.bottom) / 2;

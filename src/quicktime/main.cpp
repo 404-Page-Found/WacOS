@@ -4,6 +4,7 @@
 // Espaço tocar/pausar; ← → 5 s; ↑ ↓ volume; Ctrl+F ou duplo clique tela cheia; Esc sai; Ctrl+O abrir; soltar arquivo.
 // Uma janela por vídeo, como no Mac.
 #include "../comum/app2d.h"
+#include "../comum/barra_video.h"
 #include <mfplay.h>
 #include <mfapi.h>
 #include <shellapi.h>
@@ -32,6 +33,19 @@ struct BarHit { int id; D2D1_RECT_F r; };
 std::vector<BarHit> g_hits;
 enum { B_VOL = 1, B_BACK, B_PLAY, B_FWD, B_FULL, B_SCRUB };
 const float BAR_W = 520, BAR_H = 76;
+// macOS 27 (captura QuickTime do 512 Pixels, 2x, medida em pt): 454 × 98, cantos 22, vidro claro e quente sobre o
+// vídeo; em cima o volume com o botão redondo, ⏪ ⏯ ⏩ no meio e AirPlay, legendas e "»" à direita; embaixo os dois
+// tempos e a linha do tempo com o botão redondo, a 20 do fundo da janela
+const float GG_W = 458, GG_H = 98, GG_TOP = 32;
+// a barra de controles tem vidro fosco de verdade: uma janela com o acrílico do Windows (desfoca o vídeo) logo
+// abaixo da barra em camadas, recortada nos mesmos cantos de 22
+HWND g_barBack;
+// macOS 27: a barra de título é vidro fosco por cima do vídeo (o vídeo ocupa a janela toda). g_topBack = acrílico
+// (desfoca), g_top = camada com a tinta escura, os cantos de 16 da janela, o ícone do documento e o nome. As duas ficam
+// logo acima da janela e abaixo dos três botões da WacOSWindow.dll; o mouse passa direto (arrasta pela janela).
+HWND g_topBack, g_top;
+IDWriteTextFormat *g_tfTimeL, *g_tfTimeR, *g_tfTop;
+bool Unified() { return semaforo::Aqua() && !g_full; }  // macOS 27: barra de título de 32 desenhada pelo app
 
 // ---- MFPlay
 class Callback : public IMFPMediaPlayerCallback {
@@ -95,7 +109,8 @@ void PaintBar() {
     float s = GetDpiForWindow(wnd) / 96.f;
     RECT cr; GetClientRect(wnd, &cr);
     POINT org{ 0, 0 }; ClientToScreen(wnd, &org);
-    int w = (int)std::lround(std::min(BAR_W, cr.right / s - 40) * s), h = (int)std::lround(BAR_H * s);
+    const bool gg = semaforo::Aqua();
+    int w = (int)std::lround(std::min(gg ? GG_W : BAR_W, cr.right / s - 40) * s), h = (int)std::lround((gg ? GG_H : BAR_H) * s);
     if (w < 200) { ShowWindow(g_bar, SW_HIDE); return; }
     int x = org.x + (cr.right - w) / 2, y = org.y + cr.bottom - h - (int)std::lround(24 * s);
     HDC screen = GetDC(nullptr), mem = CreateCompatibleDC(screen);
@@ -110,6 +125,30 @@ void PaintBar() {
         rt2->BeginDraw(); rt2->Clear(D2D1::ColorF(0, 0, 0, 0));
         ID2D1SolidColorBrush* b = nullptr; rt2->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.12f, 0.13f, 0.78f), &b);
         float W = w / s, H = h / s;
+        if (gg && b) {
+            // macOS 27 (captura QuickTime, medida em pt): 458 × 98, cantos 22, a 20 do fundo; linha de cima a 30,5
+            // (alto-falante a 27, volume de 40,5 a 117,5, ⏪ ⏵ ⏩ no meio, AirPlay, legendas e » a 124,5/81/26 da
+            // direita); linha de baixo a 73 (tempos de 13 a 17 das bordas, linha do tempo de 113,5 a 344,5). Trilhos
+            // de 5, botões em pílula de 20 × 15. A cor vem do vidro (fosco atrás) com um véu quente por cima.
+            {
+                std::vector<barravideo::Hit> hv;
+                int by0 = org.y + cr.bottom - h - (int)std::lround(20 * s);
+                barravideo::FundoBorrado(rt2, g_video, RECT{ x, by0, x + w, by0 + h }, s, D2D1::RectF(0, 0, W, H), 22);  // o vídeo desfocado atrás
+                barravideo::Desenha(rt2, b, W, H, g_volume, Playing(), Pos(), Len(), g_tfTimeL, g_tfTimeR, hv);
+                for (auto& x : hv) g_hits.push_back({ x.id, x.r });
+            }
+            b->Release(); rt2->EndDraw(); rt2->Release();
+            POINT dst{ x, org.y + cr.bottom - h - (int)std::lround(20 * s) }, src{ 0, 0 }; SIZE szz{ w, h };
+            BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+            UpdateLayeredWindow(g_bar, screen, &dst, &szz, mem, &src, 0, &bf, ULW_ALPHA);
+            SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem); ReleaseDC(nullptr, screen);
+            if (g_barBack) {  // o vidro fosco logo abaixo. O acrílico ignora recorte (SetWindowRgn): fica 4,5 pt para
+                // dentro, com o canto redondo de 8 do Windows, que assim cabe inteiro dentro do canto de 22 da barra
+                int in = (int)std::lround(4.5f * s);
+                SetWindowPos(g_barBack, g_bar, dst.x + in, dst.y + in, w - 2 * in, h - 2 * in, SWP_NOACTIVATE | (g_barShown ? SWP_SHOWWINDOW : 0));
+            }
+            return;
+        }
         rt2->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), 14, 14), b);
         b->SetColor(D2D1::ColorF(1, 1, 1, 0.14f)); rt2->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), 14, 14), b, 1);
         auto txt = [&](const std::wstring& t, IDWriteTextFormat* f, D2D1_RECT_F r, float a) { b->SetColor(D2D1::ColorF(1, 1, 1, a)); rt2->DrawTextW(t.c_str(), (UINT32)t.size(), f, r, b); };
@@ -142,19 +181,90 @@ void PaintBar() {
     UpdateLayeredWindow(g_bar, screen, &dst, &sz, mem, &src, 0, &bf, ULW_ALPHA);
     SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem); ReleaseDC(nullptr, screen);
 }
+void PaintTop() {
+    if (!g_top) return;
+    bool on = Unified() && IsWindowVisible(wnd) && !IsIconic(wnd);
+    if (!on) { ShowWindow(g_top, SW_HIDE); if (g_topBack) ShowWindow(g_topBack, SW_HIDE); return; }
+    float s = GetDpiForWindow(wnd) / 96.f;
+    RECT cr; GetClientRect(wnd, &cr);
+    POINT org{ 0, 0 }; ClientToScreen(wnd, &org);
+    int w = cr.right, h = (int)std::lround(GG_TOP * s);
+    if (w <= 0) return;
+    HDC screen = GetDC(nullptr), mem = CreateCompatibleDC(screen);
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB };
+    void* bits = nullptr; HBITMAP bmp = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HGDIOBJ old = SelectObject(mem, bmp);
+    ID2D1DCRenderTarget* rt2 = nullptr;
+    auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96 * s, 96 * s);
+    if (SUCCEEDED(d2d->CreateDCRenderTarget(&props, &rt2))) {
+        RECT rb{ 0, 0, w, h }; rt2->BindDC(mem, &rb);
+        rt2->BeginDraw(); rt2->Clear(D2D1::ColorF(0, 0, 0, 0));
+        ID2D1SolidColorBrush* b = nullptr; rt2->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0), &b);
+        if (b) {
+            float W = w / s, R = IsZoomed(wnd) ? 0.f : 16.f;
+            // tinta cinza-escura (medida: 62,63,64 sobre o preto) com os cantos de cima da janela
+            rt2->PushAxisAlignedClip(D2D1::RectF(0, 0, W, GG_TOP), D2D1_ANTIALIAS_MODE_ALIASED);
+            barravideo::FundoBorrado(rt2, g_video, RECT{ org.x, org.y, org.x + w, org.y + h }, s, D2D1::RectF(0, 0, W, GG_TOP + R + 2), R);  // o vídeo desfocado
+            b->SetColor(D2D1::ColorF(0.235f, 0.24f, 0.25f, 0.62f));
+            rt2->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, GG_TOP + R + 2), R, R), b);
+            rt2->PopAxisAlignedClip();
+            b->SetColor(D2D1::ColorF(0, 0, 0, 0.18f));
+            rt2->FillRectangle(D2D1::RectF(0, GG_TOP - 0.5f, W, GG_TOP), b);
+            // folha com o canto dobrado (10 × 13) a 84 e o nome em negrito de 13 a 101,5
+            float cy = GG_TOP / 2;
+            b->SetColor(D2D1::ColorF(0.93f, 0.93f, 0.94f, 1));
+            rt2->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(84, cy - 6.5f, 94, cy + 6.5f), 1.2f, 1.2f), b);
+            b->SetColor(D2D1::ColorF(0.6f, 0.6f, 0.62f, 1));
+            rt2->FillRectangle(D2D1::RectF(90.5f, cy - 6.5f, 94, cy - 3.f), b);
+            wchar_t ttl[512] = {}; GetWindowTextW(wnd, ttl, 512);
+            std::wstring name = ttl;
+            size_t dot = name.find_last_of(L'.'); if (dot != std::wstring::npos && dot > 0) name = name.substr(0, dot);
+            b->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
+            if (g_tfTop) rt2->DrawTextW(name.c_str(), (UINT32)name.size(), g_tfTop, D2D1::RectF(101.5f, 0, W - 12, GG_TOP), b, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            b->Release();
+        }
+        rt2->EndDraw(); rt2->Release();
+    }
+    POINT src{ 0, 0 }; SIZE sz{ w, h };
+    BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    UpdateLayeredWindow(g_top, screen, &org, &sz, mem, &src, 0, &bf, ULW_ALPHA);
+    SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem); ReleaseDC(nullptr, screen);
+    // logo acima da janela (abaixo de tudo o que já estava por cima dela, como os três botões da DLL)
+    HWND above = GetWindow(wnd, GW_HWNDPREV);
+    if (g_topBack) {
+        int in = IsZoomed(wnd) ? 0 : (int)std::lround(12 * s);  // o acrílico não aceita recorte: fica dentro dos cantos de 16
+        if (above == g_top || above == g_topBack) above = GetWindow(above, GW_HWNDPREV);
+        SetWindowPos(g_topBack, above ? above : HWND_TOP, org.x + in, org.y, w - 2 * in, h, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+        HWND a2 = GetWindow(g_topBack, GW_HWNDPREV);
+        if (a2 == g_top) a2 = GetWindow(a2, GW_HWNDPREV);
+        SetWindowPos(g_top, a2 ? a2 : HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+    } else {
+        if (above == g_top) above = GetWindow(above, GW_HWNDPREV);
+        SetWindowPos(g_top, above ? above : HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+    }
+}
 void ShowBar(bool on) {
     if (!g_bar) return;
-    if (on && g_ready) { PaintBar(); if (!g_barShown) { SetWindowPos(g_bar, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW); g_barShown = true; } }
-    else if (!on && g_barShown) { ShowWindow(g_bar, SW_HIDE); g_barShown = false; }
+    if (on && g_ready) {
+        PaintBar();
+        if (!g_barShown) {
+            SetWindowPos(g_bar, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW); g_barShown = true;
+            if (g_barBack) SetWindowPos(g_barBack, g_bar, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+    }
+    else if (!on && g_barShown) { ShowWindow(g_bar, SW_HIDE); if (g_barBack) ShowWindow(g_barBack, SW_HIDE); g_barShown = false; }
 }
 void Poke() { g_lastMove = GetTickCount(); ShowBar(true); }
 
 void ScrubTo(float x) {
-    for (auto& h : g_hits) if (h.id == B_SCRUB) { double f = std::clamp((x - h.r.left) / (h.r.right - h.r.left), 0.f, 1.f); Seek(f * Len()); }
+    for (auto& h : g_hits) if (h.id == B_SCRUB) { double f = semaforo::Aqua() ? barravideo::PosicaoEm(h.r, x) : std::clamp((x - h.r.left) / (h.r.right - h.r.left), 0.f, 1.f); Seek(f * Len()); }
 }
 void BarAction(int id, float x) {
     switch (id) {
-    case B_VOL: for (auto& h : g_hits) if (h.id == B_VOL) { g_volume = std::clamp((x - h.r.left - 4) / (h.r.right - h.r.left - 8), 0.f, 1.f); if (g_mp) g_mp->SetVolume(g_volume); } break;
+    case B_VOL: for (auto& h : g_hits) if (h.id == B_VOL) {
+            g_volume = semaforo::Aqua() ? barravideo::VolumeEm(h.r, x) : std::clamp((x - h.r.left - 4) / (h.r.right - h.r.left - 8), 0.f, 1.f);
+            if (g_mp) g_mp->SetVolume(g_volume);
+        } break;
     case B_BACK: Seek(Pos() - 15); break;
     case B_FWD: Seek(Pos() + 15); break;
     case B_PLAY: Toggle(); break;
@@ -180,10 +290,16 @@ void FitWindowToVideo() {
     if (!g_mp || g_full) return;
     SIZE vs{}, ar{};
     if (FAILED(g_mp->GetNativeVideoSize(&vs, &ar)) || !vs.cx || !vs.cy) return;
+    // a proporção da imagem (pixels não quadrados, vídeo de celular): a altura que ela ocupa de verdade
+    if (ar.cx > 0 && ar.cy > 0) vs.cy = std::max<LONG>(1, (LONG)std::lround((double)vs.cx * ar.cy / ar.cx));
     MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(MonitorFromWindow(wnd, MONITOR_DEFAULTTONEAREST), &mi);
     float maxW = (mi.rcWork.right - mi.rcWork.left) * 0.72f, maxH = (mi.rcWork.bottom - mi.rcWork.top) * 0.78f;
     float k = std::min({ 1.f, maxW / vs.cx, maxH / vs.cy });
     RECT r{ 0, 0, (LONG)(vs.cx * k), (LONG)(vs.cy * k) };
+    if (Unified()) {  // macOS 27: a barra de 32 do app no lugar da barra de título (as bordas continuam)
+        AdjustWindowRectExForDpi(&r, WS_THICKFRAME, FALSE, 0, GetDpiForWindow(wnd));
+        r.top = 0;
+    } else
     AdjustWindowRectExForDpi(&r, WS_OVERLAPPEDWINDOW, FALSE, 0, GetDpiForWindow(wnd));
     int W = r.right - r.left, H = r.bottom - r.top;
     SetWindowPos(wnd, nullptr, mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - W) / 2, mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - H) / 2, W, H, SWP_NOZORDER);
@@ -198,6 +314,7 @@ void Open(const std::wstring& path) {
     HRESULT hr = MFPCreateMediaPlayer(path.c_str(), TRUE, 0, g_cb, g_video, &g_mp);
     if (FAILED(hr)) { MessageBoxW(wnd, Tr(L"Não foi possível abrir este vídeo."), L"QuickTime Player", MB_OK | MB_ICONERROR); return; }
     g_mp->SetVolume(g_volume);
+    g_mp->SetBorderColor(RGB(0, 0, 0));  // a sobra em volta do vídeo (vertical numa janela larga): preta, não lixo da tela
     SHAddToRecentDocs(SHARD_PATHW, path.c_str());
 }
 
@@ -226,6 +343,13 @@ void SetFull(bool on) {
         SetWindowPos(wnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
     g_full = on;
+    if (semaforo::Aqua()) {  // tela cheia: sem a barra de título de 32 (nem arrastar por ela)
+        BAR = on ? 0.f : GG_TOP;
+        RECT cr; GetClientRect(wnd, &cr);
+        SendMessageW(wnd, WM_SIZE, 0, MAKELPARAM(cr.right, cr.bottom));
+        InvalidateRect(wnd, nullptr, TRUE);
+        PaintTop();
+    }
     Poke();
 }
 
@@ -246,6 +370,12 @@ LRESULT CALLBACK VideoProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         EndPaint(h, &ps); return 0;
     }
     case WM_ERASEBKGND: return 1;
+    case WM_NCHITTEST:
+        if (Unified()) {
+            POINT p{ GET_X_LPARAM(l), GET_Y_LPARAM(l) }; ScreenToClient(h, &p);
+            if (p.y < (int)std::lround(GG_TOP * GetDpiForWindow(h) / 96.f)) return HTTRANSPARENT;
+        }
+        break;
     case WM_MOUSEMOVE: { static LPARAM last; if (l != last) { last = l; Poke(); } return 0; }
     case WM_LBUTTONDOWN: SetFocus(wnd); return 0;
     case WM_LBUTTONDBLCLK: SetFull(!g_full); return 0;
@@ -256,9 +386,51 @@ LRESULT CALLBACK VideoProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
-    case WM_SIZE: if (g_video) { SetWindowPos(g_video, nullptr, 0, 0, LOWORD(l), HIWORD(l), SWP_NOZORDER); if (g_mp) g_mp->UpdateVideo(); } if (g_barShown) PaintBar(); return 0;
-    case WM_MOVE: if (g_barShown) PaintBar(); return 0;
+    case WM_SIZE: if (g_video) {
+            int top = 0;  // macOS 27: o vídeo ocupa a janela toda, a barra de título é vidro por cima
+            SetWindowPos(g_video, nullptr, 0, top, LOWORD(l), std::max(0, (int)HIWORD(l) - top), SWP_NOZORDER);
+            if (g_mp) g_mp->UpdateVideo();
+        }
+        PaintTop();
+        if (g_barShown) PaintBar(); return 0;
+    case WM_PAINT: {  // macOS 27: a barra de título escura com o ícone do documento e o nome em negrito depois dos botões
+        PAINTSTRUCT ps; HDC dc = BeginPaint(h, &ps);
+        RECT cr; GetClientRect(h, &cr);
+        float s = GetDpiForWindow(h) / 96.f;
+        int top = 0;  // a barra de título agora é a janela de vidro g_top (PaintTop)
+        if (top) {
+            ID2D1DCRenderTarget* rt2 = nullptr;
+            auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE), 96 * s, 96 * s);
+            if (SUCCEEDED(d2d->CreateDCRenderTarget(&props, &rt2))) {
+                RECT rb{ 0, 0, cr.right, top }; rt2->BindDC(dc, &rb);
+                rt2->BeginDraw();
+                rt2->Clear(D2D1::ColorF(0.235f, 0.24f, 0.25f));
+                ID2D1SolidColorBrush* b = nullptr; rt2->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.9f), &b);
+                if (b) {
+                    float W = cr.right / s, cy = GG_TOP / 2;
+                    // folha com o canto dobrado (10 × 13), a 84
+                    b->SetColor(D2D1::ColorF(0.93f, 0.93f, 0.94f, 1));
+                    rt2->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(84, cy - 6.5f, 94, cy + 6.5f), 1.2f, 1.2f), b);
+                    b->SetColor(D2D1::ColorF(0.6f, 0.6f, 0.62f, 1));
+                    rt2->FillRectangle(D2D1::RectF(90.5f, cy - 6.5f, 94, cy - 3.f), b);
+                    b->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
+                    wchar_t ttl[512] = {}; GetWindowTextW(h, ttl, 512);
+                    std::wstring name = ttl;
+                    size_t dot = name.find_last_of(L'.'); if (dot != std::wstring::npos && dot > 0) name = name.substr(0, dot);
+                    if (g_tfTop) rt2->DrawTextW(name.c_str(), (UINT32)name.size(), g_tfTop, D2D1::RectF(101.5f, 0, W - 12, GG_TOP), b, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    b->Release();
+                }
+                rt2->EndDraw(); rt2->Release();
+            }
+        }
+        EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_MOVE: PaintTop(); if (g_barShown) PaintBar(); return 0;
+    case WM_SHOWWINDOW: { LRESULT r = DefWindowProcW(h, m, w, l); PostMessageW(h, WM_APP + 9, 0, 0); return r; }
+    case WM_APP + 9: PaintTop(); return 0;
     case WM_ERASEBKGND: { RECT r; GetClientRect(h, &r); FillRect((HDC)w, &r, (HBRUSH)GetStockObject(BLACK_BRUSH)); return 1; }
+    case WM_SETTEXT: { LRESULT r = DefWindowProcW(h, m, w, l); PaintTop(); return r; }
     case WM_MFEVENT:
         if (w == 1) {
             if (l) { MessageBoxW(h, Tr(L"Não foi possível abrir este vídeo."), L"QuickTime Player", MB_OK | MB_ICONERROR); return 0; }
@@ -268,6 +440,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         } else if (w == 2) { g_ended = true; ShowBar(true); }
         return 0;
     case WM_TIMER:  // a barra some depois de 2,5 s sem mexer o mouse (tocando); o tempo anda
+        if (g_top && (IsWindowVisible(g_top) || Unified())) PaintTop();  // macOS 27: o vidro acompanha o vídeo (15 quadros/s)
         if (g_barShown) {
             POINT p; GetCursorPos(&p); RECT br; GetWindowRect(g_bar, &br);
             bool over = PtInRect(&br, p) != FALSE;
@@ -297,6 +470,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_DESTROY:
         if (g_mp) { g_mp->Shutdown(); g_mp->Release(); g_mp = nullptr; }
         if (g_bar) DestroyWindow(g_bar);
+        if (g_barBack) DestroyWindow(g_barBack);
+        if (g_top) DestroyWindow(g_top);
+        if (g_topBack) DestroyWindow(g_topBack);
         PostQuitMessage(0);
         return 0;
     }
@@ -311,6 +487,10 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfTime = Fmt(11, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
     g_tfIcon = Fmt(16, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
     g_tfIconBig = Fmt(24, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
+    g_tfTimeL = Fmt(13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING);
+    g_tfTimeR = Fmt(13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    g_tfTop = Fmt(13, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING);
+    for (auto* f : { g_tfTimeL, g_tfTimeR, g_tfTop }) if (f) { f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); }
     WNDCLASSEXW wc{ sizeof(wc) }; wc.style = CS_DBLCLKS; wc.lpfnWndProc = Proc; wc.hInstance = hi; wc.lpszClassName = L"QuickTimeJanela";
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW); wc.hIcon = LoadIconW(hi, MAKEINTRESOURCEW(1)); wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassExW(&wc);
@@ -326,7 +506,17 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     BOOL dark = TRUE; DwmSetWindowAttribute(wnd, 20, &dark, sizeof(dark));  // o QuickTime é sempre escuro
     g_video = CreateWindowExW(WS_EX_ACCEPTFILES, vc.lpszClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, W, H, wnd, nullptr, hi, nullptr);
     g_bar = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, bc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, wnd, nullptr, hi, nullptr);
-    SetTimer(wnd, 1, 250, nullptr);
+    if (semaforo::Aqua()) {
+        // a barra de título de 32 do app (a DLL só põe os três botões a 16)
+        SetPropW(wnd, L"WacOSBarraUnificada", (HANDLE)(INT_PTR)std::lround(GG_TOP));
+        BAR = GG_TOP;
+        SetWindowSubclass(wnd, UnifiedSub, 0x55A1, 0);
+        SetWindowPos(wnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        // o vidro fosco da barra de controles (desfoca o vídeo atrás), em barra_video.h
+        // o vidro fosco das barras é desenhado aqui (barravideo::FundoBorrado), já recortado nos cantos certos
+        g_top = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, bc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, wnd, nullptr, hi, nullptr);
+    }
+    SetTimer(wnd, 1, semaforo::Aqua() ? 66 : 250, nullptr);  // macOS 27: o vidro das barras desfoca o vídeo que anda
     ShowWindow(wnd, show);
     int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (argc > 1 && argv[1][0]) Open(argv[1]); else PostMessageW(wnd, WM_KEYDOWN, 'O', 0x1D0001);

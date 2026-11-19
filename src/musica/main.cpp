@@ -27,7 +27,7 @@ namespace wmc = winrt::Windows::Media::Core;
 
 namespace {
 
-const float SB = 200, TB = 70, ROWH = 28;
+float SB = 200, TB = 70, ROWH = 28;  // macOS 27: barra de 52 (o player vai para baixo)
 const UINT WM_SCAN = WM_APP + 3, WM_ART = WM_APP + 4, WM_ENDED = WM_APP + 6;
 
 struct Song { std::wstring path, title, artist, album; int track = 0; double secs = 0; FILETIME added{}; };
@@ -45,6 +45,7 @@ wmp::MediaPlayer g_player{ nullptr };
 std::map<std::wstring, ID2D1Bitmap*> g_art;   // por álbum
 std::map<std::wstring, bool> g_artAsked;
 IDWriteTextFormat *g_tfSide, *g_tfHead, *g_tfRow, *g_tfRowR, *g_tfSmall, *g_tfLcd, *g_tfLcdSub, *g_tfIcon, *g_tfIconBig, *g_tfAlbum;
+IDWriteTextFormat *g_tfSec, *g_tfSideB, *g_tfTitleG, *g_tfIconS, *g_tfLcdL, *g_tfLcdSubL;  // macOS 27
 float g_volume = 0.8f;
 
 std::wstring Prop(IPropertyStore* ps, const PROPERTYKEY& k) {
@@ -199,16 +200,26 @@ double LenSecs() { try { return g_player.PlaybackSession().NaturalDuration().cou
 std::wstring Mmss(double s) { int t = (int)s; wchar_t b[16]; swprintf_s(b, L"%d:%02d", t / 60, t % 60); return b; }
 
 // ---- listas
+// macOS 27: a busca da barra filtra (título, artista ou álbum) e o botão de filtro escolhe a ordem das músicas
+std::wstring g_search;
+int g_sortBy;  // 0 padrão, 1 título, 2 artista, 3 álbum
+bool Matches(const std::wstring& a) {
+    if (g_search.empty()) return true;
+    std::wstring x = a, q = g_search;
+    for (auto& c : x) c = towlower(c);
+    for (auto& c : q) c = towlower(c);
+    return x.find(q) != std::wstring::npos;
+}
 std::vector<std::wstring> Albums() {
     std::vector<std::wstring> v;
     std::map<std::wstring, bool> seen;
-    for (auto& s : g_songs) if (!seen[s.album] && (g_artistSel.empty() || s.artist == g_artistSel)) { seen[s.album] = true; v.push_back(s.album); }
+    for (auto& s : g_songs) if (!seen[s.album] && (g_artistSel.empty() || s.artist == g_artistSel) && (Matches(s.album) || Matches(s.artist))) { seen[s.album] = true; v.push_back(s.album); }
     std::sort(v.begin(), v.end());
     return v;
 }
 std::vector<std::wstring> Artists() {
     std::vector<std::wstring> v; std::map<std::wstring, bool> seen;
-    for (auto& s : g_songs) if (!seen[s.artist]) { seen[s.artist] = true; v.push_back(s.artist); }
+    for (auto& s : g_songs) if (!seen[s.artist] && Matches(s.artist)) { seen[s.artist] = true; v.push_back(s.artist); }
     std::sort(v.begin(), v.end());
     return v;
 }
@@ -218,8 +229,15 @@ void BuildRows() {
         auto& s = g_songs[i];
         if (g_view == 1 && !g_artistSel.empty() && s.artist != g_artistSel) continue;
         if (g_view == 2 && !g_albumSel.empty() && s.album != g_albumSel) continue;
+        if (!Matches(s.title) && !Matches(s.artist) && !Matches(s.album)) continue;
         g_rows.push_back(i);
     }
+    if (g_sortBy && (g_view == 3 || g_view == 0)) std::stable_sort(g_rows.begin(), g_rows.end(), [](int a, int b) {
+        auto& x = g_songs[a]; auto& y = g_songs[b];
+        const std::wstring& p = g_sortBy == 1 ? x.title : g_sortBy == 2 ? x.artist : x.album;
+        const std::wstring& q = g_sortBy == 1 ? y.title : g_sortBy == 2 ? y.artist : y.album;
+        return _wcsicmp(p.c_str(), q.c_str()) < 0;
+    });
     if (g_view == 0) std::sort(g_rows.begin(), g_rows.end(), [](int a, int b) { return CompareFileTime(&g_songs[a].added, &g_songs[b].added) > 0; });
     if (g_view == 2 && !g_albumSel.empty()) std::sort(g_rows.begin(), g_rows.end(), [](int a, int b) { return g_songs[a].track < g_songs[b].track; });
     if (g_view == 0 && g_rows.size() > 100) g_rows.resize(100);
@@ -227,6 +245,99 @@ void BuildRows() {
 
 struct Hit { int kind, arg; D2D1_RECT_F r; };  // 1 vista, 2 linha, 3 álbum, 4 artista, 5 botões do visor, 6 progresso, 7 volume, 8 voltar
 std::vector<Hit> g_hits;
+
+// ---- macOS 27 (captura Music do 512 Pixels, 2x, medida em pt): lateral de 200, cheia, com os três botões em cima;
+// seções em cinza ("Biblioteca") e linhas de 32 com o ícone vermelho a 37 e o nome a 55 (a escolhida numa pílula
+// cinza de 10 a 190). O título da vista fica na barra, em negrito, a 20 do conteúdo, com a divisa a 52; à direita o
+// botão redondo de filtro e a busca em cápsula. O player é uma cápsula de vidro de 56 flutuando a 18 do fundo, no
+// meio do conteúdo: aleatório, anterior, tocar, próxima e repetir à esquerda, o que toca no meio, fila e volume à
+// direita.
+void PaintSideGolden(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray, D2D1_COLOR_F pink) {
+    Fill(D2D1::RectF(0, 0, SB, sz.height), SidebarColor());
+    Fill(D2D1::RectF(SB - 0.5f, 0, SB, sz.height), dark ? Rgb(0, 0, 0, 0.5f) : Rgb(0, 0, 0, 0.08f));
+    Text(Tr(L"Biblioteca"), g_tfSec, D2D1::RectF(16, 58, SB, 74), gray);
+    const wchar_t* titles[] = { L"Recentes", L"Artistas", L"Álbuns", L"Músicas" };
+    wchar_t icons[] = { 0xE823, 0xE77B, 0xE93C, 0xEC4F };
+    for (int i = 0; i < 4; i++) {
+        float cy = 92 + i * 32.f;
+        D2D1_RECT_F r = D2D1::RectF(10, cy - 16, SB - 10, cy + 16);
+        bool on = i == g_view;
+        if (on) Fill(r, dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.07f), 9);
+        wchar_t g[2] = { icons[i], 0 };
+        Text(g, g_tfIcon, D2D1::RectF(26, r.top, 48, r.bottom), pink);
+        Text(i == 3 ? TrPick(L"Músicas", L"Songs") : Tr(titles[i]), on ? g_tfSideB : g_tfSide, D2D1::RectF(55, r.top, r.right - 6, r.bottom), text);
+        g_hits.push_back({ 1, i, r });
+    }
+}
+
+void PaintBarGolden(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray, const std::wstring& head) {
+    Fill(D2D1::RectF(SB, 0, sz.width, TB), dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    Fill(D2D1::RectF(SB, TB - 0.5f, sz.width, TB), dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.09f));
+    Text(head, g_tfTitleG, D2D1::RectF(SB + 20, 0, sz.width - 240, TB), dark ? Rgb(255, 255, 255, 0.85f) : Rgb(0, 0, 0, 0.75f));
+    // busca em cápsula e o filtro
+    D2D1_RECT_F f = D2D1::RectF(sz.width - 8 - 141, 8, sz.width - 8, 44);
+    GlassField(f, dark);
+    IconSearch({ f.left + 18, 26 }, gray, 0.85f);
+    std::wstring ph = g_view == 2 ? Tr(L"Buscar em Álbuns") : g_view == 1 ? Tr(L"Buscar em Artistas") : Tr(L"Buscar em Músicas");
+    Text(g_search.empty() ? ph : g_search, g_tfSmall, D2D1::RectF(f.left + 30, f.top, f.right - 10, f.bottom), g_search.empty() ? gray : text);
+    g_hits.push_back({ 20, 0, f });
+    D2D1_RECT_F b = D2D1::RectF(f.left - 8 - 36, 8, f.left - 8, 44);
+    GlassButton(b, dark);
+    br->SetColor(text);
+    for (int i = 0; i < 3; i++) { float w = 7.f - i * 2; rt->DrawLine({ (b.left + b.right) / 2 - w, 21.f + i * 5 }, { (b.left + b.right) / 2 + w, 21.f + i * 5 }, br, 1.4f); }
+    BarButton(b); BarButton(f);
+    g_hits.push_back({ 21, 0, b });
+}
+
+void PaintPlayerGolden(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray, D2D1_COLOR_F pink) {
+    float cx = (SB + sz.width) / 2, w = std::min(702.f, sz.width - SB - 40);
+    D2D1_RECT_F cap = D2D1::RectF(cx - w / 2, sz.height - 18 - 56, cx + w / 2, sz.height - 18);
+    for (int k = 4; k >= 1; k--) {  // sombra
+        br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.12f : 0.035f));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cap.left - k, cap.top + k * 0.8f, cap.right + k, cap.bottom + k * 1.6f), 28.f + k, 28.f + k), br);
+    }
+    Fill(cap, dark ? Rgb(44, 44, 46, 0.96f) : Rgb(252, 252, 252, 0.97f), 28);
+    br->SetColor(dark ? Rgb(255, 255, 255, 0.12f) : Rgb(0, 0, 0, 0.07f));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cap.left + 0.25f, cap.top + 0.25f, cap.right - 0.25f, cap.bottom - 0.25f), 27.75f, 27.75f), br, 0.5f);
+    float cy = (cap.top + cap.bottom) / 2;
+    bool has = g_pos >= 0 && g_pos < (int)g_queue.size();
+    D2D1_COLOR_F off = dark ? Rgb(255, 255, 255, 0.35f) : Rgb(0, 0, 0, 0.28f);
+    struct B { int id; wchar_t g; float x; bool big; bool on; } btns[] = {
+        { 0, 0xE8B1, 24, false, g_shuffle }, { 1, 0xE892, 56, false, false }, { 2, Playing() ? (wchar_t)0xE769 : (wchar_t)0xE768, 92, true, false },
+        { 3, 0xE893, 128, false, false }, { 4, g_repeat == 2 ? (wchar_t)0xE8ED : (wchar_t)0xE8EE, 160, false, g_repeat != 0 } };
+    for (auto& b : btns) {
+        D2D1_RECT_F r = D2D1::RectF(cap.left + b.x - 15, cy - 15, cap.left + b.x + 15, cy + 15);
+        wchar_t g[2] = { b.g, 0 };
+        Text(g, b.big ? g_tfIconBig : g_tfIconS, r, b.on ? pink : has || b.id == 2 ? text : off);
+        g_hits.push_back({ 5, b.id, r });
+    }
+    // o que toca: capa, nome e artista, e a barra de progresso
+    D2D1_RECT_F mid = D2D1::RectF(cap.left + 190, cap.top + 6, cap.right - 150, cap.bottom - 6);
+    if (has) {
+        const Song& s = g_songs[g_queue[g_pos]];
+        D2D1_RECT_F art = D2D1::RectF(mid.left, cy - 20, mid.left + 40, cy + 20);
+        if (ID2D1Bitmap* b = Art(s)) rt->DrawBitmap(b, art); else Fill(art, dark ? Rgb(72, 72, 74) : Rgb(220, 220, 225), 6);
+        float tx = art.right + 10;
+        Text(s.title, g_tfLcdL, D2D1::RectF(tx, cy - 19, mid.right, cy - 3), text);
+        Text(s.artist, g_tfLcdSubL, D2D1::RectF(tx, cy - 3, mid.right, cy + 11), gray);
+        double pos = PosSecs(), len = std::max(LenSecs(), s.secs);
+        D2D1_RECT_F bar = D2D1::RectF(tx, cy + 15, mid.right, cy + 17.5f);
+        Fill(bar, dark ? Rgb(255, 255, 255, 0.15f) : Rgb(0, 0, 0, 0.10f), 1.25f);
+        if (len > 0) Fill(D2D1::RectF(bar.left, bar.top, bar.left + (bar.right - bar.left) * (float)std::clamp(pos / len, 0.0, 1.0), bar.bottom), gray, 1.25f);
+        g_hits.push_back({ 6, 0, D2D1::RectF(bar.left, bar.top - 6, bar.right, bar.bottom + 6) });
+    } else {
+        wchar_t g[2] = { 0xEC4F, 0 };
+        Text(g, g_tfIconBig, mid, off);
+    }
+    // direita: fila e volume
+    wchar_t q[2] = { 0xE8FD, 0 };
+    Text(q, g_tfIconS, D2D1::RectF(cap.right - 140, cy - 15, cap.right - 112, cy + 15), text);
+    D2D1_RECT_F vol = D2D1::RectF(cap.right - 84, cy - 1.5f, cap.right - 24, cy + 1.5f);
+    wchar_t vg[2] = { 0xE767, 0 }; Text(vg, g_tfIconS, D2D1::RectF(vol.left - 26, cy - 12, vol.left - 4, cy + 12), text);
+    Fill(vol, dark ? Rgb(255, 255, 255, 0.15f) : Rgb(0, 0, 0, 0.12f), 1.5f);
+    Fill(D2D1::RectF(vol.left, vol.top, vol.left + (vol.right - vol.left) * g_volume, vol.bottom), gray, 1.5f);
+    g_hits.push_back({ 7, 0, D2D1::RectF(vol.left - 4, cy - 10, vol.right + 4, cy + 10) });
+}
 
 void Paint() {
     if (!BeginPaint()) return;
@@ -236,23 +347,32 @@ void Paint() {
     D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139), pink = Rgb(250, 45, 72), line = dark ? Rgb(255, 255, 255, 0.07f) : Rgb(0, 0, 0, 0.06f);
     rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
     std::lock_guard<std::mutex> lk(g_mx);
+    const bool gg = BAR > 0;
     float X = SB + 20, W = sz.width - 20;
     // ---- conteúdo
     rt->PushAxisAlignedClip(D2D1::RectF(SB, TB, sz.width, sz.height), D2D1_ANTIALIAS_MODE_ALIASED);
-    float y = TB + 14 - g_scroll;
+    float y = TB + (gg ? 30.f : 14.f) - g_scroll;
     const wchar_t* titles[] = { L"Recentes", L"Artistas", L"Álbuns", L"Músicas" };
     std::wstring head = g_view == 3 ? TrPick(L"Músicas", L"Songs") : Tr(titles[g_view]);
     if (g_view == 1 && !g_artistSel.empty()) head = g_artistSel;
     if (g_view == 2 && !g_albumSel.empty()) head = g_albumSel;
-    if ((g_view == 1 && !g_artistSel.empty()) || (g_view == 2 && !g_albumSel.empty())) {
+    if (gg) {  // macOS 27: o título vai para a barra; aqui só o "voltar"
+        if ((g_view == 1 && !g_artistSel.empty()) || (g_view == 2 && !g_albumSel.empty())) {
+            D2D1_RECT_F back = D2D1::RectF(X, y - 20, X + 160, y + 4);
+            Text(L"‹ " + std::wstring(g_view == 1 ? Tr(L"Artistas") : Tr(L"Álbuns")), g_tfRow, back, pink);
+            g_hits.push_back({ 8, 0, back });
+            y += 14;
+        }
+    } else if ((g_view == 1 && !g_artistSel.empty()) || (g_view == 2 && !g_albumSel.empty())) {
         D2D1_RECT_F back = D2D1::RectF(X, y, X + 24, y + 34);
         Text(L"‹", g_tfHead, back, pink);
         g_hits.push_back({ 8, 0, back });
         Text(head, g_tfHead, D2D1::RectF(X + 26, y, W, y + 34), text);
     } else Text(head, g_tfHead, D2D1::RectF(X, y, W, y + 34), text);
-    y += 46;
+    if (!gg) y += 46;
     if (g_view == 2 && g_albumSel.empty()) {  // grade de álbuns
-        float cell = 170, gap = 22;
+        float cell = gg ? 200.f : 170.f, gap = 22;
+        if (gg) X = SB + 33;
         int cols = std::max(1, (int)((W - X + gap) / (cell + gap)));
         auto al = Albums();
         for (int i = 0; i < (int)al.size(); i++) {
@@ -268,6 +388,7 @@ void Paint() {
             g_hits.push_back({ 3, i, r });
         }
         y += ((int)al.size() + cols - 1) / cols * (cell + 52);
+        if (gg) X = SB + 20;
     } else if (g_view == 1 && g_artistSel.empty()) {  // artistas
         auto ar = Artists();
         for (int i = 0; i < (int)ar.size(); i++) {
@@ -305,6 +426,13 @@ void Paint() {
         if (g_rows.empty()) Text(g_scanning ? Tr(L"Lendo a biblioteca…") : Tr(L"Nenhuma música na pasta Música."), g_tfRow, D2D1::RectF(SB, TB + 80, sz.width, TB + 160), gray);
     }
     rt->PopAxisAlignedClip();
+    if (gg) {  // macOS 27: lateral cheia, título na barra e o player numa cápsula embaixo
+        PaintSideGolden(sz, dark, text, gray, pink);
+        PaintBarGolden(sz, dark, text, gray, head);
+        PaintPlayerGolden(sz, dark, text, gray, pink);
+        EndPaint();
+        return;
+    }
     // ---- barra lateral
     Fill(D2D1::RectF(0, TB, SB, sz.height), SidebarColor());
     Text(Tr(L"Biblioteca"), g_tfSmall, D2D1::RectF(16, TB + 12, SB, TB + 30), gray);
@@ -402,11 +530,28 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: {
         float s = Sc(), x = GET_X_LPARAM(l) / s, y = GET_Y_LPARAM(l) / s;
         bool dbl = m == WM_LBUTTONDBLCLK;
-        for (auto& ht : g_hits) {
+        for (auto hit = g_hits.rbegin(); hit != g_hits.rend(); ++hit) {  // o desenhado por cima (o player) primeiro
+            auto& ht = *hit;
             if (!In(ht.r, x, y)) continue;
             switch (ht.kind) {
             case 1: g_view = ht.arg; g_artistSel.clear(); g_albumSel.clear(); g_scroll = 0; g_selRow = -1; BuildRows(); break;
             case 8: if (g_view == 1) g_artistSel.clear(); else g_albumSel.clear(); g_scroll = 0; g_selRow = -1; BuildRows(); break;
+            case 20: {  // busca: filtra enquanto digita
+                FieldOpen(D2D1::RectF(ht.r.left + 30, ht.r.top + 9, ht.r.right - 10, ht.r.bottom - 9), g_search, 12, false, [](const std::wstring& q, int key) {
+                    g_search = key == VK_ESCAPE ? L"" : q; g_scroll = 0; g_selRow = -1; BuildRows(); InvalidateRect(wnd, nullptr, FALSE);
+                });
+                return 0;
+            }
+            case 21: {  // filtro: a ordem das músicas
+                HMENU mm = CreatePopupMenu();
+                const wchar_t* nm[4] = { L"Ordem Padrão", L"Título", L"Artista", L"Álbum" };
+                for (int k = 0; k < 4; k++) AppendMenuW(mm, MF_STRING | (g_sortBy == k ? MF_CHECKED : 0), 100 + k, Tr(nm[k]));
+                POINT scr{ (LONG)(ht.r.left * s), (LONG)(ht.r.bottom * s) }; ClientToScreen(h, &scr);
+                int c = TrackPopupMenu(mm, TPM_RETURNCMD, scr.x, scr.y, 0, h, nullptr);
+                DestroyMenu(mm);
+                if (c >= 100) { g_sortBy = c - 100; BuildRows(); }
+                break;
+            }
             case 2: g_selRow = ht.arg; if (dbl) PlayFrom(g_rows, ht.arg); break;
             case 3: { auto al = Albums(); g_albumSel = al[ht.arg]; g_scroll = 0; g_selRow = -1; BuildRows(); if (dbl && !g_rows.empty()) PlayFrom(g_rows, 0); break; }
             case 4: { auto ar = Artists(); g_artistSel = ar[ht.arg]; g_scroll = 0; g_selRow = -1; BuildRows(); break; }
@@ -448,7 +593,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     std::wstring arg;
-    { int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc); if (argc > 1) arg = argv[1]; if (argv) LocalFree(argv); }
+    { int argc = 0; LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc); if (argc > 1 && wcscmp(argv[1], L"--foto")) arg = argv[1]; if (argv) LocalFree(argv); }
     // já aberto: manda o arquivo para a janela que existe (uma janela só, como no Mac)
     if (HWND other = FindWindowW(L"MusicaJanela", nullptr)) {
         if (!arg.empty()) { COPYDATASTRUCT cd{ 0x4D555343, (DWORD)((arg.size() + 1) * 2), (PVOID)arg.c_str() }; DWORD_PTR r; SendMessageTimeoutW(other, WM_COPYDATA, 0, (LPARAM)&cd, SMTO_ABORTIFHUNG, 3000, &r); }
@@ -466,7 +611,15 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfLcdSub = Fmt(11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER);
     g_tfIcon = Fmt(15, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
     g_tfIconBig = Fmt(24, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
-    if (!CreateMain(hi, L"MusicaJanela", Tr(L"Música"), Proc, 1150, 760)) return 1;
+    g_tfSec = Fmt(11, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfSideB = Fmt(13, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfTitleG = Fmt(13, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfIconS = Fmt(14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
+    g_tfLcdL = Fmt(12, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfLcdSubL = Fmt(11);
+    barWanted = 52;  // macOS 27: barra unificada
+    if (!CreateMain(hi, L"MusicaJanela", Tr(L"Música"), Proc, semaforo::Aqua() ? 1145 : 1150, semaforo::Aqua() ? 735 : 760)) return 1;
+    if (BAR > 0) TB = 52;
     try {
         g_player = wmp::MediaPlayer();
         g_player.Volume(g_volume);

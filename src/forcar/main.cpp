@@ -10,6 +10,7 @@
 #include "../comum/app2d.h"
 #include "../comum/nomes.h"
 #include "../comum/pressao.h"
+#include "../comum/semaforo.h"
 #include <tlhelp32.h>
 #include <shellapi.h>
 #include <map>
@@ -37,9 +38,15 @@ IDWriteTextFormat *g_tfBody, *g_tfBold, *g_tfRow, *g_tfSmall, *g_tfBtn, *g_tfMem
 IWICImagingFactory* g_wic;
 std::map<std::wstring, IWICBitmapSource*> g_wicIcons;
 std::map<std::wstring, ID2D1Bitmap*> g_icons;
-ID2D1HwndRenderTarget* g_iconsRt;
+ID2D1RenderTarget* g_iconsRt;
 const UINT_PTR T_REFRESH = 1;
-const float W = 440, PAD = 20, ROW = 24, BTN_H = 24;
+const float PAD = 20;
+// macOS 27 Golden Gate (Force-Quit.png, 2x): janela de 370 × 310, fundo branco, lista branca com borda, linhas de 22,
+// seleção azul de borda a borda (sem canto) e o botão em cápsula de 28 (semaforo::Aqua = tema Golden Gate)
+#define GG (semaforo::Aqua())
+#define W (GG ? 370.f : 440.f)
+#define ROW (GG ? 22.f : 24.f)
+#define BTN_H (GG ? 28.f : 24.f)
 
 std::wstring Lower(std::wstring s) { for (auto& c : s) c = (wchar_t)towlower(c); return s; }
 
@@ -205,6 +212,8 @@ std::wstring Bytes(ULONGLONG b) {
 struct Pal { D2D1_COLOR_F bg, list, border, text, text2, sel, red, btn, btnText, dim; };
 Pal P() {
     bool d = Dark();
+    if (GG) return d ? Pal{ Rgb(30, 30, 30), Rgb(30, 30, 30), Rgb(255, 255, 255, 0.14f), Rgb(255, 255, 255, 0.88f), Rgb(255, 255, 255, 0.55f), Rgb(0, 100, 220), Rgb(255, 69, 58), Rgb(255, 255, 255, 0.14f), Rgb(255, 255, 255, 0.9f), Rgb(0, 0, 0, 0.35f) }
+                     : Pal{ Rgb(255, 255, 255), Rgb(255, 255, 255), Rgb(0, 0, 0, 0.16f), Rgb(0, 0, 0, 0.85f), Rgb(0, 0, 0, 0.5f), Rgb(0, 100, 220), Rgb(255, 59, 48), Rgb(0, 0, 0, 0.06f), Rgb(0, 0, 0, 0.85f), Rgb(0, 0, 0, 0.18f) };
     return d ? Pal{ Rgb(44, 44, 46), Rgb(30, 30, 31), Rgb(255, 255, 255, 0.12f), Rgb(255, 255, 255, 0.88f), Rgb(255, 255, 255, 0.55f), Rgb(0, 88, 208), Rgb(255, 69, 58), Rgb(255, 255, 255, 0.16f), Rgb(255, 255, 255, 0.9f), Rgb(0, 0, 0, 0.35f) }
              : Pal{ Rgb(236, 236, 236), Rgb(255, 255, 255), Rgb(0, 0, 0, 0.14f), Rgb(0, 0, 0, 0.85f), Rgb(0, 0, 0, 0.5f), Rgb(0, 100, 225), Rgb(255, 59, 48), Rgb(255, 255, 255), Rgb(0, 0, 0, 0.85f), Rgb(0, 0, 0, 0.18f) };
 }
@@ -216,10 +225,11 @@ Layout L() {
     Layout l;
     float headH = g_memory ? 74 : 54;
     l.head = D2D1::RectF(PAD, 14, s.width - PAD, 14 + headH);
-    l.list = D2D1::RectF(PAD, l.head.bottom + 4, s.width - PAD, s.height - 56);
-    float bw = std::max(TextW(g_tfBtn, Tr(L"Forçar Encerrar")) + 28, 110.f);
-    l.btn = D2D1::RectF(s.width - PAD - bw, s.height - 40, s.width - PAD, s.height - 40 + BTN_H);
-    l.note = D2D1::RectF(PAD, s.height - 44, l.btn.left - 12, s.height - 12);
+    l.list = D2D1::RectF(PAD, l.head.bottom + 4, s.width - PAD, s.height - (GG ? 61 : 56));
+    float bw = std::max(TextW(g_tfBtn, Tr(L"Forçar Encerrar")) + (GG ? 36 : 28), GG ? 84.f : 110.f);
+    l.btn = GG ? D2D1::RectF(s.width - 16 - bw, s.height - 16 - BTN_H, s.width - 16, s.height - 16)  // macOS 27: a 16 das bordas
+               : D2D1::RectF(s.width - PAD - bw, s.height - 40, s.width - PAD, s.height - 40 + BTN_H);
+    l.note = D2D1::RectF(PAD, s.height - (GG ? 50 : 44), l.btn.left - 12, s.height - 12);
     float sw = std::min(s.width - 40, 320.f), sh = 196;
     l.sheet = D2D1::RectF((s.width - sw) / 2, 0, (s.width + sw) / 2, sh);
     float half = (sw - 48) / 2;
@@ -229,7 +239,7 @@ Layout L() {
 }
 
 void Button(D2D1_RECT_F r, const std::wstring& label, bool primary, bool enabled, bool hover, const Pal& p) {
-    float rad = (r.bottom - r.top) / 2 < 7 ? (r.bottom - r.top) / 2 : 6;
+    float rad = GG ? (r.bottom - r.top) / 2 : (r.bottom - r.top) / 2 < 7 ? (r.bottom - r.top) / 2 : 6;  // macOS 27: cápsula
     if (primary && enabled) Fill(r, hover ? Rgb(20, 120, 245) : Rgb(0, 122, 255), rad);
     else {
         Fill(r, p.btn, rad);
@@ -253,7 +263,7 @@ void Paint() {
         Text(Tr(L"Se um aplicativo não responder por algum tempo, selecione o nome dele e clique em Forçar Encerrar."), g_tfBody, l.head, p.text);
     }
     // lista
-    Fill(l.list, p.list, 5);
+    Fill(l.list, p.list, GG ? 0.f : 5.f);
     rt->PushAxisAlignedClip(l.list, D2D1_ANTIALIAS_MODE_ALIASED);
     int first = (int)g_scroll;
     float y = l.list.top + 1;
@@ -261,9 +271,10 @@ void Paint() {
         App& a = g_apps[i];
         D2D1_RECT_F rr = D2D1::RectF(l.list.left + 1, y, l.list.right - 1, y + ROW);
         bool sel = a.pid == g_sel;
-        if (sel) Fill(D2D1::RectF(rr.left + 4, rr.top + 1, rr.right - 4, rr.bottom - 1), p.sel, 5);
-        if (ID2D1Bitmap* b = Icon(a.path)) rt->DrawBitmap(b, D2D1::RectF(rr.left + 10, rr.top + 3, rr.left + 28, rr.top + 21), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
-        float tx = rr.left + 36, right = rr.right - 10;
+        if (sel) { if (GG) Fill(rr, p.sel, 0); else Fill(D2D1::RectF(rr.left + 4, rr.top + 1, rr.right - 4, rr.bottom - 1), p.sel, 5); }
+        float iy = (rr.top + rr.bottom) / 2;
+        if (ID2D1Bitmap* b = Icon(a.path)) rt->DrawBitmap(b, GG ? D2D1::RectF(rr.left + 7, iy - 8.5f, rr.left + 24, iy + 8.5f) : D2D1::RectF(rr.left + 10, rr.top + 3, rr.left + 28, rr.top + 21), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        float tx = rr.left + (GG ? 29 : 36), right = rr.right - 10;
         if (g_memory) {
             std::wstring m = Bytes(a.mem);
             float mw = TextW(g_tfMem, m);
@@ -277,7 +288,7 @@ void Paint() {
     }
     rt->PopAxisAlignedClip();
     br->SetColor(p.border);
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(l.list.left + 0.5f, l.list.top + 0.5f, l.list.right - 0.5f, l.list.bottom - 0.5f), 5, 5), br, 1);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(l.list.left + 0.5f, l.list.top + 0.5f, l.list.right - 0.5f, l.list.bottom - 0.5f), GG ? 0.f : 5.f, GG ? 0.f : 5.f), br, 1);
     // rodapé
     Text(Tr(L"Você pode abrir esta janela pressionando Ctrl\u00A0+\u00A0Alt\u00A0+\u00A0Esc."), g_tfSmall, l.note, p.text2);
     Button(l.btn, Tr(L"Forçar Encerrar"), true, g_sel != 0 && !g_sheet, g_hover == -2, p);
@@ -428,7 +439,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR cmd, int show) {
     g_tfSheetTitle = Fmt(13, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, true);
     g_tfSheet = Fmt(11.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, true);
     if (g_tfBody) g_tfBody->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (!CreateMain(hi, L"ForcarEncerrarJanela", Tr(L"Forçar Encerrar Aplicativos"), Proc, (int)W, 470)) return 1;
+    if (!CreateMain(hi, L"ForcarEncerrarJanela", Tr(L"Forçar Encerrar Aplicativos"), Proc, (int)W, GG ? 310 : 470)) return 1;
     // como o do Mac: tamanho fixo, sem maximizar
     SetWindowLongW(wnd, GWL_STYLE, GetWindowLongW(wnd, GWL_STYLE) & ~(WS_THICKFRAME | WS_MAXIMIZEBOX));
     SetWindowPos(wnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);

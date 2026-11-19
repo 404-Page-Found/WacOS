@@ -25,7 +25,12 @@
 
 namespace {
 
-const float W = 265, TITLE_H = 28, PAD = 16, HDR_ROW = 24, ROW = 17, LABEL_X = 92;
+const float PAD = 16, HDR_ROW = 24, ROW = 17;
+// macOS 27 Golden Gate (captura Finder-Get-Info, 2x): janela de 301,5 de largura, barra de título de 31,5 (botões com
+// o centro em 15,75), rótulos alinhados a 107 da borda
+#define W (semaforo::Aqua() ? 301.5f : 265.f)
+#define TITLE_H (semaforo::Aqua() ? 31.5f : 28.f)
+#define LABEL_X (semaforo::Aqua() ? 107.f : 92.f)
 const UINT WM_INFO_CALC = WM_APP + 1;
 
 enum Sec { S_GENERAL, S_MORE, S_NAME, S_COMMENTS, S_OPENWITH, S_PREVIEW, S_SHARING, S_COUNT };
@@ -443,10 +448,11 @@ void Paint(Info& in) {
     static const D2D1_COLOR_F fill_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.345f), D2D1::ColorF(0.996f, 0.737f, 0.180f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* fill = semaforo::Pick(fill_c, semaforo::FILL);
     static const D2D1_COLOR_F ring_c[3] = { D2D1::ColorF(0.886f, 0.275f, 0.247f), D2D1::ColorF(0.882f, 0.631f, 0.086f), D2D1::ColorF(0.071f, 0.675f, 0.157f) }; const D2D1_COLOR_F* ring = semaforo::Pick(ring_c, semaforo::RING);
     for (int k = 0; k < 3; k++) {
-        D2D1_POINT_2F c{ 19.f + k * 23, 14 };  // padrão do projeto: 14 pt, 23 entre centros
+        D2D1_POINT_2F c{ (semaforo::Aqua() ? 15.75f : 19.f) + k * 23, semaforo::Aqua() ? 15.75f : 14.f };  // padrão do projeto: 14 pt, 23 entre centros (macOS 27: centro em 15,75)
         bool lit = k < 2 && (in.active || in.hoverLights);
         br->SetColor(lit ? fill[k] : dark ? D2D1::ColorF(0.30f, 0.30f, 0.31f) : D2D1::ColorF(0.84f, 0.84f, 0.84f));
         rt->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(rt, c, 7, br);
         br->SetColor(lit ? ring[k] : dark ? D2D1::ColorF(0, 0, 0, 0.3f) : D2D1::ColorF(0.73f, 0.73f, 0.74f));
         rt->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
         if (in.hoverLights && k < 2) {
@@ -708,7 +714,7 @@ void UpdateCalcText(Info& in) {
 }
 
 int HitLight(D2D1_POINT_2F p) {
-    for (int k = 0; k < 2; k++) if (std::fabs(p.x - (19.f + k * 23)) <= 9 && std::fabs(p.y - 14) <= 9) return k;
+    for (int k = 0; k < 2; k++) if (std::fabs(p.x - ((semaforo::Aqua() ? 15.75f : 19.f) + k * 23)) <= 9 && std::fabs(p.y - (semaforo::Aqua() ? 15.75f : 14.f)) <= 9) return k;
     return -1;
 }
 

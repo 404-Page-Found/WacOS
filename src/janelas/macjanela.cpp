@@ -107,6 +107,11 @@ RECT CaptionRect(HWND h) {
     return { c.x, top, c.x + cr.right, c.y };
 }
 
+// Barra unificada (macOS 27, apps do WacOS feitos com o app2d.h): o app tira a barra do Windows e desenha a
+// barra de ferramentas dele nos primeiros N pt da área do app (prop "WacOSBarraUnificada" = N). A DLL continua
+// com os cantos, a sombra, o ampliar e os três botões, desenhados por cima no meio dessa faixa, a 26 pt da borda.
+int UnifiedBar(HWND h) { return (int)(INT_PTR)GetPropW(h, L"WacOSBarraUnificada"); }
+
 // 0: não mexe; 1: barra padrão do Windows; 2: barra desenhada pelo próprio app (Chromium/Electron e afins)
 int Mode(HWND h, bool showing = false) {  // showing: chamada no WM_SHOWWINDOW, antes de ficar visível
     if (GetAncestor(h, GA_ROOT) != h || (!showing && !IsWindowVisible(h)) || GetPropW(h, PROP)) return 0;
@@ -124,6 +129,7 @@ int Mode(HWND h, bool showing = false) {  // showing: chamada no WM_SHOWWINDOW, 
     int top = IsZoomed(h) ? wr.top + (c.x - wr.left) : wr.top;
     int cap = c.y - top;
     if ((st & WS_CAPTION) == WS_CAPTION && cap >= 20 * sc && cap <= 90 * sc) return 1;
+    if ((st & WS_CAPTION) == WS_CAPTION && UnifiedBar(h) > 0) return 1;  // barra unificada: a faixa é do app
     // sem barra do Windows: janela principal redimensionável, com título e de bom tamanho
     // Apps com barra própria (Chrome, Discord, Electron): desligado. Converter o maximizar quebrava o F11
     // (tela cheia passa pelo maximizado), o recorte errava as bordas deles e o ganho era pequeno
@@ -146,9 +152,15 @@ RECT FrameRect(HWND h) {
 }
 
 bool TemaTahoe();  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
+bool OwnApp();     // mais abaixo: um dos apps do WacOS
 const float PATCH_L = 80, PATCH_R = 3 * 46 + 6;  // pt: botões do Mac / os três botões do app (46 pt cada no Windows)
 
 RECT BarRect(Info* in) {
+    if (int u = UnifiedBar(in->owner)) {  // a faixa de cima da área do app
+        POINT c{ 0, 0 }; ClientToScreen(in->owner, &c);
+        RECT cr; GetClientRect(in->owner, &cr);
+        return { c.x, c.y, c.x + cr.right, c.y + (int)std::lround(u * Scale(in->owner)) };
+    }
     if (!in->custom) return CaptionRect(in->owner);
     RECT f = FrameRect(in->owner);
     float sc = Scale(in->owner);
@@ -216,11 +228,13 @@ void Paint(Info* in) {
         // Tahoe (guia macOS26-Theme-Reference, seção 9.1, medido): só título = 14×14 com o 1º em x 9 (centro 16),
         // 23 entre eles; painel utilitário = 10×10 em x 8 (centro 13), 17 entre eles
         if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; lr = in->tool ? 5.f : 7.f; }
+        if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; lr = 7; }  // macOS 27: com barra de ferramentas 26, 49, 72; só título 16, 39, 62
         for (int k = 0; k < 3; k++) {
             D2D1_POINT_2F c{ lx0 + k * lpitch, H / 2 };
             bool lit = (in->active || in->hoverLights) && can[k];
             b->SetColor(lit ? on[k] : (in->dark ? D2D1::ColorF(1, 1, 1, 0.22f) : D2D1::ColorF(0, 0, 0, 0.18f)));
             rt->FillEllipse(D2D1::Ellipse(c, lr, lr), b);
+            semaforo::Gloss(rt, c, lr, b);
             b->SetColor(D2D1::ColorF(0, 0, 0, 0.12f));
             rt->DrawEllipse(D2D1::Ellipse(c, lr - 0.25f, lr - 0.25f), b, 0.5f);
             if (!in->hoverLights || !can[k]) continue;
@@ -253,7 +267,7 @@ void Paint(Info* in) {
         if (in->tool && g_tfTool && t[0]) {  // plug-in: título cinza, menor, no meio
             b->SetColor(D2D1::ColorF(1, 1, 1, in->active ? 0.62f : 0.38f));
             rt->DrawTextW(t, (UINT32)wcslen(t), g_tfTool, D2D1::RectF(70, 0, W - 70, H), b);
-        } else if (g_tf && t[0] && !in->custom) {
+        } else if (g_tf && t[0] && !in->custom && !(semaforo::Aqua() && OwnApp())) {  // macOS 27: os apps do sistema não mostram o título
             b->SetColor(in->dark ? D2D1::ColorF(1, 1, 1, in->active ? 0.86f : 0.42f) : D2D1::ColorF(0, 0, 0, in->active ? 0.85f : 0.40f));
             rt->DrawTextW(t, (UINT32)wcslen(t), g_tf, D2D1::RectF(80, 0, W - 80, H), b);
         }
@@ -278,6 +292,7 @@ int HitLight(Info* in, POINT clientPt) {
     float x = clientPt.x / sc, y = clientPt.y / sc;
     float lx0 = in->tool ? 14.f : 19.f, lpitch = in->tool ? 20.f : 23.f;
     if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; }  // mesmas posições do desenho
+    if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; }
     for (int k = 0; k < 3; k++) if (std::fabs(x - (lx0 + k * lpitch)) <= 9 && std::fabs(y - H / 2) <= 8) return k;
     return -1;
 }
@@ -389,6 +404,12 @@ bool Fullscreen(HWND h) {
 
 // Tema macOS Tahoe (liquid_glass=1 no ajustes.txt do Shell): as janelas são mais redondas (16 pt; Sequoia: 12 pt).
 // Lido do arquivo no máximo a cada 3 s (a DLL roda dentro dos outros programas, sem acesso aos ajustes do Shell).
+// um dos apps do próprio WacOS (WacOS*.exe): no macOS 27 a barra deles não tem título (Lembretes, Calendário…)
+bool OwnApp() {
+    static int own = -1;
+    if (own < 0) { wchar_t p[MAX_PATH] = {}; GetModuleFileNameW(nullptr, p, MAX_PATH); const wchar_t* n = wcsrchr(p, L'\\'); own = n && !_wcsnicmp(n + 1, L"WacOS", 5) ? 1 : 0; }
+    return own == 1;
+}
 bool TemaTahoe() {
     static DWORD at; static bool on;
     DWORD now = GetTickCount();
@@ -406,7 +427,7 @@ bool TemaTahoe() {
     on = strstr(buf, "liquid_glass=1") != nullptr;
     return on;
 }
-int CornerRadius(HWND h) { return (int)std::lround((TemaTahoe() ? 16 : 12) * Scale(h)); }
+int CornerRadius(HWND h) { return (int)std::lround((TemaTahoe() ? 16 : 12)  /* Golden Gate: também 16 pt (medido) */ * Scale(h)); }
 
 // Moldura e prévia: transparentes para cliques. A moldura confere sozinha (timer) se a janela dela
 // ainda existe, está visível e ainda a reconhece como moldura: senão some (sobrava um contorno
@@ -790,7 +811,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         RECT r = BarRect(in);
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
-        if (p.x / sc < (in->custom ? PATCH_L : 72)) return HTCLIENT;
+        if (p.x / sc < (in->custom ? PATCH_L : UnifiedBar(in->owner) > 40 ? 84 : 72)) return HTCLIENT;
         if (in->custom && p.x / sc > (r.right - r.left) / sc - PATCH_R) return HTCLIENT;  // os três botões; o resto deixa o clique passar para a barra (arrastar)
         return HTTRANSPARENT;
     }

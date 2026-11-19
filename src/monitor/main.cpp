@@ -49,7 +49,7 @@
 namespace gfx { bool Init(HWND hwnd); void Resize(UINT w, UINT h); ID2D1DeviceContext* Begin(float dpi); void End(); }
 namespace shadow { void Create(HWND main); void SetActive(bool active); void Update(); void Destroy(); void SetRadius(float dip); }
 namespace tahoe {
-const float WINDOW_R = 26;
+float WindowR();  // 26 pt no Tahoe, 16 pt no Golden Gate
 bool On(); bool Reload(); void Frame(HWND h, bool on); void Size(HWND h, float wpx, float hpx, bool dark); float Radius(HWND h);
 bool PushWindowClip(ID2D1DeviceContext* dc, D2D1_SIZE_F s, float radius);
 void WindowRim(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_SIZE_F s, float radius, bool dark);
@@ -760,6 +760,7 @@ void DrawLights(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br) {
         auto c = LightCenter(k);
         br->SetColor(lit ? fill[k] : g_dark ? D2D1::ColorF(0.30f, 0.30f, 0.31f) : D2D1::ColorF(0.84f, 0.84f, 0.84f));
         rt->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(rt, c, 7, br);
         br->SetColor(lit ? ring[k] : g_dark ? D2D1::ColorF(0, 0, 0, 0.3f) : D2D1::ColorF(0.73f, 0.73f, 0.74f));
         rt->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
         if (!g_hoverLights) continue;
@@ -1155,7 +1156,7 @@ void ApplyTheme() {
         tahoe::Frame(g_hwnd, true);
         RECT rc; GetClientRect(g_hwnd, &rc);
         tahoe::Size(g_hwnd, (float)rc.right, (float)rc.bottom, g_dark);
-        shadow::SetRadius(tahoe::WINDOW_R);
+        shadow::SetRadius(tahoe::WindowR());
         return;
     }
     tahoe::Frame(g_hwnd, false);

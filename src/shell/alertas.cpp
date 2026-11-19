@@ -13,6 +13,7 @@
 // com o id dele, sem depender do idioma). Três botões (Sim/Não/Cancelar...) ficam empilhados, como no Mac.
 // As de programas elevados ficam com o Windows.
 #include "shell.h"
+#include "../comum/semaforo.h"
 #include <UIAutomation.h>
 #include <dwmapi.h>
 #include <shlwapi.h>
@@ -22,7 +23,9 @@
 
 namespace {
 
-const float AW = 260, APAD = 20, AICON = 64, ABTN = 28, AGAP = 8, RADIUS = 12;
+float AlertWidth();
+#define AW AlertWidth()
+const float AW0 = 260, APAD = 20, AICON = 64, ABTN = 28, AGAP = 8, RADIUS = 12;
 const UINT WM_AL_CHECK = WM_APP + 70, WM_AL_FRAME = WM_APP + 71;
 double g_openAt;  // a mola comum dos painéis ao aparecer
 
@@ -98,8 +101,20 @@ float TextH(const std::wstring& s, float size, DWRITE_FONT_WEIGHT w, float width
 const float T_PAD = 20, T_TOP = 20, T_ICON = 32, T_BM = 16, T_BTN = 28, T_GAP = 6;
 bool TahoeAlert() { return liquid::On(); }
 int Buttons() { return g.single ? 1 : g.idThird ? 3 : 2; }
-float AlertR() { return TahoeAlert() ? 26.f : RADIUS; }
+// macOS 27 Golden Gate (Finder-Empty-Trash.png, 2x): 260 de largura, cantos 26; ícone de 64 no canto de cima à esquerda
+// (20, 17); título em negrito 13 e texto 13 alinhados à esquerda a 23 da borda, o título a ~100 do alto; botões em
+// cápsula de 27,5 LADO A LADO (110 cada, 8 entre eles, 16 das bordas), o padrão azul (0,122,255) à direita
+const float G_ICON = 64, G_IX = 20, G_IY = 17, G_PAD = 23, G_BTN = 27.5f, G_BM = 16, G_GAP = 8;
+bool GoldenAlert() { return liquid::Golden(); }
+// macOS 27, três botões (o "já existe" do Finder, captura Finder-Replace, 2x): janela opaca de 404 × 120 com os botões da
+// janela, o ícone de 32 a 20 / 36, o texto normal de 13 a 62 da borda e, embaixo à direita, três botões cinza de
+// 85,5 × 19,5 lado a lado (8,5 entre eles, 12,5 da borda e 13 de baixo): o terceiro, Cancelar e o de confirmar
+bool GoldenWide() { return GoldenAlert() && g.idThird; }
+float AlertWidth() { return GoldenWide() ? 404.f : AW0; }
+float AlertR() { return GoldenWide() ? 16.f : TahoeAlert() ? 26.f : RADIUS; }
 float PanelH() {
+    if (GoldenWide()) return std::max(120.f, 34 + g.titleH + (g.infoH > 0 ? 2 + g.infoH : 0) + 14 + 19.5f + 13);
+    if (GoldenAlert()) { int n = Buttons(); int rows = n == 3 ? 3 : 1; return G_IY + G_ICON + 19 + g.titleH + (g.infoH > 0 ? 10 + g.infoH : 0) + 17 + rows * G_BTN + (rows - 1) * G_GAP + G_BM; }
     if (TahoeAlert()) { int n = Buttons(); return T_TOP + T_ICON + 12 + g.titleH + (g.infoH > 0 ? 6 + g.infoH : 0) + 18 + n * T_BTN + (n - 1) * T_GAP + T_BM; }
  return APAD + AICON + 12 + g.titleH + (g.infoH > 0 ? 6 + g.infoH : 0) + 16 + ABTN + (g.idThird ? 2 * (ABTN + AGAP) : 0) + APAD; }
 
@@ -163,6 +178,102 @@ void Paint() {
         }
     }
     if (!g.icon && !g.px.empty()) g.icon = ui::Bitmap(dc, g.iw, g.ih, g.px);
+    if (GoldenWide()) {
+        D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f);
+        // botões da janela: só o do meio aceso (como na captura), os outros apagados
+        for (int k = 0; k < 3; k++) {
+            D2D1_POINT_2F c{ 16.f + k * 23, 16 };
+            br->SetColor(k == 1 ? D2D1::ColorF(0.996f, 0.737f, 0.18f) : (dark ? D2D1::ColorF(1, 1, 1, 0.20f) : D2D1::ColorF(0.86f, 0.86f, 0.86f)));
+            dc->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+            semaforo::Gloss(dc, c, 7, br);
+        }
+        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(20, 36, 52, 68), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        IDWriteTextFormat* ti = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_LEADING);
+        if (ti) ti->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        br->SetColor(text);
+        float y = 34;
+        if (ti) dc->DrawTextW(g.title.c_str(), (UINT32)g.title.size(), ti, D2D1::RectF(62, y, AW - 14, y + g.titleH), br);
+        y += g.titleH + 2;
+        if (ti && g.infoH > 0) dc->DrawTextW(g.info.c_str(), (UINT32)g.info.size(), ti, D2D1::RectF(62, y, AW - 14, y + g.infoH), br);
+        IDWriteTextFormat* tbtn = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (tbtn) tbtn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        const std::wstring* labels[3] = { &g.no, &g.yes, &g.third };
+        const int order[3] = { 2, 0, 1 };  // da esquerda: o terceiro (Manter Ambos), Parar/Cancelar, Substituir
+        float bw = 85.5f, gap = 8.5f, by = H - 13 - 19.5f, x = AW - 12.5f - 3 * bw - 2 * gap;
+        for (int k = 0; k < 3; k++, x += bw + gap) {
+            int i = order[k];
+            D2D1_RECT_F r = D2D1::RectF(x, by, x + bw, by + 19.5f);
+            g.btn[i] = r;
+            bool down = g.press == i && g.hover == i;
+            br->SetColor(dark ? D2D1::ColorF(1, 1, 1, down ? 0.24f : g.hover == i ? 0.18f : 0.13f) : D2D1::ColorF(0, 0, 0, down ? 0.16f : g.hover == i ? 0.12f : 0.085f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(r, 5.5f, 5.5f), br);
+            if (g.focus == i) {
+                br->SetColor(D2D1::ColorF(0.04f, 0.52f, 1.0f, 0.55f));
+                dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 1.5f, r.top - 1.5f, r.right + 1.5f, r.bottom + 1.5f), 7, 7), br, 3);
+            }
+            br->SetColor(text);
+            if (tbtn) dc->DrawTextW(labels[i]->c_str(), (UINT32)labels[i]->size(), tbtn, r, br);
+        }
+        for (auto* f : { ti, tbtn }) if (f) f->Release();
+        br->Release();
+        ui::GpuEnd(g_s);
+        if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), 16 * sc } },
+                                         dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.98f) : D2D1::ColorF(1, 1, 1, 0.98f), 30.f);  // opaca
+        anim::Panel mo = anim::PanelIn(anim::Now() - g_openAt);
+        ui::GpuMotion(g_s, mo.scale, wpx / 2.f, hpx / 2.f, mo.fade);
+        if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, wpx / 2.f, hpx / 2.f);
+        return;
+    }
+    if (GoldenAlert()) {
+        D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f);
+        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(G_IX, G_IY, G_IX + G_ICON, G_IY + G_ICON), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        float y = G_IY + G_ICON + 19;
+        IDWriteTextFormat* tb = ui::Format(13, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_LEADING);
+        IDWriteTextFormat* ti = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_LEADING);
+        for (auto* f : { tb, ti }) if (f) f->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        br->SetColor(text);
+        if (tb) dc->DrawTextW(g.title.c_str(), (UINT32)g.title.size(), tb, D2D1::RectF(G_PAD, y, AW - G_PAD, y + g.titleH), br);
+        y += g.titleH + 10;
+        if (ti && g.infoH > 0) dc->DrawTextW(g.info.c_str(), (UINT32)g.info.size(), ti, D2D1::RectF(G_PAD, y, AW - G_PAD, y + g.infoH), br);
+        IDWriteTextFormat* tbtn = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (tbtn) tbtn->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        const std::wstring* labels[3] = { &g.no, &g.yes, &g.third };
+        for (int i = 0; i < 3; i++) g.btn[i] = D2D1::RectF(0, 0, 0, 0);
+        float bottom = H - G_BM;
+        if (g.idThird) {  // três: empilhados (confirmar, o terceiro, cancelar), de borda a borda
+            const int order[3] = { 1, 2, 0 };
+            for (int k = 0; k < 3; k++) { float y0 = bottom - (3 - k) * G_BTN - (2 - k) * G_GAP; g.btn[order[k]] = D2D1::RectF(G_BM, y0, AW - G_BM, y0 + G_BTN); }
+        } else if (g.single) g.btn[1] = D2D1::RectF(G_BM, bottom - G_BTN, AW - G_BM, bottom);
+        else {
+            float bw = (AW - 2 * G_BM - G_GAP) / 2;
+            g.btn[0] = D2D1::RectF(G_BM, bottom - G_BTN, G_BM + bw, bottom);
+            g.btn[1] = D2D1::RectF(G_BM + bw + G_GAP, bottom - G_BTN, AW - G_BM, bottom);
+        }
+        for (int i = 0; i < 3; i++) {
+            D2D1_RECT_F r = g.btn[i];
+            if (r.right <= r.left) continue;
+            bool down = g.press == i && g.hover == i;
+            float a = dark ? (down ? 0.22f : g.hover == i ? 0.17f : 0.12f) : (down ? 0.14f : g.hover == i ? 0.10f : 0.07f);
+            br->SetColor(dark ? D2D1::ColorF(1, 1, 1, a) : D2D1::ColorF(0, 0, 0, a));
+            if (i == 1) br->SetColor(down ? D2D1::ColorF(0.0f, 0.40f, 0.86f, 1) : D2D1::ColorF(0.0f, 122 / 255.f, 1.0f, g.hover == i ? 0.92f : 1));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(r, G_BTN / 2, G_BTN / 2), br);
+            if (g.focus == i && i != 1) {
+                br->SetColor(D2D1::ColorF(0.04f, 0.52f, 1.0f, 0.55f));
+                dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 1.5f, r.top - 1.5f, r.right + 1.5f, r.bottom + 1.5f), G_BTN / 2 + 1.5f, G_BTN / 2 + 1.5f), br, 3);
+            }
+            br->SetColor(i == 1 ? D2D1::ColorF(1, 1, 1, 1) : text);
+            if (tbtn) dc->DrawTextW(labels[i]->c_str(), (UINT32)labels[i]->size(), tbtn, r, br);
+        }
+        for (auto* f : { tb, ti, tbtn }) if (f) f->Release();
+        br->Release();
+        ui::GpuEnd(g_s);
+        if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), R * sc } },
+                                         dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.82f) : D2D1::ColorF(0.96f, 0.95f, 0.94f, 0.80f), 30.f);
+        anim::Panel mo = anim::PanelIn(anim::Now() - g_openAt);
+        ui::GpuMotion(g_s, mo.scale, wpx / 2.f, hpx / 2.f, mo.fade);
+        if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, wpx / 2.f, hpx / 2.f);
+        return;
+    }
     if (TahoeAlert()) {
         D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f);
         if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(AW / 2 - T_ICON / 2, T_TOP, AW / 2 + T_ICON / 2, T_TOP + T_ICON), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
@@ -546,9 +657,9 @@ void TakeMessage(HWND dlg) {
 }
 
 void Show(int cx, int cy) {
-    float inner = TahoeAlert() ? AW - 2 * T_PAD : AW - 2 * APAD;
-    g.titleH = TextH(g.title, 13, DWRITE_FONT_WEIGHT_BOLD, inner);
-    g.infoH = TextH(g.info, 11.f, DWRITE_FONT_WEIGHT_NORMAL, inner);
+    float inner = GoldenWide() ? AW - 62 - 14 : GoldenAlert() ? AW - 2 * G_PAD : TahoeAlert() ? AW - 2 * T_PAD : AW - 2 * APAD;
+    g.titleH = TextH(g.title, 13, GoldenWide() ? DWRITE_FONT_WEIGHT_NORMAL : DWRITE_FONT_WEIGHT_BOLD, inner);
+    g.infoH = TextH(g.info, GoldenAlert() ? 13.f : 11.f, DWRITE_FONT_WEIGHT_NORMAL, inner);
     g.hover = g.press = -1;
     g.focus = 1;
     if (g.px.empty()) SetIcon(g.iconOf);

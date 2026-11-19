@@ -14,5 +14,8 @@ bool Get(const std::wstring& path, Info& out);
 void Set(const std::wstring& path, int color, const std::wstring& emoji, bool tahoe);
 // desenha a pasta personalizada (false: a pasta não tem personalização)
 bool Draw(ID2D1DeviceContext* dc, const std::wstring& path, D2D1_RECT_F box, bool tahoe);
+bool DrawInfo(ID2D1DeviceContext* dc, const Info& in, D2D1_RECT_F box, bool tahoe);
+// pasta comum retingida numa das cores (Aparência > Cor das pastas, macOS 27)
+bool DrawColor(ID2D1DeviceContext* dc, int color, D2D1_RECT_F box, bool tahoe);
 const std::vector<std::wstring>& Emojis();
 }

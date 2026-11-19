@@ -12,7 +12,7 @@ using namespace app2d;
 
 namespace {
 
-const float TB = 56;
+float TB = 56;  // macOS 27: 52 (barra unificada)
 const UINT WM_FIELDLOST = WM_APP + 77;
 int g_tab = 0;  // 0 mundial, 1 alarmes, 2 cronômetro, 3 timer
 IDWriteTextFormat *g_tfSeg, *g_tfBig, *g_tfBigR, *g_tfHuge, *g_tfRow, *g_tfSub, *g_tfBtn, *g_tfIcon, *g_tfMono;
@@ -99,6 +99,205 @@ void Button(D2D1_RECT_F r, const std::wstring& t, D2D1_COLOR_F bg, D2D1_COLOR_F 
     g_hits.push_back({ kind, arg, r });
 }
 
+// ---- macOS 27 (captura Clock do 512 Pixels, 2x, medida em pt): abas num controle de vidro no meio da barra de 52
+// e o "+" redondo à direita; o mapa-múndi ocupa a largura toda logo abaixo (equirretangular, 360° na largura,
+// do polo norte até ~-86°), continentes cinza (63) sobre o preto, a parte da noite escurecida (25) e contornada por
+// uma linha clara, meridianos de 15° bem fracos; as cidades num ponto laranja com o nome em negrito e a hora.
+// Embaixo, cartões de 170 × 180 com o relógio analógico (mostrador branco de dia, preto de noite).
+#include "mapa_mundi.inc"
+struct LatLon { double lat, lon; };
+const LatLon COORDS[] = {
+    { -23.55, -46.63 }, { -22.91, -43.17 }, { -3.12, -60.02 }, { -3.73, -38.53 }, { 38.72, -9.14 }, { 51.51, -0.13 }, { 48.86, 2.35 },
+    { 52.52, 13.40 }, { 40.42, -3.70 }, { 41.90, 12.50 }, { 37.98, 23.73 }, { 41.01, 28.98 }, { 55.76, 37.62 }, { 25.20, 55.27 }, { 19.08, 72.88 },
+    { 1.35, 103.82 }, { 39.90, 116.41 }, { 35.68, 139.69 }, { 37.57, 126.98 }, { -33.87, 151.21 }, { -36.85, 174.76 }, { 21.31, -157.86 },
+    { 34.05, -118.24 }, { 39.74, -104.99 }, { 41.88, -87.63 }, { 40.71, -74.01 }, { 19.43, -99.13 }, { 4.71, -74.07 }, { -34.60, -58.38 },
+    { -33.45, -70.67 }, { -26.20, 28.05 }, { 30.04, 31.24 }, { -1.29, 36.82 }, { 51.48, 0.0 },
+};
+ID2D1Bitmap* g_map; ID2D1RenderTarget* g_mapRt;
+IDWriteTextFormat *g_tfCityB, *g_tfCityT, *g_tfDial, *g_tfCard, *g_tfCardSub, *g_tfCardSubL;
+
+ID2D1Bitmap* MapBitmap() {
+    if (g_mapRt != rt && g_map) { g_map->Release(); g_map = nullptr; }
+    if (g_map) return g_map;
+    std::vector<BYTE> px((size_t)MAPA_W * MAPA_H * 4, 0);
+    for (int y = 0; y < MAPA_H; y++)
+        for (int x = 0; x < MAPA_W; x++)
+            if (MAPA_BITS[y * (MAPA_W / 8) + x / 8] & (0x80 >> (x % 8))) { BYTE* p = &px[((size_t)y * MAPA_W + x) * 4]; p[0] = p[1] = p[2] = 63; p[3] = 255; }
+    rt->CreateBitmap(D2D1::SizeU(MAPA_W, MAPA_H), px.data(), MAPA_W * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &g_map);
+    g_mapRt = rt;
+    return g_map;
+}
+
+// ponto do sol a pino agora (declinação e longitude), aproximado (sem a equação do tempo)
+void SubSolar(double& decl, double& lon) {
+    SYSTEMTIME u; GetSystemTime(&u);
+    FILETIME f; SystemTimeToFileTime(&u, &f);
+    SYSTEMTIME j{ u.wYear, 1, 0, 1, 0, 0, 0, 0 }; FILETIME fj; SystemTimeToFileTime(&j, &fj);
+    double day = (((ULONGLONG)f.dwHighDateTime << 32 | f.dwLowDateTime) - ((ULONGLONG)fj.dwHighDateTime << 32 | fj.dwLowDateTime)) / 864e9;
+    decl = 23.44 * sin(2 * 3.14159265 * (284 + day) / 365.0);
+    double h = u.wHour + u.wMinute / 60.0 + u.wSecond / 3600.0;
+    lon = -15 * (h - 12);
+}
+
+// nascer e pôr do sol (hora local da cidade, em horas; false nos dias sem nascer ou sem pôr, perto dos polos):
+// declinação do dia, ângulo horário do nascer (-0,83° pela refração e o raio do sol) e a equação do tempo
+bool SunTimes(double lat, double lon, double utcOffsetH, double& rise, double& set) {
+    const double PI = 3.14159265358979;
+    SYSTEMTIME u; GetSystemTime(&u);
+    SYSTEMTIME j{ u.wYear, 1, 0, 1, 0, 0, 0, 0 }; FILETIME fu, fj; SystemTimeToFileTime(&u, &fu); SystemTimeToFileTime(&j, &fj);
+    double n = (((ULONGLONG)fu.dwHighDateTime << 32 | fu.dwLowDateTime) - ((ULONGLONG)fj.dwHighDateTime << 32 | fj.dwLowDateTime)) / 864e9 + 1;
+    double decl = 23.44 * sin(2 * PI * (284 + n) / 365.0) * PI / 180;
+    double B = 2 * PI * (n - 81) / 364, eot = 9.87 * sin(2 * B) - 7.53 * cos(B) - 1.5 * sin(B);
+    double c = (sin(-0.83 * PI / 180) - sin(lat * PI / 180) * sin(decl)) / (cos(lat * PI / 180) * cos(decl));
+    if (c < -1 || c > 1) return false;
+    double h0 = acos(c) * 180 / PI / 15;  // horas
+    double noon = 12 - lon / 15 - eot / 60 + utcOffsetH;
+    rise = fmod(noon - h0 + 48, 24); set = fmod(noon + h0 + 48, 24);
+    return true;
+}
+
+void PaintWorldGolden(D2D1_SIZE_F sz, bool dark) {
+    const double PI = 3.14159265358979;
+    float mapH = sz.width * MAPA_H / (float)MAPA_W, top = TB;
+    Fill(D2D1::RectF(0, top, sz.width, top + mapH), Rgb(0, 0, 0));
+    if (ID2D1Bitmap* b = MapBitmap()) rt->DrawBitmap(b, D2D1::RectF(0, top, sz.width, top + mapH), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    auto X = [&](double lon) { return (float)((lon + 180) / 360 * sz.width); };
+    double latBottom = MAPA_LAT_BAIXO;
+    auto Y = [&](double lat) { return (float)(top + (90 - lat) / (90 - latBottom) * mapH); };
+    for (int k = 1; k < 24; k++) Fill(D2D1::RectF(k * sz.width / 24, top, k * sz.width / 24 + 0.5f, top + mapH), Rgb(255, 255, 255, 0.06f));
+    // noite
+    double decl, slon; SubSolar(decl, slon);
+    if (fabs(decl) < 0.1) decl = decl < 0 ? -0.1 : 0.1;
+    ID2D1PathGeometry* g = nullptr; d2d->CreatePathGeometry(&g);
+    ID2D1PathGeometry* line = nullptr; d2d->CreatePathGeometry(&line);
+    if (g && line) {
+        ID2D1GeometrySink *s = nullptr, *ls = nullptr; g->Open(&s); line->Open(&ls);
+        bool northLit = decl > 0;
+        float edge = northLit ? top + mapH : top;
+        int N = 180;
+        for (int i = 0; i <= N; i++) {
+            double lon = -180 + 360.0 * i / N, H = (lon - slon) * PI / 180;
+            double lat = atan(-cos(H) / tan(decl * PI / 180)) * 180 / PI;
+            D2D1_POINT_2F p{ X(lon), std::clamp(Y(lat), top, top + mapH) };
+            if (!i) { s->BeginFigure({ p.x, edge }, D2D1_FIGURE_BEGIN_FILLED); ls->BeginFigure(p, D2D1_FIGURE_BEGIN_HOLLOW); }
+            s->AddLine(p);
+            if (i) ls->AddLine(p);
+        }
+        s->AddLine({ sz.width, edge });
+        s->EndFigure(D2D1_FIGURE_END_CLOSED); ls->EndFigure(D2D1_FIGURE_END_OPEN);
+        s->Close(); ls->Close(); s->Release(); ls->Release();
+        rt->PushAxisAlignedClip(D2D1::RectF(0, top, sz.width, top + mapH), D2D1_ANTIALIAS_MODE_ALIASED);
+        br->SetColor(Rgb(0, 0, 0, 0.6f)); rt->FillGeometry(g, br);
+        br->SetColor(Rgb(255, 255, 255, 0.55f)); rt->DrawGeometry(line, br, 1);
+        rt->PopAxisAlignedClip();
+    }
+    if (g) g->Release();
+    if (line) line->Release();
+    // cidades
+    for (int k = 0; k < (int)g_world.size(); k++) {
+        int i = g_world[k];
+        if (i < 0 || i >= (int)(sizeof(COORDS) / sizeof(COORDS[0]))) continue;
+        SYSTEMTIME t{}; if (!CityTime(i, t)) continue;
+        float x = X(COORDS[i].lon), y = Y(COORDS[i].lat);
+        Circle({ x, y }, 4.2f, Rgb(255, 255, 255, 0.9f), true);
+        Circle({ x, y }, 3.2f, Rgb(255, 149, 0), true);
+        wchar_t hm[24]; swprintf_s(hm, L"%d:%02d", t.wHour, t.wMinute);
+        Text(Tr(CITIES[i].name), g_tfCityB, D2D1::RectF(x + 7, y - 9, x + 160, y + 5), Rgb(255, 255, 255));
+        Text(hm, g_tfCityT, D2D1::RectF(x + 7, y + 4, x + 160, y + 15), Rgb(255, 255, 255, 0.85f));
+    }
+    // cartões com o relógio analógico
+    SYSTEMTIME here; GetLocalTime(&here);
+    float cy0 = top + mapH + 14;
+    for (int k = 0; k < (int)g_world.size(); k++) {
+        int i = g_world[k];
+        SYSTEMTIME t{}; if (!CityTime(i, t)) continue;
+        float x0 = 14 + k * 184.f;
+        if (x0 + 170 > sz.width) break;
+        D2D1_RECT_F card = D2D1::RectF(x0, cy0, x0 + 170, cy0 + 196);  // macOS 27: com a linha do nascer e pôr do sol
+        Fill(card, dark ? Rgb(255, 255, 255, 0.08f) : Rgb(0, 0, 0, 0.05f), 12);
+        bool day = t.wHour >= 6 && t.wHour < 18;
+        D2D1_POINT_2F c{ x0 + 85, cy0 + 72 };
+        Circle(c, 55, day ? Rgb(255, 255, 255) : Rgb(0, 0, 0), true);
+        if (!day) { br->SetColor(Rgb(255, 255, 255, 0.25f)); rt->DrawEllipse(D2D1::Ellipse(c, 55, 55), br, 0.75f); }
+        D2D1_COLOR_F ink = day ? Rgb(0, 0, 0) : Rgb(255, 255, 255);
+        for (int n = 1; n <= 12; n++) {
+            double a = n * PI / 6;
+            float nx = c.x + (float)sin(a) * 43, ny = c.y - (float)cos(a) * 43;
+            Text(std::to_wstring(n), g_tfDial, D2D1::RectF(nx - 10, ny - 8, nx + 10, ny + 8), ink);
+        }
+        double hm = (t.wHour % 12 + t.wMinute / 60.0) * PI / 6, mm = (t.wMinute + t.wSecond / 60.0) * PI / 30, ss = t.wSecond * PI / 30;
+        br->SetColor(ink);
+        rt->DrawLine(c, { c.x + (float)sin(hm) * 26, c.y - (float)cos(hm) * 26 }, br, 3.2f);
+        rt->DrawLine(c, { c.x + (float)sin(mm) * 40, c.y - (float)cos(mm) * 40 }, br, 2.4f);
+        br->SetColor(Rgb(255, 149, 0));
+        rt->DrawLine({ c.x - (float)sin(ss) * 8, c.y + (float)cos(ss) * 8 }, { c.x + (float)sin(ss) * 46, c.y - (float)cos(ss) * 46 }, br, 1);
+        Circle(c, 3, Rgb(255, 149, 0), true);
+        Circle(c, 1.4f, day ? Rgb(255, 255, 255) : Rgb(0, 0, 0), true);
+        wchar_t nm[96]; swprintf_s(nm, L"%ls, %d:%02d", Tr(CITIES[i].name), t.wHour, t.wMinute);
+        Text(nm, g_tfCard, D2D1::RectF(x0 + 6, cy0 + 136, x0 + 164, cy0 + 154), dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31));
+        FILETIME a, b2; SystemTimeToFileTime(&here, &a); SystemTimeToFileTime(&t, &b2);
+        long long diffMin = ((long long)(((ULONGLONG)b2.dwHighDateTime << 32 | b2.dwLowDateTime) - ((ULONGLONG)a.dwHighDateTime << 32 | a.dwLowDateTime))) / 600000000LL;
+        long long dh = (diffMin + (diffMin >= 0 ? 15 : -15)) / 30;
+        std::wstring dayS = t.wDay == here.wDay ? Tr(L"Hoje") : (diffMin > 0 ? Tr(L"Amanhã") : Tr(L"Ontem"));
+        wchar_t off[32] = L"";
+        if (dh % 2) swprintf_s(off, L", %+lld h 30", dh / 2); else if (dh) swprintf_s(off, L", %+lld h", dh / 2);
+        Text(dayS + off, g_tfCardSub, D2D1::RectF(x0 + 6, cy0 + 154, x0 + 164, cy0 + 170), dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139));
+        {   // ⤒ nascer  ⤓ pôr (sol pela metade com a seta), como na captura
+            SYSTEMTIME ut; GetSystemTime(&ut);
+            FILETIME fu, fc; SystemTimeToFileTime(&ut, &fu); SystemTimeToFileTime(&t, &fc);
+            double offH = (double)((long long)(((ULONGLONG)fc.dwHighDateTime << 32 | fc.dwLowDateTime) - ((ULONGLONG)fu.dwHighDateTime << 32 | fu.dwLowDateTime))) / 36e9;
+            offH = std::round(offH * 4) / 4;
+            double rise, set;
+            if (i < (int)(sizeof(COORDS) / sizeof(COORDS[0])) && SunTimes(COORDS[i].lat, COORDS[i].lon, offH, rise, set)) {
+                D2D1_COLOR_F g2 = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
+                auto hm2 = [](double h) { int m = (int)std::lround(h * 60) % 1440; wchar_t b[16]; swprintf_s(b, L"%d:%02d", m / 60, m % 60); return std::wstring(b); };
+                std::wstring a1 = hm2(rise), a2 = hm2(set);
+                float w1 = TextW(g_tfCardSub, a1), w2 = TextW(g_tfCardSub, a2), gap = 14, iw = 12;
+                float total = iw + 3 + w1 + gap + iw + 3 + w2, sx = x0 + 85 - total / 2, yy = cy0 + 178;
+                auto sun = [&](float x, bool up) {
+                    br->SetColor(g2);
+                    rt->DrawLine({ x, yy + 4 }, { x + iw, yy + 4 }, br, 1.1f);
+                    rt->PushAxisAlignedClip(D2D1::RectF(x - 1, yy - 1, x + iw + 1, yy + 4), D2D1_ANTIALIAS_MODE_ALIASED);  // só a metade de cima do sol
+                    rt->DrawEllipse(D2D1::Ellipse({ x + iw / 2, yy + 4 }, 3, 3), br, 1.1f);
+                    rt->PopAxisAlignedClip();
+                    float ax = x + iw / 2, ay0 = yy - 4.5f, ay1 = yy - 1;
+                    if (up) { rt->DrawLine({ ax, ay1 }, { ax, ay0 }, br, 1); rt->DrawLine({ ax - 1.8f, ay0 + 1.8f }, { ax, ay0 }, br, 1); rt->DrawLine({ ax + 1.8f, ay0 + 1.8f }, { ax, ay0 }, br, 1); }
+                    else { rt->DrawLine({ ax, ay0 }, { ax, ay1 }, br, 1); rt->DrawLine({ ax - 1.8f, ay1 - 1.8f }, { ax, ay1 }, br, 1); rt->DrawLine({ ax + 1.8f, ay1 - 1.8f }, { ax, ay1 }, br, 1); }
+                };
+                sun(sx, true);
+                Text(a1, g_tfCardSubL, D2D1::RectF(sx + iw + 3, yy - 8, sx + iw + 3 + w1 + 2, yy + 8), g2);
+                float sx2 = sx + iw + 3 + w1 + gap;
+                sun(sx2, false);
+                Text(a2, g_tfCardSubL, D2D1::RectF(sx2 + iw + 3, yy - 8, sx2 + iw + 3 + w2 + 2, yy + 8), g2);
+            }
+        }
+        g_hits.push_back({ H_WORLD, k, card });
+    }
+}
+
+void PaintTabsGolden(D2D1_SIZE_F sz, bool dark) {
+    D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31);
+    const wchar_t* tabs[] = { L"Relógio Mundial", L"Alarmes", L"Cronômetro", L"Timer" };
+    float ws[4], total = 8;
+    for (int i = 0; i < 4; i++) { ws[i] = TextW(g_tfSeg, Tr(tabs[i])) + 34; total += ws[i]; }
+    D2D1_RECT_F seg = D2D1::RectF(sz.width / 2 - total / 2, 10, sz.width / 2 + total / 2, 42);
+    GlassButton(seg, dark);
+    BarButton(seg);
+    float x = seg.left + 4;
+    for (int i = 0; i < 4; i++) {
+        D2D1_RECT_F r = D2D1::RectF(x, seg.top + 3, x + ws[i], seg.bottom - 3);
+        if (g_tab == i) Fill(r, dark ? Rgb(255, 255, 255, 0.14f) : Rgb(0, 0, 0, 0.08f), 13);
+        Text(Tr(tabs[i]), g_tfSeg, r, text);
+        g_hits.push_back({ H_TAB, i, r });
+        x += ws[i];
+    }
+    if (g_tab <= 1) {
+        D2D1_RECT_F add = D2D1::RectF(sz.width - 8 - 36, 8, sz.width - 8, 44);
+        GlassButton(add, dark); IconPlus({ (add.left + add.right) / 2, 26 }, text);
+        g_hits.push_back({ H_ADD, 0, add }); BarButton(add);
+    }
+}
+
 void Paint() {
     if (!BeginPaint()) return;
     g_hits.clear();
@@ -107,7 +306,10 @@ void Paint() {
     D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
     D2D1_COLOR_F line = dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.10f);
     rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(255, 255, 255));
+    const bool gg = BAR > 0;
+    if (gg) PaintTabsGolden(sz, dark);
     // abas
+    if (!gg) {
     const wchar_t* tabs[] = { L"Relógio Mundial", L"Alarmes", L"Cronômetro", L"Timer" };
     float segW = 120, sx = sz.width / 2 - segW * 2;
     Fill(D2D1::RectF(sx, 14, sx + segW * 4, 40), dark ? Rgb(58, 58, 60) : Rgb(232, 232, 237), 7);
@@ -123,9 +325,11 @@ void Paint() {
         Text(p, g_tfIcon, add, text);
         g_hits.push_back({ H_ADD, 0, add });
     }
+    }  // !gg
     Fill(D2D1::RectF(0, TB - 1, sz.width, TB), line);
     float X = 28, W = sz.width - 28;
-    if (g_tab == 0) {
+    if (g_tab == 0 && gg) PaintWorldGolden(sz, dark);
+    else if (g_tab == 0) {
         SYSTEMTIME here; GetLocalTime(&here);
         float y = TB + 8;
         for (int k = 0; k < (int)g_world.size(); k++) {
@@ -369,7 +573,15 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfBtn = Fmt(15, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
     g_tfIcon = Fmt(16, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
     g_tfMono = Fmt(16, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING);
-    if (!CreateMain(hi, L"RelogioJanela", Tr(L"Relógio"), Proc, 720, 640)) return 1;
+    g_tfCityB = Fmt(11, DWRITE_FONT_WEIGHT_BOLD);
+    g_tfCityT = Fmt(9);
+    g_tfDial = Fmt(12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfCard = Fmt(12.5f, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfCardSub = Fmt(12, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfCardSubL = Fmt(12, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING);
+    barWanted = 52;  // macOS 27: abas na barra unificada
+    if (!CreateMain(hi, L"RelogioJanela", Tr(L"Relógio"), Proc, semaforo::Aqua() ? 1046 : 720, semaforo::Aqua() ? 768 : 640)) return 1;
+    if (BAR > 0) TB = 52;
     // alarmes: o tempo do Mac é a hora grande alinhada à esquerda
     if (g_tfBig) g_tfBig->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     g_tfBigR = Fmt(44, DWRITE_FONT_WEIGHT_LIGHT, DWRITE_TEXT_ALIGNMENT_TRAILING, false, disp.c_str());

@@ -629,7 +629,11 @@ float PanelR() { return liquid::On() ? 26.f : RADIUS; }  // Tahoe: painel bem ma
 
 void Tile(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1_RECT_F r) {
     if (liquid::On()) {  // Tahoe: módulos em cápsulas de vidro (meia altura até 24 pt)
-        liquid::Tile(dc, r, std::min((r.bottom - r.top) / 2, 24.f), ui::Dark());
+        float h = r.bottom - r.top, w = r.right - r.left, rad = std::min(h / 2, 24.f);
+        // macOS 27 (captura 2x do 512 Pixels): mesma grade do Tahoe, cantos maiores nos botões (~27) e no Tocando
+        // Agora (~28), menores nas faixas de Tela e Som (~18)
+        if (liquid::Golden()) rad = w > 200 ? 18.f : h > 100 ? 28.f : std::min(h / 2, 27.f);
+        liquid::Tile(dc, r, rad, ui::Dark());
         return;
     }
     br->SetColor(p.tile);
@@ -1117,7 +1121,8 @@ void PaintTahoe() {
             dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tr.left, tr.top, std::max(kx, tr.left + 5), tr.bottom), 2.5f, 2.5f), br);
         };
         drawTrack();
-        {   // o botão: pílula branca; arrastando vira lente (o mesmo do menu de som)
+        // macOS 27 (captura Finder-Control-Center): Tela e Som sem o botão; ele só aparece arrastando (vira lente)
+        if (!liquid::Golden() || g_kPress[track == H_BRIGHT ? 0 : 1] > 0.001f) {   // o botão: pílula branca; arrastando vira lente (o mesmo do menu de som)
             int ki = track == H_BRIGHT ? 0 : 1;
             float pr = std::clamp(g_kPress[ki], 0.f, 1.f), grow = 1 + (KN_LENS - 1) * pr;
             float kw = KN_W * grow * (1 + g_kStretch[ki]), kh = KN_H * grow * (1 - g_kStretch[ki] * 0.35f), krad = kh / 2;

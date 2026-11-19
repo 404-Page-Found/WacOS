@@ -224,9 +224,19 @@ void Set(const std::wstring& path, int color, const std::wstring& emoji, bool ta
     ApplySystemIcon(path, &in, tahoe);
 }
 
+bool DrawColor(ID2D1DeviceContext* dc, int color, D2D1_RECT_F box, bool tahoe) {
+    if (color < 0 || color >= COUNT) return false;
+    Info in; in.color = color;
+    return DrawInfo(dc, in, box, tahoe);
+}
+
 bool Draw(ID2D1DeviceContext* dc, const std::wstring& path, D2D1_RECT_F box, bool tahoe) {
     Info in;
     if (!Get(path, in)) return false;
+    return DrawInfo(dc, in, box, tahoe);
+}
+
+bool DrawInfo(ID2D1DeviceContext* dc, const Info& in, D2D1_RECT_F box, bool tahoe) {
     if (g_bmpDc != dc) { for (auto& [k, b] : g_bmps) if (b) b->Release(); g_bmps.clear(); g_bmpDc = dc; }
     std::wstring key = std::wstring(tahoe ? L"t|" : L"s|") + std::to_wstring(in.color);
     auto it = g_bmps.find(key);

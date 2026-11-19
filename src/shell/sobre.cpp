@@ -12,7 +12,11 @@
 
 namespace {
 
-const float W = 280, H = 474;
+const float W = 280;
+// macOS 27 Golden Gate (About-This-Mac.png, 2x): 280 × 487, nome a 245,5 sem a linha do ano, dados a partir de 285,5
+// a cada 16, "Mais Informações…" de 24 em 376,5 e o rodapé em 422 / 437 / 451
+#define GG (liquid::Golden())
+#define H (GG ? 487.f : 474.f)
 const float LIGHT_PITCH = 23, LIGHT_R = 7;  // padrão do projeto (o do Monitor de Atividade)
 // Tahoe (guia macOS26-Theme-Reference, seção 9.1): janela só com título = cantos de 16 e o 1º botão em x 9, y 9
 // (centro 16, 16); Sequoia: cantos de 10, centro em 19, 14
@@ -20,10 +24,16 @@ const float LIGHT_PITCH = 23, LIGHT_R = 7;  // padrão do projeto (o do Monitor 
 #define LIGHT_X0 (liquid::On() ? 16.f : 19.f)
 #define LIGHT_Y (liquid::On() ? 16.f : 14.f)
 const float IMG_TOP = 90, IMG_W = 145.5f, IMG_H = 70.7f;
-const float TITLE_CY = 240.6f, YEAR_CY = 262, ROW0_CY = 295.7f, ROW_PITCH = 15.2f;
+const float YEAR_CY = 262;
+#define TITLE_CY (GG ? 245.5f : 240.6f)
+#define ROW0_CY (GG ? 285.5f : 295.7f)
+#define ROW_PITCH (GG ? 16.f : 15.2f)
 const float COL_SPLIT = 119, COL_GAP = 10;
-const float BTN_TOP = 370.4f, BTN_H = 20;
-const float REG_CY = 411, TM_CY = 425, RIGHTS_CY = 439.4f;
+#define BTN_TOP (GG ? 376.5f : 370.4f)
+#define BTN_H (GG ? 24.f : 20.f)
+#define REG_CY (GG ? 422.f : 411.f)
+#define TM_CY (GG ? 437.f : 425.f)
+#define RIGHTS_CY (GG ? 451.f : 439.4f)
 
 HWND g_wnd, g_back;
 bool g_glass, g_active;
@@ -182,13 +192,13 @@ void Paint() {
     D2D1_COLOR_F text2 = dark ? D2D1::ColorF(1, 1, 1, 0.52f) : D2D1::ColorF(0, 0, 0, 0.50f);
     auto C = DWRITE_TEXT_ALIGNMENT_CENTER;
     Text(dc, br, L"Mac Studio", 21.5f, DWRITE_FONT_WEIGHT_BOLD, C, D2D1::RectF(0, TITLE_CY - 16, W, TITLE_CY + 16), text, false, true);
-    Text(dc, br, L"2025", 11, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, YEAR_CY - 8, W, YEAR_CY + 8), text2);
+    if (!GG) Text(dc, br, L"2025", 11, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, YEAR_CY - 8, W, YEAR_CY + 8), text2);  // macOS 27: sem o ano
 
     const wchar_t* rows[4][2] = {
         { L"Chip", L"Apple M4 Max" },
         { Tr(L"Memória"), Tr(L"128 GB") },
         { Tr(L"Número de série"), g_serial.c_str() },
-        { L"macOS", liquid::On() ? L"Tahoe 26.7.2" : L"Sequoia 15.3" },  // Tahoe: a última lançada (26.7.2, out. 2026)
+        { L"macOS", GG ? L"Golden Gate 27.2.1" : liquid::On() ? L"Tahoe 26.7.2" : L"Sequoia 15.3" },  // Golden Gate: a última (27.2.1, nov. 2026)  // Tahoe: a última lançada (26.7.2, out. 2026)
     };
     for (int i = 0; i < 4; i++) {
         float cy = ROW0_CY + i * ROW_PITCH;

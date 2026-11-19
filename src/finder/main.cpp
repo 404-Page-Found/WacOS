@@ -769,11 +769,38 @@ static void ToggleSection(int header) {
 static bool SearchExpanded() { return g_searchFocus || !g_search.text.empty(); }
 
 // Tahoe: um botão só para a visão (ícone da atual + ⌃⌄), como no macOS 26
-static bool WideToolbar() { return !g_tahoe && ClientDip().width - Lay::SIDEBAR_W >= 650; }  // estreita: seletor de visão vira um botão (650 = botões da direita + voltar/avançar + um pedaço do título)
+static bool Golden();
+// macOS 27 Golden Gate: os quatro modos de visualização voltam a ficar abertos numa cápsula (se couber)
+static bool WideToolbar() { return Golden() ? ClientDip().width - Lay::SIDEBAR_W >= 560 : !g_tahoe && ClientDip().width - Lay::SIDEBAR_W >= 650; }  // estreita: seletor de visão vira um botão (650 = botões da direita + voltar/avançar + um pedaço do título)
 
 static D2D1_RECT_F ToolRect(int k) {
     auto s = ClientDip();
     float cy = Lay::TOOL_CY, h = Lay::BTN / 2;
+    if (Golden()) {
+        // macOS 27 (captura 2x do 512 Pixels): tudo a 8 de distância; Voltar/Avançar 73 × 36; os quatro modos numa
+        // cápsula de 160 (pílula de 33 × 26 a cada 39,17, a primeira a 4,5 da borda); Agrupar 47; Compartilhar,
+        // Etiquetas e ⋯ com 37 cada; busca num círculo de 36 a 8 da borda da janela
+        const float B = 36, G = 8;
+        auto bx = [&](float right, float w) { return D2D1_RECT_F{ right - w, cy - B / 2, right, cy + B / 2 }; };
+        if (k == TB_BACK) return { Lay::SIDEBAR_W + G, cy - B / 2, Lay::SIDEBAR_W + G + 36.5f, cy + B / 2 };
+        if (k == TB_FWD) return { Lay::SIDEBAR_W + G + 36.5f, cy - B / 2, Lay::SIDEBAR_W + G + 73, cy + B / 2 };
+        float right = s.width - 8;
+        float sw = std::min(307.f, std::max(160.f, (s.width - Lay::SIDEBAR_W) * 0.35f));
+        D2D1_RECT_F search = SearchExpanded() ? D2D1_RECT_F{ right - sw, cy - B / 2, right, cy + B / 2 } : bx(right, 36);
+        if (k == TB_SEARCH) return search;
+        D2D1_RECT_F action = bx(search.left - G, 37);
+        if (k == TB_ACTION) return action;
+        D2D1_RECT_F tag = bx(action.left, 37);
+        if (k == TB_TAG) return tag;
+        D2D1_RECT_F share = bx(tag.left, 37);
+        if (k == TB_SHARE) return share;
+        D2D1_RECT_F group = bx(share.left - G, 47);
+        if (k == TB_GROUP) return group;
+        if (!WideToolbar()) return k == TB_V_ICONS ? bx(group.left - G, B) : D2D1_RECT_F{ 0, 0, 0, 0 };
+        if (k < TB_V_ICONS || k > TB_V_GALLERY) return { 0, 0, 0, 0 };
+        float capL = group.left - G - 160, mid = capL + 21 + (k - TB_V_ICONS) * 39.17f;
+        return { mid - 16.5f, cy - 13, mid + 16.5f, cy + 13 };
+    }
     if (g_tahoe) {
         // Tahoe (guia, seções 31 e 42, medido): ilhas de vidro de 36 de altura (raio 18) com botões de 36 × 36,
         // 8 entre as ilhas; Voltar/Avançar = dois segmentos colados; busca = cápsula de 39 × 38 que abre num campo
@@ -1690,7 +1717,8 @@ struct Palette {
 static Palette ColorsBase();
 static Palette Colors() {  // Tahoe: o fundo da janela leva 10 % da cor do papel de parede (tahoe::Tint)
     Palette p = ColorsBase();
-    if (g_tahoe) p.content = tahoe::Tint(p.content);
+    if (g_tahoe && tahoe::Golden()) p.content = g_dark ? D2D1::ColorF(30 / 255.f, 30 / 255.f, 30 / 255.f, 1) : D2D1::ColorF(1, 1, 1, 1);  // Golden Gate: branco puro (medido)
+    else if (g_tahoe) p.content = tahoe::Tint(p.content);
     p.accent = tahoe::Accent(false);  // Ajustes > Aparência > Cor de destaque (seleção, ícones da barra lateral...)
     return p;
 }
@@ -2054,6 +2082,7 @@ static void DrawLights(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br) {
         if (lit) br->SetColor(fill[k]);
         else br->SetColor(g_dark ? D2D1::ColorF(0.24f, 0.24f, 0.25f) : D2D1::ColorF(0.839f, 0.839f, 0.839f));  // inativa: cinza
         dc->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(dc, c, 7, br);
         if (lit) br->SetColor(ring[k]);
         else br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.30f) : D2D1::ColorF(0.729f, 0.729f, 0.737f));
         dc->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
@@ -2086,7 +2115,11 @@ static void DrawLights(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br) {
 
 // Tahoe: painel de vidro da barra lateral, solto das bordas e com o raio concêntrico ao da janela
 static float SidePanelR() { return std::max(10.f, tahoe::Radius(g_hwnd) - 7); }
+// macOS 27 Golden Gate (medido no Finder das capturas do 512 Pixels): a barra lateral volta a ir até a borda, uma coluna
+// de cor cheia (237,237,236) que encosta direto no conteúdo branco, sem divisa, sem painel de vidro e sem sombra
+static bool Golden() { return g_tahoe && tahoe::Golden(); }
 static D2D1_RECT_F SidePanelRect() {
+    if (Golden()) return { 0, 0, std::floor(Lay::SIDEBAR_W), ClientDip().height };
     float m = IsZoomed(g_hwnd) ? 6.f : 8.f;  // Tahoe: painel flutuante com 8 de recuo (guia, seção 42)
     return { m, m, std::floor(Lay::SIDEBAR_W) - 1, std::floor(ClientDip().height - m) };  // bordas no grid de pixels
 
@@ -2095,7 +2128,7 @@ static D2D1_RECT_F SidePanelRect() {
 static float g_sideClipTop = Lay::SIDE_TOP;  // Tahoe (cena): a lista rola até o alto do painel, por baixo dos botões
 static void DrawSidebar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
     const float dx = g_tahoe ? 4.f : 0.f;  // Tahoe: conteúdo um pouco para dentro do painel
-    dc->PushAxisAlignedClip(D2D1::RectF(0, g_sideClipTop, Lay::SIDEBAR_W, ClientDip().height - (g_tahoe ? 9 : 0)), D2D1_ANTIALIAS_MODE_ALIASED);
+    dc->PushAxisAlignedClip(D2D1::RectF(0, g_sideClipTop, Lay::SIDEBAR_W, ClientDip().height - (g_tahoe && !Golden() ? 9 : 0)), D2D1_ANTIALIAS_MODE_ALIASED);
     struct PopClip { ID2D1DeviceContext* d; ~PopClip() { d->PopAxisAlignedClip(); } } pop{ dc };
     if (g_sideInsert >= 0) {  // linha azul onde o favorito vai entrar
         float y = -1;
@@ -2183,11 +2216,11 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
             g_toolLuzAt = now;
         }
         cap(U(ToolRect(TB_BACK), ToolRect(TB_FWD)), 0);
-        if (WideToolbar()) cap(U(ToolRect(TB_V_ICONS), ToolRect(TB_V_GALLERY)), 3);
+        if (WideToolbar()) cap(U(ToolRect(TB_V_ICONS), ToolRect(TB_V_GALLERY)), Golden() ? 4.5f : 3);
         else cap(ToolRect(TB_V_ICONS), 0);
         cap(ToolRect(TB_GROUP), 0);
         cap(U(ToolRect(TB_SHARE), ToolRect(TB_ACTION)), 0);  // Compartilhar, Etiquetas e ⋯ juntos (Tahoe)
-        if (!SearchExpanded()) cap(ToolRect(TB_SEARCH), 0, 19);  // busca recolhida: cápsula de 39 × 38
+        if (!SearchExpanded()) cap(ToolRect(TB_SEARCH), 0, Golden() ? 18.f : 19.f);  // busca recolhida: cápsula de 39 × 38 (macOS 27: círculo de 36)
     }
     for (int k = 0; k < TB_COUNT; k++) {
         if (k == TB_SEARCH && SearchExpanded()) continue;
@@ -2200,6 +2233,7 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
         if (current || (enabled && g_hoverTool == k)) {
             float a = current ? (g_dark ? 0.06f : 0.06f) : pal.hover.a * (g_pressTool == k ? 2 : 1);
             if (g_tahoe && current) a = g_dark ? 0.14f : 0.08f;  // segmento escolhido: pílula dentro da cápsula
+            if (Golden() && current) a = g_dark ? 0.16f : 0.075f;  // macOS 27: pílula (230,230,230) na cápsula clara
             br->SetColor(D2D1::ColorF(pal.hover.r, pal.hover.g, pal.hover.b, a));
             float rr = g_tahoe ? (r.bottom - r.top) / 2 : 6;
             dc->FillRoundedRectangle(D2D1::RoundedRect(r, rr, rr), br);
@@ -2207,7 +2241,7 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
         br->SetColor(enabled ? icon : dim);
         DrawToolIcon(dc, k, r, br);
     }
-    if (WideToolbar() && !g_tahoe) {  // divisória fina entre dois botões de visão quando nenhum dos dois é o atual
+    if (WideToolbar() && (!g_tahoe || Golden())) {  // divisória fina entre dois botões de visão quando nenhum dos dois é o atual
         int cur = g_view == View::Icons ? 0 : g_view == View::List ? 1 : g_view == View::Columns ? 2 : 3;
         br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.07f) : D2D1::ColorF(0, 0, 0, 0.10f));
         for (int i = 0; i < 3; i++) {
@@ -2306,6 +2340,7 @@ static float ThumbAlpha(const std::wstring& key) {
 static void DrawEntryIcon(ID2D1DeviceContext* dc, const Entry& e, D2D1_RECT_F ir, ID2D1SolidColorBrush* br) {
     if (e.dir && e.path.size() == 3 && e.path[1] == L':') { DrawDrive(dc, ir, br); return; }
     if (e.dir && pastacor::Draw(dc, e.path, ir, g_tahoe)) return;  // cor e símbolo escolhidos (Personalizar Pasta)
+    if (e.dir && !e.emblem && g_tahoe && pastacor::DrawColor(dc, tahoe::FolderColor(), ir, g_tahoe)) return;  // Aparência > Cor das pastas
     if (e.dir) { DrawFolder(dc, ir, e.emblem, br); return; }
     if (!g_showThumbs && !IsAppFile(e)) { DrawDocument(dc, ir, e.name, br); return; }  // "Mostrar prévia do ícone" desligado
     float icon = ir.right - ir.left;
@@ -2335,6 +2370,7 @@ static void DrawItemIcon(ID2D1DeviceContext* dc, int i, D2D1_RECT_F ir, ID2D1Sol
 // Ícone grande (prévia das colunas e da galeria): pede uma miniatura em alta resolução à parte.
 static void DrawBigIcon(ID2D1DeviceContext* dc, const Entry& e, D2D1_RECT_F box, ID2D1SolidColorBrush* br) {
     if (e.dir && pastacor::Draw(dc, e.path, box, g_tahoe)) return;
+    if (e.dir && !e.emblem && g_tahoe && pastacor::DrawColor(dc, tahoe::FolderColor(), box, g_tahoe)) return;
     if (e.dir) { DrawFolder(dc, box, e.emblem, br); return; }
     std::wstring big = e.Key() + L"|G";
     auto it = g_images.find(big);
@@ -2943,7 +2979,10 @@ static std::wstring DefaultAppName(const Entry& e) {
     return L"";
 }
 
-const float QL_TITLE_H = 40;
+// macOS 27 (captura Finder-Quick-Look, 2x): barra de título de 38, moldura clara de 5 em volta da prévia, cantos 16 na
+// janela e 12 na foto; fechar = círculo escuro de 16 a 9 da borda, título em negrito de 15 à esquerda, "Abrir com…"
+// numa cápsula de 26 a 7 da borda
+#define QL_TITLE_H (semaforo::Aqua() ? 38.f : 40.f)
 static void RunVerb(const char* verb);
 
 static ID2D1Bitmap* QlImage(const Entry& e) {  // miniatura grande, se já chegou (senão a pequena)
@@ -3035,12 +3074,13 @@ static D2D1_RECT_F QlPanel() {
     float cx = s.width / 2, cy = s.height / 2 + 8;
     return { cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 };
 }
-static D2D1_RECT_F QlCloseRect() { auto r = QlPanel(); return { r.left + 10, r.top + 10, r.left + 30, r.top + 30 }; }
+static D2D1_RECT_F QlCloseRect() { auto r = QlPanel(); if (semaforo::Aqua()) return { r.left + 9, r.top + 11, r.left + 25, r.top + 27 }; return { r.left + 10, r.top + 10, r.left + 30, r.top + 30 }; }
 static D2D1_RECT_F QlOpenRect() {
     auto r = QlPanel();
     int i = QlItem();
     std::wstring app = i >= 0 ? DefaultAppName(g_items[i]) : L"";
     float w = std::clamp(TextWidth(app.empty() ? Tr(L"Abrir") : Tr(L"Abrir com ") + app, g_tfQlButton) + 22, 60.f, 220.f);
+    if (semaforo::Aqua()) return { r.right - 7 - w - 8, r.top + 6, r.right - 7, r.top + 32 };
     return { r.right - 12 - w, r.top + 8, r.right - 12, r.top + 32 };
 }
 static D2D1_RECT_F QlShareRect() { auto o = QlOpenRect(); return { o.left - 36, o.top, o.left - 8, o.bottom }; }
@@ -3099,9 +3139,33 @@ static void QlClose() {  // volta para o ícone; o timer 6 desenha e no fim some
     Invalidate();
 }
 
+// Golden Gate: o Quick Look é o do Shell (janela própria de vidro fosco, arrastável, por cima de tudo, como no Mac).
+// O Finder fica com o foco: espaço fecha, Esc fecha e as setas trocam o arquivo mostrado. Vídeo e música também vão
+// para lá (o Shell toca com a barra do QuickTime); o painel daqui fica para os outros temas.
+static std::wstring g_qlExtPath;
+static HWND QlShellWnd() { HWND q = FindWindowW(L"ShellQuickLook", nullptr); return q && IsWindowVisible(q) ? q : nullptr; }
+static bool QlSend(const std::wstring& p) {
+    HWND sh = FindWindowW(L"ShellMensagens", nullptr);
+    if (!sh) return false;
+    COPYDATASTRUCT cd{ 0x514C4F4B /*'QLOK'*/, (DWORD)((p.size() + 1) * sizeof(wchar_t)), (PVOID)p.c_str() };
+    DWORD_PTR r = 0;
+    if (!SendMessageTimeoutW(sh, WM_COPYDATA, (WPARAM)g_hwnd, (LPARAM)&cd, SMTO_ABORTIFHUNG, 800, &r) || !r) return false;
+    g_qlExtPath = p;
+    return true;
+}
+static void QlSyncShell() {  // a seleção mudou com o Quick Look do Shell aberto: mostra o novo
+    if (g_qlExtPath.empty()) return;
+    if (!QlShellWnd()) { g_qlExtPath.clear(); return; }
+    int i = QlItem();
+    if (i < 0 || !_wcsicmp(g_items[i].path.c_str(), g_qlExtPath.c_str())) return;
+    QlSend(g_items[i].path);  // vídeo e música também tocam no Quick Look do Shell
+}
+
 static void QlToggle() {
+    if (!g_qlExtPath.empty() && QlShellWnd()) { QlSend(L""); return; }
     if (g_ql) { QlClose(); return; }
     if (QlItem() < 0) return;
+    if (Golden() && QlSend(g_items[QlItem()].path)) return;  // tudo no Quick Look do Shell (vídeo e música também)
     g_ql = true;
     g_qlClosing = false;
     g_qlFrom = IconDoc(QlItem());
@@ -3114,6 +3178,7 @@ static void QlToggle() {
     Invalidate();
 }
 
+static IDWriteTextFormat* Format(const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, DWRITE_TEXT_ALIGNMENT align, DWRITE_PARAGRAPH_ALIGNMENT para, bool wrap);
 static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
     int i = QlItem();
     if (i < 0) { g_ql = false; return; }
@@ -3154,14 +3219,30 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
         br->SetColor(D2D1::ColorF(0, 0, 0, 0.03f));
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k * 2.5f, r.top - k * 1.5f + 10, r.right + k * 2.5f, r.bottom + k * 3.f + 10), 12 + k * 2.f, 12 + k * 2.f), br);
     }
+    const bool gg = semaforo::Aqua();
     D2D1_COLOR_F bg = g_dark ? D2D1::ColorF(0.11f, 0.11f, 0.12f, 1) : D2D1::ColorF(0.97f, 0.97f, 0.975f, 1);
+    if (gg) bg = g_dark ? D2D1::ColorF(0.18f, 0.18f, 0.19f, 1) : D2D1::ColorF(0.945f, 0.94f, 0.935f, 1);  // moldura clara
     br->SetColor(bg);
-    dc->FillRoundedRectangle(D2D1::RoundedRect(r, 12, 12), br);
+    dc->FillRoundedRectangle(D2D1::RoundedRect(r, gg ? 16.f : 12.f, gg ? 16.f : 12.f), br);
+    if (gg) {  // vidro: a barra escurece no meio e clareia em cima e perto da foto (medido: 240 -> 196 -> 238), fio claro em cima
+        D2D1_COLOR_F f1 = g_dark ? D2D1::ColorF(0.13f, 0.13f, 0.14f, 1) : D2D1::ColorF(0.80f, 0.78f, 0.76f, 1);
+        D2D1_GRADIENT_STOP st[3] = { { 0, bg }, { 0.45f, f1 }, { 1, bg } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(st, 3, &gs)) && SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.top + QL_TITLE_H }), gs, &lb)))
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top, r.right, r.top + QL_TITLE_H + 16), 16, 16), lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        br->SetColor(bg);
+        dc->FillRectangle(D2D1::RectF(r.left, r.top + QL_TITLE_H, r.right, r.top + QL_TITLE_H + 16), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, g_dark ? 0.18f : 0.7f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 15.5f, 15.5f), br, 1);
+    }
 
     ID2D1Bitmap* bmp = QlImage(e);
     bool text = !e.dir && IsTextFile(e);
     bool video = QlVideoOn(e), audio = !video && QlAudioOn(e);
     D2D1_RECT_F body{ r.left, r.top + QL_TITLE_H, r.right, r.bottom };
+    if (gg) body = D2D1::RectF(r.left + 5, r.top + QL_TITLE_H, r.right - 5, r.bottom - 5);  // macOS 27: moldura de 5
     if (video) {  // vídeo: quadro atual (ou a miniatura enquanto o primeiro não chega) no corpo todo
         ID2D1RoundedRectangleGeometry* clip = nullptr;
         ID2D1Factory* f = nullptr; dc->GetFactory(&f);
@@ -3203,11 +3284,12 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
     } else if (bmp) {  // foto: ocupa o corpo todo
         ID2D1RoundedRectangleGeometry* clip = nullptr;
         ID2D1Factory* f = nullptr; dc->GetFactory(&f);
-        f->CreateRoundedRectangleGeometry(D2D1::RoundedRect(r, 12, 12), &clip);
+        f->CreateRoundedRectangleGeometry(gg ? D2D1::RoundedRect(body, 12, 12) : D2D1::RoundedRect(r, 12, 12), &clip);
         ID2D1Layer* cl = nullptr; dc->CreateLayer(nullptr, &cl);
         dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clip), cl);
         auto sz = bmp->GetPixelSize();
-        float k = std::min((body.right - body.left) / sz.width, (body.bottom - body.top) / sz.height);
+        float k = gg ? std::max((body.right - body.left) / sz.width, (body.bottom - body.top) / sz.height)  // macOS 27: a foto preenche a moldura
+                     : std::min((body.right - body.left) / sz.width, (body.bottom - body.top) / sz.height);
         float w = sz.width * k, h = sz.height * k, cx = (body.left + body.right) / 2, cy = (body.top + body.bottom) / 2;
         DrawBigIcon(dc, e, D2D1::RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), br);
         dc->PopLayer(); cl->Release(); clip->Release(); f->Release();
@@ -3250,23 +3332,34 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
         ID2D1Layer* cl = nullptr; dc->CreateLayer(nullptr, &cl);
         dc->PushLayer(D2D1::LayerParameters(bar, clip), cl);
         br->SetColor(g_dark ? D2D1::ColorF(0.19f, 0.19f, 0.2f, bmp || video ? 0.86f : 1.f) : D2D1::ColorF(0.93f, 0.93f, 0.935f, bmp || video ? 0.86f : 1.f));
-        dc->FillRectangle(bar, br);
+        if (!gg) dc->FillRectangle(bar, br);  // macOS 27: a barra é a própria moldura de vidro (já pintada)
         dc->PopLayer(); cl->Release(); clip->Release(); f->Release();
     }
-    br->SetColor(pal.line);
-    dc->DrawLine({ r.left, bar.bottom - 0.5f }, { r.right, bar.bottom - 0.5f }, br, 1);
+    if (!gg) { br->SetColor(pal.line); dc->DrawLine({ r.left, bar.bottom - 0.5f }, { r.right, bar.bottom - 0.5f }, br, 1); }
     auto cr = QlCloseRect();
     float ccx = (cr.left + cr.right) / 2, ccy = (cr.top + cr.bottom) / 2;
+    if (gg) {  // macOS 27: círculo escuro cheio com o × claro
+        br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.75f) : D2D1::ColorF(0.24f, 0.22f, 0.21f, 0.9f));
+        dc->FillEllipse(D2D1::Ellipse({ ccx, ccy }, 8, 8), br);
+        br->SetColor(bg);
+        Line(dc, br, ccx - 2.8f, ccy - 2.8f, ccx + 2.8f, ccy + 2.8f, 1.6f);
+        Line(dc, br, ccx - 2.8f, ccy + 2.8f, ccx + 2.8f, ccy - 2.8f, 1.6f);
+    } else {
     br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.10f));
     dc->FillEllipse(D2D1::Ellipse({ ccx, ccy }, 9, 9), br);
     br->SetColor(pal.text2);
     Line(dc, br, ccx - 3, ccy - 3, ccx + 3, ccy + 3, 1.5f);
     Line(dc, br, ccx - 3, ccy + 3, ccx + 3, ccy - 3, 1.5f);
+    }
     auto orr = QlOpenRect(), sr = QlShareRect();
     br->SetColor(pal.text);
+    if (gg) {  // macOS 27: título em negrito de 15 à esquerda, logo depois do fechar
+        static IDWriteTextFormat* tfT = Format(g_uiFamily.c_str(), 15, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+        dc->DrawTextW(e.label.c_str(), (UINT32)e.label.size(), tfT, D2D1::RectF(cr.right + 9, bar.top, sr.left - 8, bar.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    } else
     dc->DrawTextW(e.label.c_str(), (UINT32)e.label.size(), g_tfQlTitle, D2D1::RectF(cr.right + 12, bar.top, sr.left - 8, bar.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.07f));
-    dc->FillRoundedRectangle(D2D1::RoundedRect(orr, 6, 6), br);
+    dc->FillRoundedRectangle(D2D1::RoundedRect(orr, gg ? 13.f : 6.f, gg ? 13.f : 6.f), br);
     std::wstring app = DefaultAppName(e);
     std::wstring openLabel = e.dir ? Tr(L"Abrir") : app.empty() ? Tr(L"Abrir") : Tr(L"Abrir com ") + app;
     br->SetColor(pal.text);
@@ -3308,6 +3401,168 @@ static void DrawScopeBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
 static void DrawTrashBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br);
 static bool g_trashPress;
 
+// ---------------------------------------------------------------------------
+// Ir para a Pasta (Ctrl+Shift+G), como o do macOS 27 (captura Finder-Go-To-Folder, 2x): painel de 460 × 183 no alto da
+// janela, cantos 16; campo de 34 com o texto de 17 a 16 da borda e o × cinza à direita, divisa embaixo; "Ir para:" em
+// cinza e as pastas sugeridas em linhas de 22 com o caminho separado por "›" e a parte digitada em negrito; a escolhida
+// numa pílula azul (cantos 11, a 10 das bordas). "~" é a pasta do usuário.
+static bool g_goOpen;
+static TextField g_go;
+static std::vector<std::wstring> g_goSugg;
+static int g_goSel;
+
+static std::wstring GoExpand(std::wstring t) {
+    wchar_t prof[MAX_PATH] = {};
+    GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH);
+    if (!t.empty() && t[0] == L'~') t = std::wstring(prof) + t.substr(1);
+    for (auto& c : t) if (c == L'/') c = L'\\';
+    wchar_t buf[2048] = {};
+    if (ExpandEnvironmentStringsW(t.c_str(), buf, 2048)) t = buf;
+    return t;
+}
+
+static void GoRefresh() {
+    g_goSugg.clear();
+    g_goSel = 0;
+    std::wstring full = GoExpand(g_go.text);
+    if (full.empty()) return;
+    size_t cut = full.find_last_of(L'\\');
+    std::wstring dir = cut == std::wstring::npos ? full : full.substr(0, cut + 1), pre = cut == std::wstring::npos ? L"" : full.substr(cut + 1);
+    if (dir.size() == 2 && dir[1] == L':') dir += L'\\';
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == L'.' || (fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN)) continue;
+        if (_wcsnicmp(fd.cFileName, pre.c_str(), pre.size())) continue;
+        g_goSugg.push_back(dir + fd.cFileName);
+    } while (FindNextFileW(h, &fd) && g_goSugg.size() < 6);
+    FindClose(h);
+}
+
+static void GoOpen(bool on) {
+    g_goOpen = on;
+    if (on) { g_go.SetText(L"", false); GoRefresh(); g_caretOn = true; }
+    Invalidate();
+}
+
+static void GoAccept() {
+    std::wstring target = g_goSel >= 0 && g_goSel < (int)g_goSugg.size() ? g_goSugg[g_goSel] : GoExpand(g_go.text);
+    while (target.size() > 3 && target.back() == L'\\') target.pop_back();
+    DWORD a = GetFileAttributesW(target.c_str());
+    if (a == INVALID_FILE_ATTRIBUTES) { MessageBeep(MB_ICONWARNING); return; }
+    GoOpen(false);
+    if (a & FILE_ATTRIBUTE_DIRECTORY) Navigate(target);
+    else { size_t k = target.find_last_of(L'\\'); Navigate(target.substr(0, k), true, target.substr(k + 1)); }
+}
+
+static D2D1_RECT_F GoRect() {
+    auto s = ClientDip();
+    float w = std::min(460.f, s.width - 20), x = (s.width - w) / 2;
+    return D2D1::RectF(x, 8, x + w, 8 + 183);
+}
+
+static bool GoKey(UINT vk, bool shift, bool ctrl) {
+    if (!g_goOpen) return false;
+    if (vk == VK_ESCAPE) { GoOpen(false); return true; }
+    if (vk == VK_RETURN) { GoAccept(); return true; }
+    if (vk == VK_DOWN) { if (!g_goSugg.empty()) g_goSel = std::min(g_goSel + 1, (int)g_goSugg.size() - 1); Invalidate(); return true; }
+    if (vk == VK_UP) { g_goSel = std::max(g_goSel - 1, 0); Invalidate(); return true; }
+    if (vk == VK_TAB && g_goSel >= 0 && g_goSel < (int)g_goSugg.size()) {  // completa com a escolhida
+        g_go.SetText(g_goSugg[g_goSel] + L"\\", false); g_go.Select((int)g_go.text.size(), (int)g_go.text.size()); GoRefresh(); Invalidate(); return true;
+    }
+    if (g_go.OnKey(vk, shift, ctrl)) { GoRefresh(); Invalidate(); }
+    return true;  // com o painel aberto, as teclas não vão para a lista de arquivos
+}
+
+static bool GoClick(D2D1_POINT_2F p) {
+    if (!g_goOpen) return false;
+    D2D1_RECT_F r = GoRect();
+    if (!In(r, p)) { GoOpen(false); return true; }
+    if (p.y < r.top + 34 && p.x > r.right - 40) { GoOpen(false); return true; }  // o ×
+    float y0 = r.top + 68;
+    int i = (int)std::floor((p.y - y0) / 22);
+    if (p.y >= y0 && i >= 0 && i < (int)g_goSugg.size()) { g_goSel = i; GoAccept(); }
+    return true;
+}
+
+static void DrawGoTo(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
+    if (!g_goOpen) return;
+    D2D1_RECT_F r = GoRect();
+    static IDWriteTextFormat *tfField, *tfRow, *tfRowB, *tfHead;
+    if (!tfField) {
+        tfField = Format(g_uiFamily.c_str(), 17, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+        tfRow = Format(g_uiFamily.c_str(), 15, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+        tfRowB = Format(g_uiFamily.c_str(), 15, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+        tfHead = Format(g_uiFamily.c_str(), 13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+    }
+    for (int k = 4; k >= 1; k--) {  // sombra
+        br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.10f : 0.05f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k * 1.5f, r.top - k + 4, r.right + k * 1.5f, r.bottom + k * 2.5f), 16 + k, 16 + k), br);
+    }
+    br->SetColor(g_dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 1) : D2D1::ColorF(0.98f, 0.98f, 0.98f, 1));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(r, 16, 16), br);
+    br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.10f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 15.5f, 15.5f), br, 1);
+    // campo
+    D2D1_RECT_F fr = D2D1::RectF(r.left + 16, r.top, r.right - 44, r.top + 34);
+    ID2D1SolidColorBrush *sel = nullptr, *txt = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(pal.accent.r, pal.accent.g, pal.accent.b, 0.30f), &sel);
+    dc->CreateSolidColorBrush(pal.text, &txt);
+    if (g_go.text.empty()) {
+        br->SetColor(pal.text2);
+        std::wstring ph = Tr(L"Digite um caminho");
+        dc->DrawTextW(ph.c_str(), (UINT32)ph.size(), tfField, fr, br);
+    }
+    if (txt && sel) g_go.Draw(dc, tfField, fr, txt, sel, txt, g_caretOn, false);
+    if (sel) sel->Release();
+    if (txt) txt->Release();
+    D2D1_POINT_2F xc{ r.right - 24, r.top + 17 };  // × cinza
+    br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.45f) : D2D1::ColorF(0, 0, 0, 0.45f));
+    dc->FillEllipse(D2D1::Ellipse(xc, 7.5f, 7.5f), br);
+    br->SetColor(g_dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 1) : D2D1::ColorF(1, 1, 1, 1));
+    dc->DrawLine({ xc.x - 3, xc.y - 3 }, { xc.x + 3, xc.y + 3 }, br, 1.5f);
+    dc->DrawLine({ xc.x - 3, xc.y + 3 }, { xc.x + 3, xc.y - 3 }, br, 1.5f);
+    br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.10f));
+    dc->FillRectangle(D2D1::RectF(r.left, r.top + 34, r.right, r.top + 35), br);
+    if (g_goSugg.empty()) return;
+    br->SetColor(pal.text2);
+    std::wstring head = Tr(L"Ir para:");
+    dc->DrawTextW(head.c_str(), (UINT32)head.size(), tfHead, D2D1::RectF(r.left + 18, r.top + 46, r.right - 18, r.top + 66), br);
+    std::wstring typed = GoExpand(g_go.text);
+    size_t cut = typed.find_last_of(L'\\');
+    size_t preLen = cut == std::wstring::npos ? 0 : typed.size() - cut - 1;
+    for (int i = 0; i < (int)g_goSugg.size(); i++) {
+        float y = r.top + 68 + i * 22;
+        if (y + 22 > r.bottom - 4) break;
+        bool on = i == g_goSel;
+        if (on) { br->SetColor(pal.accent); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 10, y, r.right - 10, y + 22), 11, 11), br); }
+        // as três últimas partes do caminho, separadas por "›"; a parte digitada do nome em negrito
+        std::vector<std::wstring> parts;
+        std::wstring p = g_goSugg[i];
+        size_t st = 0;
+        while (st < p.size()) { size_t e = p.find(L'\\', st); if (e == std::wstring::npos) e = p.size(); if (e > st) parts.push_back(p.substr(st, e - st)); st = e + 1; }
+        if (parts.size() > 3) parts.erase(parts.begin(), parts.end() - 3);
+        float x = r.left + 18;
+        D2D1_COLOR_F col = on ? D2D1::ColorF(1, 1, 1, 1) : pal.text;
+        for (size_t k = 0; k < parts.size(); k++) {
+            bool last = k + 1 == parts.size();
+            auto draw = [&](const std::wstring& s, IDWriteTextFormat* tf) {
+                IDWriteTextLayout* lay = nullptr;
+                if (FAILED(gfx::dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, 1000, 22, &lay))) return;
+                DWRITE_TEXT_METRICS m{}; lay->GetMetrics(&m);
+                br->SetColor(col);
+                dc->DrawTextLayout({ x, y }, lay, br);
+                x += m.widthIncludingTrailingWhitespace;
+                lay->Release();
+            };
+            if (last && preLen > 0 && preLen <= parts[k].size()) { draw(parts[k].substr(0, preLen), tfRowB); draw(parts[k].substr(preLen), tfRow); }
+            else draw(parts[k], tfRow);
+            if (!last) { x += 6; draw(L"›", tfRow); x += 6; }
+        }
+    }
+}
+
 static void Render() {
     QlSyncMedia();
     media::UpdateFrame();
@@ -3328,7 +3583,14 @@ static void Render() {
     dc->Clear(D2D1::ColorF(0, 0, 0, 0));
     float winR = g_tahoe ? tahoe::Radius(g_hwnd) : 0;
     bool winClip = g_tahoe && tahoe::PushWindowClip(dc, s, winR);
-    if (g_tahoe) {
+    if (Golden()) {
+        pal.bar = pal.content;
+        tahoe::SetPanel(g_hwnd, D2D1::RectF(0, 0, 0, 0), 0);
+        br->SetColor(g_dark ? D2D1::ColorF(43 / 255.f, 41 / 255.f, 40 / 255.f, 1) : D2D1::ColorF(237 / 255.f, 237 / 255.f, 236 / 255.f, 1));
+        dc->FillRectangle(D2D1::RectF(0, 0, Lay::SIDEBAR_W, s.height), br);
+        br->SetColor(pal.content);
+        dc->FillRectangle(D2D1::RectF(Lay::SIDEBAR_W, 0, s.width, s.height), br);
+    } else if (g_tahoe) {
         // Tahoe: a janela inteira na cor do conteúdo, com a barra lateral num painel de vidro flutuante
         // (o desfoque da janela aparece só dentro dele); barras de cima e de baixo sem faixa nem divisa
         pal.bar = pal.content;
@@ -3375,7 +3637,8 @@ static void Render() {
     }
     br->SetColor(pal.bar);  // status também um tom mais claro; a barra de caminho fica na cor da lista
     dc->FillRectangle(D2D1::RectF(Lay::SIDEBAR_W, s.height - Lay::STATUS_H, s.width, s.height), br);
-    if (g_tahoe) {
+    if (Golden()) {
+    } else if (g_tahoe) {
         tahoe::Panel(dc, br, SidePanelRect(), SidePanelR(), g_dark);
     } else {
         br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.6f) : D2D1::ColorF(0, 0, 0, 0.12f));  // divisas escuras
@@ -3412,7 +3675,9 @@ static void Render() {
     DrawScopeBar(dc, pal, br);
     DrawTrashBar(dc, pal, br);
     if (g_viewOpts) DrawViewOptions(dc, pal, br);
+    QlSyncShell();
     if (g_ql) DrawQuickLook(dc, pal, br);
+    DrawGoTo(dc, pal, br);
 
     if (winClip) { dc->PopLayer(); tahoe::WindowRim(dc, br, s, winR, g_dark); }
     br->Release();
@@ -4839,6 +5104,8 @@ static bool HandleKey(UINT vk) {
         if (g_pickName.OnKey(vk, shift, ctrl)) { Invalidate(); return true; }
         return false;
     }
+    if (GoKey(vk, shift, ctrl)) return true;  // Ir para a Pasta aberto
+    if (ctrl && shift && vk == 'G') { GoOpen(true); return true; }
     if (g_pick.on && !g_searchFocus && vk == VK_RETURN) { PickerAccept(-1); return true; }
     if (g_pick.on && !g_searchFocus && vk == VK_ESCAPE && !g_ql && !g_viewOpts) { PickerCancel(); return true; }
     if (g_searchFocus) {
@@ -4849,6 +5116,7 @@ static bool HandleKey(UINT vk) {
         return false;
     }
 
+    if (vk == VK_ESCAPE && !g_qlExtPath.empty() && QlShellWnd()) { QlSend(L""); return true; }
     if (g_ql && vk == VK_ESCAPE) { QlClose(); return true; }
     if (g_viewOpts && vk == VK_ESCAPE) { g_viewOpts = false; Invalidate(); return true; }
     if (g_searching && vk == VK_ESCAPE) { ExitSearch(); return true; }
@@ -5000,7 +5268,7 @@ static void ApplyWindowTheme() {
         tahoe::Frame(g_hwnd, true);
         RECT rc; GetClientRect(g_hwnd, &rc);
         tahoe::Size(g_hwnd, (float)rc.right, (float)rc.bottom, g_dark);
-        shadow::SetRadius(tahoe::WINDOW_R);
+        shadow::SetRadius(tahoe::WindowR());
         return;
     }
     tahoe::Frame(g_hwnd, false);
@@ -5192,6 +5460,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_LBUTTONDOWN: {
         D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
+        if (GoClick(p)) return 0;  // Ir para a Pasta
         if (QlClick(p)) return 0;  // clique no painel do Quick Look
         if (ViewOptsClick(p)) return 0;  // clique no painel de Opções de Visualização
         if (PickerClick(p)) return 0;  // barra de Abrir/Salvar
@@ -5420,7 +5689,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         break;
     case WM_CHAR:
         if (w < 32) return 0;
-        if (g_renameIdx >= 0) { g_rename.OnChar((wchar_t)w); Invalidate(); }
+        if (g_goOpen) { g_go.OnChar((wchar_t)w); GoRefresh(); Invalidate(); }
+        else if (g_renameIdx >= 0) { g_rename.OnChar((wchar_t)w); Invalidate(); }
         else if (g_pickNameFocus) { g_pickName.OnChar((wchar_t)w); Invalidate(); }
         else if (g_searchFocus) { g_search.OnChar((wchar_t)w); OnSearchChanged(); Invalidate(); }
         else if (GetKeyState(VK_CONTROL) >= 0 && w != L' ') TypeAhead((wchar_t)w);  // espaço é o Quick Look

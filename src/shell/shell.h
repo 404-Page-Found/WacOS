@@ -399,7 +399,7 @@ void Toggle();  // Central de Controle
 void Stop();    // Shell saindo: devolve as janelas
 }
 namespace quicklook {  // Quick Look (quicklook.cpp): painel só com a prévia de um arquivo (espaço abre e fecha)
-void Toggle(const std::wstring& path);
+void Toggle(const std::wstring& path, bool activate = true);
 void Close();
 bool IsOpen();
 std::wstring Path();
@@ -496,6 +496,7 @@ void AfterCommit(HWND to, UINT msg);
 // Transparência e Efeitos (Ajustes do Sistema): Liquid Glass, reduzir transparência, tinta do vidro
 struct Style {
     bool liquid = false;     // liquid_glass: vidro líquido do macOS Tahoe
+    bool golden = false;     // golden_gate (com liquid_glass): tema macOS 27 Golden Gate
     bool tinted = false;     // liquid_estilo: "nitido" ou "tingido"
     float refraction = 0.6f; // liquid_refracao 0..1: força da lente nas bordas
     bool reduce = false;     // reduzir_transparencia
@@ -520,6 +521,7 @@ D2D1_COLOR_F AdjustTint(D2D1_COLOR_F c);
 }
 namespace liquid {  // tema macOS Tahoe nos painéis do Shell (liquid.cpp): detalhes D2D por cima do vidro
 bool On();  // Tema = macOS Tahoe (liquid_glass), mesmo com a transparência reduzida
+bool Golden();  // Tema = macOS Golden Gate (liquid_glass + golden_gate): o Tahoe com o que mudou no macOS 27
 // contorno especular; spec = força do brilho dos cantos (0 em repouso, 1 com o ponteiro em cima), lx/ly = de onde vem a
 // luz (0..1 dentro da peça, a posição do ponteiro; < 0 = canto de cima à esquerda)
 void Rim(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, bool dark, float strength = 1, float spec = 1, float lx = -1, float ly = -1);

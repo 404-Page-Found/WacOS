@@ -28,6 +28,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "../comum/semaforo.h"  // semaforo::Aqua(): tema macOS Golden Gate
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Data.Pdf.h>
 #include <winrt/Windows.Storage.h>
@@ -51,7 +52,10 @@ HWND g_wnd;
 ID2D1Factory* g_d2d;
 IDWriteFactory* g_dw;
 IWICImagingFactory* g_wic;
-ID2D1HwndRenderTarget* g_rt;
+ID2D1RenderTarget* g_rt;        // a janela (ou, no teste --foto, um bitmap)
+ID2D1HwndRenderTarget* g_hrt;
+IWICBitmap* g_fotoBmp;          // --foto <arquivo.png> (teste): desenha num bitmap e salva, sem passar pela tela
+std::wstring g_fotoPath;
 ID2D1SolidColorBrush* g_br;
 IDWriteTextFormat *g_tfTitle, *g_tfSub, *g_tfIcon, *g_tfEmpty;
 
@@ -72,9 +76,20 @@ int g_rot = 0;                   // imagem: 0..3 (x90 graus)
 float g_sx = 0, g_sy = 0;        // rolagem (DIP)
 bool g_drag = false; POINT g_dragAt{}; float g_dragSx = 0, g_dragSy = 0;
 int g_hoverBtn = -1;
+// macOS 27 (captura Preview do 512 Pixels): barra unificada de 52 (sem a barra do Windows; a WacOSWindow.dll põe os
+// três botões a 26/49/72), o nome em negrito e "Página 1 de 81" à esquerda depois deles, e os botões em grupos de
+// vidro redondos à direita (−/1:1/+ juntos numa cápsula)
 struct Btn { wchar_t glyph; const wchar_t* tip; int id; D2D1_RECT_F r; };
 std::vector<Btn> g_btns;
-enum { B_ROT, B_OUT, B_IN, B_FIT, B_PRINT, B_MARK, B_EXPORT };
+enum { B_ROT, B_OUT, B_IN, B_FIT, B_PRINT, B_MARK, B_EXPORT, B_SIDE };
+// macOS 27 (captura Preview, 2x): PDF com mais de uma página abre com a coluna das miniaturas à esquerda (206 pt,
+// por baixo dos três botões da janela); a página atual fica num fundo azul-acinzentado arredondado, o número embaixo.
+// O botão da lateral (com ⌄) fica na barra, no fim da coluna.
+bool g_side = true;
+float g_thumbTotal = 0;
+IDWriteTextFormat* g_tfThumbNum;
+float g_thumbScroll = 0;
+std::vector<std::pair<int, D2D1_RECT_F>> g_thumbHits;
 
 // ---- marcação (Marcar do Mac): os traços ficam nas unidades da página (pixels da imagem / pontos do PDF)
 enum Tool { T_PEN, T_HILITE, T_RECT, T_OVAL, T_ARROW, T_TEXT, T_SIGN, T_CROP, T_COUNT };
@@ -233,10 +248,12 @@ void Neighbor(int dir) {
 }
 
 // ---- geometria: tamanho de cada página na tela (DIP), com o zoom atual
+bool g_unified;
+float SideW() { return g_unified && g_side && g_pdf && g_pages.size() > 1 ? 206.f : 0.f; }
 D2D1_SIZE_F ViewSize() {
     RECT r; GetClientRect(g_wnd, &r);
     float sc = Sc();
-    return { r.right / sc, r.bottom / sc - TB };
+    return { r.right / sc - SideW(), r.bottom / sc - TB };
 }
 float FitZoom() {
     if (g_pages.empty()) return 1;
@@ -291,7 +308,7 @@ void SetZoom(float z, POINT anchorClient = { -1, -1 }) {
     z = std::clamp(z, 0.05f, 16.f);
     D2D1_SIZE_F v = ViewSize();
     float sc = Sc();
-    float ax = anchorClient.x >= 0 ? anchorClient.x / sc : v.width / 2, ay = anchorClient.y >= 0 ? anchorClient.y / sc - TB : v.height / 2;
+    float ax = anchorClient.x >= 0 ? anchorClient.x / sc - SideW() : v.width / 2, ay = anchorClient.y >= 0 ? anchorClient.y / sc - TB : v.height / 2;
     float cx = (g_sx + ax) / old, cy = (g_sy + ay) / old;  // ponto do documento sob o mouse fica parado
     g_fit = false; g_zoom = z;
     g_sx = cx * z - ax; g_sy = cy * z - ay;
@@ -304,14 +321,23 @@ void CreateRes() {
     if (g_rt) return;
     RECT r; GetClientRect(g_wnd, &r);
     float dpi = (float)GetDpiForWindow(g_wnd);
-    auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi);
-    g_d2d->CreateHwndRenderTarget(props, D2D1::HwndRenderTargetProperties(g_wnd, D2D1::SizeU(r.right, r.bottom)), &g_rt);
+    if (!g_fotoPath.empty()) {
+        IWICImagingFactory* wic = nullptr;
+        CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+        if (wic && r.right > 0 && r.bottom > 0 && SUCCEEDED(wic->CreateBitmap(r.right, r.bottom, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &g_fotoBmp)))
+            g_d2d->CreateWicBitmapRenderTarget(g_fotoBmp, D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), dpi, dpi), &g_rt);
+        if (wic) wic->Release();
+    } else {
+        auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(), dpi, dpi);
+        g_d2d->CreateHwndRenderTarget(props, D2D1::HwndRenderTargetProperties(g_wnd, D2D1::SizeU(r.right, r.bottom)), &g_hrt);
+        g_rt = g_hrt;
+    }
     if (g_rt) g_rt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &g_br);
 }
 void DropRes() {
     for (auto& p : g_pages) if (p.bmp) { p.bmp->Release(); p.bmp = nullptr; p.renderedW = 0; }
     if (g_br) { g_br->Release(); g_br = nullptr; }
-    if (g_rt) { g_rt->Release(); g_rt = nullptr; }
+    if (g_rt) { g_rt->Release(); g_rt = nullptr; g_hrt = nullptr; }
     if (!g_pdf && !g_path.empty()) { std::wstring p = g_path; CreateRes(); float z = g_zoom; bool f = g_fit; int ro = g_rot; float sx = g_sx, sy = g_sy; Open(p); g_zoom = z; g_fit = f; g_rot = ro; g_sx = sx; g_sy = sy; }
 }
 
@@ -319,7 +345,7 @@ void DropRes() {
 bool PageRect(int idx, D2D1_RECT_F& out) {
     D2D1_SIZE_F v = ViewSize();
     float tw, th; auto pl = Layout(tw, th);
-    float offX = tw < v.width ? (v.width - tw) / 2 : -g_sx, offY = TB - g_sy;
+    float offX = (tw < v.width ? (v.width - tw) / 2 : -g_sx) + SideW(), offY = TB - g_sy;
     for (auto& p : pl) if (p.idx == idx) {
         out = D2D1::RectF(offX + MARGIN + (tw - 2 * MARGIN - (p.r.right - p.r.left)) / 2, offY + p.r.top, 0, offY + p.r.bottom);
         out.right = out.left + (p.r.right - p.r.left);
@@ -604,9 +630,10 @@ void Paint() {
     g_rt->Clear(dark ? D2D1::ColorF(0.118f, 0.118f, 0.122f) : D2D1::ColorF(0.89f, 0.89f, 0.90f));
     // páginas
     float tw, th; auto pl = Layout(tw, th);
-    float offX = tw < W ? (W - tw) / 2 : -g_sx, offY = TB - g_sy;
+    const float XS = SideW();
+    float offX = (tw < W ? (W - tw) / 2 : -g_sx) + XS, offY = TB - g_sy;
     float z = Zoom(), sc = Sc();
-    g_rt->PushAxisAlignedClip(D2D1::RectF(0, TB, W, TB + v.height), D2D1_ANTIALIAS_MODE_ALIASED);
+    g_rt->PushAxisAlignedClip(D2D1::RectF(XS, TB, XS + W, TB + v.height), D2D1_ANTIALIAS_MODE_ALIASED);
     for (auto& p : pl) {
         D2D1_RECT_F r = D2D1::RectF(offX + MARGIN + (tw - 2 * MARGIN - (p.r.right - p.r.left)) / 2, offY + p.r.top, 0, offY + p.r.bottom);
         r.right = r.left + (p.r.right - p.r.left);
@@ -635,14 +662,46 @@ void Paint() {
         if (g_drawing && g_cur.page == p.idx) DrawAnn(g_rt, g_cur, r, z);
     }
     g_rt->PopAxisAlignedClip();
+    g_thumbHits.clear();
+    if (XS > 0) {  // coluna das miniaturas
+        g_br->SetColor(dark ? D2D1::ColorF(0.17f, 0.165f, 0.16f) : D2D1::ColorF(0.93f, 0.93f, 0.925f));
+        g_rt->FillRectangle(D2D1::RectF(0, 0, XS, TB + v.height), g_br);
+        g_br->SetColor(dark ? D2D1::ColorF(0, 0, 0, 0.5f) : D2D1::ColorF(0, 0, 0, 0.10f));
+        g_rt->FillRectangle(D2D1::RectF(XS - 0.5f, 0, XS, TB + v.height), g_br);
+        g_rt->PushAxisAlignedClip(D2D1::RectF(0, TOOLH, XS, TB + v.height), D2D1_ANTIALIAS_MODE_ALIASED);
+        int cur = CurrentPage();
+        float y = TOOLH + 8 - g_thumbScroll, tw2 = XS - 62;
+        for (int i = 0; i < (int)g_pages.size(); i++) {
+            auto& pg = g_pages[i];
+            float th2 = pg.w > 0 ? tw2 * pg.h / pg.w : tw2 * 1.3f;
+            D2D1_RECT_F pr = D2D1::RectF((XS - tw2) / 2, y + 8, (XS + tw2) / 2, y + 8 + th2);
+            D2D1_RECT_F cell = D2D1::RectF(14, y, XS - 14, pr.bottom + 26);
+            if (cell.bottom > TOOLH && cell.top < TB + v.height) {
+                if (i == cur) { g_br->SetColor(dark ? D2D1::ColorF(0.33f, 0.42f, 0.58f, 0.85f) : D2D1::ColorF(0.55f, 0.64f, 0.78f, 0.85f)); g_rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cell.left, cell.top, cell.right, pr.bottom + 8), 8, 8), g_br); }
+                g_br->SetColor(D2D1::ColorF(0, 0, 0, 0.15f)); g_rt->FillRectangle(D2D1::RectF(pr.left + 0.5f, pr.top + 1, pr.right + 0.5f, pr.bottom + 1.5f), g_br);
+                g_br->SetColor(D2D1::ColorF(1, 1, 1)); g_rt->FillRectangle(pr, g_br);
+                if (pg.bmp) g_rt->DrawBitmap(pg.bmp, pr, 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                else if (!pg.pending && pg.renderedW == 0) { pg.pending = true; Request(i, (int)std::lround(tw2 * 2 * sc)); }  // a miniatura também serve de primeira imagem
+                wchar_t nb[16]; swprintf_s(nb, L"%d", i + 1);
+                g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.75f) : D2D1::ColorF(0, 0, 0, 0.7f));
+                g_rt->DrawTextW(nb, (UINT32)wcslen(nb), g_tfThumbNum ? g_tfThumbNum : g_tfSub, D2D1::RectF(cell.left, pr.bottom + 8, cell.right, pr.bottom + 24), g_br);
+            }
+            g_thumbHits.push_back({ i, cell });
+            y = pr.bottom + 34;
+        }
+        g_thumbTotal = y + g_thumbScroll - TOOLH;
+        g_rt->PopAxisAlignedClip();
+    }
     if (g_pages.empty()) {
         const wchar_t* t = !g_error.empty() ? g_error.c_str() : g_path.empty() ? Tr(L"Abra uma imagem ou um PDF (Ctrl+O) ou solte um arquivo aqui.") : Tr(L"Abrindo…");
         g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.5f) : D2D1::ColorF(0, 0, 0, 0.5f));
         g_rt->DrawTextW(t, (UINT32)wcslen(t), g_tfEmpty, D2D1::RectF(20, TB, W - 20, TB + v.height), g_br);
     }
-    // barra de ferramentas
+    // barra de ferramentas (a janela toda; com a coluna, ela fica atrás só do conteúdo)
+    W = v.width + XS;
     g_br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f) : D2D1::ColorF(0.965f, 0.965f, 0.965f));
-    g_rt->FillRectangle(D2D1::RectF(0, 0, W, TOOLH), g_br);
+    g_rt->FillRectangle(D2D1::RectF(XS, 0, W, TOOLH), g_br);
+    if (XS > 0) { g_br->SetColor(dark ? D2D1::ColorF(0.17f, 0.165f, 0.16f) : D2D1::ColorF(0.93f, 0.93f, 0.925f)); g_rt->FillRectangle(D2D1::RectF(0, 0, XS - 0.5f, TOOLH), g_br); }
     g_br->SetColor(dark ? D2D1::ColorF(0, 0, 0, 0.6f) : D2D1::ColorF(0, 0, 0, 0.14f));
     g_rt->DrawLine({ 0, TOOLH - 0.5f }, { W, TOOLH - 0.5f }, g_br, 1);
     std::wstring name = g_path.empty() ? Tr(L"Pré-Visualização") : g_path.substr(g_path.find_last_of(L"\\/") + 1);
@@ -654,6 +713,46 @@ void Paint() {
     // botões à direita
     g_btns = { { 0xE70F, L"Marcar", B_MARK }, { 0xE78C, L"Exportar", B_EXPORT }, { 0xE7AD, L"Girar", B_ROT }, { 0xE71F, L"Reduzir", B_OUT }, { 0xE8A3, L"Ampliar", B_IN }, { 0xE9A6, L"Ajustar", B_FIT }, { 0xE749, L"Imprimir", B_PRINT } };
     float bx = W - 14;
+    if (g_unified) {  // macOS 27: grupos de vidro
+        auto glass = [&](D2D1_RECT_F r) {
+            float rad = (r.bottom - r.top) / 2;
+            for (int k = 3; k >= 1; k--) { g_br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.10f : 0.035f)); g_rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k * 0.5f, r.top + k * 0.6f, r.right + k * 0.5f, r.bottom + k * 1.1f), rad + k, rad + k), g_br); }
+            g_br->SetColor(dark ? D2D1::ColorF(0.24f, 0.24f, 0.245f, 1) : D2D1::ColorF(0.985f, 0.985f, 0.985f, 1));
+            g_rt->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), g_br);
+            g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.13f) : D2D1::ColorF(0, 0, 0, 0.09f));
+            g_rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), rad - 0.25f, rad - 0.25f), g_br, 0.5f);
+        };
+        // da direita para a esquerda: imprimir, exportar, girar, marcar (redondos) e a cápsula −/ajustar/+
+        int order[4] = { 6, 1, 2, 0 };
+        bx = W - 8;
+        for (int k = 0; k < 4; k++) { auto& bt = g_btns[order[k]]; bt.r = D2D1::RectF(bx - 36, 8, bx, 44); glass(bt.r); bx -= 36 + 8; }
+        D2D1_RECT_F cap = D2D1::RectF(bx - 108, 8, bx, 44);
+        glass(cap);
+        g_btns[3].r = D2D1::RectF(cap.left + 2, 8, cap.left + 36, 44);
+        g_btns[5].r = D2D1::RectF(cap.left + 37, 8, cap.left + 71, 44);
+        g_btns[4].r = D2D1::RectF(cap.left + 72, 8, cap.left + 106, 44);
+        bx = cap.left - 8;
+        if (g_pdf && g_pages.size() > 1) {  // lateral (com ⌄): no fim da coluna, ou depois dos três botões sem ela
+            float sx = XS > 0 ? XS - 58 : 84;
+            g_btns.push_back({ 0xE8A0, L"Barra Lateral", B_SIDE, D2D1::RectF(sx, 8, sx + 50, 44) });
+            glass(g_btns.back().r);
+        }
+        for (int i = 0; i < (int)g_btns.size(); i++) {
+            auto& bt = g_btns[i];
+            if (i == g_hoverBtn || (bt.id == B_MARK && g_markup)) { g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.06f)); g_rt->FillRoundedRectangle(D2D1::RoundedRect(bt.r, 18, 18), g_br); }
+            bool off = (bt.id == B_ROT && g_pdf) || g_pages.empty();
+            g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, off ? 0.3f : 0.88f) : D2D1::ColorF(0, 0, 0, off ? 0.25f : 0.8f));
+            if (bt.id == B_SIDE) {  // o ícone da lateral e o ⌄
+                float cx = bt.r.left + 19, cy = 26;
+                g_rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - 8, cy - 6.5f, cx + 8, cy + 6.5f), 2.5f, 2.5f), g_br, 1.3f);
+                g_rt->DrawLine({ cx - 3, cy - 6 }, { cx - 3, cy + 6 }, g_br, 1.3f);
+                g_rt->DrawLine({ bt.r.right - 17, cy - 1.5f }, { bt.r.right - 14, cy + 1.5f }, g_br, 1.3f); g_rt->DrawLine({ bt.r.right - 14, cy + 1.5f }, { bt.r.right - 11, cy - 1.5f }, g_br, 1.3f);
+                continue;
+            }
+            wchar_t g[2] = { bt.glyph, 0 };
+            g_rt->DrawTextW(g, 1, g_tfIcon, bt.r, g_br);
+        }
+    } else
     for (int i = (int)g_btns.size() - 1; i >= 0; i--) {
         auto& bt = g_btns[i];
         bt.r = D2D1::RectF(bx - 34, TOOLH / 2 - 15, bx, TOOLH / 2 + 15);
@@ -668,9 +767,10 @@ void Paint() {
         g_rt->DrawTextW(g, 1, g_tfIcon, bt.r, g_br);
     }
     g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f));
-    g_rt->DrawTextW(name.c_str(), (UINT32)name.size(), g_tfTitle, D2D1::RectF(16, 8, bx - 10, 28), g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    float tx = g_unified ? (XS > 0 ? XS + 12.f : g_pdf && g_pages.size() > 1 ? 146.f : 96.f) : 16.f;  // macOS 27: depois dos três botões (ou da coluna)
+    g_rt->DrawTextW(name.c_str(), (UINT32)name.size(), g_tfTitle, D2D1::RectF(tx, 8, bx - 10, 28), g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.5f) : D2D1::ColorF(0, 0, 0, 0.5f));
-    g_rt->DrawTextW(sub.c_str(), (UINT32)sub.size(), g_tfSub, D2D1::RectF(16, 28, bx - 10, 46), g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    g_rt->DrawTextW(sub.c_str(), (UINT32)sub.size(), g_tfSub, D2D1::RectF(tx, 28, bx - 10, 46), g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     PaintMarkupBar(dark, W);
     if (g_rt->EndDraw() == D2DERR_RECREATE_TARGET) DropRes();
 }
@@ -703,6 +803,7 @@ void OpenDialog() {
 }
 
 void Action(int id) {
+    if (id == B_SIDE) { g_side = !g_side; ClampScroll(); InvalidateRect(g_wnd, nullptr, FALSE); return; }
     if (g_pages.empty()) return;
     switch (id) {
     case B_ROT: if (!g_pdf) { g_rot = (g_rot + 3) % 4; ClampScroll(); InvalidateRect(g_wnd, nullptr, FALSE); } break;
@@ -716,14 +817,32 @@ void Action(int id) {
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (g_unified && m == WM_NCCALCSIZE && w) {  // macOS 27: sem a barra de cima do Windows (as bordas ficam)
+        auto* p = (NCCALCSIZE_PARAMS*)l;
+        LONG top = p->rgrc[0].top;
+        LRESULT r = DefWindowProcW(h, m, w, l);
+        p->rgrc[0].top = top;
+        if (IsZoomed(h)) { UINT dpi = GetDpiForWindow(h); p->rgrc[0].top += GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi); }
+        return r;
+    }
+    if (g_unified && m == WM_NCHITTEST) {  // arrasta pela barra, menos pelos botões
+        LRESULT r = DefWindowProcW(h, m, w, l);
+        if (r != HTCLIENT) return r;
+        POINT p{ GET_X_LPARAM(l), GET_Y_LPARAM(l) }; ScreenToClient(h, &p);
+        float s = Sc(), x = p.x / s, y = p.y / s;
+        if (!IsZoomed(h) && p.y < (int)(5 * s)) return HTTOP;
+        if (y >= TOOLH || x < 84) return HTCLIENT;
+        for (auto& b : g_btns) if (x >= b.r.left && x < b.r.right && y >= b.r.top && y < b.r.bottom) return HTCLIENT;
+        return HTCAPTION;
+    }
     switch (m) {
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); Paint(); EndPaint(h, &ps); return 0; }
     case WM_ERASEBKGND: return 1;
-    case WM_SIZE: if (g_rt) g_rt->Resize(D2D1::SizeU(LOWORD(l), HIWORD(l))); ClampScroll(); InvalidateRect(h, nullptr, FALSE); return 0;
+    case WM_SIZE: if (g_hrt) g_hrt->Resize(D2D1::SizeU(LOWORD(l), HIWORD(l))); ClampScroll(); InvalidateRect(h, nullptr, FALSE); return 0;
     case WM_DPICHANGED: {
         RECT* r = (RECT*)l;
         SetWindowPos(h, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
-        if (g_rt) g_rt->SetDpi((float)HIWORD(w), (float)HIWORD(w));
+        if (g_hrt) g_hrt->SetDpi((float)HIWORD(w), (float)HIWORD(w));
         InvalidateRect(h, nullptr, FALSE);
         return 0;
     }
@@ -759,6 +878,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (m == WM_MOUSEWHEEL && (GET_KEYSTATE_WPARAM(w) & MK_CONTROL)) {
             POINT p{ GET_X_LPARAM(l), GET_Y_LPARAM(l) }; ScreenToClient(h, &p);
             SetZoom(Zoom() * std::pow(1.15f, d), p);
+        } else if (POINT p{ GET_X_LPARAM(l), GET_Y_LPARAM(l) }; ScreenToClient(h, &p), p.x / Sc() < SideW()) {  // a coluna rola sozinha
+            g_thumbScroll = std::clamp(g_thumbScroll - d * 80, 0.f, std::max(0.f, g_thumbTotal - ViewSize().height));
+            InvalidateRect(h, nullptr, FALSE);
         } else if (m == WM_MOUSEHWHEEL || (GET_KEYSTATE_WPARAM(w) & MK_SHIFT)) Scroll(m == WM_MOUSEHWHEEL ? d * 60 : -d * 60, 0);
         else Scroll(0, -d * 80);
         return 0;
@@ -766,6 +888,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_LBUTTONDOWN: {
         float sc = Sc(), x = GET_X_LPARAM(l) / sc, y = GET_Y_LPARAM(l) / sc;
         for (auto& b : g_btns) if (x >= b.r.left && x < b.r.right && y >= b.r.top && y < b.r.bottom) { Action(b.id); return 0; }
+        if (x < SideW() && y > TOOLH) { for (auto& th : g_thumbHits) if (y >= th.second.top && y < th.second.bottom) { GoPage(th.first); return 0; } return 0; }
         for (auto& b : g_mbtns) if (x >= b.r.left && x < b.r.right && y >= b.r.top && y < b.r.bottom) {
             CommitText();
             if (b.kind == 0) { if (g_tool == T_SIGN && b.arg != T_SIGN) EndSignCapture(); g_tool = b.arg; }
@@ -920,6 +1043,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     const wchar_t* fam = HasFont(L"SF Pro Text") ? L"SF Pro Text" : HasFont(L"Inter") ? L"Inter" : L"Segoe UI";
     g_tfTitle = Fmt(fam, 13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     g_tfSub = Fmt(fam, 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    g_tfThumbNum = Fmt(fam, 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     g_tfIcon = Fmt(HasFont(L"Segoe Fluent Icons") ? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets", 15, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     g_tfEmpty = Fmt(fam, 14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     if (g_tfEmpty) g_tfEmpty->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
@@ -940,12 +1064,39 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
                             nullptr, nullptr, hi, nullptr);
     if (!g_wnd) return 1;
     BOOL dark = Dark(); DwmSetWindowAttribute(g_wnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &dark, sizeof(dark));
+    if (semaforo::Aqua()) {  // macOS 27: barra unificada (a DLL só desenha os três botões)
+        g_unified = true;
+        SetPropW(g_wnd, L"WacOSBarraUnificada", (HANDLE)(INT_PTR)52);
+        SetWindowPos(g_wnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     std::thread(PdfThread).detach();
     ShowWindow(g_wnd, show);
     UpdateWindow(g_wnd);
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argc > 1 && argv[1][0]) Open(argv[1]); else PostMessageW(g_wnd, WM_PV_ASK, 0, 0);  // sem arquivo: pergunta qual, como o Mac
+    for (int i = 1; i + 1 < argc; i++) if (!wcscmp(argv[i], L"--foto")) g_fotoPath = argv[i + 1];
+    if (!g_fotoPath.empty()) {  // teste: salva a foto da janela daqui a pouco e fecha
+        if (g_rt) { g_rt->Release(); g_rt = nullptr; g_hrt = nullptr; }
+        if (g_br) { g_br->Release(); g_br = nullptr; }
+        CreateRes();
+        SetTimer(nullptr, 0, 2500, [](HWND, UINT, UINT_PTR id, DWORD) {
+            KillTimer(nullptr, id);
+            Paint();
+            IWICImagingFactory* wic = nullptr;
+            CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+            IWICStream* st = nullptr; IWICBitmapEncoder* enc = nullptr; IWICBitmapFrameEncode* fr = nullptr;
+            UINT w = 0, hh = 0; if (g_fotoBmp) g_fotoBmp->GetSize(&w, &hh);
+            if (g_fotoBmp && wic && SUCCEEDED(wic->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(g_fotoPath.c_str(), GENERIC_WRITE)) &&
+                SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) && SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) &&
+                SUCCEEDED(enc->CreateNewFrame(&fr, nullptr)) && SUCCEEDED(fr->Initialize(nullptr))) {
+                fr->SetSize(w, hh); WICPixelFormatGUID f = GUID_WICPixelFormat32bppPBGRA; fr->SetPixelFormat(&f);
+                fr->WriteSource(g_fotoBmp, nullptr); fr->Commit(); enc->Commit();
+            }
+            if (fr) fr->Release(); if (enc) enc->Release(); if (st) st->Release(); if (wic) wic->Release();
+            DestroyWindow(g_wnd);
+        });
+    }
+    if (argc > 1 && argv[1][0] && wcscmp(argv[1], L"--foto")) Open(argv[1]); else if (g_fotoPath.empty()) PostMessageW(g_wnd, WM_PV_ASK, 0, 0);  // sem arquivo: pergunta qual, como o Mac
     if (argv) LocalFree(argv);
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }

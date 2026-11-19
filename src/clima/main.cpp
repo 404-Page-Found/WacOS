@@ -27,6 +27,7 @@ std::mutex g_mx;
 std::wstring g_file;
 std::wstring g_status;
 IDWriteTextFormat *g_tfSmallC, *g_tfCity, *g_tfTemp, *g_tfCond, *g_tfSmall, *g_tfCard, *g_tfCardBig, *g_tfEmoji, *g_tfEmojiSmall, *g_tfSide, *g_tfSideTemp, *g_tfIcon, *g_tfRowR;
+IDWriteTextFormat *g_tfHdrC, *g_tfCardG;  // macOS 27
 
 std::string HttpGet(const wchar_t* host, const std::wstring& path) {
     std::string body;
@@ -205,9 +206,206 @@ struct Hit { int kind, arg; D2D1_RECT_F r; };
 std::vector<Hit> g_hits;
 
 void Card(D2D1_RECT_F r) { Fill(r, Rgb(255, 255, 255, 0.14f), 14); }
+const wchar_t* CondText(int c);
+const wchar_t* CondEmoji(int c, bool day);
+// ---- macOS 27 (captura Weather do 512 Pixels, 2x, medida em pt): o céu ocupa a janela toda (a barra é
+// transparente); lateral de 270 com o céu escurecido, o botão de "barra lateral" (244, 26) e a busca em cápsula
+// (9–262, 63–97); o "+" redondo fica no conteúdo (297, 26). No meio: cidade (20), temperatura fina (64), condição e
+// máx./mín. Embaixo uma grade de 622 de largura, centrada: dois quadros de 143 e um largo de 304 por linha (141 de
+// altura, 16 entre eles), vidro claro com cantos 18 e o título em maiúsculas pequenas.
+float g_gScroll;
+float g_gTotal;
+IDWriteTextFormat *g_tfCityG, *g_tfTempG, *g_tfCondG, *g_tfHdr, *g_tfBigG, *g_tfSmallW, *g_tfSearchG, *g_tfCondTitle;
+
+void SkyFill(D2D1_RECT_F r, const Wx& w, float darken) {
+    D2D1_COLOR_F a, b; Sky(w, a, b);
+    auto dk = [&](D2D1_COLOR_F c) { return D2D1::ColorF(c.r * (1 - darken), c.g * (1 - darken), c.b * (1 - darken), 1); };
+    D2D1_GRADIENT_STOP gs[2] = { { 0, dk(a) }, { 1, dk(b) } };
+    ID2D1GradientStopCollection* st = nullptr; rt->CreateGradientStopCollection(gs, 2, &st);
+    ID2D1LinearGradientBrush* lg = nullptr;
+    if (st) rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, 0 }, { 0, Size().height }), st, &lg);
+    if (lg) { rt->FillRectangle(r, lg); lg->Release(); }
+    if (st) st->Release();
+}
+void GlassCard(D2D1_RECT_F r) {
+    Fill(r, Rgb(255, 255, 255, 0.15f), 18);
+    br->SetColor(Rgb(255, 255, 255, 0.20f));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), 17.75f, 17.75f), br, 0.5f);
+}
+void CardHead(D2D1_RECT_F r, const wchar_t* title) { Text(title, g_tfHdr, D2D1::RectF(r.left + 14, r.top + 8, r.right - 10, r.top + 24), Rgb(255, 255, 255, 0.62f)); }
+
+void PaintGoldenWx() {
+    g_hits.clear();
+    D2D1_SIZE_F sz = Size();
+    D2D1_COLOR_F white = Rgb(255, 255, 255), dim = Rgb(255, 255, 255, 0.72f);
+    const float SBG = 270;
+    Place pl; bool have = g_sel >= 0 && g_sel < (int)g_places.size();
+    if (have) { std::lock_guard<std::mutex> l(g_mx); pl = g_places[g_sel]; }
+    Wx sky = have && pl.wx.ok ? pl.wx : Wx{};
+    if (!have || !pl.wx.ok) { sky.day = true; sky.code = 1; }
+    SkyFill(D2D1::RectF(0, 0, sz.width, sz.height), sky, 0);
+    // ---- lateral
+    SkyFill(D2D1::RectF(0, 0, SBG, sz.height), sky, 0.28f);
+    Fill(D2D1::RectF(SBG - 0.5f, 0, SBG, sz.height), Rgb(0, 0, 0, 0.18f));
+    D2D1_RECT_F tb = D2D1::RectF(244 - 18, 8, 244 + 18, 44);
+    Fill(tb, Rgb(255, 255, 255, 0.16f), 18); IconSidebar({ 244, 26 }, white); BarButton(tb);
+    D2D1_RECT_F sr = D2D1::RectF(9, 63, 262, 97);
+    Fill(sr, Rgb(255, 255, 255, 0.16f), 17);
+    br->SetColor(Rgb(255, 255, 255, 0.22f)); rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 0.25f, sr.top + 0.25f, sr.right - 0.25f, sr.bottom - 0.25f), 16.75f, 16.75f), br, 0.5f);
+    IconSearch({ 25, 80 }, dim, 0.9f);
+    Text(Tr(L"Buscar"), g_tfSearchG, D2D1::RectF(38, sr.top, sr.right - 10, sr.bottom), dim);
+    g_hits.push_back({ 2, 0, sr });
+    float y = 108;
+    for (int i = 0; i < (int)g_places.size(); i++) {
+        auto& p = g_places[i];
+        D2D1_RECT_F r = D2D1::RectF(9, y, 262, y + 70);
+        if (i == g_sel) Fill(r, Rgb(255, 255, 255, 0.18f), 14);
+        Text(i == 0 ? std::wstring(Tr(L"Meu Local")) : p.name, g_tfSide, D2D1::RectF(r.left + 12, r.top + 8, r.right - 60, r.top + 30), white);
+        if (i == 0) Text(p.name, g_tfSmall, D2D1::RectF(r.left + 12, r.top + 28, r.right - 60, r.top + 46), dim);
+        if (p.wx.ok) {
+            Text(CondText(p.wx.code), g_tfSmall, D2D1::RectF(r.left + 12, r.bottom - 24, r.right - 60, r.bottom - 6), dim);
+            wchar_t t[16]; swprintf_s(t, L"%d°", (int)std::lround(p.wx.temp));
+            Text(t, g_tfSideTemp, D2D1::RectF(r.right - 80, r.top + 4, r.right - 12, r.top + 44), white);
+        }
+        g_hits.push_back({ 1, i, r });
+        y += 76;
+    }
+    if (!g_status.empty()) Text(g_status, g_tfSmall, D2D1::RectF(12, sz.height - 30, SBG - 10, sz.height - 8), dim);
+    // "+" no conteúdo
+    D2D1_RECT_F add = D2D1::RectF(297 - 18, 8, 297 + 18, 44);
+    Fill(add, Rgb(255, 255, 255, 0.16f), 18); IconPlus({ 297, 26 }, white);
+    g_hits.push_back({ 2, 0, add }); BarButton(add);
+    if (!have) return;
+    float X0 = SBG, cx = (SBG + sz.width) / 2;
+    if (!pl.wx.ok) { Text(pl.loading ? Tr(L"Carregando…") : Tr(L"Sem conexão com o serviço do tempo."), g_tfCondG, D2D1::RectF(X0, 0, sz.width, sz.height), white); return; }
+    const Wx& w = pl.wx;
+    rt->PushAxisAlignedClip(D2D1::RectF(X0, 52, sz.width, sz.height), D2D1_ANTIALIAS_MODE_ALIASED);
+    float oy = -g_gScroll;
+    wchar_t t[64];
+    Text(g_sel == 0 ? std::wstring(Tr(L"Meu Local")) : pl.name, g_tfCityG, D2D1::RectF(X0, oy + 94, sz.width, oy + 120), white);
+    swprintf_s(t, L" %d°", (int)std::lround(w.temp));
+    Text(t, g_tfTempG, D2D1::RectF(X0, oy + 118, sz.width, oy + 182), white);
+    Text(CondText(w.code), g_tfCondG, D2D1::RectF(X0, oy + 177, sz.width, oy + 195), white);
+    if (!w.days.empty()) { swprintf_s(t, Tr(L"Máx.: %d°  Mín.: %d°"), (int)std::lround(w.days[0].hi), (int)std::lround(w.days[0].lo)); Text(t, g_tfCondG, D2D1::RectF(X0, oy + 194, sz.width, oy + 212), white); }
+    float GW = 622, x0 = cx - GW / 2, y0 = oy + 266;
+    if (x0 < X0 + 12) { x0 = X0 + 12; GW = sz.width - X0 - 24; }
+    float sm = (GW - 32 - 304) / 2 > 100 ? 143.f : (GW - 16) / 2, wideX = x0 + 2 * sm + 32, wideW = x0 + GW - wideX;
+    // linha 1: sensação, vento, condições por hora
+    D2D1_RECT_F c1 = D2D1::RectF(x0, y0, x0 + sm, y0 + 141), c2 = D2D1::RectF(x0 + sm + 16, y0, x0 + 2 * sm + 16, y0 + 141);
+    D2D1_RECT_F c3 = D2D1::RectF(wideX, y0, wideX + wideW, y0 + 141);
+    GlassCard(c1); CardHead(c1, Tr(L"SENSAÇÃO"));
+    swprintf_s(t, L"%d°", (int)std::lround(w.feels));
+    Text(t, g_tfBigG, D2D1::RectF(c1.left + 14, c1.top + 28, c1.right, c1.top + 62), white);
+    {
+        IDWriteTextFormat* f = g_tfSmallW;
+        const wchar_t* s = w.feels < w.temp - 1 ? Tr(L"O vento deixa mais frio do que a temperatura real.") : w.feels > w.temp + 1 ? Tr(L"A umidade deixa mais quente do que a temperatura real.") : Tr(L"Parecida com a temperatura real.");
+        br->SetColor(white); rt->DrawTextW(s, (UINT32)wcslen(s), f, D2D1::RectF(c1.left + 14, c1.top + 66, c1.right - 12, c1.bottom - 8), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
+    GlassCard(c2); CardHead(c2, Tr(L"VENTO"));
+    {   // bússola com a velocidade no meio
+        D2D1_POINT_2F c{ (c2.left + c2.right) / 2, c2.top + 82 };
+        br->SetColor(Rgb(255, 255, 255, 0.35f));
+        for (int k = 0; k < 72; k++) {
+            double a = k * 3.14159265 / 36; float r0 = k % 18 == 0 ? 36.f : 40.f;
+            rt->DrawLine({ c.x + (float)sin(a) * r0, c.y - (float)cos(a) * r0 }, { c.x + (float)sin(a) * 44, c.y - (float)cos(a) * 44 }, br, 0.8f);
+        }
+        const wchar_t* L4[4] = { L"N", L"L", L"S", L"O" };
+        if (idioma::En()) L4[1] = L"E", L4[3] = L"W";
+        for (int k = 0; k < 4; k++) { double a = k * 3.14159265 / 2; Text(L4[k], g_tfHdr, D2D1::RectF(c.x + (float)sin(a) * 30 - 8, c.y - (float)cos(a) * 30 - 8, c.x + (float)sin(a) * 30 + 8, c.y - (float)cos(a) * 30 + 8), white); }
+        swprintf_s(t, L"%d", (int)std::lround(w.wind));
+        Text(t, g_tfCondTitle, D2D1::RectF(c.x - 20, c.y - 12, c.x + 20, c.y + 6), white);
+        Text(L"km/h", g_tfHdr, D2D1::RectF(c.x - 20, c.y + 3, c.x + 20, c.y + 15), white);
+    }
+    GlassCard(c3);
+    Text(Tr(L"Condições"), g_tfCondTitle, D2D1::RectF(c3.left + 14, c3.top + 10, c3.right, c3.top + 28), white);
+    Text(Tr(L"Temperatura (°C)"), g_tfHdr, D2D1::RectF(c3.left + 14, c3.top + 26, c3.right, c3.top + 40), dim);
+    {
+        time_t now = time(nullptr);
+        int start = 0; for (int i = 0; i < (int)w.hours.size(); i++) if (w.hours[i].t <= now) start = i;
+        int n = std::min(6, (int)w.hours.size() - start);
+        float cw = (c3.right - c3.left - 16) / 6;
+        for (int k = 0; k < n; k++) {
+            auto& hh = w.hours[start + k];
+            float x = c3.left + 8 + k * cw;
+            Text(k == 0 ? std::wstring(Tr(L"Agora")) : HourOf(hh.t, w.off), g_tfHdrC, D2D1::RectF(x, c3.top + 50, x + cw, c3.top + 66), white);
+            Text(CondEmoji(hh.code, hh.day), g_tfEmojiSmall, D2D1::RectF(x, c3.top + 70, x + cw, c3.top + 100), white);
+            swprintf_s(t, L"%d°", (int)std::lround(hh.temp));
+            Text(t, g_tfCardG, D2D1::RectF(x, c3.top + 104, x + cw, c3.top + 126), white);
+        }
+    }
+    // linha 2: umidade (larga) e a previsão de 10 dias (alta, na coluna da direita)
+    float y1 = y0 + 141 + 16;
+    D2D1_RECT_F c4 = D2D1::RectF(x0, y1, x0 + 2 * sm + 16, y1 + 143);
+    GlassCard(c4); CardHead(c4, Tr(L"UMIDADE"));
+    swprintf_s(t, L"%d%%", (int)std::lround(w.hum));
+    Text(t, g_tfBigG, D2D1::RectF(c4.left + 14, c4.top + 28, c4.right, c4.top + 62), white);
+    {
+        D2D1_RECT_F bar = D2D1::RectF(c4.left + 14, c4.top + 86, c4.right - 14, c4.top + 91);
+        D2D1_GRADIENT_STOP gs[3] = { { 0, Rgb(255, 210, 120) }, { 0.5f, Rgb(120, 220, 255) }, { 1, Rgb(40, 110, 255) } };
+        ID2D1GradientStopCollection* st = nullptr; rt->CreateGradientStopCollection(gs, 3, &st);
+        ID2D1LinearGradientBrush* lg = nullptr;
+        if (st) rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ bar.left, 0 }, { bar.right, 0 }), st, &lg);
+        if (lg) { rt->FillRoundedRectangle(D2D1::RoundedRect(bar, 2.5f, 2.5f), lg); lg->Release(); }
+        if (st) st->Release();
+        float px = bar.left + (bar.right - bar.left) * std::clamp(w.hum / 100.f, 0.f, 1.f);
+        Circle({ px, (bar.top + bar.bottom) / 2 }, 4.5f, white, true);
+        const wchar_t* s = w.hum >= 70 ? Tr(L"O ar está úmido agora.") : w.hum <= 35 ? Tr(L"O ar está seco agora.") : Tr(L"Umidade confortável agora.");
+        Text(s, g_tfSmallW, D2D1::RectF(c4.left + 14, c4.top + 100, c4.right - 12, c4.bottom - 8), white);
+    }
+    float rows = (float)std::min<size_t>(10, w.days.size());
+    D2D1_RECT_F c5 = D2D1::RectF(wideX, y1, wideX + wideW, y1 + 30 + rows * 42 + 8);
+    GlassCard(c5);
+    {
+        float lo = 999, hi = -999; for (auto& d : w.days) { lo = std::min(lo, d.lo); hi = std::max(hi, d.hi); }
+        for (int k = 0; k < (int)rows; k++) {
+            auto& d = w.days[k];
+            float yy = c5.top + 8 + k * 42;
+            if (k) Fill(D2D1::RectF(c5.left + 14, yy, c5.right - 14, yy + 0.5f), Rgb(255, 255, 255, 0.22f));
+            Text(k == 0 ? std::wstring(Tr(L"Hoje")) : std::wstring(WeekdayShort(WdayOf(d.t + 12 * 3600, w.off))), g_tfCondTitle, D2D1::RectF(c5.left + 14, yy, c5.left + 64, yy + 42), white);
+            Text(CondEmoji(d.code, true), g_tfEmojiSmall, D2D1::RectF(c5.left + 64, yy, c5.left + 100, yy + 42), white);
+            swprintf_s(t, L"%d°", (int)std::lround(d.lo)); Text(t, g_tfRowR, D2D1::RectF(c5.left + 100, yy, c5.left + 138, yy + 42), dim);
+            float bx0 = c5.left + 146, bx1 = c5.right - 52, by = yy + 21;
+            Fill(D2D1::RectF(bx0, by - 2.5f, bx1, by + 2.5f), Rgb(0, 0, 0, 0.16f), 2.5f);
+            float span = std::max(1.f, hi - lo), a = bx0 + (d.lo - lo) / span * (bx1 - bx0), b = bx0 + (d.hi - lo) / span * (bx1 - bx0);
+            D2D1_GRADIENT_STOP gs[2] = { { 0, Rgb(255, 196, 64) }, { 1, Rgb(255, 120, 40) } };
+            ID2D1GradientStopCollection* st = nullptr; rt->CreateGradientStopCollection(gs, 2, &st);
+            ID2D1LinearGradientBrush* lg = nullptr;
+            if (st) rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ a, 0 }, { std::max(a + 6, b), 0 }), st, &lg);
+            if (lg) { rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(a, by - 2.5f, std::max(a + 6, b), by + 2.5f), 2.5f, 2.5f), lg); lg->Release(); }
+            if (st) st->Release();
+            swprintf_s(t, L"%d°", (int)std::lround(d.hi)); Text(t, g_tfRowR, D2D1::RectF(c5.right - 50, yy, c5.right - 14, yy + 42), white);
+        }
+    }
+    // linha 3: nascer e pôr do sol
+    float y2 = y1 + 143 + 16;
+    if (!w.days.empty()) {
+        D2D1_RECT_F c6 = D2D1::RectF(x0, y2, x0 + sm, y2 + 141), c7 = D2D1::RectF(x0 + sm + 16, y2, x0 + 2 * sm + 16, y2 + 141);
+        GlassCard(c6); CardHead(c6, Tr(L"NASCER DO SOL"));
+        Text(HmOf(w.days[0].rise, w.off), g_tfBigG, D2D1::RectF(c6.left + 14, c6.top + 28, c6.right, c6.top + 62), white);
+        GlassCard(c7); CardHead(c7, Tr(L"PÔR DO SOL"));
+        Text(HmOf(w.days[0].set, w.off), g_tfBigG, D2D1::RectF(c7.left + 14, c7.top + 28, c7.right, c7.top + 62), white);
+        for (D2D1_RECT_F c : { c6, c7 }) {  // a curva do sol
+            br->SetColor(Rgb(255, 255, 255, 0.45f));
+            ID2D1PathGeometry* g = nullptr; d2d->CreatePathGeometry(&g);
+            if (g) {
+                ID2D1GeometrySink* s = nullptr; g->Open(&s);
+                float bx = c.left + 12, bw = c.right - c.left - 24, base = c.top + 112;
+                s->BeginFigure({ bx, base + 6 }, D2D1_FIGURE_BEGIN_HOLLOW);
+                for (int k = 1; k <= 30; k++) { float u = k / 30.f; s->AddLine({ bx + bw * u, base + 6 - (float)sin(u * 3.14159265) * 28 + 14 * (1 - (float)sin(u * 3.14159265)) * 0 }); }
+                s->EndFigure(D2D1_FIGURE_END_OPEN); s->Close(); s->Release();
+                rt->DrawGeometry(g, br, 2); g->Release();
+            }
+            Fill(D2D1::RectF(c.left + 12, c.top + 112, c.right - 12, c.top + 112.6f), Rgb(255, 255, 255, 0.5f));
+        }
+    }
+    g_gTotal = std::max(c5.bottom, y2 + 141) + g_gScroll + 20;
+    rt->PopAxisAlignedClip();
+}
+
 
 void Paint() {
     if (!BeginPaint()) return;
+    if (BAR > 0) { PaintGoldenWx(); EndPaint(); return; }  // macOS 27
     g_hits.clear();
     bool dark = Dark();
     D2D1_SIZE_F sz = Size();
@@ -336,7 +534,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_SIZE: OnSize(l); return 0;
     case WM_DPICHANGED: OnDpi(w, l); return 0;
     case WM_SETTINGCHANGE: InvalidateRect(h, nullptr, FALSE); return 0;
-    case WM_CTLCOLOREDIT: return FieldColors((HDC)w, Dark() ? RGB(40, 40, 42) : RGB(236, 236, 240));
+    case WM_CTLCOLOREDIT:
+        if (BAR > 0) { LRESULT r = FieldColors((HDC)w, RGB(60, 110, 170)); SetTextColor((HDC)w, RGB(255, 255, 255)); return r; }
+        return FieldColors((HDC)w, Dark() ? RGB(40, 40, 42) : RGB(236, 236, 240));
     case WM_FIELDLOST: if (field.h && GetFocus() != field.h) FieldEnd(0); return 0;
     case WM_DATA: {
         int i = (int)w;
@@ -354,12 +554,17 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_TIMER: for (int i = 0; i < (int)g_places.size(); i++) Fetch(i); return 0;  // a cada 15 min
+    case WM_MOUSEWHEEL: if (BAR > 0) {  // macOS 27: o conteúdo rola
+        g_gScroll = std::clamp(g_gScroll - GET_WHEEL_DELTA_WPARAM(w) / 120.f * 60, 0.f, std::max(0.f, g_gTotal - Size().height));
+        InvalidateRect(h, nullptr, FALSE);
+    } return 0;
     case WM_LBUTTONDOWN: case WM_RBUTTONUP: {
         if (field.h) FieldEnd(0);
         float s = Sc(), x = GET_X_LPARAM(l) / s, y = GET_Y_LPARAM(l) / s;
         for (auto& ht : g_hits) if (In(ht.r, x, y)) {
             if (ht.kind == 2) {
-                FieldOpen(D2D1::RectF(12, 12, SB - 46, 36), L"", 13, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) Search(t); });
+                D2D1_RECT_F fr = BAR > 0 ? D2D1::RectF(38, 71, 256, 89) : D2D1::RectF(12, 12, SB - 46, 36);
+                FieldOpen(fr, L"", 13, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) Search(t); });
                 return 0;
             }
             if (ht.kind == 1) {
@@ -406,7 +611,19 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfSide = Fmt(15, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     g_tfSideTemp = Fmt(30, DWRITE_FONT_WEIGHT_LIGHT, DWRITE_TEXT_ALIGNMENT_TRAILING, false, disp.c_str());
     g_tfIcon = Fmt(16, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());
-    if (!CreateMain(hi, L"ClimaJanela", Tr(L"Clima"), Proc, 1080, 760)) return 1;
+    g_tfCityG = Fmt(22, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER, false, disp.c_str());
+    g_tfTempG = Fmt(64, DWRITE_FONT_WEIGHT_THIN, DWRITE_TEXT_ALIGNMENT_CENTER, false, disp.c_str());
+    g_tfCondG = Fmt(14, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfHdr = Fmt(11, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfHdrC = Fmt(12, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfBigG = Fmt(26, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_LEADING, false, disp.c_str());
+    g_tfSmallW = Fmt(11.5f, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_LEADING, true);
+    if (g_tfSmallW) g_tfSmallW->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    g_tfSearchG = Fmt(14);
+    g_tfCondTitle = Fmt(14, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    g_tfCardG = Fmt(14, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
+    barWanted = 52;  // macOS 27: o céu atrás da barra
+    if (!CreateMain(hi, L"ClimaJanela", Tr(L"Clima"), Proc, semaforo::Aqua() ? 1070 : 1080, semaforo::Aqua() ? 768 : 760)) return 1;
     for (int i = 0; i < (int)g_places.size(); i++) Fetch(i);
     SetTimer(wnd, 1, 15 * 60 * 1000, nullptr);
     ShowWindow(wnd, show);

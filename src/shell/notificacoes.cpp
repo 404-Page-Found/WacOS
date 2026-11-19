@@ -62,7 +62,7 @@ const float GAP = 8, GROUP_GAP = 10, PEEK = 7, PEEK_INSET = 10;
 const float HEADER_H = 26, PILL_H = 24, CIRCLE = 24;
 const float WIDGET_S = 164, WIDGET_GAP = 16, WIDGET_R_SEQ = 20;
 // Tahoe (Tema nos Ajustes): cartões e widgets bem mais redondos, com o contorno especular do Liquid Glass
-inline float CardR() { return liquid::On() ? 22.f : CARD_R_SEQ; }
+inline float CardR() { return liquid::Golden() ? 18.f : liquid::On() ? 22.f : CARD_R_SEQ; }  // macOS 27: ~18 (captura 2x)
 inline float WidgetR() { return liquid::On() ? 26.f : WIDGET_R_SEQ; }
 const int MAX_GROUPS = 6;  // grupos mostrados antes de "N notificações a mais"
 
@@ -70,6 +70,7 @@ const UINT WM_NC_FRAME = WM_APP + 90, WM_NC_DATA = WM_APP + 91, WM_NC_NEW = WM_A
 const UINT_PTR T_TICK = 1;
 
 HWND g_wnd, g_back;
+bool IsOurBanner(HWND h) { wchar_t c[64] = {}; GetClassNameW(h, c, 64); return wcsstr(c, L"Notifica") != nullptr || wcsstr(c, L"Banner") != nullptr; }
 ui::GpuSurface g_s;
 bool g_open, g_closing, g_menu;
 double g_slideAt;      // ms (anim::Now) do começo da animação de entrar/sair
@@ -499,6 +500,16 @@ std::vector<El> Layout() {
         out.push_back(e);
         y += 30 + GROUP_GAP;
     }
+    if (liquid::Golden() && !g_groups.empty()) {
+        // macOS 27 (captura Notification-Center): título "Central de Notificações" em negrito de 17 e, à direita, o × num
+        // círculo cinza que limpa tudo (no lugar do "Limpar" de baixo)
+        El h{ L"h:central", K_HEADER, D2D1::RectF(0, y, CARD_W, y + 30) };
+        h.text = Tr(L"Central de Notificações"); h.layer = 7;
+        out.push_back(h);
+        El x{ L"hx:central", K_CIRCLE, D2D1::RectF(CARD_W - 20, y + 5, CARD_W, y + 25), A_CLEAR_ALL };
+        out.push_back(x);
+        y += 30 + 6;
+    }
     int shown = 0, hiddenNotes = 0;
     for (int gi = 0; gi < (int)g_groups.size(); gi++) {
         auto& g = g_groups[gi];
@@ -552,7 +563,7 @@ std::vector<El> Layout() {
             y += h2 + PEEK * layers + GROUP_GAP;
         }
     }
-    if (hiddenNotes > 0 || g_groups.size() > 1) {
+    if (hiddenNotes > 0 || (g_groups.size() > 1 && !liquid::Golden())) {
         El p{ L"p:list", K_PILL };
         if (hiddenNotes > 0) { p.act = A_MORE; p.text = std::to_wstring(hiddenNotes) + (hiddenNotes == 1 ? Tr(L" notificação a mais") : Tr(L" notificações a mais")); }
         else { p.act = A_CLEAR_ALL; p.text = Tr(L"Limpar"); }
@@ -879,7 +890,8 @@ void Paint() {
             break;
         }
         case K_HEADER: {
-            IDWriteTextFormat* tf = g_tfHeader;
+            static IDWriteTextFormat* tfBig = Fmt(17, DWRITE_FONT_WEIGHT_BOLD, L"SF Pro Display");
+            IDWriteTextFormat* tf = e.layer == 7 && tfBig ? tfBig : g_tfHeader;
             Text(dc, br, e.text, tf, D2D1::RectF(r.left + 2, r.top, r.right - 150, r.bottom), D2D1::ColorF(1, 1, 1, 0.97f), DWRITE_TEXT_ALIGNMENT_LEADING, true);
             break;
         }
@@ -1175,7 +1187,21 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         Animate();
         return 0;
     case WM_KEYDOWN: if (w == VK_ESCAPE) Close(); return 0;
-    case WM_ACTIVATE: if (LOWORD(w) == WA_INACTIVE && !g_menu) Close(); return 0;
+    case WM_ACTIVATE:
+        if (LOWORD(w) == WA_INACTIVE && !g_menu) {
+            // a ativação foi para outra janela do próprio Shell (o vidro de trás, o banner, a barra): não fecha. Antes um
+            // clique que caía no vidro (g_back) ou um menu da barra tirava o foco e a Central sumia da tela
+            HWND to = (HWND)l; DWORD pid = 0;
+            if (to) GetWindowThreadProcessId(to, &pid);
+            if (to && pid == GetCurrentProcessId() && (to == g_back || GetAncestor(to, GA_ROOTOWNER) == g_wnd || IsOurBanner(to))) {
+                SetForegroundWindow(g_wnd);
+                return 0;
+            }
+            wchar_t cls[64] = {}; if (to) GetClassNameW(to, cls, 64);
+            Log(L"notificações: fechou (perdeu o foco para %ls)", cls);
+            Close();
+        }
+        return 0;
     case WM_DPICHANGED: if (g_open) { Place(); Paint(); } return 0;
     }
     return DefWindowProcW(h, m, w, l);

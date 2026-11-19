@@ -591,6 +591,7 @@ void Render() {
         D2D1_POINT_2F c{ 19.f + k * 23, TITLE_H / 2 };
         br->SetColor(lit ? fill[k] : D2D1::ColorF(0.30f, 0.30f, 0.31f));
         g_rt->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(g_rt, c, 7, br);
         br->SetColor(lit ? ring[k] : D2D1::ColorF(0, 0, 0, 0.3f));
         g_rt->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
         if (!g_hoverLights) continue;

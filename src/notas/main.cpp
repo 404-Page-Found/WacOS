@@ -308,7 +308,7 @@ int HitCard(D2D1_POINT_2F p) {
 
 // ---------------------------------------------------------------------------
 // botões das barras de ferramentas
-enum Btn { B_SIDEBAR, B_LIST, B_GALLERY, B_TRASH, B_BACK, B_COMPOSE, B_FORMAT, B_CHECK, B_TABLE, B_AUDIO, B_MEDIA, B_COLLAB, B_LOCK, B_SHARE, B_SEARCH, B_COUNT };
+enum Btn { B_SIDEBAR, B_LIST, B_GALLERY, B_TRASH, B_BACK, B_COMPOSE, B_FORMAT, B_CHECK, B_TABLE, B_AUDIO, B_MEDIA, B_COLLAB, B_LOCK, B_SHARE, B_SEARCH, B_FOLDER, B_MORE, B_COUNT };  // B_FOLDER/B_MORE: macOS 27
 struct BtnInfo { D2D1_RECT_F r{}; bool shown = false, enabled = true; const wchar_t* glyph = L""; bool chevron = false; float gw = 17, gh = 15; };
 BtnInfo g_btn[B_COUNT];
 D2D1_RECT_F g_searchRect;
@@ -330,9 +330,19 @@ void LayoutButtons() {
         return;
     }
     put(B_SIDEBAR, g_sideHidden ? 104.f : std::min(108.f, SideW() - 22), L"sidebar.left", 32, 18, 14);
+    const bool gg = semaforo::Aqua();
+    if (gg) {
+        // macOS 27 (captura Notes, 2x): na lateral, "nova pasta" e esconder a lateral em botões redondos de vidro; na
+        // coluna das notas, o nome da pasta e a contagem à esquerda e "⋯" (Lista/Galeria, Apagar) à direita; nada de
+        // colaborar e cadeado; a busca é um campo sempre à vista
+        auto round = [&](int id, float cx, const wchar_t* glyph, float gw, float gh) { put(id, cx, glyph, 36, gw, gh); g_btn[id].r.top = TOOL_CY - 18; g_btn[id].r.bottom = TOOL_CY + 18; };
+        if (!g_sideHidden) { round(B_SIDEBAR, SideW() - 26, L"sidebar.left", 18, 14); round(B_FOLDER, SideW() - 70, L"folder.badge.plus", 19, 14); }
+        else round(B_SIDEBAR, 104.f, L"sidebar.left", 18, 14);
+    }
     float L0 = ToolStart() + (g_sideHidden ? 0 : 0);
     put(B_LIST, L0 + 30, L"list.bullet", 36, 15, 12);
     put(B_GALLERY, L0 + 69, L"square.grid.2x2", 36, 14, 14);
+    if (gg) { g_btn[B_LIST].shown = g_btn[B_GALLERY].shown = false; }
     float e0;
     if (g_gallery) {
         put(B_TRASH, L0 + 110, L"trash", 32, 14, 16);
@@ -341,6 +351,7 @@ void LayoutButtons() {
     } else {
         put(B_TRASH, ListR() - 26, L"trash", 32, 14, 16);
         e0 = ListR();
+        if (gg) { g_btn[B_TRASH].shown = false; put(B_MORE, ListR() - 28, L"", 36, 16, 4); g_btn[B_MORE].r.top = TOOL_CY - 18; g_btn[B_MORE].r.bottom = TOOL_CY + 18; }
     }
     float e1 = c.width;
     put(B_COMPOSE, e0 + 29, L"square.and.pencil", 32, 16, 16);
@@ -355,10 +366,21 @@ void LayoutButtons() {
         float w = std::clamp((e1 - e0) * 0.32f, 150.f, 230.f);
         g_searchRect = { right - w, TOOL_CY - 13, right, TOOL_CY + 13 };
         right = g_searchRect.left - 6;
+    } else if (gg) {  // macOS 27: o campo da busca já fica à vista (clique abre para digitar)
+        float w = std::clamp((e1 - e0) * 0.32f, 150.f, 230.f);
+        put(B_SEARCH, right - w / 2, L"magnifyingglass", w, 13, 13);
+        g_btn[B_SEARCH].r.top = TOOL_CY - 18; g_btn[B_SEARCH].r.bottom = TOOL_CY + 18;
+        right = right - w - 6;
     } else { put(B_SEARCH, e1 - 28, L"magnifyingglass", 32, 15, 15); right = e1 - 44; }
     put(B_SHARE, right - 22, L"square.and.arrow.up", 32, 14, 17);
     put(B_LOCK, right - 22 - 44, L"lock", 40, 12, 16, true);
     put(B_COLLAB, right - 22 - 92, L"person.crop.circle.badge.plus", 34, 18, 16);
+    if (gg) {  // macOS 27: só compartilhar (redondo) à direita dos do meio
+        g_btn[B_COLLAB].shown = g_btn[B_LOCK].shown = false;
+        put(B_SHARE, right - 20, L"square.and.arrow.up", 36, 14, 17);
+        g_btn[B_SHARE].r.top = TOOL_CY - 18; g_btn[B_SHARE].r.bottom = TOOL_CY + 18;
+        g_btn[B_COLLAB].r = g_btn[B_SHARE].r;  // para os do meio sumirem antes de encostar
+    }
     // sem espaço: os do meio somem antes de encostar nos da direita
     for (int id : { B_MEDIA, B_AUDIO, B_TABLE, B_CHECK, B_FORMAT })
         if (g_btn[id].r.right > g_btn[B_COLLAB].r.left - 6) g_btn[id].shown = false;
@@ -414,6 +436,7 @@ void DrawLights(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br) {
         auto c = LightCenter(k);
         br->SetColor(lit ? fill[k] : g_dark ? D2D1::ColorF(0.24f, 0.24f, 0.25f) : D2D1::ColorF(0.839f, 0.839f, 0.839f));
         dc->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(dc, c, 7, br);
         br->SetColor(lit ? ring[k] : g_dark ? D2D1::ColorF(0, 0, 0, 0.3f) : D2D1::ColorF(0.729f, 0.729f, 0.737f));
         dc->DrawEllipse(D2D1::Ellipse(c, 6.75f, 6.75f), br, 0.5f);
         if (!g_hoverLights) continue;
@@ -473,7 +496,8 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
         if (s.count) Text(dc, br, std::to_wstring(s.count), g_fCount, D2D1::RectF(r.right - 60, r.top, r.right - 8, r.bottom), pal.text2);
     }
     dc->PopAxisAlignedClip();
-    // + Nova Pasta
+    // + Nova Pasta (macOS 27: no botão de vidro da lateral)
+    if (semaforo::Aqua()) return;
     auto nr = NewFolderRect();
     float cy = (nr.top + nr.bottom) / 2;
     Glyph(dc, br, L"plus.circle", 27, cy, 15, 15, pal.text2);
@@ -481,6 +505,36 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
 }
 
 void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) {
+    if (semaforo::Aqua()) {
+        // macOS 27 (captura Notes, 2x): os botões ficam em cápsulas de vidro de 36 de altura — escrever; Aa, lista,
+        // tabela, áudio e mídia juntos; cadeado e compartilhar juntos; a busca numa cápsula própria
+        auto cap = [&](int a, int b) {
+            if (!g_btn[a].shown || !g_btn[b].shown) return;
+            D2D1_RECT_F r = D2D1::RectF(std::min(g_btn[a].r.left, g_btn[b].r.left) - 4, TOOL_CY - 18, std::max(g_btn[a].r.right, g_btn[b].r.right) + 4, TOOL_CY + 18);
+            br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.22f : 0.05f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1.5f), 18, 18), br);
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.09f) : D2D1::ColorF(1, 1, 1, 0.92f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(r, 18, 18), br);
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.07f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 17.5f, 17.5f), br, 1);
+        };
+        cap(B_COMPOSE, B_COMPOSE);
+        cap(B_FORMAT, B_MEDIA);
+        if (g_btn[B_LOCK].shown) cap(B_LOCK, B_SHARE); else cap(B_SHARE, B_SHARE);
+        cap(B_SEARCH, B_SEARCH);
+        cap(B_SIDEBAR, B_SIDEBAR);
+        cap(B_FOLDER, B_FOLDER);
+        cap(B_MORE, B_MORE);
+        // nome da pasta e quantas notas, à esquerda da coluna das notas (no lugar do seletor lista/galeria)
+        if (!g_gallery && !g_quick) {
+            float L = ToolStart() + 18, R = g_btn[B_MORE].shown ? g_btn[B_MORE].r.left - 6 : ListR() - 10;
+            int n = 0; for (auto& r : g_rows) if (!r.header) n++;
+            std::wstring name = Searching() ? std::wstring(Tr(L"Resultados")) : store::FolderName(g_folder);
+            wchar_t b[48]; swprintf_s(b, Tr(n == 1 ? L"%d nota" : L"%d notas"), n);
+            Text(dc, br, name, g_f13b, D2D1::RectF(L, TOOL_CY - 16, R, TOOL_CY + 1), pal.text);
+            Text(dc, br, b, g_f11, D2D1::RectF(L, TOOL_CY + 1, R, TOOL_CY + 15), pal.text2);
+        }
+    }
     // seletor lista/galeria: o escolhido fica num quadrado cinza arredondado
     auto& seg = g_btn[g_gallery ? B_GALLERY : B_LIST];
     br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.075f));
@@ -495,6 +549,12 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
         D2D1_COLOR_F col = b.enabled ? pal.icon : pal.iconOff;
         if ((i == B_LIST && !g_gallery) || (i == B_GALLERY && g_gallery)) col = g_dark ? D2D1::ColorF(1, 1, 1, 0.85f) : D2D1::ColorF(0, 0, 0, 0.75f);
         float cx = (b.r.left + b.r.right) / 2 - (b.chevron ? 6 : 0);
+        if (i == B_MORE) { br->SetColor(col); for (int k = -1; k <= 1; k++) dc->FillEllipse(D2D1::Ellipse({ cx + k * 5.5f, TOOL_CY }, 1.6f, 1.6f), br); continue; }
+        if (i == B_SEARCH && semaforo::Aqua()) {  // campo fechado: lupa e "Buscar"
+            Glyph(dc, br, b.glyph, b.r.left + 18, TOOL_CY, 13, 13, pal.text2);
+            Text(dc, br, Tr(L"Buscar"), g_f13, D2D1::RectF(b.r.left + 32, b.r.top, b.r.right - 8, b.r.bottom), pal.text3);
+            continue;
+        }
         Glyph(dc, br, b.glyph, cx, TOOL_CY, b.gw, b.gh, col);
         if (b.chevron) Chevron(dc, br, b.r.right - 9, TOOL_CY + 0.5f, 2.6f, col);
     }
@@ -1096,6 +1156,15 @@ void ClickButton(int b) {
     case B_FORMAT: g_fmtOpen = !g_fmtOpen; if (g_fmtOpen) { g_focus = F_EDITOR; editor::Focus(true); } break;
     case B_CHECK: editor::ToggleList(L_CHECK); g_focus = F_EDITOR; editor::Focus(true); break;
     case B_SEARCH: OpenSearch(); break;
+    case B_FOLDER: NewFolderCmd(); break;
+    case B_MORE: {  // macOS 27: Lista / Galeria e apagar a nota
+        auto r = g_btn[B_MORE].r;
+        Item sep; sep.separator = true;
+        std::vector<Item> items = { I(Tr(L"Ver como Lista"), 1, false, !g_gallery), I(Tr(L"Ver como Galeria"), 2, false, g_gallery), sep, I(Tr(L"Apagar Nota"), 3, !g_sel) };
+        int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
+        if (id == 1) SetGallery(false); else if (id == 2) SetGallery(true); else if (id == 3 && g_sel) DeleteNoteCmd(g_sel);
+        break;
+    }
     default: UnavailableMenu(b); break;
     }
     Invalidate();
@@ -1355,7 +1424,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (!g_gallery && std::fabs(p.x - ListR()) <= 4) { g_divDrag = 2; SetCapture(h); return 0; }
         // barra lateral
         if (p.x < SideW()) {
-            if (In(NewFolderRect(), p)) { NewFolderCmd(); return 0; }
+            if (!semaforo::Aqua() && In(NewFolderRect(), p)) { NewFolderCmd(); return 0; }
             int s = HitSide(p);
             if (s >= 0) {
                 if (g_focus == F_RENAME && g_side[s].id == g_renameId) { g_rename.Click(g_f13, p, false); Invalidate(); return 0; }
