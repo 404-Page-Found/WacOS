@@ -421,7 +421,13 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // "Sempre" empurrava as janelas para as bordas a cada clique na mesa (o usuário: "os apps pulam", 17/11/2026)
         if (!g_revealed) {
             std::wstring modo = shell::Setting(L"clique_mostra_mesa", L"palco");
-            if (modo == L"0" || (modo == L"palco" && shell::Setting(L"organizador", L"0") != L"1")) return 0;
+            // ao lado do Dock (a faixa de baixo da tela) o clique sempre mostra a mesa: é o gesto de propósito. No resto
+            // da mesa só no modo "Sempre" (o usuário: clicar na mesa não pode empurrar os apps; o canto de baixo, sim)
+            MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY), &mi);
+            UINT dpi = GetDpiForWindow(menubar::Hwnd() ? menubar::Hwnd() : GetDesktopWindow());
+            bool besideDock = pt.y >= mi.rcMonitor.bottom - MulDiv(100, dpi ? dpi : 96, 96);
+            if (modo == L"0") return 0;
+            if (modo == L"palco" && shell::Setting(L"organizador", L"0") != L"1" && !besideDock) return 0;
         }
         if (!EmptySpot(pt)) return 0;  // clicou num ícone: só seleciona, como no Mac
         if (g_revealed) Restore(); else Reveal();
