@@ -160,6 +160,8 @@
 { L"Mostrar menos", L"Show less" },
 { L" notificação a mais", L" more notification" },
 { L" notificações a mais", L" more notifications" },
+{ L" notificação mais antiga", L" older notification" },
+{ L" notificações mais antigas", L" older notifications" },
 { L"Editar Widgets…", L"Edit Widgets…" },
 { L"Nenhum evento hoje", L"No events today" },
 { L"Permita que o Shell leia as notificações do Windows.", L"Allow the Shell to read Windows notifications." },

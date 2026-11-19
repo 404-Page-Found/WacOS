@@ -52,6 +52,10 @@ LRESULT CALLBACK MouseHook(int code, WPARAM w, LPARAM l) {
     if (code == HC_ACTION) {
         auto* m = (MSLLHOOKSTRUCT*)l;
         if (w == WM_LBUTTONDOWN) {
+            if (notificacoes::IsOpen()) {  // diagnóstico: onde o clique cai com a Central aberta (clique que "não chegava")
+                HWND at = WindowFromPoint(m->pt); wchar_t c[64] = {}; if (at) GetClassNameW(GetAncestor(at, GA_ROOT), c, 64);
+                Log(L"clique com a Central aberta: %ld,%ld sobre %ls%ls", m->pt.x, m->pt.y, c, (m->flags & LLMHF_INJECTED) ? L" (simulado)" : L"");
+            }
             g_down = m->pt;
             g_downOnDesk = IsDesktopWindow(WindowFromPoint(m->pt));
         } else if (w == WM_LBUTTONUP && g_downOnDesk) {

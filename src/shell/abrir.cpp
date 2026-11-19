@@ -21,7 +21,7 @@ const double DUR_SEQUOIA = 180;    // ms (era 220: abrir mais ágil)
 bool g_tahoeAbrir;
 double Dur() { return g_tahoeAbrir ? 170 : DUR_SEQUOIA; }
 const UINT WM_AB_DONE = WM_APP + 1;  // o movimento de uma janela terminou (wParam = hwnd)
-const UINT_PTR T_REMOVE = 1;
+const UINT_PTR T_REMOVE = 1, T_SAFE = 2;
 
 struct Item {
     HWND h = nullptr;
@@ -116,6 +116,25 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (!pending) KillTimer(h, T_REMOVE);
             if (g_items.empty()) ShowWindow(h, SW_HIDE);
         }
+        if (w == T_SAFE) {
+            // Segurança: miniatura que não terminou (o aviso do fim se perdeu, a janela foi minimizada/fechada no meio)
+            // ficava presa na camada por cima de tudo, quase transparente: o contorno e os três botões da janela
+            // "fantasma" por cima do Chrome (print do usuário, 19/11/2026). Passou do tempo: sai e a janela aparece.
+            std::lock_guard<std::mutex> k(g_mx);
+            double now = anim::Now();
+            for (size_t i = 0; i < g_items.size();) {
+                Item& it = g_items[i];
+                bool gone = !IsWindow(it.h) || IsIconic(it.h) || !IsWindowVisible(it.h);
+                if (gone || now - it.t0 > Dur() + 700) {
+                    Log(L"abrir: miniatura presa removida (%.0f ms%ls)", now - it.t0, gone ? L", janela sumiu" : L"");
+                    DwmUnregisterThumbnail(it.th);
+                    if (it.bar) DwmUnregisterThumbnail(it.bar);
+                    if (!gone) Show(it.h);
+                    g_items.erase(g_items.begin() + i);
+                } else i++;
+            }
+            if (g_items.empty()) { KillTimer(h, T_SAFE); ShowWindow(h, SW_HIDE); }
+        }
         return 0;
     }
     return DefWindowProcW(h, m, w, l);
@@ -163,4 +182,5 @@ void abrir::Open(HWND h, HWND bar) {
     std::lock_guard<std::mutex> k(g_mx);
     g_items.push_back(it);
     if (!g_thread) { g_thread = true; std::thread(Worker).detach(); }
+    SetTimer(g_ov, T_SAFE, 300, nullptr);
 }

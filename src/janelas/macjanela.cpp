@@ -445,6 +445,7 @@ LRESULT CALLBACK CornerProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 void HideCorners(Info* in) { for (HWND c : in->corner) if (c) ShowWindow(c, SW_HIDE); }
+void KeepAbove(Info* in);  // mais abaixo
 
 // Moldura por cima da janela (uma janela em camadas, transparente para cliques, do tamanho da parte
 // visível + 1 px): o SetWindowRgn só corta pixel inteiro, então aqui vão
@@ -528,7 +529,7 @@ void UpdateCorners(Info* in, RECT vis) {
     SelectObject(mem, old);
     DeleteObject(bmp);
     DeleteDC(mem);
-    if (!IsWindowVisible(fw)) ShowWindow(fw, SW_SHOWNOACTIVATE);
+    if (!IsWindowVisible(fw)) { ShowWindow(fw, SW_SHOWNOACTIVATE); KeepAbove(in); }  // nasce no topo da tela: desce para junto da janela
 }
 
 // sombra na parte visível (com o recorte, sem a borda invisível); os cantos suaves vão junto
@@ -875,8 +876,15 @@ void KeepAbove(Info* in) {
     if (!IsWindowVisible(h)) return;
     for (HWND o : { in->overlay, in->corner[0] }) {
         if (!o || !IsWindowVisible(o)) continue;
+        // logo acima da janela: só as camadas dela (faixa, cantos, prévia) podem estar no meio. Antes bastava estar
+        // "em algum lugar acima"; ao reiniciar o Shell a DLL recria as camadas no topo da tela e as de janelas que
+        // estavam atrás de outras (o Relógio atrás do Chrome) ficavam por cima de tudo: o contorno e os três botões
+        // "fantasma" por cima do Chrome (19/11/2026)
         bool above = false;
-        for (HWND x = GetWindow(h, GW_HWNDPREV); x; x = GetWindow(x, GW_HWNDPREV)) if (x == o) { above = true; break; }
+        for (HWND x = GetWindow(h, GW_HWNDPREV); x; x = GetWindow(x, GW_HWNDPREV)) {
+            if (x == o) { above = true; break; }
+            if (GetWindow(x, GW_OWNER) != h && IsWindowVisible(x)) break;  // outra janela no meio: não está colada
+        }
         if (above) continue;
         HWND prev = GetWindow(h, GW_HWNDPREV);
         SetWindowPos(o, prev ? prev : HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);

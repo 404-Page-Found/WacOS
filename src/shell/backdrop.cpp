@@ -745,11 +745,33 @@ void RefreshWindows() {
 // embaixo davam a tela inteira, montada de novo a cada quadro de qualquer janela).
 const LONG COMPOSE_MARGIN = 64;
 std::vector<RECT> composed;  // as áreas montadas da última vez
+// Peça escondida atrás de um app em tela cheia (YouTube/F11/jogo): a janela da frente cobre o monitor inteiro e
+// está acima dela. Os widgets da mesa continuam "visíveis" atrás do vídeo, e cada quadro do vídeo remontava o vidro
+// deles (~60 vezes/s, 19/11/2026: o YouTube em tela cheia engasgava com o tema Golden Gate).
+bool CoveredByFullscreen(HWND piece) {
+    static DWORD at; static HWND lastFg, lastPiece; static bool lastRes;
+    HWND fg = GetForegroundWindow();
+    if (GetTickCount() - at < 100 && fg == lastFg && piece == lastPiece) return lastRes;
+    at = GetTickCount(); lastFg = fg; lastPiece = piece;
+    lastRes = false;
+    if (!fg || fg == piece || !IsWindowVisible(fg) || IsIconic(fg) || Cloaked(fg)) return false;
+    DWORD pid = 0; GetWindowThreadProcessId(fg, &pid);
+    if (pid == GetCurrentProcessId()) return false;  // janela do próprio Shell (Launchpad, Mission Control): o vidro é dela
+    if (GetWindowLongW(piece, GWL_EXSTYLE) & WS_EX_TOPMOST && !(GetWindowLongW(fg, GWL_EXSTYLE) & WS_EX_TOPMOST)) return false;
+    MONITORINFO mi{ sizeof(mi) };
+    if (!GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST), &mi)) return false;
+    RECT r; GetWindowRect(fg, &r);
+    if (r.left > mi.rcMonitor.left || r.top > mi.rcMonitor.top || r.right < mi.rcMonitor.right || r.bottom < mi.rcMonitor.bottom) return false;
+    RECT pr; GetWindowRect(piece, &pr);
+    RECT x; if (!IntersectRect(&x, &pr, &mi.rcMonitor) || !EqualRect(&x, &pr)) return false;  // a peça sai do monitor do app
+    for (HWND w = GetWindow(piece, GW_HWNDPREV); w; w = GetWindow(w, GW_HWNDPREV)) if (w == fg) { lastRes = true; break; }  // o app está acima
+    return lastRes;
+}
 std::vector<RECT> GlassAreas() {
     std::vector<RECT> v;
     RECT all{ 0, 0, (LONG)texW, (LONG)texH };
     for (auto& [hh, e] : g_entries) {
-        if (!e.real || !IsWindowVisible(e.hwnd)) continue;
+        if (!e.real || !IsWindowVisible(e.hwnd) || CoveredByFullscreen(e.hwnd)) continue;
         RECT r; GetWindowRect(e.hwnd, &r);
         OffsetRect(&r, -mon.left, -mon.top);
         InflateRect(&r, COMPOSE_MARGIN, COMPOSE_MARGIN);
@@ -1256,6 +1278,7 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
 void Redraw(Entry& e) {
     st_redraws++;
     if (!active || !screen || !e.surf) return;
+    if (CoveredByFullscreen(e.hwnd)) return;  // atrás do app em tela cheia: ninguém vê; redesenha quando ele sair
     // peça nova ou que se mexeu para fora da área montada: monta o fundo de novo (a montagem redesenha todas)
     if (!g_busy && IsWindowVisible(e.hwnd) && !Composed(e.hwnd)) { capDirty = true; allDirty = true; Poll(); return; }
     RECT r; GetWindowRect(e.hwnd, &r);

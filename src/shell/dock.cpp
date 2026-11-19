@@ -1454,7 +1454,8 @@ void dock::Update() {
 void dock::SetFullscreen(bool on) {
     if (!g_icons || on == g_fullscreen) return;
     g_fullscreen = on;
-    if (on) { ShowWindow(g_icons, SW_HIDE); ShowWindow(g_back, SW_HIDE); return; }
+    // as miniaturas das janelas minimizadas também (ficavam por cima do YouTube em tela cheia, 19/11/2026)
+    if (on) { ShowWindow(g_icons, SW_HIDE); ShowWindow(g_back, SW_HIDE); if (g_thumbWnd) ShowWindow(g_thumbWnd, SW_HIDE); return; }
     g_win = {}; g_lastBg = {};  // força reposicionar e mostrar
     Paint();
 }

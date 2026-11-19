@@ -67,7 +67,7 @@ inline float WidgetR() { return liquid::On() ? 26.f : WIDGET_R_SEQ; }
 const int MAX_GROUPS = 6;  // grupos mostrados antes de "N notificações a mais"
 
 const UINT WM_NC_FRAME = WM_APP + 90, WM_NC_DATA = WM_APP + 91, WM_NC_NEW = WM_APP + 92, WM_NC_BFRAME = WM_APP + 93;
-const UINT_PTR T_TICK = 1, T_FOCO = 2;  // T_FOCO: confere quem ficou na frente depois de perder o foco "para ninguém"
+const UINT_PTR T_TICK = 1, T_FOCO = 2, T_ANIM = 3;  // T_FOCO: confere quem ficou na frente depois de perder o foco "para ninguém"
 
 HWND g_wnd, g_back;
 bool IsOurBanner(HWND h) { wchar_t c[64] = {}; GetClassNameW(h, c, 64); return wcsstr(c, L"Notifica") != nullptr || wcsstr(c, L"Banner") != nullptr; }
@@ -78,6 +78,7 @@ float g_slide = 1;     // 0 = no lugar, 1 = fora da tela à direita
 DWORD g_closedAt;
 float g_scroll, g_scrollTarget, g_contentH;
 double g_lastFrame;
+DWORD g_clickAt = 0;  // último clique dentro da Central: o foco que some logo depois não fecha (abrir a pilha)
 bool g_snap;           // próximo desenho sem animar os cartões (acabou de abrir)
 
 IDWriteTextFormat *g_tfTitle, *g_tfBody, *g_tfTime, *g_tfPill, *g_tfHeader, *g_tfEmpty;
@@ -532,7 +533,12 @@ std::vector<El> Layout() {
             y += HEADER_H + GAP;
             D2D1_RECT_F first{};
             std::vector<El> cards;
-            for (int ni = 0; ni < (int)g.notes.size(); ni++) {
+            // Pilha aberta com centenas de notificações (o Chrome guarda todas): cada quadro da animação refazia o
+            // layout e a mola de todas e a Central travava ~3 s; o clique seguinte caía no Chrome e ela fechava
+            // (19/11/2026). Mostra as mais novas; o resto continua no grupo (Limpar limpa tudo).
+            const int MAX_OPEN = 20;
+            int nOpen = std::min((int)g.notes.size(), MAX_OPEN);
+            for (int ni = 0; ni < nOpen; ni++) {
                 float h2 = CardH(g.notes[ni]);
                 El c{ L"n:" + std::to_wstring(g.notes[ni].id), K_CARD, D2D1::RectF(0, y, CARD_W, y + h2), A_CARD };
                 c.group = gi; c.note = ni;
@@ -544,6 +550,13 @@ std::vector<El> Layout() {
             // as de baixo são desenhadas antes: ao abrir saem de trás do cartão de cima (como no Mac), sem texto
             // de uma por cima do da outra
             out.insert(out.end(), cards.rbegin(), cards.rend());
+            if ((int)g.notes.size() > nOpen) {
+                El more{ L"hm:" + g.aumid, K_LABEL, D2D1::RectF(0, y, CARD_W, y + 22) };
+                int rest = (int)g.notes.size() - nOpen;
+                more.text = std::to_wstring(rest) + (rest == 1 ? Tr(L" notificação mais antiga") : Tr(L" notificações mais antigas"));
+                out.push_back(more);
+                y += 22 + GAP;
+            }
             y += GROUP_GAP - GAP;
         } else {
             float h2 = CardH(g.notes[0]);
@@ -637,6 +650,15 @@ bool Step(Spring1& s, float target, float dt, float response = 0.38f) {
     s.x += s.v * dt;
     if (std::fabs(s.x - target) < 0.05f && std::fabs(s.v) < 0.5f) { s.x = target; s.v = 0; return false; }
     return true;
+}
+
+bool Settled() {
+    for (auto& [k, a] : g_anim) {
+        if (std::fabs(a.l.x - a.el.r.left) > 0.05f || std::fabs(a.t.x - a.el.r.top) > 0.05f ||
+            std::fabs(a.r.x - a.el.r.right) > 0.05f || std::fabs(a.b.x - a.el.r.bottom) > 0.05f) return false;
+        if (std::fabs(a.a.x - (a.live ? 1.f : 0.f)) > 0.01f) return false;
+    }
+    return std::fabs(g_scroll - g_scrollTarget) < 0.3f;
 }
 
 bool Advance(float dt) {
@@ -981,20 +1003,35 @@ void Place() {
     SetWindowPos(g_back, g_wnd, x, top, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
-void Animate() { g_lastFrame = anim::Now(); ui::FrameClock(g_wnd, WM_NC_FRAME, true); }
+// Os quadros vêm do relógio de quadros (DwmFlush numa thread). Às vezes ele não entregava nenhum: o clique abria a
+// pilha (o log dizia "abriu a pilha") e a tela não mudava, nem o fechar escondia a janela (19/11/2026). Um temporizador
+// de reserva desenha o quadro quando o relógio ficou mais de 50 ms sem mandar nada.
+double g_frameMsgAt = 0;
+// O relógio do passo (g_lastFrame) só recomeça se a animação estava parada. Antes cada Animate() o zerava: com os
+// dados chegando a cada segundo (WM_NC_DATA chama Animate) e o clique, o passo de cada quadro ficava em 1 ms e as
+// molas quase não andavam: a pilha "abria" (o log dizia) mas os cartões ficavam parados no lugar (19/11/2026)
+bool g_running = false;
+void Animate() {
+    if (!g_running) { g_lastFrame = anim::Now(); g_running = true; }
+    ui::FrameClock(g_wnd, WM_NC_FRAME, true);
+    SetTimer(g_wnd, T_ANIM, 33, nullptr);
+}
 
 void Hide() {
     g_open = g_closing = false;
     g_hover.clear(); g_hoverPart.clear();
     KillTimer(g_wnd, T_TICK);
     ui::FrameClock(g_wnd, WM_NC_FRAME, false);
+    KillTimer(g_wnd, T_ANIM);
+    g_running = false;
     ShowWindow(g_wnd, SW_HIDE);
     ShowWindow(g_back, SW_HIDE);
     for (auto& gl : g_hostPanel.pool) gl.outer.IsVisible(false);
 }
 
-void Close() {
+void Close(const wchar_t* why = nullptr) {
     if (!g_open) return;
+    if (why) Log(L"notificações: fechou (%ls)", why);  // cada caminho diz por quê (a Central sumia sem rastro)
     g_open = false;
     menubar::SoundChanged(false);  // a cápsula do relógio da barra sai
     g_closing = true;
@@ -1006,7 +1043,7 @@ void Close() {
 
 void Frame() {
     double now = anim::Now();
-    float dt = (float)std::clamp((now - g_lastFrame) / 1000.0, 0.001, 0.034);
+    float dt = (float)std::clamp((now - g_lastFrame) / 1000.0, 0.0, 0.034);
     g_lastFrame = now;
     float t = (float)((now - g_slideAt) / 1000.0);
     bool slideBusy;
@@ -1032,7 +1069,11 @@ void Frame() {
     }
     bool busy = Advance(dt);
     Paint();
-    if (!busy && !slideBusy) ui::FrameClock(g_wnd, WM_NC_FRAME, false);
+    // O layout novo (Sync, dentro do Paint) só entra agora: a pilha que acabou de abrir tem alvos novos que o Advance
+    // ainda não via. Antes o relógio desligava aqui ("nada a animar") e os cartões ficavam parados no lugar antigo:
+    // a pilha não abria (19/11/2026). Só para se, depois do desenho, tudo já estiver no alvo.
+    if (!busy && !slideBusy) busy = !Settled();
+    if (!busy && !slideBusy) { ui::FrameClock(g_wnd, WM_NC_FRAME, false); KillTimer(g_wnd, T_ANIM); g_running = false; }
 }
 
 void OpenApp(const Note& n) {
@@ -1085,12 +1126,11 @@ const Hit* HitAt(D2D1_POINT_2F p) {
 }
 
 DWORD g_expandedAt = 0;  // quando uma pilha foi aberta
-DWORD g_clickAt = 0;     // último clique dentro da Central: o foco que some logo depois não fecha (abrir a pilha)
 
 void Click(D2D1_POINT_2F p) {
     g_clickAt = GetTickCount();
     const Hit* h = HitAt(p);
-    if (!h) { Close(); return; }  // clique no vazio da coluna: fecha, como clicar fora
+    if (!h) { Close(L"clique no vazio"); return; }  // clique no vazio da coluna: fecha, como clicar fora
     Hit hit = *h;
     if (hit.key == L"x") {  // ✕ do cartão: numa pilha fechada limpa o grupo todo
         if (hit.group >= 0 && hit.group < (int)g_groups.size()) {
@@ -1110,7 +1150,7 @@ void Click(D2D1_POINT_2F p) {
     }
     switch (hit.act) {
     case A_STACK:
-        if (hit.group >= 0 && hit.group < (int)g_groups.size()) { g_expanded.insert(g_groups[hit.group].aumid); g_expandedAt = GetTickCount(); Log(L"notificações: abriu a pilha de %ls", g_groups[hit.group].app.c_str()); }
+        if (hit.group >= 0 && hit.group < (int)g_groups.size()) { g_expanded.insert(g_groups[hit.group].aumid); g_expandedAt = GetTickCount(); Log(L"notificações: abriu a pilha de %ls (%zu notificações, aumid %ls)", g_groups[hit.group].app.c_str(), g_groups[hit.group].notes.size(), g_groups[hit.group].aumid.c_str()); }
         break;
     case A_CARD:
         // segundo clique de um clique duplo na pilha: só abre o grupo (não abre o app nem fecha a central)
@@ -1118,7 +1158,7 @@ void Click(D2D1_POINT_2F p) {
         if (hit.group >= 0 && hit.group < (int)g_groups.size() && hit.note >= 0 && hit.note < (int)g_groups[hit.group].notes.size()) {
             Note n = g_groups[hit.group].notes[hit.note];
             RemoveIds({ n.id });
-            Close();
+            Close(L"clique no cartão: abre o app");
             OpenApp(n);
             return;
         }
@@ -1166,7 +1206,7 @@ void BannerShow(UINT id);
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); Paint(); return 0; }
-    case WM_NC_FRAME: Frame(); return 0;
+    case WM_NC_FRAME: g_frameMsgAt = anim::Now(); Frame(); return 0;
     case WM_NC_NEW: BannerShow((UINT)l); return 0;
     case WM_NC_DATA:
         dock::BadgesChanged();
@@ -1175,16 +1215,33 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_TIMER:
         if (w == T_TICK && g_open) Paint();  // horas relativas e o relógio
+        if (w == T_ANIM) {
+            if (anim::Now() - g_frameMsgAt > 50) {
+                static int avisos = 0;
+                if (avisos++ < 5) Log(L"notificações: relógio de quadros parado; desenhando pelo temporizador");
+                Frame();
+            }
+            return 0;
+        }
         if (w == T_FOCO) {
             KillTimer(h, T_FOCO);
             if (!g_open || g_menu) return 0;
             HWND f = GetForegroundWindow(); DWORD pid = 0;
             if (f) GetWindowThreadProcessId(f, &pid);
-            if (f && pid != GetCurrentProcessId() && GetTickCount() - g_clickAt >= 800) { Log(L"notificações: fechou (outro programa na frente)"); Close(); }
+            if (f && pid != GetCurrentProcessId() && GetTickCount() - g_clickAt >= 800) {
+                wchar_t fc[64] = {}; GetClassNameW(f, fc, 64);
+                Log(L"notificações: fechou (outro programa na frente: %ls)", fc); Close();
+            }
             else SetForegroundWindow(g_wnd);  // ninguém (ou o próprio Shell) na frente: continua aberta
         }
         return 0;
-    case WM_LBUTTONDOWN: if (g_open) Click(Pt(l)); return 0;
+    case WM_LBUTTONDOWN: {
+        D2D1_POINT_2F p = Pt(l);
+        const Hit* hh = HitAt(p);
+        Log(L"notificações: clique em %.0f,%.0f (%ls, ação %d, aberta %d, frente %p)", p.x, p.y, hh ? hh->key.c_str() : L"nada", hh ? (int)hh->act : -1, (int)g_open, GetForegroundWindow());
+        if (g_open) Click(p);
+        return 0;
+    }
     case WM_RBUTTONUP: return 0;
     case WM_MOUSEMOVE: {
         if (!g_open) return 0;
@@ -1197,7 +1254,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_scrollTarget -= GET_WHEEL_DELTA_WPARAM(w) / 120.f * 60.f;
         Animate();
         return 0;
-    case WM_KEYDOWN: if (w == VK_ESCAPE) Close(); return 0;
+    case WM_KEYDOWN: if (w == VK_ESCAPE) Close(L"Esc"); return 0;
     case WM_ACTIVATE:
         if (LOWORD(w) == WA_INACTIVE && !g_menu) {
             // a ativação foi para outra janela do próprio Shell (o vidro de trás, o banner, a barra): não fecha. Antes um
@@ -1207,6 +1264,13 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (to && pid == GetCurrentProcessId() && (to == g_back || GetAncestor(to, GA_ROOTOWNER) == g_wnd || IsOurBanner(to))) {
                 SetForegroundWindow(g_wnd);
                 return 0;
+            }
+            {   // onde estava o ponteiro e que janela havia embaixo dele (o clique que "não chegava" na Central)
+                wchar_t c0[64] = {}, c1[64] = {}; if (to) GetClassNameW(to, c0, 64);
+                POINT cp{}; GetCursorPos(&cp); HWND under = WindowFromPoint(cp); if (under) GetClassNameW(GetAncestor(under, GA_ROOT), c1, 64);
+                RECT wr{}; GetWindowRect(g_wnd, &wr);
+                Log(L"notificações: perdeu a ativação para %ls (%u ms depois do clique); ponteiro %ld,%ld sobre %ls; Central %ld,%ld-%ld,%ld visível %d",
+                    to ? c0 : L"ninguém", GetTickCount() - g_clickAt, cp.x, cp.y, c1, wr.left, wr.top, wr.right, wr.bottom, (int)IsWindowVisible(g_wnd));
             }
             if (!to) { SetTimer(h, T_FOCO, 150, nullptr); return 0; }  // "para ninguém" (ao abrir uma pilha): confere já já
             if (GetTickCount() - g_clickAt < 800) { SetTimer(h, T_FOCO, 150, nullptr); return 0; }  // logo depois de um clique aqui dentro: não foi clique fora
@@ -1586,7 +1650,7 @@ bool notificacoes::IsOpen() { return g_open; }
 bool notificacoes::BannerVisible() { return g_bshow && !g_bout; }
 
 void notificacoes::Toggle() {
-    if (g_open) { Close(); return; }
+    if (g_open) { Close(L"clique no relógio / canto ativo"); return; }
     if (GetTickCount() - g_closedAt < 300) return;  // o clique no relógio acabou de fechar (perdeu o foco): não reabre
     BannerHide();
     g_open = true;
