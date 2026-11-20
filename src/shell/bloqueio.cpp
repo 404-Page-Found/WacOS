@@ -203,13 +203,10 @@ std::wstring DateText() {
     SYSTEMTIME st; GetLocalTime(&st);
     wchar_t d[128] = {};
     if (TahoeLock()) {  // macOS 26: data abreviada ("Thu Jun 19" / "qua. 11 de nov.")
-        if (idioma::En()) GetDateFormatEx(L"en-US", 0, &st, L"ddd MMM d", d, 128, nullptr);
-        else GetDateFormatEx(L"pt-BR", 0, &st, L"ddd d 'de' MMM", d, 128, nullptr);
-        if (d[0]) d[0] = towupper(d[0]);
-        return d;
+        GetDateFormatEx(idioma::Locale(), 0, &st, idioma::DatePattern(idioma::D_WEEKDAY_SHORT), d, 128, nullptr);
+        return idioma::Cap(d);
     }
-    if (idioma::En()) GetDateFormatEx(L"en-US", 0, &st, L"dddd, MMMM d", d, 128, nullptr);
-    else GetDateFormatEx(L"pt-BR", 0, &st, L"dddd, d 'de' MMMM", d, 128, nullptr);
+    GetDateFormatEx(idioma::Locale(), 0, &st, idioma::DatePattern(idioma::D_WEEKDAY_LONG), d, 128, nullptr);  // "sexta-feira, 20 de novembro"
     return d;
 }
 std::wstring TimeText() {

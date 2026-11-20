@@ -314,7 +314,7 @@ std::wstring CountOf(const std::wstring& start) {  // "48,124" de "Copying 48,12
 
 // "About 3 minutes" do Windows em inglês vira "Cerca de 3 minutos" com o idioma em português
 std::wstring TimeText(std::wstring s) {
-    if (idioma::En()) return s;
+    if (!idioma::Pt()) return s;
     static const std::pair<const wchar_t*, const wchar_t*> rep[] = {
         { L"About ", L"Cerca de " }, { L" and ", L" e " }, { L"seconds", L"segundos" }, { L"second", L"segundo" },
         { L"minutes", L"minutos" }, { L"minute", L"minuto" }, { L"hours", L"horas" }, { L"hour", L"hora" },

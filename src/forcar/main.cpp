@@ -205,7 +205,7 @@ std::wstring Bytes(ULONGLONG b) {
     if (b >= (1ull << 30)) swprintf_s(s, L"%.2f GB", b / 1073741824.0);
     else swprintf_s(s, L"%.0f MB", b / 1048576.0);
     std::wstring r = s;
-    if (!idioma::En()) for (auto& c : r) if (c == L'.') c = L',';
+    if (idioma::DecimalComma()) for (auto& c : r) if (c == L'.') c = L',';
     return r;
 }
 

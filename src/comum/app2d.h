@@ -382,12 +382,22 @@ inline long long DayStart(long long m) { SYSTEMTIME s = FromMin(m); s.wHour = s.
 inline const wchar_t* MonthName(int m) {  // 1..12
     static const wchar_t* pt[] = { L"janeiro", L"fevereiro", L"março", L"abril", L"maio", L"junho", L"julho", L"agosto", L"setembro", L"outubro", L"novembro", L"dezembro" };
     static const wchar_t* en[] = { L"January", L"February", L"March", L"April", L"May", L"June", L"July", L"August", L"September", L"October", L"November", L"December" };
-    return idioma::En() ? en[(m - 1) % 12] : pt[(m - 1) % 12];
+    if (idioma::Pt()) return pt[(m - 1) % 12];
+    if (idioma::En()) return en[(m - 1) % 12];
+    static std::wstring cache[idioma::COUNT][12];  // os outros idiomas: o nome do Windows, com maiúscula ("Novembre", "Ноябрь")
+    std::wstring& s = cache[idioma::Current()][(m - 1) % 12];
+    if (s.empty()) s = idioma::Cap(idioma::MonthName(m));
+    return s.c_str();
 }
 inline const wchar_t* WeekdayShort(int d) {  // 0 = domingo
     static const wchar_t* pt[] = { L"dom.", L"seg.", L"ter.", L"qua.", L"qui.", L"sex.", L"sáb." };
     static const wchar_t* en[] = { L"Sun", L"Mon", L"Tue", L"Wed", L"Thu", L"Fri", L"Sat" };
-    return idioma::En() ? en[d % 7] : pt[d % 7];
+    if (idioma::Pt()) return pt[d % 7];
+    if (idioma::En()) return en[d % 7];
+    static std::wstring cache[idioma::COUNT][7];
+    std::wstring& s = cache[idioma::Current()][d % 7];
+    if (s.empty()) s = idioma::DayName(d, 1);
+    return s.c_str();
 }
 // "Hoje, 14:30" / "Amanhã" / "12/11/2026, 09:00"
 inline std::wstring DueText(long long m, bool withTime) {
@@ -399,7 +409,8 @@ inline std::wstring DueText(long long m, bool withTime) {
     if (day == today) d = Tr(L"Hoje");
     else if (day == today + 24 * 60) d = Tr(L"Amanhã");
     else if (day == today - 24 * 60) d = Tr(L"Ontem");
-    else { swprintf_s(b, L"%02d/%02d/%04d", s.wDay, s.wMonth, s.wYear); d = b; }
+    else if (idioma::Pt()) { swprintf_s(b, L"%02d/%02d/%04d", s.wDay, s.wMonth, s.wYear); d = b; }
+    else { GetDateFormatEx(idioma::Locale(), DATE_SHORTDATE, &s, nullptr, b, 64, nullptr); d = b; }  // 11/12/2026, 12.11.2026, 2026/11/12
     if (withTime) { swprintf_s(b, L", %02d:%02d", s.wHour, s.wMinute); d += b; }
     return d;
 }

@@ -84,7 +84,6 @@ static std::wstring AumidOfWindow(HWND h) {
 // Vazio: não é um dos nossos.
 static std::wstring OurName(const std::wstring& exe) {
     std::wstring f = Lower(exe.substr(exe.find_last_of(L'\\') + 1));
-    bool en = shell::Setting(L"idioma", L"en") == L"en";
     struct N { const wchar_t* exe; const wchar_t* pt; const wchar_t* en; };
     static const N names[] = {
         { L"wacosfinder.exe", L"Finder", L"Finder" },
@@ -95,7 +94,7 @@ static std::wstring OurName(const std::wstring& exe) {
         { L"wacosnotes.exe", L"Notas", L"Notes" },
         { L"wacosscreenshot.exe", L"Captura de Tela", L"Screenshot" },
     };
-    for (auto& n : names) if (f == n.exe) return en ? n.en : n.pt;
+    for (auto& n : names) if (f == n.exe) return TrPick(n.pt, n.en);
     return L"";
 }
 

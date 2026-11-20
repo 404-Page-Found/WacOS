@@ -414,12 +414,12 @@ IAudioEndpointVolume* Volume() {
 std::wstring ClockText() {
     SYSTEMTIME st; GetLocalTime(&st);
     wchar_t day[16] = {}, mon[16] = {};
-    const wchar_t* loc = idioma::En() ? L"en-US" : L"pt-BR";
+    const wchar_t* loc = idioma::Locale();
     GetDateFormatEx(loc, 0, &st, L"ddd", day, 16, nullptr);
     GetDateFormatEx(loc, 0, &st, L"MMM", mon, 16, nullptr);
     std::wstring d = day, m = mon;
-    if (!idioma::En() && !d.empty() && d.back() != L'.') d += L'.';
-    if (!idioma::En() && !m.empty() && m.back() != L'.') m += L'.';
+    if (idioma::Pt() && !d.empty() && d.back() != L'.') d += L'.';
+    if (idioma::Pt() && !m.empty() && m.back() != L'.') m += L'.';
     wchar_t buf[64];
     if (liquid::Leopard()) {
         // Leopard: só o dia da semana e a hora ("Mon 6:45 PM" na captura do 10.5), no formato de hora do usuário
@@ -433,7 +433,8 @@ std::wstring ClockText() {
     }
     if (shell::Setting(L"relogio_curto", L"0") == L"1") swprintf_s(buf, L"%02d:%02d", st.wHour, st.wMinute);
     else if (idioma::En()) swprintf_s(buf, L"%ls %ls %d  %02d:%02d", d.c_str(), m.c_str(), st.wDay, st.wHour, st.wMinute);  // Tue Nov 10
-    else swprintf_s(buf, L"%ls %d de %ls  %02d:%02d", d.c_str(), st.wDay, m.c_str(), st.wHour, st.wMinute);
+    else if (idioma::Pt()) swprintf_s(buf, L"%ls %d de %ls  %02d:%02d", d.c_str(), st.wDay, m.c_str(), st.wHour, st.wMinute);
+    else swprintf_s(buf, L"%ls  %02d:%02d", idioma::Date(st, idioma::D_WEEKDAY_SHORT).c_str(), st.wHour, st.wMinute);  // ven. 20 nov., 11月20日(金)
     return buf;
 }
 
@@ -1262,7 +1263,7 @@ void Click(D2D1_POINT_2F p, bool right) {
         if (!right) { notificacoes::Toggle(); break; }  // clique: Central de Notificações; botão direito: data e ajustes
         SYSTEMTIME st; GetLocalTime(&st);
         wchar_t full[128] = {};
-        GetDateFormatEx(idioma::En() ? L"en-US" : L"pt-BR", DATE_LONGDATE, &st, nullptr, full, 128, nullptr);
+        GetDateFormatEx(idioma::Locale(), DATE_LONGDATE, &st, nullptr, full, 128, nullptr);
         ShowAt(hit, { I(full, 0, true), Sep(), I(Tr(L"Ajustes de Data e Hora…"), 1) }, [](int) { Open(L"ms-settings:dateandtime"); });
         break;
     }

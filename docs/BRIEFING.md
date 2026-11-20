@@ -241,6 +241,13 @@ Explorador) Ctrl+Alt+Shift+F11.
 ### 7.4 Tradução
 `idioma::Tr(L"texto em pt")` em todo texto visível; pares em `src/comum/idioma_en.inc`
 (`{ L"pt", L"en" },`). Todo texto novo precisa do par em inglês.
+Idiomas (`idioma=<código>` no ajustes.txt, Ajustes > Geral > Idioma): pt, en (padrão), es, fr, de, it, ja,
+zh (chinês simplificado), ko, ru, pl, tr. Um dicionário por idioma, `idioma_<código>.inc`, com as mesmas
+chaves em português do `idioma_en.inc`; o que faltar num idioma sai em inglês. `idioma::Code()`/`Locale()`
+dão o código e o locale (para APIs e DirectWrite); `idioma::En()`/`Pt()` continuam. Datas e nomes de
+mês/dia: `idioma::Date(st, D_...)`, `DateTime`, `MonthName`, `DayName` (formato do Windows no locale
+escolhido), nunca `"%d de %ls"` nem tabelas fixas de meses. `python tools/idioma-conferir.py` lista as
+chaves que faltam em cada idioma (texto novo: pôr no en e, se der, nos outros).
 
 ---
 

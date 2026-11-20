@@ -818,14 +818,14 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (lastTheme < 0) lastTheme = themeNow();
         LoadSettings();
         ilha::Reload();
-        static int lastEn = -1;
-        if (lastEn < 0) lastEn = idioma::En();
-        if (bool en = shell::Setting(L"idioma", L"en") == L"en"; (int)en != lastEn) {  // Ajustes > Geral > Idioma
-            lastEn = en;
-            idioma::Set(en);
+        static int lastLang = -1;
+        if (lastLang < 0) lastLang = idioma::Current();
+        if (int lang = idioma::FromCode(shell::Setting(L"idioma", L"en")); lang != lastLang) {  // Ajustes > Geral > Idioma
+            lastLang = lang;
+            idioma::Set(lang);
             apps::Relabel();
             dock::IconsChanged();
-            Log(L"idioma: %ls", en ? L"en" : L"pt");
+            Log(L"idioma: %ls", idioma::Code());
         }
         if ((liquid::Leopard() ? 3 : liquid::Golden() ? 2 : (int)liquid::On()) != lastLiquid) {  // tema Sequoia/Tahoe/Golden Gate/Leopard: outro pacote de ícones
             lastLiquid = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On();

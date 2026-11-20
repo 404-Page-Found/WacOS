@@ -502,7 +502,7 @@ void FindCity(const std::wstring& q) {
     std::thread([q, h] {
         std::string u = Utf8Of(q), enc;
         for (unsigned char c : u) { if (isalnum(c) || c == '-' || c == '.') enc += (char)c; else { char b[4]; sprintf_s(b, "%%%02X", c); enc += b; } }
-        std::wstring path = L"/v1/search?count=1&language=" + std::wstring(idioma::En() ? L"en" : L"pt") + L"&name=" + WideOf(enc);
+        std::wstring path = L"/v1/search?count=1&language=" + std::wstring(idioma::Code()) + L"&name=" + WideOf(enc);
         std::string body;
         HINTERNET ses = WinHttpOpen(L"WacOS-Clock/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
         if (ses) {

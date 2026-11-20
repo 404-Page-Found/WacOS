@@ -588,12 +588,19 @@ Page Geral() {
     p.groups.push_back(G({ Link(L"Armazenamento", [] { Push(L"Armazenamento", Armazenamento); }, 0xEDA2, C_GRAY) }));
     p.groups.push_back(G({ Uri(L"Compartilhamento por Proximidade", L"ms-settings:crossdevice", 0xE72D, C_BLUE),
                            Link(L"Itens de Início", [] { Push(L"Itens de Início", Inicio); }, 0xE8FD, C_GRAY) }));
-    // Idioma do WacOS (idioma=pt|en no ajustes.txt): o Shell troca na hora; este app também;
-    // os outros apps abertos leem o idioma ao abrir.
-    Row lang = Popup(L"Idioma", { L"Português", L"English" }, [] { return Setting(L"idioma", L"en") == L"en" ? 1 : 0; },
+    // Idioma do WacOS (idioma=<código> no ajustes.txt, idioma.h): o Shell troca na hora; este app também;
+    // os outros apps abertos leem o idioma ao abrir. Cada idioma aparece com o nome na própria língua.
+    std::vector<std::wstring> langs;
+    for (int l : idioma::kMenuOrder) langs.push_back(idioma::kInfo[l].native);
+    Row lang = Popup(L"Idioma", langs, [] {
+                         int cur = idioma::FromCode(Setting(L"idioma", L"en"));
+                         for (int i = 0; i < idioma::COUNT; i++) if (idioma::kMenuOrder[i] == cur) return i;
+                         return 0;
+                     },
                      [](int i) {
-                         SetSetting(L"idioma", i == 1 ? L"en" : L"pt");
-                         idioma::Set(i == 1);
+                         int l = idioma::kMenuOrder[std::clamp(i, 0, idioma::COUNT - 1)];
+                         SetSetting(L"idioma", idioma::kInfo[l].code);
+                         idioma::Set(l);
                          SetWindowTextW(Window(), TrPick(L"Ajustes do Sistema", L"System Settings"));
                          Rebuild();
                      });

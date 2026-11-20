@@ -239,13 +239,7 @@ SIZE PanelSize(float sc) {
 std::wstring DateText(const FILETIME& ft) {
     FILETIME lf; SYSTEMTIME st;
     FileTimeToLocalFileTime(&ft, &lf); FileTimeToSystemTime(&lf, &st);
-    static const wchar_t* en[] = { L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec" };
-    static const wchar_t* pt[] = { L"jan.", L"fev.", L"mar.", L"abr.", L"mai.", L"jun.", L"jul.", L"ago.", L"set.", L"out.", L"nov.", L"dez." };
-    wchar_t b[96];
-    int mo = std::clamp((int)st.wMonth, 1, 12) - 1;
-    if (idioma::En()) swprintf_s(b, L"%ls %d, %d at %02d:%02d", en[mo], st.wDay, st.wYear, st.wHour, st.wMinute);
-    else swprintf_s(b, L"%d de %ls de %d às %02d:%02d", st.wDay, pt[mo], st.wYear, st.wHour, st.wMinute);
-    return b;
+    return idioma::DateTime(st, idioma::D_SHORT);  // "20 de nov. de 2026 às 14:30", "Nov 20, 2026 at 14:30"
 }
 
 std::wstring SizeText(ULONGLONG n) {  // como o Mac: unidades de 1000

@@ -808,7 +808,7 @@ void FetchSuggestions(int gen, std::wstring q) {
     if (ses) {
         WinHttpSetTimeouts(ses, 2000, 2000, 2000, 2000);
         HINTERNET con = WinHttpConnect(ses, L"suggestqueries.google.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
-        std::wstring path = L"/complete/search?client=chrome&hl=pt-BR&ie=UTF-8&oe=UTF-8&q=" + UrlEncode(q);
+        std::wstring path = L"/complete/search?client=chrome&hl=" + std::wstring(idioma::Locale()) + L"&ie=UTF-8&oe=UTF-8&q=" + UrlEncode(q);
         HINTERNET req = con ? WinHttpOpenRequest(con, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr;
         if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr)) {
             std::string body;
