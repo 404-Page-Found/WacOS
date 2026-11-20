@@ -1,13 +1,34 @@
+<div align="center">
+
 # WacOS
 
-A macOS-style desktop shell for Windows 11. WacOS runs on top of Windows (same kernel, drivers and apps) and
-replaces what you see and touch: the menu bar, the Dock, Finder, Spotlight, Control Center, Notification Center,
-Mission Control, Launchpad, window title bars and a set of built-in apps. It supports the macOS Sequoia look,
-the macOS Tahoe look with Liquid Glass and the new macOS 27 **Golden Gate** look.
+**macOS on top of Windows 11: menu bar, Dock, Finder, Spotlight, Control Center and Liquid Glass, in native C++.**
 
-Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views.
+[![Stars](https://img.shields.io/github/stars/renzyxx/WacOS?style=flat&logo=github&label=Stars)](https://github.com/renzyxx/WacOS/stargazers)
+[![Forks](https://img.shields.io/github/forks/renzyxx/WacOS?style=flat&logo=github&label=Forks)](https://github.com/renzyxx/WacOS/network/members)
+[![Downloads](https://img.shields.io/github/downloads/renzyxx/WacOS/total?style=flat&label=Downloads&color=brightgreen)](https://github.com/renzyxx/WacOS/releases)
+[![Latest release](https://img.shields.io/github/v/release/renzyxx/WacOS?style=flat&label=Release)](https://github.com/renzyxx/WacOS/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/renzyxx/WacOS/build.yml?branch=main&style=flat&label=Build)](https://github.com/renzyxx/WacOS/actions/workflows/build.yml)
+![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat&logo=windows11&logoColor=white)
+![C++](https://img.shields.io/badge/C%2B%2B-native-00599C?style=flat&logo=cplusplus&logoColor=white)
+
+[![Download WacOS](https://img.shields.io/badge/DOWNLOAD-WacOS_for_Windows_11-0A84FF?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/renzyxx/WacOS/releases/latest)
+[![Buy me a coffee](https://img.shields.io/badge/BUY_ME_A_COFFEE-renzyx-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/renzyx)
+
+</div>
+
+WacOS runs on top of Windows (same kernel, drivers and apps) and replaces what you see and touch: the menu bar,
+the Dock, Finder, Spotlight, Control Center, Notification Center, Mission Control, Launchpad, window title bars and a
+set of built-in apps. Pick the macOS Sequoia look, the macOS Tahoe look with Liquid Glass, or the new macOS 27
+**Golden Gate** look.
+
+Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views. It uses about 750 MB of RAM
+and under 1% CPU on a 3440×1440 desktop.
 
 ![WacOS desktop: menu bar, Dock and widgets](docs/screenshots/desktop.png)
+
+**Contents:** [Screenshots](#screenshots) · [Features](#features) · [Install](#install) · [Is it safe?](#is-it-safe) ·
+[Roadmap](#roadmap) · [Support the project](#support-the-project) · [Build](#build)
 
 ## Screenshots
 
@@ -42,8 +63,6 @@ Also new with this theme: QuickTime Player with a frosted title bar over the vid
 **Edit Widgets…** on the desktop menu, clicking the empty strip beside the Dock to show the desktop, Win+D handled by
 the shell, grouped notifications that open on click, and smoother glass over animated wallpapers.
 
-**Coming next: a Mac OS X Leopard theme** (Aqua, the glossy 3D Dock with reflections, the translucent menu bar and Stacks).
-
 ### macOS Sequoia theme
 
 The same shell with the macOS 15 look (System Settings > Appearance > Theme).
@@ -75,7 +94,7 @@ The same shell with the macOS 15 look (System Settings > Appearance > Theme).
 
 ## Install
 
-1. Download `WacOS.zip` from the [latest release](../../releases/latest).
+1. Download the `WacOS-<date>.zip` from the [latest release](https://github.com/renzyxx/WacOS/releases/latest).
 2. Extract it anywhere and run `instalar.cmd`.
 
 Apple's fonts, sounds and cursors can't be shipped in this repository, so the installer offers to fetch them on
@@ -94,10 +113,40 @@ Everything it changes is logged in `instalacao.log` there, and `desinstalar.cmd`
 
 ## Updates
 
-Every commit to `main` is built by GitHub Actions and published as the latest release, with its build number
-in `bin\versao.txt`. In **System Settings > General > Software Update**, WacOS checks GitHub on its own, shows the
-installed version, the latest one and the commits you don't have yet, and **Update Now** downloads and installs it
-(only programs, icons and sounds are replaced; your settings stay).
+New versions are published as numbered releases (`build-N`). In **System Settings > General > Software Update**,
+WacOS checks GitHub on its own, shows the installed version, the latest one and the commits you don't have yet, and
+**Update Now** downloads and installs it (only programs, icons and sounds are replaced; your settings stay).
+GitHub Actions checks that every commit to `main` builds.
+
+## Is it safe?
+
+Fair question for anything that replaces your taskbar. You don't have to trust the author:
+
+- **Open code.** Every file is in this repository, and you can build it yourself (see [Build](#build)).
+- **Network.** WacOS only talks to the weather service (`api.open-meteo.com`, for the weather widget), Google search
+  suggestions (only while you type in Spotlight) and GitHub (to check for updates). No telemetry, no accounts.
+  Run it behind a firewall like simplewall or GlassWire and watch for yourself.
+- **What it installs.** One scheduled task to start at sign-in, with normal user rights. No services, no drivers,
+  no administrator rights. `desinstalar.cmd` removes everything.
+- **Antivirus.** A shell has to do things that look suspicious to heuristics: start at sign-in, use keyboard and
+  mouse hooks for shortcuts like the Win key and hot corners, and load its title bar DLL into other apps. The
+  build-12 package shows [1/66 on VirusTotal](https://www.virustotal.com/gui/file/310ab4f16824500a8d77225fef66a62e499c32d6d5484a8752b119b7f24e67f3),
+  a single AI-based heuristic. If Microsoft Defender flags it on your PC, it's a false positive that has been
+  reported to Microsoft; please [open an issue](https://github.com/renzyxx/WacOS/issues) with the threat name.
+
+## Roadmap
+
+- **Dynamic Island**: in progress, inspired by [Atoll](https://github.com/Ebullioscopic/Atoll).
+- **Mac OS X Leopard theme**: Aqua, the glossy 3D Dock with reflections, the translucent menu bar and Stacks.
+- Your idea? [Open an issue](https://github.com/renzyxx/WacOS/issues).
+
+## Support the project
+
+WacOS is free and made in my spare time. If you like it, a coffee helps a lot and keeps the updates coming ☕
+
+<a href="https://buymeacoffee.com/renzyx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="50"></a>
+
+Starring the repository and sharing it also helps.
 
 ## Build
 
