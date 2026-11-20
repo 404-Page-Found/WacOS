@@ -172,6 +172,12 @@ Set-Content -Encoding utf8 $modoArq (@($modo) + @($escolhidos | ForEach-Object {
 Anota ("modo: $modo " + (($escolhidos | ForEach-Object { $_.Exe }) -join ','))
 
 if ($Atualizar) {  # só os arquivos; o resto (ajustes, fontes, cursor, atalho, início automático) fica como estava
+    # Música/QuickTime já registrados por esta instalação: registra de novo (nomes em inglês desde a issue #2 do GitHub)
+    foreach ($r in @(@('SequoiaMusic.Audio', 'musica-registrar.ps1', 'WacOSMusic.exe'), @('SequoiaQuickTime.Video', 'quicktime-registrar.ps1', 'WacOSQuickTime.exe'))) {
+        $cmdAtual = (Get-ItemProperty "HKCU:\Software\Classes\$($r[0])\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
+        $scr = Join-Path $dest "tools\$($r[1])"
+        if ($cmdAtual -and $cmdAtual -like "*$dest\bin\*" -and (Test-Path $scr)) { & $scr -Exe (Join-Path $dest "bin\$($r[2])") | Out-Null }
+    }
     Anota 'atualização concluída'
     if ($barrasAbertas) { Start-Process (Join-Path $dest 'bin\WacOSTitleBars.exe') -WorkingDirectory (Join-Path $dest 'bin') }
     $exe = Join-Path $dest 'bin\WacOSShell.exe'

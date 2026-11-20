@@ -36,12 +36,14 @@ if ($Desfazer) {
     Set-ItemProperty $capKey -Name 'ApplicationDescription' -Value 'WacOS Music'
     Set-ItemProperty $capKey -Name 'ApplicationIcon' -Value "`"$Exe`",0"
     foreach ($e in $exts) {
-        New-Item "$cls\$e\OpenWithProgids" -Force | Out-Null
+        # sem -Force numa chave que já existe: o New-Item -Force recria a chave e apagava os outros apps dela
+        if (-not (Test-Path "$cls\$e\OpenWithProgids")) { New-Item "$cls\$e\OpenWithProgids" -Force | Out-Null }
         New-ItemProperty "$cls\$e\OpenWithProgids" -Name $prog -PropertyType None -Value ([byte[]]@()) -Force | Out-Null
         Set-ItemProperty "$cls\Applications\WacOSMusic.exe\SupportedTypes" -Name $e -Value ''
         Set-ItemProperty "$capKey\FileAssociations" -Name $e -Value $prog
     }
-    New-Item 'HKCU:\Software\RegisteredApplications' -Force -ErrorAction SilentlyContinue | Out-Null
+    # idem: com -Force a chave era recriada e todos os apps registrados no Windows sumiam dela
+    if (-not (Test-Path 'HKCU:\Software\RegisteredApplications')) { New-Item 'HKCU:\Software\RegisteredApplications' -Force | Out-Null }
     Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regAntigo -ErrorAction SilentlyContinue
     Set-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName -Value 'Software\SequoiaShell\Musica\Capabilities'
     "Música registrado ($Exe)"

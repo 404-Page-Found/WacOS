@@ -439,7 +439,11 @@ static void DoInstall(bool update) {
         Anota(L"modo: " + wstring(MODE_ID[g_ch.mode]));
     }
     RegisterUninstall();
-    if (update) { Status(T(L"Atualizado.", L"Updated.")); g_progress = 1; g_workOk = true; g_workDone = true; (void)shellWasOpen; return; }
+    if (update) {
+        // Música/QuickTime já registrados por esta instalação: registra de novo (nomes em inglês desde a issue #2)
+        for (auto& a : ASSOC)
+            if (Lower(RegGetStr(HKEY_CURRENT_USER, wstring(L"Software\\Classes\\") + a.prog + L"\\shell\\open\\command", nullptr)).find(Lower(g_dest + L"\\bin\\")) != wstring::npos) AssocRegister(a);
+        Status(T(L"Atualizado.", L"Updated.")); g_progress = 1; g_workOk = true; g_workDone = true; (void)shellWasOpen; return; }
     bool full = g_ch.mode == M_FULL, apps = g_ch.mode == M_APPS || g_ch.mode == M_APPSBARS, bars = g_ch.mode == M_BARS || g_ch.mode == M_APPSBARS;
     // 3. fontes SF (só para este usuário)
     if (g_ch.fonts && IsDir(g_src + L"\\fontes")) {
