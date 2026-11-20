@@ -1555,3 +1555,5 @@
 { L"Escolha o novo ícone de “%ls”", L"Wybierz nową ikonę dla „%ls”" },
 { L"Barras de título do Mac", L"Paski tytułu Maca" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Aby paski tytułu Maca wróciły do aplikacji, wyloguj się z systemu Windows i zaloguj ponownie." },
+{ L"Mostrar a barra de menus em todos os monitores", L"Pokazuj pasek menu na wszystkich monitorach" },
+{ L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Po wyłączeniu pasek menu jest tylko na głównym monitorze, a pozostałe używają całego ekranu." },

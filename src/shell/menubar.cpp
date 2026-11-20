@@ -1376,6 +1376,15 @@ int menubar::HeightOn(HMONITOR mon) {
     return (int)std::lround(BAR_PT * dx / 96.f);
 }
 
+static bool AllMonitors() { return shell::Setting(L"barra_todos_monitores", L"1") != L"0"; }
+// O que a barra ocupa no topo do monitor (área de trabalho, Dock lateral): 0 nos secundários sem barra
+int menubar::ReservedOn(HMONITOR mon) {
+    MONITORINFO mi{ sizeof(mi) };
+    bool prim = GetMonitorInfoW(mon, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY);
+    if (prim) return Height();
+    return AllMonitors() ? HeightOn(mon) : 0;
+}
+
 // Uma barra em cada monitor (como no Mac): a principal no monitor principal e uma igual em cada um dos outros.
 void menubar::Displays() {
     if (!g_bar) return;
@@ -1392,6 +1401,8 @@ void menubar::Displays() {
         return TRUE;
     }, (LPARAM)&ctx);
     if (!prim.hm) { prim.hm = MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY); MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(prim.hm, &mi); prim.r = mi.rcMonitor; }
+    // "Mostrar a barra de menus em todos os monitores" desligado (barra_todos_monitores=0): só a do principal
+    if (!AllMonitors()) others.clear();
     SetWindowPos(g_bar, HWND_TOPMOST, prim.r.left, prim.r.top, prim.r.right - prim.r.left, HeightOn(prim.hm), SWP_NOACTIVATE);
     // sobrando (monitor desligado): fecha
     while (g_extras.size() > others.size()) {

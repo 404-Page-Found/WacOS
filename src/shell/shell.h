@@ -226,6 +226,7 @@ HWND Hwnd();
 int Height();           // px
 void SetFullscreen(bool on, HMONITOR mon = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos)
 int HeightOn(HMONITOR mon);  // px da barra naquele monitor (cada monitor tem a sua barra)
+int ReservedOn(HMONITOR mon);  // px que a barra ocupa no topo daquele monitor (0: secundário sem barra, barra_todos_monitores=0)
 void Displays();        // monitores mudaram: uma barra em cada
 void ApplyTheme();      // claro/escuro mudou
 void SoundChanged(bool device);  // volume/mudo (ou, com device, a saída padrão) mudou, ou o menu Som abriu/fechou: redesenha

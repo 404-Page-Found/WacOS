@@ -13,6 +13,7 @@
 #include <map>
 #include <wincodec.h>
 #include <shellapi.h>
+#include <dbt.h>  // WM_DEVICECHANGE: pendrive/HD externo conectado ou tirado
 #include <dwmapi.h>
 #include <shellscalingapi.h>
 #include <algorithm>
@@ -83,7 +84,7 @@ static float CellH() { return g_icon + 56.5f; }
 static float LabelW() { return std::max(98.f, g_icon + 34); }
 
 enum : UINT { WM_APP_THUMB = WM_APP + 1, WM_APP_CHANGE = WM_APP + 2, WM_APP_SEARCH = WM_APP + 3, WM_APP_MEDIA = WM_APP + 4, WM_APP_WARMUP = WM_APP + 5, WM_APP_INFO = WM_APP + 6 };
-enum : UINT_PTR { T_SCROLL = 1, T_RELOAD = 2, T_CARET = 3, T_AUTOSCROLL = 4, T_SCROLLBAR = 5, T_SEARCH = 7, T_MEDIA = 8, T_WARMUP = 9, T_SLOWRENAME = 10, T_TAHOE = 11, T_FRENTE = 12 };
+enum : UINT_PTR { T_SCROLL = 1, T_RELOAD = 2, T_CARET = 3, T_AUTOSCROLL = 4, T_SCROLLBAR = 5, T_SEARCH = 7, T_MEDIA = 8, T_WARMUP = 9, T_SLOWRENAME = 10, T_TAHOE = 11, T_FRENTE = 12, T_DRIVES = 13 };
 // Logo depois de abrir, quem pediu às vezes toma a frente de volta (o painel de downloads do Chrome se fecha e
 // reativa a janela dele): por 3 s, se o usuário não clicou nem apertou tecla, o Finder volta para a frente.
 static DWORD g_frenteAte, g_frenteInput;
@@ -1054,6 +1055,7 @@ static void EndRename(bool commit);
 
 // Relê a pasta mantendo seleção, rolagem e miniaturas (sem piscar).
 static void RefreshTagView();
+static void BuildSidebar();  // mais abaixo: favoritos, unidades e etiquetas da barra lateral
 
 static void Reload() {
     if (g_renameIdx >= 0) return;  // não atrapalha quem está digitando um nome
@@ -1089,6 +1091,13 @@ static int g_navMs;  // tempo da última leitura de pasta (medição)
 // keepColumns: navegação feita pelas próprias colunas (não recomeça a fileira de colunas).
 static void Navigate(const std::wstring& path, bool push = true, const std::wstring& selectName = L"", bool keepColumns = false) {
     DWORD a = GetFileAttributesW(path.c_str());
+    // raiz de unidade recém-conectada (pendrive, HD externo): o Windows ainda está montando o volume e a primeira leitura
+    // falha por um instante ("não deixa clicar para abrir", Reddit 20/11/2026). Tenta de novo por até ~1,5 s.
+    if (a == INVALID_FILE_ATTRIBUTES && path.size() <= 3 && path.size() >= 2 && path[1] == L':') {
+        UINT t = GetDriveTypeW((path.substr(0, 2) + L"\\").c_str());
+        for (int k = 0; k < 6 && a == INVALID_FILE_ATTRIBUTES && t != DRIVE_NO_ROOT_DIR; k++) { Sleep(250); a = GetFileAttributesW((path.substr(0, 2) + L"\\").c_str()); }
+        if (a == INVALID_FILE_ATTRIBUTES) Log(L"unidade %ls não abriu (tipo %u, erro %lu)", path.c_str(), t, GetLastError());
+    }
     if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_DIRECTORY)) { Flash(Tr(L"Não foi possível abrir ") + path); return; }
     std::wstring p = path;
     while (p.size() > 3 && p.back() == L'\\') p.pop_back();
@@ -6384,6 +6393,15 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_TIMER:
         switch (w) {
+        case T_DRIVES: {  // unidades mudaram (WM_DEVICECHANGE): relê a lista
+            KillTimer(h, T_DRIVES);
+            BuildSidebar();
+            if (g_tagView == VIEW_COMPUTER) RefreshTagView();
+            // a pasta aberta era da unidade tirada: vai para "Este Computador" (como o Finder quando o disco é ejetado)
+            if (g_tagView < 0 && !g_folder.empty() && GetFileAttributesW(g_folder.c_str()) == INVALID_FILE_ATTRIBUTES) NavigateTag(VIEW_COMPUTER);
+            Invalidate();
+            return 0;
+        }
         case T_TAHOE:  // Tema mudou nos Ajustes do Sistema: troca Sequoia/Tahoe sem reabrir
             if (tahoe::Reload()) { g_tahoe = tahoe::On(); g_dark = IsDarkMode(); ApplyWindowTheme(); shadow::Update(); Invalidate(); }
             return 0;
@@ -6481,6 +6499,14 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_APP_SEARCH:
         OnSearchBatch((int)w, (SearchBatch*)l);
         return 0;
+    case WM_DEVICECHANGE:
+        // volume novo ou tirado (pendrive, HD externo, cartão): a barra lateral e "Este Computador" eram montados só ao
+        // abrir a janela (a reserva escondida abre bem antes), então a unidade nova não aparecia ou ficava velha
+        if ((w == DBT_DEVICEARRIVAL || w == DBT_DEVICEREMOVECOMPLETE) && l && ((DEV_BROADCAST_HDR*)l)->dbch_devicetype == DBT_DEVTYP_VOLUME) {
+            Log(L"unidades: %ls (máscara %08lx)", w == DBT_DEVICEARRIVAL ? L"conectada" : L"tirada", ((DEV_BROADCAST_VOLUME*)l)->dbcv_unitmask);
+            SetTimer(h, T_DRIVES, 300, nullptr);
+        }
+        return TRUE;
     case WM_APP_CHANGE: {
         PIDLIST_ABSOLUTE* pidls; LONG ev;
         HANDLE lock = SHChangeNotification_Lock((HANDLE)w, (DWORD)l, &pidls, &ev);

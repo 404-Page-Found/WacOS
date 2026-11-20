@@ -190,7 +190,7 @@ RECT Strip() {
     GetMonitorInfoW(hm, &mi);
     RECT m = mi.rcMonitor;
     int H = (int)std::lround(WinH() * Sc());
-    int top = m.top + ((mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm));
+    int top = m.top + menubar::ReservedOn(hm);  // secundário sem barra de menus: a coluna começa no topo
     if (Pos() == 1) return { m.left, top, m.left + H, m.bottom };
     if (Pos() == 2) return { m.right - H, top, m.right, m.bottom };
     return { m.left, m.bottom - H, m.right, m.bottom };

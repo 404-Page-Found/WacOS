@@ -1555,3 +1555,5 @@
 { L"Escolha o novo ícone de “%ls”", L"选择“%ls”的新图标" },
 { L"Barras de título do Mac", L"Mac 标题栏" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"要让应用重新显示 Mac 标题栏，请注销 Windows 后重新登录。" },
+{ L"Mostrar a barra de menus em todos os monitores", L"在所有显示器上显示菜单栏" },
+{ L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"关闭后，菜单栏只显示在主显示器上，其他显示器使用整个屏幕。" },

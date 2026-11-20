@@ -732,3 +732,17 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Instalado: WacOSShell.exe e WacOSTitleBars.exe (backup em %LOCALAPPDATA%\SequoiaBinariosAntigos\b18-antes-182131). A WacOSWindow.dll
   nova (item 1) NÃO foi instalada (tabela cheia): C:\Users\Public\wacos-b18\instalar-dll-b18.ps1 e sair e entrar no Windows.
   DESFAZER: copiar os arquivos de b18-antes-182131 de volta e reiniciar o Shell; apagar aviso_ganchos do ajustes.txt.
+[2026-11-20 18:55 PC] BUILD-18: BARRA DE MENUS NOS MONITORES SECUNDÁRIOS E UNIDADES NOVAS NO FINDER (Reddit, dougnite; pedido via sessão "Teste briefing completo").
+  1) Ajustes > Central de Controle (grupo do Relógio): "Mostrar a barra de menus em todos os monitores" (barra_todos_monitores, padrão 1).
+     Desligado: src\shell\menubar.cpp Displays não cria as barras dos monitores secundários e menubar::ReservedOn devolve 0 para eles, então
+     a área de trabalho (shell::WorkAreaFor) e o Dock lateral (dock.cpp) usam o topo desses monitores; o principal continua com a barra.
+     main.cpp refaz as barras e a área quando a chave muda. O macOS também não tinha "ocultar automaticamente" aqui: não existe no WacOS.
+     2 frases novas nos 11 dicionários. NÃO testado: este PC tem um monitor só.
+  2) Finder (src\finder\main.cpp): WM_DEVICECHANGE (DBT_DEVICEARRIVAL/REMOVECOMPLETE de volume) refaz a barra lateral e "Este Computador"
+     (antes eram montados só ao abrir a janela, e a reserva escondida abre bem antes: a unidade nova não aparecia); unidade tirada com a
+     pasta dela aberta: vai para "Este Computador". Navigate numa raiz de unidade que ainda está montando tenta de novo por até ~1,5 s
+     (antes: "Não foi possível abrir"). Testado no PC com subst Z: (letra temporária, já tirada): o Finder registrou "unidades: conectada",
+     abriu Z:\ (26 itens) e registrou "unidades: tirada". Não existe aviso de disco conectado no Dock nem na mesa (nada mudado aí).
+  Instalado: WacOSShell.exe, WacOSFinder.exe, WacOSSettings.exe (backup em %LOCALAPPDATA%\SequoiaBinariosAntigos\b18-antes-185240); o
+  Ajustes estava aberto e continua na versão antiga até ser fechado. Nada no registro do Windows.
+  DESFAZER: barra_todos_monitores=1 (ou apagar a chave); copiar os arquivos de b18-antes-185240 de volta.

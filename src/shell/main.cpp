@@ -433,7 +433,7 @@ RECT shell::WorkAreaFor(HMONITOR hm) {
     MONITORINFO mi{ sizeof(mi) };
     if (!GetMonitorInfoW(hm, &mi)) return {};
     RECT want = mi.rcMonitor;
-    want.top += (mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm);
+    want.top += menubar::ReservedOn(hm);  // secundário sem barra (barra_todos_monitores=0): o topo é das janelas
     if (hm == dock::MonitorHandle()) {  // o Dock na borda escolhida (Ajustes > Posição na tela)
         int r = dock::ReservedHeight();
         if (dock::Posicao() == 1) want.left += r;
@@ -826,6 +826,12 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (lastTheme < 0) lastTheme = themeNow();
         LoadSettings();
         ilha::Reload();
+        {   // barra_todos_monitores mudou: cria ou tira as barras dos monitores secundários (e a área de trabalho deles)
+            static std::wstring lastAll = L"?";
+            std::wstring all = shell::Setting(L"barra_todos_monitores", L"1");
+            if (lastAll != L"?" && all != lastAll) { menubar::Displays(); dock::ReloadSettings(); }
+            lastAll = all;
+        }
         static int lastLang = -1;
         if (lastLang < 0) lastLang = idioma::Current();
         if (int lang = idioma::FromCode(shell::Setting(L"idioma", L"en")); lang != lastLang) {  // Ajustes > Geral > Idioma

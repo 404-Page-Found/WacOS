@@ -1555,3 +1555,5 @@
 { L"Escolha o novo ícone de “%ls”", L"“%ls” の新しいアイコンを選択" },
 { L"Barras de título do Mac", L"Mac のタイトルバー" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"アプリに Mac のタイトルバーを戻すには、Windows からサインアウトしてもう一度サインインしてください。" },
+{ L"Mostrar a barra de menus em todos os monitores", L"すべてのディスプレイにメニューバーを表示" },
+{ L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"オフにすると、メニューバーはメインディスプレイだけに表示され、ほかのディスプレイは画面全体を使います。" },
