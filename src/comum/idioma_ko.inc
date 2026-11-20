@@ -1549,3 +1549,7 @@
 { L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac.", L"앱 알림이 Mac 스타일로 위쪽 모서리에 나타납니다." },
 { L"Calendário na Central de Notificações", L"알림 센터에 캘린더" },
 { L"Relógio na Central de Notificações", L"알림 센터에 시계" },
+{ L"Alterar Ícone…", L"아이콘 변경…" },
+{ L"Restaurar Ícone Original", L"원래 아이콘으로 복원" },
+{ L"Ícones e programas", L"아이콘 및 프로그램" },
+{ L"Escolha o novo ícone de “%ls”", L"“%ls”의 새 아이콘 선택" },

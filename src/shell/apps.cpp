@@ -6,6 +6,7 @@
 #include <thread>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <wincodec.h>
 #include <propkey.h>
 #include <propvarutil.h>
 #include <dwmapi.h>
@@ -397,7 +398,166 @@ static std::wstring Norm(const std::wstring& s) {
     return o;
 }
 
+// ---- Ícone próprio do app (pedido do Reddit, 20/11/2026: "adiciona uma opção de editar os ícones dos apps").
+// Botão direito no app no Dock ou no Launchpad > Alterar Ícone… (PNG, ICO, JPG, WebP, ou o ícone de outro .exe) e
+// Restaurar Ícone Original. Fica em %APPDATA%\Shell\icones-dock (a mesma pasta de Ajustes > Personalizar o Dock >
+// Ícones próprios) como <nome do .exe>.png e <nome do app>.png: o Dock conhece o .exe, o Launchpad e o Spotlight
+// muitas vezes só o nome. Vale em todo lugar que pega o ícone pelo pacote (PackIconFor): Dock, Launchpad, Spotlight,
+// Alt+Tab e Mission Control.
+static std::wstring IconKey(std::wstring s) {
+    for (auto& c : s) if (c < 32 || wcschr(L"\\/:*?\"<>|", c)) c = L'_';
+    while (!s.empty() && (s.back() == L' ' || s.back() == L'.')) s.pop_back();
+    return s;
+}
+std::wstring apps::CustomIconDir() {
+    static std::wstring d;
+    if (d.empty()) {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell\\icones-dock\\"; CoTaskMemFree(p); }
+    }
+    return d;
+}
+static std::vector<std::wstring> CustomKeys(const std::wstring& name, const std::wstring& exe) {
+    std::vector<std::wstring> k;
+    std::wstring e = exe;
+    size_t sl = e.find_last_of(L"\\/");
+    if (sl != std::wstring::npos) e = e.substr(sl + 1);
+    if (e.size() > 4 && !_wcsicmp(e.c_str() + e.size() - 4, L".exe") && e.find(L':') == std::wstring::npos) {
+        e.resize(e.size() - 4);
+        if (!(e = IconKey(e)).empty()) k.push_back(e);
+    }
+    if (std::wstring n = IconKey(name); !n.empty() && (k.empty() || _wcsicmp(n.c_str(), k[0].c_str()))) k.push_back(n);
+    return k;
+}
+std::wstring apps::CustomIcon(const std::wstring& name, const std::wstring& exe) {
+    std::wstring dir = CustomIconDir();
+    if (dir.empty()) return L"";
+    for (auto& k : CustomKeys(name, exe)) {
+        std::wstring f = dir + k + L".png";
+        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) return f;
+    }
+    return L"";
+}
+
+// PNG (BGRA pré-multiplicado na memória; o arquivo vai com alfa normal)
+static bool SavePng(const std::wstring& path, UINT w, UINT h, const std::vector<BYTE>& pbgra) {
+    std::vector<BYTE> px(pbgra);
+    for (size_t i = 0; i + 3 < px.size(); i += 4)
+        if (BYTE a = px[i + 3]; a && a < 255) for (int c = 0; c < 3; c++) px[i + c] = (BYTE)std::min(255, px[i + c] * 255 / a);
+    IWICImagingFactory* wic = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) return false;
+    bool ok = false;
+    IWICStream* st = nullptr; IWICBitmapEncoder* enc = nullptr; IWICBitmapFrameEncode* fr = nullptr;
+    std::wstring tmp = path + L".tmp";
+    if (SUCCEEDED(wic->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(tmp.c_str(), GENERIC_WRITE)) &&
+        SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) && SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) &&
+        SUCCEEDED(enc->CreateNewFrame(&fr, nullptr)) && SUCCEEDED(fr->Initialize(nullptr)) && SUCCEEDED(fr->SetSize(w, h))) {
+        WICPixelFormatGUID f = GUID_WICPixelFormat32bppBGRA;
+        ok = SUCCEEDED(fr->SetPixelFormat(&f)) && IsEqualGUID(f, GUID_WICPixelFormat32bppBGRA) &&
+             SUCCEEDED(fr->WritePixels(h, w * 4, (UINT)px.size(), px.data())) && SUCCEEDED(fr->Commit()) && SUCCEEDED(enc->Commit());
+    }
+    if (fr) fr->Release();
+    if (enc) enc->Release();
+    if (st) st->Release();
+    wic->Release();
+    ok = ok && MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+    if (!ok) DeleteFileW(tmp.c_str());
+    return ok;
+}
+
+// Lê a imagem escolhida (foto pelo WIC; .ico/.exe/.dll pelo ícone do Windows, no maior tamanho), deixa quadrada
+// (centrada, fundo transparente), no máximo 512 px, e grava nos nomes do app. Roda fora da thread da interface.
+static bool SaveCustomIcon(const std::wstring& name, const std::wstring& exe, const std::wstring& src) {
+    UINT w = 0, h = 0;
+    std::vector<BYTE> px;
+    std::wstring ext = src.size() > 4 ? src.substr(src.size() - 4) : L"";
+    for (auto& c : ext) c = towlower(c);
+    bool icon = ext == L".ico" || ext == L".exe" || ext == L".dll" || ext == L".lnk";
+    bool ok = icon ? ui::ShellImage(src, 256, w, h, px, true) : ui::LoadPhoto(src, 512, w, h, px);
+    if (!ok && !icon) ok = ui::ShellImage(src, 256, w, h, px, true);
+    if (!ok || !w || !h || px.size() < (size_t)w * h * 4) { Log(L"ícone próprio: não deu para ler %ls", src.c_str()); return false; }
+    if (icon) ui::TrimToSquare(w, h, px);
+    if (w != h) {  // quadrada, centrada
+        UINT s = std::max(w, h);
+        std::vector<BYTE> sq((size_t)s * s * 4, 0);
+        UINT ox = (s - w) / 2, oy = (s - h) / 2;
+        for (UINT y = 0; y < h; y++) memcpy(&sq[(((size_t)(y + oy)) * s + ox) * 4], &px[(size_t)y * w * 4], (size_t)w * 4);
+        px.swap(sq); w = h = s;
+    }
+    ui::Downscale(w, h, px, 512);
+    std::wstring dir = apps::CustomIconDir();
+    if (dir.empty()) return false;
+    SHCreateDirectoryExW(nullptr, dir.c_str(), nullptr);
+    auto keys = CustomKeys(name, exe);
+    bool any = false;
+    for (auto& k : keys) any |= SavePng(dir + k + L".png", w, h, px);
+    Log(L"ícone próprio: %ls <- %ls (%ux%u, %ls)", name.c_str(), src.c_str(), w, h, any ? L"gravado" : L"ERRO ao gravar");
+    return any;
+}
+
+static void AvisarIconeMudou() {
+    static UINT msg = RegisterWindowMessageW(L"ShellIconeMudou");
+    if (HWND s = FindWindowW(L"ShellMensagens", nullptr)) PostMessageW(s, msg, 0, 0);
+}
+
+void apps::ChooseIcon(const std::wstring& name, const std::wstring& exe) {
+    // numa thread própria (STA): a janela de Abrir é modal e a interface do Shell não pode parar (o vigia o reiniciaria)
+    std::thread([name, exe] {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        IFileOpenDialog* dlg = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) {
+            std::wstring imgs = Tr(L"Imagens"), icos = Tr(L"Ícones e programas");
+            COMDLG_FILTERSPEC f[] = { { imgs.c_str(), L"*.png;*.ico;*.jpg;*.jpeg;*.webp;*.bmp;*.gif;*.tif;*.tiff;*.heic" },
+                                      { icos.c_str(), L"*.ico;*.exe;*.dll" } };
+            dlg->SetFileTypes(2, f);
+            wchar_t t[300]; swprintf_s(t, Tr(L"Escolha o novo ícone de “%ls”"), name.c_str());
+            dlg->SetTitle(t);
+            FILEOPENDIALOGOPTIONS o = 0;
+            dlg->GetOptions(&o);
+            dlg->SetOptions(o | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+            PWSTR pics = nullptr;
+            if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pics))) {
+                IShellItem* fo = nullptr;
+                if (SUCCEEDED(SHCreateItemFromParsingName(pics, nullptr, IID_PPV_ARGS(&fo)))) { dlg->SetDefaultFolder(fo); fo->Release(); }
+                CoTaskMemFree(pics);
+            }
+            if (SUCCEEDED(dlg->Show(nullptr))) {
+                IShellItem* it = nullptr;
+                PWSTR p = nullptr;
+                if (SUCCEEDED(dlg->GetResult(&it)) && SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                    if (SaveCustomIcon(name, exe, p)) AvisarIconeMudou();
+                    CoTaskMemFree(p);
+                }
+                if (it) it->Release();
+            }
+            dlg->Release();
+        }
+        CoUninitialize();
+    }).detach();
+}
+
+bool apps::HasCustomIcon(const std::wstring& name, const std::wstring& exe) { return !CustomIcon(name, exe).empty(); }
+
+void apps::RestoreIcon(const std::wstring& name, const std::wstring& exe) {
+    std::wstring dir = CustomIconDir();
+    if (dir.empty()) return;
+    int n = 0;
+    for (auto& k : CustomKeys(name, exe)) if (DeleteFileW((dir + k + L".png").c_str())) n++;
+    Log(L"ícone próprio: %ls volta ao original (%d arquivo(s))", name.c_str(), n);
+    if (n) AvisarIconeMudou();
+}
+
+// O ícone mudou (escolhido, restaurado ou mexido na pasta): todo mundo relê
+void apps::ReloadIcons() {
+    for (auto& a : list) { a.icon.clear(); a.iw = a.ih = 0; a.mac = false; }
+    dock::IconsChanged();
+    seletor::IconsChanged();
+    launchpad::IconsChanged();
+}
+
 static std::wstring PackIconFor(const App& a) {
+    // ícone escolhido pelo usuário (acima) vem antes de tudo
+    if (std::wstring own = apps::CustomIcon(a.finder ? L"Finder" : a.name, a.finder ? L"" : (a.exe.empty() ? a.id : a.exe)); !own.empty()) return own;
     static std::map<std::wstring, std::wstring> pack;  // nome normalizado -> arquivo
     static int loaded = -1;  // tema com que a lista foi montada (Tahoe usa icones\tahoe antes do Sequoia)
     int tema = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On() ? 1 : 0;  // Golden Gate usa icones\goldengate antes do Tahoe; Leopard, icones\leopard antes do Sequoia

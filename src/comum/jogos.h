@@ -15,6 +15,8 @@
 //   5. no Shell: app em tela cheia exclusiva (Direct3D) ou janela sem borda cobrindo o monitor que não é Chromium.
 // Janelas sem a barra do Windows (modo "barra própria") só em apps Chromium/Electron reconhecidos pelos arquivos
 // (Chrome, Edge, Brave, Discord, VS Code, Obsidian, Slack...), sem nenhuma marca de jogo.
+// Exceção conhecida (ProgramaNaoJogo): o OBS Studio, que tem cara de jogo (captura de jogo, Steam) mas não é; com
+// anti-cheat ao lado do .exe continua fora.
 #pragma once
 #include <windows.h>
 #include <string>
@@ -91,8 +93,32 @@ inline bool MarcasDeJogo(const std::wstring& pasta) {
     return false;
 }
 
+// Anti-cheat ao lado do .exe (pasta SEM a barra no fim): vale até para os programas da lista de exceções abaixo
+inline bool AntiCheatAoLado(const std::wstring& pasta) {
+    for (auto f : { L"BEClient_x64.dll", L"BEClient.dll", L"EasyAntiCheat", L"BattlEye", L"EasyAntiCheat_EOS_Setup.exe",
+                    L"start_protected_game.exe" })
+        if (Existe(pasta + L"\\" + f)) return true;
+    return false;
+}
+
+// Programas que NÃO são jogos mas têm cara de jogo (build-18, Reddit 20/11/2026): o OBS Studio grava jogos e tem
+// "game capture" (graphics-hook64.dll, get-graphics-offsets64.exe, obs-vulkan64.json), pode vir pela Steam (pasta
+// \steamapps\, overlay da Steam carregado) e o navegador embutido (CEF) carrega o XInput. Ficava sem a barra do Mac.
+// Só pelo nome exato do .exe E pela pasta de instalação dele (bin\64bit do OBS); com anti-cheat ao lado, continua fora.
+inline bool ProgramaNaoJogo(const std::wstring& caminhoOriginal) {
+    std::wstring c = Minusculo(caminhoOriginal);
+    size_t barra = c.find_last_of(L'\\');
+    if (barra == std::wstring::npos) return false;
+    std::wstring exe = c.substr(barra + 1);
+    bool obs = (exe == L"obs64.exe" || exe == L"obs32.exe" || exe == L"obs.exe") &&
+               (c.find(L"\\bin\\64bit\\") != std::wstring::npos || c.find(L"\\bin\\32bit\\") != std::wstring::npos) &&
+               Existe(caminhoOriginal.substr(0, barra) + L"\\obs.dll");
+    return obs && !AntiCheatAoLado(caminhoOriginal.substr(0, barra));
+}
+
 // O .exe é de jogo / launcher / anti-cheat? (caminho completo; não abre o processo)
 inline bool ProgramaDeJogo(const std::wstring& caminhoOriginal) {
+    if (ProgramaNaoJogo(caminhoOriginal)) return false;  // OBS Studio (acima): não é jogo
     std::wstring c = Minusculo(caminhoOriginal);
     size_t barra = c.find_last_of(L'\\');
     if (barra == std::wstring::npos) return false;

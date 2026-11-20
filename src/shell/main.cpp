@@ -792,6 +792,8 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     static UINT ampFoto = RegisterWindowMessageW(L"ShellAmpliarFoto");  // MacJanela.dll: a janela já mudou de tamanho
     if (m == ampFoto && ampFoto) { ampliar::SecondPhoto((HWND)w); return 0; }
+    static UINT iconeMudou = RegisterWindowMessageW(L"ShellIconeMudou");  // ícone próprio de um app escolhido/restaurado (apps.cpp)
+    if (m == iconeMudou && iconeMudou) { apps::ReloadIcons(); Log(L"ícone próprio: Dock, Alt+Tab e Launchpad recarregados"); return 0; }
     static UINT ampPronto = RegisterWindowMessageW(L"ShellAmpliarPronto");  // a janela já reapareceu
     if (m == ampPronto && ampPronto) { ampliar::Shown((HWND)w); return 0; }
     static UINT menuVerde = RegisterWindowMessageW(L"ShellMenuVerde");  // ponteiro parado no botão verde (DLL ou app nosso)

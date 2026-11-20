@@ -1549,3 +1549,7 @@
 { L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac.", L"Уведомления программ появляются в верхнем углу в стиле Mac." },
 { L"Calendário na Central de Notificações", L"Календарь в Центре уведомлений" },
 { L"Relógio na Central de Notificações", L"Часы в Центре уведомлений" },
+{ L"Alterar Ícone…", L"Изменить значок…" },
+{ L"Restaurar Ícone Original", L"Восстановить исходный значок" },
+{ L"Ícones e programas", L"Значки и программы" },
+{ L"Escolha o novo ícone de “%ls”", L"Выберите новый значок для «%ls»" },

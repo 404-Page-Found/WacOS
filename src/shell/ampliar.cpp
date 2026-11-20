@@ -502,7 +502,9 @@ void ampliar::SecondPhoto(HWND h) {
     for (auto& an : g_anims) {
         if (an.h != h || an.b.v) continue;
         UINT w = 0, hh = 0;
-        if (an.flags & 4) {  // nossos apps (maximizar/restaurar de verdade): o retângulo final é o de agora
+        // nossos apps (maximizar/restaurar de verdade): o retângulo final é o de agora. Os da DLL com barra (flags 4|1,
+        // janelas do Qt) já mandam o retângulo final certo (sem o recorte arredondado nas contas do DWM)
+        if ((an.flags & 4) && !(an.flags & 3)) {
             RECT r;
             if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) GetWindowRect(h, &r);
             if (IsZoomed(h)) {  // maximizada: só a área de trabalho aparece (o resto da janela passa da tela)

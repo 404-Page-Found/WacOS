@@ -90,6 +90,21 @@ bool CobreMonitor(HWND h) {
     return r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom;
 }
 
+// O próprio Shell roda como administrador? (aí o gancho entra também nos programas elevados)
+bool Elevado() {
+    static int r = -1;
+    if (r < 0) {
+        r = 0;
+        HANDLE t = nullptr;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &t)) {
+            TOKEN_ELEVATION el{}; DWORD got = 0;
+            if (GetTokenInformation(t, TokenElevation, &el, sizeof(el), &got) && el.TokenIsElevated) r = 1;
+            CloseHandle(t);
+        }
+    }
+    return r == 1;
+}
+
 ULONGLONG Criacao(HANDLE ph) {
     FILETIME c{}, e{}, k{}, u{};
     if (!GetProcessTimes(ph, &c, &e, &k, &u)) return 0;
@@ -100,7 +115,10 @@ ULONGLONG Criacao(HANDLE ph) {
 // para um jogo aberto depois com o mesmo número não herdar a permissão de outro programa).
 Permissao Allowed(HWND h, DWORD pid, bool* is32) {
     HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!ph) return {};  // provavelmente elevado: não dá para pôr o gancho
+    if (!ph) {  // provavelmente elevado ou protegido: não dá para pôr o gancho
+        if (!g_procOk.count(pid)) { g_procOk[pid] = {}; Log(L"janelas: processo %lu fora (não deu para abrir: protegido ou de administrador)", pid); }
+        return {};
+    }
     BOOL wow = FALSE;
     IsWow64Process(ph, &wow);
     *is32 = wow != FALSE;
@@ -117,13 +135,15 @@ Permissao Allowed(HWND h, DWORD pid, bool* is32) {
     wchar_t path[MAX_PATH] = {}; DWORD n = MAX_PATH;
     QueryFullProcessImageNameW(ph, 0, path, &n);
     // apps da Loja: só os de confiança total (Claude, WhatsApp...); os em contêiner (UWP) não carregam a DLL
-    bool container = false;
+    bool container = false, admin = false;
     HANDLE tok = nullptr;
     if (OpenProcessToken(ph, TOKEN_QUERY, &tok)) {
         DWORD v = 0, got = 0;
         if (GetTokenInformation(tok, TokenIsAppContainer, &v, sizeof(v), &got)) container = v != 0;
+        TOKEN_ELEVATION el{};
+        if (GetTokenInformation(tok, TokenElevation, &el, sizeof(el), &got) && el.TokenIsElevated) admin = !Elevado();
         CloseHandle(tok);
-    }
+    } else if (GetLastError() == ERROR_ACCESS_DENIED && !Elevado()) admin = true;  // a ficha de um processo elevado não abre daqui
     CloseHandle(ph);
     std::wstring full = Lower(path), exe = full.substr(full.find_last_of(L'\\') + 1);
     Permissao r;
@@ -138,7 +158,12 @@ Permissao Allowed(HWND h, DWORD pid, bool* is32) {
     // Shell; os outros desenham a própria. O gancho aqui punha uma segunda cópia por cima
     // (também as cópias renomeadas na hora de instalar, "inst-...-wacosfinder.exe")
     if (exe.find(L"wacos") != std::wstring::npos) r.ok = false;
-    for (auto e : EXCLUDED_PATH) if (full.find(e) != std::wstring::npos) r.ok = false;
+    // pastas de lojas de jogos: menos o OBS Studio (jogos.h ProgramaNaoJogo), que também vem pela Steam
+    if (!jogos::ProgramaNaoJogo(path))
+        for (auto e : EXCLUDED_PATH) if (full.find(e) != std::wstring::npos) r.ok = false;
+    // programa aberto como administrador (o OBS, para capturar jogos, costuma ser): o Windows não deixa um Shell sem
+    // elevação pôr gancho nele (UIPI). Fica a barra do Windows; o log diz por quê (antes era silencioso)
+    if (r.ok && admin) { r.ok = false; por = L"aberto como administrador: o gancho de um Shell sem elevação não entra"; }
     for (auto& e : g_extra) if (exe == e || full.find(e) != std::wstring::npos) { r.ok = false; por = L"lista do usuário"; }
     // jogo, launcher ou anti-cheat (nome, pasta, arquivos ao lado do .exe): nunca
     if (r.ok && jogos::ProgramaDeJogo(path)) { r.ok = false; por = L"marca de jogo"; }
@@ -229,7 +254,9 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
         return;
     }
     HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_proc, g_dll, tid);
-    if (!hk) return;
+    // antes era silencioso: com os 32 lugares de DLL de gancho cheios (erro 126) nenhum app novo recebia a barra e o
+    // log não dizia nada (o Consider, no "mostrar", tenta de novo e registra)
+    if (!hk) { static int n = 0; if (n++ < 20) Log(L"janelas: gancho falhou na criação, thread %lu (erro %lu)", tid, GetLastError()); return; }
     g_hooks[tid] = hk;
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra antes de mostrar
 }

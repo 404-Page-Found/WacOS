@@ -1549,3 +1549,7 @@
 { L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac.", L"Powiadomienia aplikacji pojawiają się w górnym rogu, w stylu Maca." },
 { L"Calendário na Central de Notificações", L"Kalendarz w Centrum powiadomień" },
 { L"Relógio na Central de Notificações", L"Zegar w Centrum powiadomień" },
+{ L"Alterar Ícone…", L"Zmień ikonę…" },
+{ L"Restaurar Ícone Original", L"Przywróć oryginalną ikonę" },
+{ L"Ícones e programas", L"Ikony i programy" },
+{ L"Escolha o novo ícone de “%ls”", L"Wybierz nową ikonę dla „%ls”" },

@@ -1549,3 +1549,7 @@
 { L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac.", L"Uygulama bildirimleri Mac tarzında üst köşede görünür." },
 { L"Calendário na Central de Notificações", L"Bildirim Merkezi’nde Takvim" },
 { L"Relógio na Central de Notificações", L"Bildirim Merkezi’nde Saat" },
+{ L"Alterar Ícone…", L"Simgeyi Değiştir…" },
+{ L"Restaurar Ícone Original", L"Orijinal Simgeyi Geri Yükle" },
+{ L"Ícones e programas", L"Simgeler ve programlar" },
+{ L"Escolha o novo ícone de “%ls”", L"“%ls” için yeni simgeyi seçin" },

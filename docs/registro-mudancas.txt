@@ -677,3 +677,40 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 
 [2026-11-20 16:45 PC] DOCK À ESQUERDA E À DIREITA (pedido do Reddit, "como o MyDockFinder"). Ajustes > Mesa e Dock > Posição na tela: Esquerda / Embaixo / Direita, grava dock_posicao=baixo|esquerda|direita no %APPDATA%\Shell\ajustes.txt (sem a chave = embaixo). O Leopard fica sempre embaixo (a prateleira em perspectiva só existe deitada). src\shell\dock.cpp: o layout continua "ao longo do Dock" (x pelos ícones, y até a borda) e só o mapeamento para a tela muda (Strip/ToWin/ToLocal/Up): dos lados, a coluna da borda abaixo da barra de menus, ícones/números/miniaturas em pé, ponto do app aberto do lado da borda, etiqueta ao lado do ícone com a setinha (título longo ganha "…"), ampliação, pulo, separador (arrasta na horizontal), ocultação pela borda lateral, menus ao lado do ícone, alvo do gênio (dock::MinimizeTarget; genio.cpp não mudou: o funil anda até o lugar do lado). Área de trabalho (shell::WorkAreaFor) reserva a borda do Dock (dock::Posicao + dock::ReservedHeight); limites.cpp empurra as janelas para fora do Dock lateral (deslizando pela thread; a DLL só desliza na vertical); Mission Control tira o espaço do lado certo; Pilhas: com o Dock do lado a Grade abre ao lado do ícone (sem o Leque e sem a setinha) e os menus de Downloads também. Trocar de lado cancela um arrasto em andamento (no teste o separador estava sendo arrastado durante a troca e o tamanho foi gravado como 74; antes 69 — deixado como está). Frases: Esquerda/Embaixo/Direita já existiam nos 12 idiomas (idioma-conferir: 0 faltando). Testado no PC (Shell instalado): esquerda e direita no Tahoe, esquerda no Sequoia, embaixo de novo; área de trabalho 97,30-3440,1440 / 0,30-3343,1440; janela minimizada (Bloco de Notas de teste) com a miniatura entre Downloads e a Lixeira e o gênio rodando. NÃO testado: etiqueta ao passar o mouse, ampliação, arrastar ícones e as Pilhas no Dock lateral (precisa de mouse de verdade); com dois monitores, o lado que encosta em outro monitor não segura o ponteiro para mostrar o Dock oculto. Nada no registro do Windows. DESFAZER: dock_posicao=baixo (ou apagar a chave).
 [2026-11-20 17:25] LICENÇA trocada (pedido do usuário: um dev de outro app disse que ia "roubar o código"). De GPL-3.0 para "WacOS Source-Available License" (LICENSE): todos os direitos reservados; pode ler, compilar, usar no próprio PC e mandar pull request; não pode copiar código para outro projeto, redistribuir (reupload, mirror, repack, build modificada) nem uso comercial sem permissão por escrito. Vale do build-17 em diante (as versões antigas publicadas em MIT/GPL continuam com aquela licença: não dá para revogar). O texto da GPL foi para docs/windhawk/bloqueio-sequoia/LICENSE-GPL-3.0.txt, porque sequoia-lockscreen.wh.cpp é derivado do mod GPL do m417z e continua GPL. README (seção License) reescrito; tools\empacotar.ps1 põe LICENSE.txt no pacote. DESFAZER: voltar o LICENSE e a seção do README do commit anterior.
+[2026-11-20 17:55 PC] BUILD-18: CORREÇÕES (branch claude/build-18-fixes-de31da; nada publicado).
+  1) OBS STUDIO SEM A BARRA DO MAC (Reddit, OBS 32.0.2/Qt). O OBS não está instalado aqui; conferido no código e com apps Qt6 do PC.
+     - src\comum\jogos.h: ProgramaNaoJogo = obs64.exe/obs32.exe/obs.exe dentro de bin\64bit|32bit com obs.dll ao lado e SEM anti-cheat
+       (AntiCheatAoLado: BEClient, EasyAntiCheat, BattlEye, start_protected_game) não é jogo. Vale no Shell (janelas.cpp: também passa
+       pela lista de pastas de lojas, para o OBS da Steam) e na DLL (DentroDeJogo: para o OBS só contam os módulos de anti-cheat; o
+       overlay da Steam e o XInput do navegador embutido não). Nenhum outro programa ganhou exceção.
+     - src\shell\janelas.cpp: programa aberto como administrador agora sai com o motivo no log ("aberto como administrador: o gancho de
+       um Shell sem elevação não entra"); processo que não abre também; gancho que falha na criação da janela é registrado (antes
+       silencioso: com a tabela de 32 DLLs cheia nenhum app novo ganhava a barra e o log não dizia nada). Causa provável no PC do
+       usuário do Reddit: OBS como administrador (o UIPI barra o gancho; só com o Shell elevado) ou a tabela de ganchos cheia.
+     - Maximizar no OBS/Qt (quadro esticado e "salto"): src\janelas\macjanela.cpp intercepta WM_SYSCOMMAND/SC_MAXIMIZE e vira o
+       "ampliar" ANTES do Windows maximizar (antes a janela aparecia um quadro maximizada, voltava e só então animava); janelas Qt
+       (classe Qt...QWindow...) usam o caminho flags 4 da animação (ampliar.cpp: anima a foto de antes e espera a janela de verdade estar
+       desenhada; a foto da janela escondida saía com a prévia D3D velha esticada). ampliar.cpp mantém o retângulo final que a DLL manda
+       quando há barra (flags 4|1).
+  2) MENU DA MESA POR CIMA DO DOCK: src\menu\context_menu.cpp (OpenLevel): o vidro do Dock (o Dock guarda o retângulo na janela dos
+     ícones, propriedade "WacOSDockVidro") sai da área do menu; aberto perto do Dock, o menu sobe só o que falta (ou anda de lado, com o
+     Dock à esquerda/direita) em vez de descer por cima dele. src\shell\dock.cpp: ao subir o Dock (Raise, troca da faixa) os menus do
+     Shell abertos sobem de novo (MenusPorCima). Testado no PC: WM_CONTEXTMENU na mesa a 12 px do Dock; o menu abriu terminando acima
+     do vidro (foto Desktop Duplication). Os outros apps (Finder, Ajustes...) ganham o mesmo quando forem recompilados/instalados.
+  3) EDITAR O ÍCONE DOS APPS (pedido do Reddit): botão direito no app no Dock > Opções > "Alterar Ícone…" / "Restaurar Ícone Original"
+     e no Launchpad (mesmos itens). src\shell\apps.cpp: ChooseIcon (janela de Abrir numa thread; PNG/ICO/JPG/WebP/BMP/GIF/TIFF/HEIC ou o
+     ícone de um .exe/.dll), grava quadrado, até 512 px, em %APPDATA%\Shell\icones-dock como <exe>.png e <nome do app>.png; RestoreIcon
+     apaga os dois; a mensagem "ShellIconeMudou" faz Dock, Alt+Tab e Launchpad relerem (apps::ReloadIcons; launchpad::IconsChanged sem
+     reaproveitar os ícones guardados). O ícone próprio entra em PackIconFor, então vale também no Spotlight (na próxima leitura dele) e
+     no Mission Control. 4 frases novas nos 11 dicionários (idioma-conferir: 0 faltando). Testado no PC: chrome.png posto na pasta +
+     "ShellIconeMudou" trocou o ícone do Chrome no Dock na hora; apagado + aviso, voltou (pasta como antes). A gravação do PNG foi
+     testada num programa à parte com o mesmo código. NÃO testado: a janela de Abrir e os cliques nos menus (precisa de mouse).
+  4) VARREDURA: shell.log/shell-anterior.log sem travas nem exceções; repetidos só os de diagnóstico (vidro real, seletor) e o
+     "gancho falhou (erro 126)" (tabela de 32 DLLs de gancho cheia neste PC). Corrigido da build-17: o "clique na mesa mostra a mesa"
+     usava a janela de fundo do Dock para ignorar cliques nele, mas no Leopard ela fica escondida (o clique nos vãos voltava a mostrar a
+     mesa): agora usa dock::Vidro (todos os temas); com o Dock à esquerda/direita a faixa "ao lado do Dock" é a daquela borda.
+  Instalado no PC: WacOSShell.exe e WacOSTitleBars.exe (backup em %LOCALAPPDATA%\SequoiaBinariosAntigos\b18-antes-174923). A
+  WacOSWindow.dll/32 nova foi instalada e VOLTOU para a de antes: com o Shell aberto ela vira uma cópia com nome novo e a tabela de 32
+  DLLs de gancho está cheia (erro 126 em todas as janelas). Para instalar: C:\Users\Public\wacos-b18\instalar-dll-b18.ps1 e sair e
+  entrar no Windows. Nada no registro do Windows.
+  DESFAZER: copiar os arquivos de b18-antes-174923 de volta para %LOCALAPPDATA%\Programs\WacOS\bin e reiniciar o Shell.

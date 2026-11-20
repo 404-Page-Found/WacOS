@@ -222,8 +222,8 @@ Chaves (padrão): `ajustes_pagina=geral` `ampliacao=0` `ampliacao_tamanho=128` `
 `volume_mac=1` `cc_layout` (ordem da Central) e `widget.*`.
 Personalização (vazio = padrão do Mac): `dock_espaco` `dock_margem` `dock_raio` (0-100) `dock_cor` (auto/clara/escura/destaque)
 `dock_opacidade` (0-100) `dock_posicao=baixo` (esquerda/direita; Leopard sempre embaixo) `dock_launchpad=1` `dock_separador=1` `dock_rotulos=1` `dock_indicador=ponto` (ou traco)
-`mesa_icone_tamanho=64` `mesa_espaco=0` `mesa_texto=12` `notif_duracao=5`; ícones próprios do Dock em `%APPDATA%\Shell\icones-dock`
-(PNG com o nome do .exe ou do app). Quem recebe a DLL das janelas (e quem nunca recebe: jogos/anti-cheat): `src/comum/jogos.h`.
+`mesa_icone_tamanho=64` `mesa_espaco=0` `mesa_texto=12` `notif_duracao=5`; ícones próprios dos apps em `%APPDATA%\Shell\icones-dock`
+(PNG com o nome do .exe ou do app; também botão direito no Dock/Launchpad > Alterar Ícone…, `apps::ChooseIcon`, aviso `ShellIconeMudou`). Quem recebe a DLL das janelas (e quem nunca recebe: jogos/anti-cheat): `src/comum/jogos.h`.
 Outros arquivos em `%APPDATA%\Shell`: `dock.txt`, `mesa.txt` (posições), `dialogo.txt` (programas que usam o
 Abrir/Salvar do Mac; `*` = todos), `janelas-excluidas.txt`, `Notas\`. Finder: `%APPDATA%\Arquivos\`
 (`favoritos.txt`, `etiquetas.txt`, `padrao-backup.txt`).

@@ -1549,3 +1549,7 @@
 { L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac.", L"アプリの通知が Mac のスタイルで上の隅に表示されます。" },
 { L"Calendário na Central de Notificações", L"通知センターにカレンダー" },
 { L"Relógio na Central de Notificações", L"通知センターに時計" },
+{ L"Alterar Ícone…", L"アイコンを変更…" },
+{ L"Restaurar Ícone Original", L"元のアイコンに戻す" },
+{ L"Ícones e programas", L"アイコンとプログラム" },
+{ L"Escolha o novo ícone de “%ls”", L"“%ls” の新しいアイコンを選択" },

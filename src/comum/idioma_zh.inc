@@ -1549,3 +1549,7 @@
 { L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac.", L"应用通知以 Mac 样式显示在顶部角落。" },
 { L"Calendário na Central de Notificações", L"通知中心中的日历" },
 { L"Relógio na Central de Notificações", L"通知中心中的时钟" },
+{ L"Alterar Ícone…", L"更改图标…" },
+{ L"Restaurar Ícone Original", L"恢复原始图标" },
+{ L"Ícones e programas", L"图标和程序" },
+{ L"Escolha o novo ícone de “%ls”", L"选择“%ls”的新图标" },

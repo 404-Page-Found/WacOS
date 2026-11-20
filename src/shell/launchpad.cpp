@@ -53,6 +53,7 @@ bool g_ready;
 std::vector<LApp> g_pending;    // nova lista (programa instalado/removido): a thread da janela troca em WM_LP_READY
 bool g_hasPending;              // protegido por g_mu
 std::atomic<bool> g_scanning, g_scanAgain;
+std::atomic<bool> g_semReaproveitar;  // a próxima leitura relê todos os ícones (um ícone próprio mudou)
 std::atomic<ULONGLONG> g_scannedAt;  // GetTickCount64 da última leitura completa
 std::vector<int> g_view;        // índices em g_all depois do filtro
 // estilo dos ícones ou cor de destaque mudou: solta os desenhos (são refeitos com o estilo novo)
@@ -188,11 +189,13 @@ void Loader() {
     UINT keep = (UINT)std::clamp((int)std::ceil(GetSystemMetrics(SM_CYSCREEN) * 0.1 * 1.15), 96, 256);
     bool reload;
     {   // nova leitura (instalou ou removeu um programa): os ícones de quem já estava na lista são reaproveitados
+        // (menos quando um ícone próprio mudou: launchpad::IconsChanged)
         std::lock_guard<std::mutex> lk(g_mu);
         reload = g_ready;
         const std::vector<LApp>& old = g_hasPending ? g_pending : g_all;
         std::map<std::wstring, const LApp*> byParse;
-        for (auto& o : old) byParse[o.parsing] = &o;
+        if (!g_semReaproveitar.exchange(false))
+            for (auto& o : old) byParse[o.parsing] = &o;
         for (auto& a : found)
             if (auto it = byParse.find(a.parsing); it != byParse.end() && !it->second->px.empty()) {
                 a.w = it->second->w; a.h = it->second->h; a.px = it->second->px; a.mac = it->second->mac;
@@ -944,12 +947,19 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             Paint();
             return 0;
         }
-        std::wstring path = L"shell:AppsFolder\\" + g_all[idx].parsing, name = g_all[idx].name;
-        ctxmenu::ExtraNext({ { Tr(L"Ocultar do Launchpad"), 2, false, false, false, L"", {}, 0xED1A } });
+        std::wstring path = L"shell:AppsFolder\\" + g_all[idx].parsing, name = g_all[idx].name, exe;
+        if (g_all[idx].parsing.size() > 4 && !_wcsicmp(g_all[idx].parsing.c_str() + g_all[idx].parsing.size() - 4, L".exe")) exe = g_all[idx].parsing;
+        // ícone próprio (como o Obter Informações do Mac): escolher outro ou voltar ao original
+        std::vector<ctxmenu::Item> extra{ { Tr(L"Ocultar do Launchpad"), 2, false, false, false, L"", {}, 0xED1A },
+                                          { Tr(L"Alterar Ícone…"), 3, false, false, false, L"", {}, 0xEB9F } };
+        if (apps::HasCustomIcon(name, exe)) extra.push_back({ Tr(L"Restaurar Ícone Original"), 4, false, false, false, L"", {}, 0xE7A7 });
+        ctxmenu::ExtraNext(extra);
         auto res = ctxmenu::Show(h, sp, L"shell:AppsFolder", { path }, GetKeyState(VK_SHIFT) < 0);
         ctxmenu::ExtraNext({});
         Log(L"launchpad: menu de %ls%ls", name.c_str(), res.chosen ? L" (comando escolhido)" : L"");
         if (res.extra == 2) { launchpad::Ocultar(name); { std::lock_guard<std::mutex> lk(g_mu); Filter(); } Paint(); return 0; }
+        if (res.extra == 3) { Close(); apps::ChooseIcon(name, exe); return 0; }  // o Launchpad cobre a tela: fecha antes da janela de Abrir
+        if (res.extra == 4) { apps::RestoreIcon(name, exe); return 0; }
         if (res.chosen) Close();
         return 0;
     }
@@ -1008,6 +1018,7 @@ bool launchpad::Create(HINSTANCE hi) {
 }
 
 void launchpad::Rescan() { Scan(); }
+void launchpad::IconsChanged() { g_semReaproveitar = true; Scan(); }
 
 bool launchpad::IsOpen() { return g_open && !g_closing; }
 
