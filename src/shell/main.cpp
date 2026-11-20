@@ -434,7 +434,12 @@ RECT shell::WorkAreaFor(HMONITOR hm) {
     if (!GetMonitorInfoW(hm, &mi)) return {};
     RECT want = mi.rcMonitor;
     want.top += (mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm);
-    if (hm == dock::MonitorHandle()) want.bottom -= dock::ReservedHeight();
+    if (hm == dock::MonitorHandle()) {  // o Dock na borda escolhida (Ajustes > Posição na tela)
+        int r = dock::ReservedHeight();
+        if (dock::Posicao() == 1) want.left += r;
+        else if (dock::Posicao() == 2) want.right -= r;
+        else want.bottom -= r;
+    }
     return want;
 }
 

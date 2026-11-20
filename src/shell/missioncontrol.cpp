@@ -204,12 +204,15 @@ void Layout(float bar) {
     size_t n = g_wins.size();
     if (!n) return;
     float top = BarHeightPx(bar) + 14 * Sc();
-    float bottom = H() - dock::ReservedHeight() - 18 * Sc();
-    D2D1_RECT_F area = { 28 * Sc(), top, W() - 28 * Sc(), bottom };
+    // o Dock embaixo tira espaço de baixo; à esquerda ou à direita, daquele lado (Ajustes > Posição na tela)
+    int dpos = dock::Posicao();
+    float dockB = dpos == 0 ? (float)dock::ReservedHeight() : 0.f, dockL = dpos == 1 ? (float)dock::ReservedHeight() : 0.f, dockR = dpos == 2 ? (float)dock::ReservedHeight() : 0.f;
+    float bottom = H() - dockB - 18 * Sc();
+    D2D1_RECT_F area = { dockL + 28 * Sc(), top, W() - dockR - 28 * Sc(), bottom };
     if (liquid::On()) {  // Tahoe (guia, seção 38, medido): 20 dos lados, de y 80 até ~104 da borda de baixo
-        area.left = 20 * Sc(); area.right = W() - 20 * Sc();
+        area.left = dockL + 20 * Sc(); area.right = W() - dockR - 20 * Sc();
         area.top = std::max(top, 80 * Sc());
-        area.bottom = H() - 104 * Sc();
+        area.bottom = H() - (dpos == 0 ? 104 * Sc() : 24 * Sc());
     }
     float aw = area.right - area.left, ah = area.bottom - area.top, gap = 34 * Sc();
     std::vector<size_t> order(n);
@@ -480,7 +483,7 @@ windows:
         float tw = std::min(ui::TextWidth(g_tfTitle, t2) + 24, d.right - d.left + 80);
         float cx = (d.left + d.right) / 2;
         D2D1_RECT_F tr = { cx - tw / 2, d.bottom + 10, cx + tw / 2, d.bottom + 36 };
-        if (tr.bottom > Hd - dock::ReservedHeight() / sc) { tr.top = d.bottom - 34; tr.bottom = d.bottom - 8; }
+        if (tr.bottom > Hd - (dock::Posicao() == 0 ? dock::ReservedHeight() : 0) / sc) { tr.top = d.bottom - 34; tr.bottom = d.bottom - 8; }
         br->SetColor(D2D1::ColorF(0.12f, 0.12f, 0.13f, 0.82f));
         dc->FillRoundedRectangle(D2D1::RoundedRect(tr, 8, 8), br);
         br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
