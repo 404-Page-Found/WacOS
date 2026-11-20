@@ -226,9 +226,10 @@ idle.
 
 ## License
 
-The WacOS source code is released under the [MIT License](LICENSE). Apple's icons, fonts, sounds and wallpapers, and
-the third-party icon and cursor packs bundled in the release package, are not covered by it: they belong to their
-owners and are included for personal use only.
+The WacOS source code is released under the [GNU General Public License v3.0](LICENSE): you can use, study, change
+and share it, and if you distribute a modified version, its source code has to be released under the GPL too.
+Apple's icons, fonts, sounds and wallpapers, and the third-party icon and cursor packs bundled in the release package,
+are not covered by it: they belong to their owners and are included for personal use only.
 
 ## Note
 
