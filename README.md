@@ -19,34 +19,26 @@
 
 WacOS runs on top of Windows (same kernel, drivers and apps) and replaces what you see and touch: the menu bar,
 the Dock, Finder, Spotlight, Control Center, Notification Center, Mission Control, Launchpad, window title bars and a
-set of built-in apps. Pick the macOS Sequoia look, the macOS Tahoe look with Liquid Glass, or the new macOS 27
-**Golden Gate** look.
+set of built-in apps. Pick the new macOS 27 **Golden Gate** look, the macOS Tahoe look with Liquid Glass, or the
+macOS Sequoia look.
 
 Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views. It uses about 750 MB of RAM
 and under 1% CPU on a 3440×1440 desktop.
 
-![WacOS desktop: menu bar, Dock and widgets](docs/screenshots/desktop.png)
+![WacOS desktop in the macOS 27 Golden Gate theme](docs/screenshots/golden-gate-desktop.png)
 
 **Contents:** [Screenshots](#screenshots) · [Features](#features) · [Install](#install) · [Is it safe?](#is-it-safe) ·
 [Roadmap](#roadmap) · [Support the project](#support-the-project) · [Build](#build)
 
 ## Screenshots
 
-| | |
-|---|---|
-| ![Control Center in Liquid Glass](docs/screenshots/control-center.png) **Control Center** in Liquid Glass, with real refraction and chromatic aberration | ![Notification Center](docs/screenshots/notification-center.png) **Notification Center** with widgets |
-| ![Spotlight](docs/screenshots/spotlight.png) **Spotlight** | ![Spotlight Applications mode](docs/screenshots/spotlight-apps.png) **Applications** (Spotlight's Apps mode, with categories) |
-| ![Finder](docs/screenshots/finder.png) **Finder** | ![System Settings](docs/screenshots/system-settings.png) **System Settings** |
-| ![Activity Monitor](docs/screenshots/activity-monitor.png) **Activity Monitor** | ![Force Quit Applications](docs/screenshots/force-quit.png) **Force Quit Applications** (Ctrl+Alt+Esc) |
-| ![macOS alert](docs/screenshots/alert.png) Windows message boxes become **macOS alerts** | ![Dock icon styles](docs/screenshots/dock-icon-styles.png) **Dock icon styles**: Default, Dark, Clear and Tinted |
+Three themes, in System Settings > Appearance > Theme. Switching themes never changes your own wallpaper.
 
-### macOS 27 Golden Gate theme (new)
+### 1. macOS 27 Golden Gate (new)
 
 The newest look, matched to Apple's macOS 27 screenshots: frosted Liquid Glass on windows, menus and the Dock,
-unified toolbars, the macOS 27 icons and the Golden Gate wallpaper. Pick it in System Settings > Appearance; switching
-themes never changes your own wallpaper.
+unified toolbars, the macOS 27 icons and the Golden Gate wallpaper.
 
-![WacOS desktop in the Golden Gate theme](docs/screenshots/golden-gate-desktop.png)
 
 | | |
 |---|---|
@@ -63,7 +55,21 @@ Also new with this theme: QuickTime Player with a frosted title bar over the vid
 **Edit Widgets…** on the desktop menu, clicking the empty strip beside the Dock to show the desktop, Win+D handled by
 the shell, grouped notifications that open on click, and smoother glass over animated wallpapers.
 
-### macOS Sequoia theme
+### 2. macOS Tahoe (Liquid Glass)
+
+The macOS 26 look: clear Liquid Glass with real refraction and chromatic aberration.
+
+![WacOS desktop in the Tahoe theme](docs/screenshots/desktop.png)
+
+| | |
+|---|---|
+| ![Control Center in Liquid Glass](docs/screenshots/control-center.png) **Control Center** in Liquid Glass, with real refraction and chromatic aberration | ![Notification Center](docs/screenshots/notification-center.png) **Notification Center** with widgets |
+| ![Spotlight](docs/screenshots/spotlight.png) **Spotlight** | ![Spotlight Applications mode](docs/screenshots/spotlight-apps.png) **Applications** (Spotlight's Apps mode, with categories) |
+| ![Finder](docs/screenshots/finder.png) **Finder** | ![System Settings](docs/screenshots/system-settings.png) **System Settings** |
+| ![Activity Monitor](docs/screenshots/activity-monitor.png) **Activity Monitor** | ![Force Quit Applications](docs/screenshots/force-quit.png) **Force Quit Applications** (Ctrl+Alt+Esc) |
+| ![macOS alert](docs/screenshots/alert.png) Windows message boxes become **macOS alerts** | ![Dock icon styles](docs/screenshots/dock-icon-styles.png) **Dock icon styles**: Default, Dark, Clear and Tinted |
+
+### 3. macOS Sequoia
 
 The same shell with the macOS 15 look (System Settings > Appearance > Theme).
 
@@ -137,7 +143,7 @@ Fair question for anything that replaces your taskbar. You don't have to trust t
 ## Roadmap
 
 - **Dynamic Island**: in progress, inspired by [Atoll](https://github.com/Ebullioscopic/Atoll).
-- **Mac OS X Leopard theme**: Aqua, the glossy 3D Dock with reflections, the translucent menu bar and Stacks.
+- **4th theme: Mac OS X Leopard**: Aqua, the glossy 3D Dock with reflections, the translucent menu bar and Stacks.
 - Your idea? [Open an issue](https://github.com/renzyxx/WacOS/issues).
 
 ## Support the project
