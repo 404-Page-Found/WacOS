@@ -1,4 +1,4 @@
-// "Clique no papel de parede para mostrar a mesa" (macOS Sonoma/Sequoia): um clique num lugar vazio da
+﻿// "Clique no papel de parede para mostrar a mesa" (macOS Sonoma/Sequoia): um clique num lugar vazio da
 // área de trabalho (inclusive ao lado do Dock) empurra as janelas para as bordas da tela, deixando uma
 // faixa de cada uma à mostra. Outro clique no vazio, ou ativar qualquer janela, traz todas de volta.
 // Animado pelo compositor (miniaturas do DWM numa camada por cima), com a mola suave do Mac: fluido no
@@ -48,23 +48,39 @@ bool IsDesktopWindow(HWND h) {
     return mesa::IsDeskClass(cls);
 }
 
+// O gancho do mouse só anota o ponto e passa adiante: quem pergunta "o que está embaixo?" é a thread g_worker.
+// Antes o próprio gancho chamava WindowFromPoint, que manda WM_NCHITTEST para a janela embaixo do cursor; com o
+// app ocupado (OBS gravando, jogo carregando) o mouse do Windows INTEIRO esperava junto: "o mouse trava e parece
+// que cai o fps" (Reddit, 20/11/2026). Um gancho de mouse global tem que voltar na hora.
+const UINT WM_RV_DOWN = WM_APP + 82, WM_RV_UP = WM_APP + 83;
+DWORD g_worker;
+
 LRESULT CALLBACK MouseHook(int code, WPARAM w, LPARAM l) {
-    if (code == HC_ACTION) {
+    if (code == HC_ACTION && g_worker && (w == WM_LBUTTONDOWN || w == WM_LBUTTONUP)) {
         auto* m = (MSLLHOOKSTRUCT*)l;
-        if (w == WM_LBUTTONDOWN) {
-            if (notificacoes::IsOpen()) {  // diagnóstico: onde o clique cai com a Central aberta (clique que "não chegava")
-                HWND at = WindowFromPoint(m->pt); wchar_t c[64] = {}; if (at) GetClassNameW(GetAncestor(at, GA_ROOT), c, 64);
-                Log(L"clique com a Central aberta: %ld,%ld sobre %ls%ls", m->pt.x, m->pt.y, c, (m->flags & LLMHF_INJECTED) ? L" (simulado)" : L"");
-            }
-            g_down = m->pt;
-            g_downOnDesk = IsDesktopWindow(WindowFromPoint(m->pt));
-        } else if (w == WM_LBUTTONUP && g_downOnDesk) {
-            g_downOnDesk = false;
-            if (std::abs(m->pt.x - g_down.x) <= 4 && std::abs(m->pt.y - g_down.y) <= 4)  // clique, não arrasto de seleção
-                PostMessageW(g_wnd, WM_RV_CLICK, 0, MAKELPARAM(m->pt.x, m->pt.y));
-        }
+        PostThreadMessageW(g_worker, w == WM_LBUTTONDOWN ? WM_RV_DOWN : WM_RV_UP, (m->flags & LLMHF_INJECTED) ? 1 : 0, MAKELPARAM(m->pt.x, m->pt.y));
     }
     return CallNextHookEx(g_hook, code, w, l);
+}
+
+void Worker() {
+    MSG msg;
+    PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);  // cria a fila antes de o gancho postar
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        POINT pt{ (short)LOWORD(msg.lParam), (short)HIWORD(msg.lParam) };
+        if (msg.message == WM_RV_DOWN) {
+            if (notificacoes::IsOpen()) {  // diagnóstico: onde o clique cai com a Central aberta (clique que "não chegava")
+                HWND at = WindowFromPoint(pt); wchar_t c[64] = {}; if (at) GetClassNameW(GetAncestor(at, GA_ROOT), c, 64);
+                Log(L"clique com a Central aberta: %ld,%ld sobre %ls%ls", pt.x, pt.y, c, msg.wParam ? L" (simulado)" : L"");
+            }
+            g_down = pt;
+            g_downOnDesk = IsDesktopWindow(WindowFromPoint(pt));
+        } else if (msg.message == WM_RV_UP && g_downOnDesk) {
+            g_downOnDesk = false;
+            if (std::abs(pt.x - g_down.x) <= 4 && std::abs(pt.y - g_down.y) <= 4)  // clique, não arrasto de seleção
+                PostMessageW(g_wnd, WM_RV_CLICK, 0, msg.lParam);
+        }
+    }
 }
 
 // vazio = não há ícone da área de trabalho embaixo do clique
@@ -421,6 +437,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_RV_CLICK: {
         POINT pt{ (short)LOWORD(l), (short)HIWORD(l) };
         if (missioncontrol::IsOpen()) return 0;
+        // em cima do Dock (o vidro dele): o clique passa pelos vãos transparentes entre os ícones e chegava à mesa
+        // como "clique ao lado do Dock": as janelas iam para as bordas e voltavam com o app aberto pelo Dock
+        // (Reddit, 20/11/2026: "clico embaixo, ele tenta minimizar tudo e tudo volta")
+        if (HWND f = dock::Fundo(); f && IsWindowVisible(f)) {
+            RECT r; GetWindowRect(f, &r);
+            UINT d = GetDpiForWindow(f);
+            InflateRect(&r, MulDiv(12, d ? d : 96, 96), MulDiv(12, d ? d : 96, 96));
+            if (PtInRect(&r, pt)) return 0;
+        }
         // como no macOS 15/26: "Clicar no papel de parede para mostrar a mesa" vem em "Só no Organizador Visual";
         // "Sempre" empurrava as janelas para as bordas a cada clique na mesa (o usuário: "os apps pulam", 17/11/2026)
         if (!g_revealed) {
@@ -479,6 +504,7 @@ void revelar::Start() {
     apps::ours.push_back(g_ov);
     g_dur = std::min(0.6f, anim::SpringDuration(RESPONSE, DAMPING));
     CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&g_uia));
+    std::thread([] { g_worker = GetCurrentThreadId(); Worker(); }).detach();
     std::thread t([] { g_hookThread = GetCurrentThreadId(); HookThread(); });
     t.detach();
 }
