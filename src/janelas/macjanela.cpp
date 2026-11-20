@@ -1,4 +1,4 @@
-// MacJanela.dll: barra de título do macOS nas janelas comuns do Windows (as que usam a barra padrão).
+﻿// MacJanela.dll: barra de título do macOS nas janelas comuns do Windows (as que usam a barra padrão).
 // Carregada só nos programas escolhidos pelo Shell (gancho WH_GETMESSAGE por thread, nunca global).
 // Em cada janela: esconde título, ícone e botões do Windows (SetWindowThemeAttribute + estilo sem
 // os botões), guarda a barra de menus para a barra de menus do Shell e põe por cima da barra de título
@@ -19,6 +19,7 @@
 #include <map>
 #include "../comum/sombra.h"
 #include "../comum/semaforo.h"
+#include "../comum/gancho_mapa.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra de título cinza metálico e botões de gel
 #include "../comum/jogos.h"    // jogos e anti-cheat (a DLL nunca fica neles) e apps Chromium/Electron
 
@@ -1873,6 +1874,23 @@ extern "C" __declspec(dllexport) BOOL WINAPI WacOSPropria() {
 // esperando os pedidos do Shell ("ponha a barra de título do Mac na thread X") e sai quando o Shell manda.
 namespace {
 struct HostHook { HHOOK hk; ULONGLONG born; };
+// o gancho dos programas de 32 bits também vai pela carregadora fixa (WacOSGancho32.dll, caminho no mapa do Shell,
+// gancho_mapa.h): trocar de versão não gasta lugar na tabela de ganchos. Sem ela, esta própria DLL (o jeito antigo).
+HMODULE g_hostMod;
+HOOKPROC g_hostProc;
+void HostGancho() {
+    if (g_hostProc) return;
+    if (HANDLE h = OpenFileMappingW(FILE_MAP_READ, FALSE, GANCHO_MAPA)) {
+        if (auto* m = (GanchoMapa*)MapViewOfFile(h, FILE_MAP_READ, 0, 0, sizeof(GanchoMapa))) {
+            if (m->tamanho == sizeof(GanchoMapa) && m->gancho32[0])
+                if (HMODULE d = LoadLibraryW(m->gancho32))
+                    if (auto p = (HOOKPROC)GetProcAddress(d, "GetMsgProc")) { g_hostMod = d; g_hostProc = p; }
+            UnmapViewOfFile(m);
+        }
+        CloseHandle(h);
+    }
+    if (!g_hostProc) { g_hostMod = g_mod; g_hostProc = GetMsgProc; }
+}
 std::map<DWORD, HostHook> g_hostHooks;
 const UINT HOST_HOOK = WM_APP + 1, HOST_QUIT = WM_APP + 2;
 
@@ -1895,7 +1913,8 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // Antes o número ficava marcado como "já tem" e o programa novo nunca ganhava a barra
         if (it != g_hostHooks.end() && it->second.born != born) { UnhookWindowsHookEx(it->second.hk); g_hostHooks.erase(it); }
         if (!g_hostHooks.count(tid))
-            if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, g_mod, tid)) g_hostHooks[tid] = { hk, born };
+            if (HostGancho(), true)
+                if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_hostProc, g_hostMod, tid)) g_hostHooks[tid] = { hk, born };
         if (l) PostMessageW((HWND)l, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
         return 0;
     }

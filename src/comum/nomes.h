@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 // Nomes dos executáveis do projeto (em inglês, prefixo Sequoia). O Gerenciador de Tarefas mostra a
 // descrição e o ícone de cada um (recursos gerados por tools\recursos.ps1 no build.cmd).
 // Os nomes antigos (Shell.exe, Arquivos.exe...) só aparecem onde é preciso reconhecer processos velhos.
@@ -25,4 +25,6 @@
 #define EXE_TITLEBARS    L"WacOSTitleBars.exe"         // só as barras de título do Mac, sem o Shell (src	itulos)
 #define DLL_WINDOW       L"WacOSWindow.dll"          // antes MacJanela.dll
 #define DLL_WINDOW32     L"WacOSWindow32.dll"         // antes MacJanela32.dll
+#define DLL_GANCHO       L"WacOSGancho.dll"           // a carregadora fixa do gancho (src\janelas\gancho.cpp)
+#define DLL_GANCHO32     L"WacOSGancho32.dll"
 // (WacOSWindow32Host.exe saiu no build-12: o hospedeiro de 32 bits agora é o rundll32 do Windows)

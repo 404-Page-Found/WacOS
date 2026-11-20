@@ -1,4 +1,4 @@
-// Barra de título do Mac nas janelas dos outros programas (ver src\janelas\macjanela.cpp).
+﻿// Barra de título do Mac nas janelas dos outros programas (ver src\janelas\macjanela.cpp).
 // O gancho é posto só na thread de cada janela elegível de um programa permitido: jogos, launchers
 // e anti-cheat nunca recebem a DLL. Programas de 32 bits passam pelo MacJanela32Host.exe.
 // Desligar: janelas_mac=0 em ajustes.txt. Excluir mais programas: %APPDATA%\Shell\janelas-excluidas.txt (os jogos
@@ -12,6 +12,7 @@
 // A decisão é guardada por processo; a DLL confere de novo ao carregar e recusa entrar em jogo.
 #include "shell.h"
 #include "../comum/jogos.h"
+#include "../comum/gancho_mapa.h"
 #include <shellapi.h>
 #include <shlobj.h>
 #include <map>
@@ -19,8 +20,10 @@
 
 namespace {
 
-HMODULE g_dll;
+HMODULE g_dll;     // o módulo do gancho: a carregadora fixa (WacOSGancho.dll) ou, sem ela, a própria WacOSWindow.dll
 HOOKPROC g_proc;
+HANDLE g_mapaH;    // o mapa que diz à carregadora qual WacOSWindow.dll usar (gancho_mapa.h); fica aberto até o Shell sair
+GanchoMapa* g_mapa;
 HWINEVENTHOOK g_ev;
 std::map<DWORD, HHOOK> g_hooks;      // thread -> gancho (64 bits)
 std::set<DWORD> g_hooks32;           // threads entregues ao host de 32 bits
@@ -321,6 +324,25 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra antes de mostrar
 }
 
+// Cópia da carregadora com o nome pelo CONTEÚDO (não pela data): recompilar sem mudar o código dá o mesmo arquivo
+// (/Brepro) e o mesmo nome, e o Windows continua usando o mesmo lugar da tabela de ganchos.
+std::wstring CopiaPorConteudo(const std::wstring& file, const wchar_t* prefix) {
+    std::wstring copies = shell::dir + L"\\obj\\mj";
+    CreateDirectoryW((shell::dir + L"\\obj").c_str(), nullptr);
+    CreateDirectoryW(copies.c_str(), nullptr);
+    std::wstring src = shell::dir + L"\\" + file;
+    HANDLE f = CreateFileW(src.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return L"";
+    unsigned long long hsh = 1469598103934665603ull;
+    BYTE buf[65536]; DWORD n = 0;
+    while (ReadFile(f, buf, sizeof(buf), &n, nullptr) && n) for (DWORD i = 0; i < n; i++) { hsh ^= buf[i]; hsh *= 1099511628211ull; }
+    CloseHandle(f);
+    wchar_t b[80]; swprintf_s(b, L"%s-%016llx.dll", prefix, hsh);
+    std::wstring copy = copies + L"\\" + b;
+    if (GetFileAttributesW(copy.c_str()) == INVALID_FILE_ATTRIBUTES && !CopyFileW(src.c_str(), copy.c_str(), TRUE)) return L"";
+    return copy;
+}
+
 // Cópia com nome próprio em bin\obj\mj: os apps que já têm uma versão antiga presa carregam esta como outro
 // módulo. O nome vem da data do arquivo: reabrir o Shell reaproveita a mesma cópia (cada nome novo ocupa um
 // dos 32 lugares de DLL de gancho do Windows até os apps fecharem); só uma compilação nova gera outro.
@@ -375,16 +397,40 @@ void janelas::Start() {
         Log(L"janelas: não deu para copiar " DLL_WINDOW);
         return;
     }
-    g_dll = LoadLibraryW(copy.c_str());
-    g_proc = g_dll ? (HOOKPROC)GetProcAddress(g_dll, "GetMsgProc") : nullptr;
+    wchar_t wow[MAX_PATH]{};
+    bool tem32 = GetSystemWow64DirectoryW(wow, MAX_PATH) > 0;
+    std::wstring copy32 = tem32 ? OwnCopy(DLL_WINDOW32, L"WacOSWindow32") : L"";
+    // A carregadora fixa (gancho_mapa.h): o gancho do Windows é sempre ela, e ela carrega a WacOSWindow.dll escrita no
+    // mapa. Trocar de versão (atualizar, reiniciar o Shell) não gasta mais lugar na tabela de ganchos (erro 126).
+    std::wstring gancho = CopiaPorConteudo(DLL_GANCHO, L"WacOSGancho"), gancho32 = tem32 ? CopiaPorConteudo(DLL_GANCHO32, L"WacOSGancho32") : L"";
+    if (!g_mapaH) {
+        g_mapaH = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(GanchoMapa), GANCHO_MAPA);
+        if (g_mapaH) g_mapa = (GanchoMapa*)MapViewOfFile(g_mapaH, FILE_MAP_WRITE, 0, 0, sizeof(GanchoMapa));
+    }
+    if (g_mapa && !gancho.empty()) {
+        g_mapa->tamanho = sizeof(GanchoMapa);
+        wcsncpy_s(g_mapa->real64, copy.c_str(), _TRUNCATE);
+        wcsncpy_s(g_mapa->real32, copy32.c_str(), _TRUNCATE);
+        wcsncpy_s(g_mapa->gancho32, gancho32.c_str(), _TRUNCATE);
+        MemoryBarrier();
+        LONG gen = g_mapa->gen + 1; if (!gen) gen = 1;  // 0 = "ainda nada" para a carregadora
+        InterlockedExchange(&g_mapa->gen, gen);
+        g_dll = LoadLibraryW(gancho.c_str());
+        g_proc = g_dll ? (HOOKPROC)GetProcAddress(g_dll, "GetMsgProc") : nullptr;
+        if (g_proc) Log(L"janelas: gancho pela carregadora %ls (barras: %ls)", gancho.substr(gancho.find_last_of(L'\\') + 1).c_str(),
+                        copy.substr(copy.find_last_of(L'\\') + 1).c_str());
+    }
+    if (!g_proc) {  // sem a carregadora (instalação antiga): o jeito de antes, a própria WacOSWindow.dll no gancho
+        g_dll = LoadLibraryW(copy.c_str());
+        g_proc = g_dll ? (HOOKPROC)GetProcAddress(g_dll, "GetMsgProc") : nullptr;
+        if (g_mapa) { g_mapa->real64[0] = 0; g_mapa->gancho32[0] = 0; InterlockedIncrement(&g_mapa->gen); }
+        Log(L"janelas: sem a carregadora " DLL_GANCHO L": gancho direto (cada versão nova gasta um lugar da tabela)");
+    }
     if (!g_proc) { Log(L"janelas: " DLL_WINDOW L" não encontrada"); return; }
     LoadExtra();
     // programas de 32 bits: a DLL de 32 bits fica no rundll32.exe de 32 bits do Windows (entrada WacOSHost, ver
-    // macjanela.cpp), que recebe os pedidos de gancho pela janela "MacJanela32Host"
-    wchar_t wow[MAX_PATH]{};
-    std::wstring copy32;
-    if (GetSystemWow64DirectoryW(wow, MAX_PATH) && !FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr) &&
-        !(copy32 = OwnCopy(DLL_WINDOW32, L"WacOSWindow32")).empty()) {
+    // macjanela.cpp), que recebe os pedidos de gancho pela janela "MacJanela32Host" (e põe o gancho com a carregadora de 32)
+    if (tem32 && !FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr) && !copy32.empty()) {
         STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
         std::wstring cmd = L"\"" + std::wstring(wow) + L"\\rundll32.exe\" \"" + copy32 + L"\",WacOSHost";
         if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {

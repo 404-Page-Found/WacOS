@@ -792,6 +792,13 @@ D2D1_RECT_F SliderTrack(const aj::Row& r, D2D1_RECT_F row) {
 // valor padrão no trilho (0..1)
 float SliderDefault(const aj::Row& r) { return std::clamp((r.def - r.min) / std::max(r.max - r.min, 0.0001f), 0.f, 1.f); }
 
+// este slider está sendo arrastado agora?
+bool SliderArrastando(const aj::Row& r) {
+    if (g_drag.g < 0 || g_drag.g >= (int)g_page.groups.size()) return false;
+    auto& rows = g_page.groups[g_drag.g].rows;
+    return g_drag.r >= 0 && g_drag.r < (int)rows.size() && &rows[g_drag.r] == &r;
+}
+
 void DrawSlider(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F row) {
     D2D1_RECT_F t = SliderTrack(r, row);
     float v = SliderValue(r);
@@ -823,13 +830,38 @@ void DrawSlider(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F row) {
         c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.3f) : D2D1::ColorF(0, 0, 0, 0.25f));
         c.dc->FillEllipse(D2D1::Ellipse({ t.left + 9.5f, cy + 8 }, 1.1f, 1.1f), c.br);
         c.dc->FillEllipse(D2D1::Ellipse({ t.right - 9.5f, cy + 8 }, 1.1f, 1.1f), c.br);
-        D2D1_RECT_F kb = D2D1::RectF(kx - 10, cy - 8, kx + 10, cy + 8);
+        // arrastando: o botão cresce (20 × 16 → 25 × 20) e vira uma lente de vidro com o trilho ampliado por dentro, como
+        // os sliders da Central de Controle (central.cpp, KN_LENS) e do macOS 27
+        const bool lente = SliderArrastando(r);
+        const float kg = lente ? 1.25f : 1.f, kw2 = 10 * kg, kh2 = 8 * kg;
+        D2D1_RECT_F kb = D2D1::RectF(kx - kw2, cy - kh2, kx + kw2, cy + kh2);
         for (int s = 3; s >= 1; s--) {
-            c.br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.10f : 0.045f));
-            c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(kb.left - s * 0.5f, kb.top + s * 0.4f, kb.right + s * 0.5f, kb.bottom + s * 0.8f), 8 + s * 0.5f, 8 + s * 0.5f), c.br);
+            c.br->SetColor(D2D1::ColorF(0, 0, 0, (g_dark ? 0.10f : 0.045f) * (lente ? 1.6f : 1.f)));
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(kb.left - s * 0.5f, kb.top + s * 0.4f, kb.right + s * 0.5f, kb.bottom + s * 0.8f), kh2 + s * 0.5f, kh2 + s * 0.5f), c.br);
         }
-        c.br->SetColor(D2D1::ColorF(1, 1, 1, 1));
-        c.dc->FillRoundedRectangle(D2D1::RoundedRect(kb, 8, 8), c.br);
+        if (!lente) {
+            c.br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(kb, kh2, kh2), c.br);
+        } else {
+            ID2D1Factory* f = nullptr; c.dc->GetFactory(&f);
+            ID2D1RoundedRectangleGeometry* geo = nullptr;
+            if (f) { f->CreateRoundedRectangleGeometry(D2D1::RoundedRect(kb, kh2, kh2), &geo); f->Release(); }
+            if (geo) {
+                c.dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), geo), nullptr);
+                c.br->SetColor(D2D1::ColorF(1, 1, 1, g_dark ? 0.10f : 0.28f));  // corpo do vidro, quase transparente
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(kb, kh2, kh2), c.br);
+                D2D1_MATRIX_3X2_F old; c.dc->GetTransform(&old);
+                c.dc->SetTransform(D2D1::Matrix3x2F::Scale(1.18f, 1.9f, { kx, cy }) * old);  // refração: o trilho ampliado
+                c.br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.09f));
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, rad, rad), c.br);
+                c.br->SetColor(c.accent);
+                c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(t.left, t.top, kx, t.bottom), rad, rad), c.br);
+                c.dc->SetTransform(old);
+                vidro::Borda(c.dc, kb, kh2, 1, g_dark, 1.2f, true);
+                c.dc->PopLayer();
+                geo->Release();
+            }
+        }
         auto twoBoxes = [&](float cx, bool filled) {
             D2D1_RECT_F back = D2D1::RectF(cx - 7.5f, cy - 6, cx + 3, cy + 2), front = D2D1::RectF(cx - 4.5f, cy - 3, cx + 7.5f, cy + 6);
             c.br->SetColor(c.text2);
@@ -1775,7 +1807,8 @@ void SliderTo(const Hit& h, float x) {
     // h.r é a área de toque (trilho ± 10); recalcula o trilho a partir da linha original
     float v = std::clamp((x - (h.r.left + 10)) / std::max(1.f, (h.r.right - 10) - (h.r.left + 10)), 0.f, 1.f);
     // macOS 27 (gg): o botão anda de 10 em 10 pt para dentro das pontas (DrawSlider); o mesmo aqui, senão ele fica fora do mouse
-    if (r->gg) v = std::clamp((x - (t.left + 10)) / std::max(1.f, (t.right - 10) - (t.left + 10)), 0.f, 1.f);
+    // (h.r já é o trilho ± 10; o SliderTrack de cima espera a LINHA, não serve aqui: com ele o valor dava sempre 0)
+    if (r->gg) v = std::clamp((x - (h.r.left + 20)) / std::max(1.f, (h.r.right - 20) - (h.r.left + 20)), 0.f, 1.f);
     // ímã no padrão: perto da marca (até 6 pt), o botão gruda nela
     if (r->hasDef) {
         float d = SliderDefault(*r), w = std::max(1.f, (h.r.right - 10) - (h.r.left + 10));
