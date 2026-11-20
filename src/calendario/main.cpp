@@ -6,6 +6,10 @@
 #include "../comum/app2d.h"
 #include <shobjidl.h>
 #include <map>
+#include <set>
+#include <thread>
+#include <winhttp.h>
+#pragma comment(lib, "winhttp.lib")
 
 using namespace app2d;
 
@@ -43,10 +47,25 @@ D2D1_COLOR_F EvColor(int i) {
 }
 const wchar_t* COLOR_NAMES[] = { L"Azul", L"Vermelho", L"Laranja", L"Verde", L"Roxo", L"Amarelo", L"Marrom" };
 
+// Feriados nacionais (pedido no Reddit): o calendário "Feriados", só de leitura, com os feriados do país da região do
+// Windows, da Nager.Date (date.nager.at, sem chave). Os eventos têm id negativo e não vão para o calendario.txt;
+// cada ano baixado fica em feriados.txt (não baixa de novo). Desliga no quadradinho da lateral.
+const int HOL_CAL = -5;
+const UINT WM_HOLIDAYS = WM_APP + 6;
+bool g_holOn = true;
+std::wstring g_holCC;           // país (ISO de 2 letras)
+std::set<int> g_holYears;       // anos já carregados ou pedidos
+int g_holNextId = -1000;
+int g_firstDow = 0;             // primeiro dia da semana (WeekStart, mais abaixo): 0 = domingo, 1 = segunda
+bool g_firstDowSet = false;     // escolhido pelo usuário (senão vale a região do Windows)
+
 void Save() {
     std::vector<std::wstring> out{ L"# Calendário do WacOS (E = evento: id, início, fim em minutos desde 1970, dia inteiro, título, cor, notas)" };
-    for (auto& c : g_cals) out.push_back(L"C\t" + std::to_wstring(c.id) + L"\t" + Esc(c.name) + L"\t" + std::to_wstring(c.color) + L"\t" + (c.on ? L"1" : L"0"));
-    for (auto& e : g_ev) out.push_back(L"E\t" + std::to_wstring(e.id) + L"\t" + std::to_wstring(e.start) + L"\t" + std::to_wstring(e.end) + L"\t" + (e.allDay ? L"1" : L"0") + L"\t" +
+    if (Cal* hc = FindCal(HOL_CAL)) g_holOn = hc->on;
+    out.push_back(L"S\tsemana\t" + std::to_wstring(g_firstDowSet ? g_firstDow : -1));
+    out.push_back(L"S\tferiados\t" + std::wstring(g_holOn ? L"1" : L"0"));
+    for (auto& c : g_cals) if (c.id != HOL_CAL) out.push_back(L"C\t" + std::to_wstring(c.id) + L"\t" + Esc(c.name) + L"\t" + std::to_wstring(c.color) + L"\t" + (c.on ? L"1" : L"0"));
+    for (auto& e : g_ev) if (e.id >= 0) out.push_back(L"E\t" + std::to_wstring(e.id) + L"\t" + std::to_wstring(e.start) + L"\t" + std::to_wstring(e.end) + L"\t" + (e.allDay ? L"1" : L"0") + L"\t" +
                                        Esc(e.title) + L"\t" + std::to_wstring(e.color) + L"\t" + Esc(e.notes) + L"\t" + std::to_wstring(e.cal));
     WriteLines(g_file, out);
 }
@@ -59,8 +78,16 @@ void Load() {
             if (f.size() > 8) e.cal = _wtoi(f[8].c_str());
             g_ev.push_back(e);
         } else if (f.size() >= 5 && f[0] == L"C") g_cals.push_back({ _wtoi(f[1].c_str()), Unesc(f[2]), _wtoi(f[3].c_str()), f[4] == L"1" });
+        else if (f.size() >= 3 && f[0] == L"S" && f[1] == L"semana") { int v = _wtoi(f[2].c_str()); if (v == 0 || v == 1) { g_firstDow = v; g_firstDowSet = true; } }
+        else if (f.size() >= 3 && f[0] == L"S" && f[1] == L"feriados") g_holOn = f[2] != L"0";
     }
     if (g_cals.empty()) g_cals = { { 1, Tr(L"Pessoal"), 0, true }, { 2, Tr(L"Trabalho"), 2, true }, { 3, Tr(L"Família"), 3, true } };
+    if (!g_firstDowSet) {  // a região do Windows: LOCALE_IFIRSTDAYOFWEEK 0 = segunda ... 6 = domingo
+        wchar_t b[4] = {};
+        if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IFIRSTDAYOFWEEK, b, 4)) g_firstDow = (_wtoi(b) + 1) % 7 == 1 ? 1 : 0;
+    }
+    { wchar_t cc[8] = {}; if (GetUserDefaultGeoName(cc, 8) && wcslen(cc) == 2) g_holCC = cc; }
+    if (!g_holCC.empty()) g_cals.push_back({ HOL_CAL, Tr(L"Feriados"), 1, g_holOn });
     for (auto& e : g_ev) g_nextId = std::max(g_nextId, e.id + 1);
     for (auto& c : g_cals) g_nextId = std::max(g_nextId, c.id + 1);
 }
@@ -80,7 +107,104 @@ std::vector<RemItem> Reminders() {
 long long AddDays(long long day, int n) { SYSTEMTIME s = FromMin(day); s.wHour = 12; long long m = ToMin(s) + n * 24LL * 60; return DayStart(m); }
 long long MonthStart(long long m) { SYSTEMTIME s = FromMin(m); s.wDay = 1; s.wHour = s.wMinute = 0; return ToMin(s); }
 long long AddMonths(long long m, int n) { SYSTEMTIME s = FromMin(MonthStart(m)); int mo = s.wMonth - 1 + n; s.wYear = (WORD)(s.wYear + (mo >= 0 ? mo / 12 : (mo - 11) / 12)); s.wMonth = (WORD)(((mo % 12) + 12) % 12 + 1); return ToMin(s); }
-long long WeekStart(long long m) { long long d = DayStart(m); return AddDays(d, -(int)FromMin(d).wDayOfWeek); }  // domingo
+// primeiro dia da semana: 0 = domingo, 1 = segunda. Padrão: o da região do Windows (como o Mac, que segue a
+// região); o usuário troca com o botão direito nos nomes dos dias (pedido no Reddit); g_firstDow fica lá em cima
+long long WeekStart(long long m) { long long d = DayStart(m); return AddDays(d, -(((int)FromMin(d).wDayOfWeek - g_firstDow + 7) % 7)); }
+int DowAt(int col) { return (col + g_firstDow) % 7; }  // coluna 0..6 -> dia da semana
+
+// ---- feriados
+struct HolDay { int y, m, d; std::wstring name; };
+void AddHoliday(const HolDay& hd) {
+    SYSTEMTIME st{}; st.wYear = (WORD)hd.y; st.wMonth = (WORD)hd.m; st.wDay = (WORD)hd.d;
+    long long day = ToMin(st);
+    for (auto& e : g_ev) if (e.cal == HOL_CAL && e.start == day && e.title == hd.name) return;
+    g_ev.push_back({ g_holNextId--, day, AddDays(day, 1), true, hd.name, 1, L"", HOL_CAL });
+}
+std::wstring HolFile() { return DataPath(L"feriados.txt"); }
+void LoadHolidayCache() {  // H  país  ano  aaaammdd  nome
+    for (auto& line : ReadLines(HolFile())) {
+        auto f = Split(line);
+        if (f.size() < 5 || f[0] != L"H" || f[1] != g_holCC) continue;
+        int y = _wtoi(f[2].c_str()), v = _wtoi(f[3].c_str());
+        g_holYears.insert(y);
+        if (v > 0) AddHoliday({ v / 10000, v / 100 % 100, v % 100, Unesc(f[4]) });
+    }
+}
+std::wstring JsonStr(const std::string& j, size_t& p, const char* key) {  // o próximo "key":"valor" a partir de p
+    std::string k = std::string("\"") + key + "\":\"";
+    size_t a = j.find(k, p);
+    if (a == std::string::npos) return L"";
+    a += k.size();
+    std::wstring out;
+    size_t i = a;
+    for (; i < j.size() && j[i] != '"'; i++) {
+        if (j[i] == '\\' && i + 1 < j.size()) {
+            char c = j[++i];
+            if (c == 'u' && i + 4 < j.size()) { out += (wchar_t)strtol(j.substr(i + 1, 4).c_str(), nullptr, 16); i += 4; }
+            else out += (wchar_t)(c == 'n' ? L' ' : c);
+            continue;
+        }
+        // UTF-8: junta os bytes do caractere
+        unsigned char c = (unsigned char)j[i];
+        int n = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+        wchar_t w[4] = {}; int got = MultiByteToWideChar(CP_UTF8, 0, j.data() + i, std::min<int>(n, (int)(j.size() - i)), w, 4);
+        out.append(w, got > 0 ? got : 0);
+        i += n - 1;
+    }
+    p = i;
+    return out;
+}
+void RequestHolidays(int year) {
+    if (g_holCC.empty() || !g_holOn || year < 1970 || g_holYears.count(year)) return;
+    g_holYears.insert(year);
+    std::wstring cc = g_holCC; HWND h = wnd;
+    std::thread([year, cc, h] {
+        std::string body;
+        HINTERNET ses = WinHttpOpen(L"WacOS-Calendar/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (ses) {
+            WinHttpSetTimeouts(ses, 5000, 5000, 8000, 8000);
+            HINTERNET con = WinHttpConnect(ses, L"date.nager.at", INTERNET_DEFAULT_HTTPS_PORT, 0);
+            std::wstring path = L"/api/v3/PublicHolidays/" + std::to_wstring(year) + L"/" + cc;
+            HINTERNET req = con ? WinHttpOpenRequest(con, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr;
+            if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr)) {
+                DWORD status = 0, sz = sizeof(status), avail = 0;
+                WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &status, &sz, nullptr);
+                while (WinHttpQueryDataAvailable(req, &avail) && avail && body.size() < 256 * 1024) {
+                    std::string chunk(avail, '\0'); DWORD got = 0;
+                    if (!WinHttpReadData(req, chunk.data(), avail, &got) || !got) break;
+                    body.append(chunk.data(), got);
+                }
+                if (status != 200) body.clear();
+            }
+            if (req) WinHttpCloseHandle(req);
+            if (con) WinHttpCloseHandle(con);
+            WinHttpCloseHandle(ses);
+        }
+        auto* list = new std::vector<HolDay>;
+        size_t p = 0;
+        for (;;) {
+            std::wstring d = JsonStr(body, p, "date");
+            if (d.size() < 10) break;
+            std::wstring n = JsonStr(body, p, "localName");
+            list->push_back({ _wtoi(d.substr(0, 4).c_str()), _wtoi(d.substr(5, 2).c_str()), _wtoi(d.substr(8, 2).c_str()), n });
+        }
+        bool ok = !body.empty();
+        if (!PostMessageW(h, WM_HOLIDAYS, (WPARAM)(ok ? year : -year), (LPARAM)list)) delete list;
+    }).detach();
+}
+void HolidaysArrived(int year, std::vector<HolDay>* list) {
+    if (year < 0) { g_holYears.erase(-year); delete list; return; }  // sem rede: tenta de novo depois
+    auto lines = ReadLines(HolFile());
+    if (lines.empty()) lines.push_back(L"# Feriados baixados pelo Calendário do WacOS (Nager.Date): H, país, ano, aaaammdd, nome");
+    lines.push_back(L"H\t" + g_holCC + L"\t" + std::to_wstring(year) + L"\t0\t");  // ano baixado (mesmo sem feriados)
+    for (auto& hd : *list) {
+        wchar_t v[16]; swprintf_s(v, L"%04d%02d%02d", hd.y, hd.m, hd.d);
+        lines.push_back(L"H\t" + g_holCC + L"\t" + std::to_wstring(year) + L"\t" + v + L"\t" + Esc(hd.name));
+        AddHoliday(hd);
+    }
+    WriteLines(HolFile(), lines);
+    delete list;
+}
 
 bool OnDay(const Ev& e, long long day) { long long next = AddDays(day, 1); return e.start < next && (e.end > day || (e.end <= e.start && e.start >= day)); }
 
@@ -120,7 +244,8 @@ void PaintMonth(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray,
     long long ms = MonthStart(g_anchor), first = WeekStart(ms);
     SYSTEMTIME am = FromMin(ms);
     float top = TB + WEEKHEAD, cw = sz.width / 7, rows = 6, ch = (sz.height - top) / rows;
-    for (int d = 0; d < 7; d++) Text(WeekdayShort(d), g_tfHeadDay, D2D1::RectF(d * cw, TB, (d + 1) * cw - 8, TB + WEEKHEAD), gray);
+    for (int d = 0; d < 7; d++) Text(WeekdayShort(DowAt(d)), g_tfHeadDay, D2D1::RectF(d * cw, TB, (d + 1) * cw - 8, TB + WEEKHEAD), gray);
+    g_hits.push_back({ 13, 0, 0, D2D1::RectF(0, TB, 7 * cw, TB + WEEKHEAD) });  // botão direito: começar a semana em...
     long long today = DayStart(NowMin());
     D2D1_COLOR_F line = dark ? Rgb(255, 255, 255, 0.10f) : Rgb(0, 0, 0, 0.10f);
     for (int i = 0; i < 42; i++) {
@@ -255,9 +380,9 @@ void PaintYear(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray) 
         if (g_tfHeadDay) {}
         SYSTEMTIME s1{}; s1.wYear = a.wYear; s1.wMonth = (WORD)(m + 1); s1.wDay = 1;
         long long first = ToMin(s1), next = AddMonths(first, 1);
-        int wd = FromMin(first).wDayOfWeek, days = (int)((DayStart(next + 12 * 60) - first + 12 * 60) / (24 * 60));
+        int wd = ((int)FromMin(first).wDayOfWeek - g_firstDow + 7) % 7, days = (int)((DayStart(next + 12 * 60) - first + 12 * 60) / (24 * 60));
         float cw = (mw - 20) / 7, ch = std::min((mh - 50) / 6, cw);
-        for (int d = 0; d < 7; d++) Text(std::wstring(1, WeekdayShort(d)[0]), g_tfYearDay, D2D1::RectF(x0 + d * cw, y0 + 26, x0 + (d + 1) * cw, y0 + 42), gray);
+        for (int d = 0; d < 7; d++) Text(std::wstring(1, WeekdayShort(DowAt(d))[0]), g_tfYearDay, D2D1::RectF(x0 + d * cw, y0 + 26, x0 + (d + 1) * cw, y0 + 42), gray);
         for (int d = 1; d <= days; d++) {
             int idx = wd + d - 1;
             D2D1_RECT_F c = D2D1::RectF(x0 + (idx % 7) * cw, y0 + 44 + (idx / 7) * ch, x0 + (idx % 7 + 1) * cw, y0 + 44 + (idx / 7 + 1) * ch);
@@ -293,7 +418,7 @@ void MiniMonth(float x0, float bottom, bool dark, D2D1_COLOR_F text, D2D1_COLOR_
     g_hits.push_back({ 10, -1, 0, pv }); g_hits.push_back({ 10, 1, 0, nx });
     for (int d = 0; d < 7; d++) {
         float cx = x0 + 26.5f + d * 28;
-        Text(std::wstring(1, WeekdayShort(d)[0]), g_tfMiniW, D2D1::RectF(cx - 12, bottom - 167.5f, cx + 12, bottom - 147.5f), soft);
+        Text(std::wstring(1, WeekdayShort(DowAt(d))[0]), g_tfMiniW, D2D1::RectF(cx - 12, bottom - 167.5f, cx + 12, bottom - 147.5f), soft);
     }
     long long today = DayStart(NowMin());
     for (int i = 0; i < 42; i++) {
@@ -367,6 +492,13 @@ void PaintGolden() {
     // barra: "+" redondo, Dia/Semana/Mês/Ano, busca
     float cl = X0, cr = sz.width;
     float plusL = g_side ? cl + 6 : 84;
+    if (!g_side) {  // lateral escondida: o botão dela vem para a barra, logo depois dos três botões (senão não voltava)
+        D2D1_RECT_F sb = D2D1::RectF(84, 7.5f, 121, 44.5f);
+        GlassButton(sb, dark);
+        IconSidebar({ (sb.left + sb.right) / 2, 26 }, text);
+        g_hits.push_back({ 5, 0, 0, sb }); BarButton(sb);
+        plusL = sb.right + 8;
+    }
     D2D1_RECT_F plus = D2D1::RectF(plusL, 7.5f, plusL + 37, 44.5f);
     GlassButton(plus, dark);
     br->SetColor(text);
@@ -407,6 +539,7 @@ void PaintGolden() {
 }
 
 void Paint() {
+    if (g_holOn) { int y = FromMin(g_anchor).wYear; RequestHolidays(y); if (FromMin(g_anchor).wMonth == 12) RequestHolidays(y + 1); }  // o ano à vista
     if (!BeginPaint()) return;
     g_hits.clear();
     barButtons.clear();
@@ -479,7 +612,7 @@ void Rename(int id) {
 
 void NewEvent(long long day, long long at, bool allDay) {
     Ev e{ g_nextId++, allDay ? day : at, allDay ? AddDays(day, 1) : at + 60, allDay, Tr(L"Novo Evento"), 0, L"" };
-    for (auto& c : g_cals) if (c.on) { e.cal = c.id; e.color = c.color; break; }  // no primeiro calendário à vista
+    for (auto& c : g_cals) if (c.on && c.id != HOL_CAL) { e.cal = c.id; e.color = c.color; break; }  // no primeiro calendário à vista
     g_ev.push_back(e);
     g_selEv = e.id; g_selDay = day;
     Save();
@@ -579,6 +712,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_CTLCOLOREDIT: return FieldColors((HDC)w, Dark() ? RGB(30, 30, 30) : RGB(255, 255, 255));
     case WM_FIELDLOST: if (field.h && GetFocus() != field.h) FieldEnd(0); return 0;
     case WM_TIMER: InvalidateRect(h, nullptr, FALSE); return 0;  // a linha da hora atual e os lembretes
+    case WM_HOLIDAYS: HolidaysArrived((int)w, (std::vector<HolDay>*)l); InvalidateRect(h, nullptr, FALSE); return 0;
     case WM_MOUSEWHEEL: {
         if (field.h) FieldEnd(0);
         float d = GET_WHEEL_DELTA_WPARAM(w) / 120.f;
@@ -605,7 +739,8 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         for (auto& ht : g_hits) if (ht.kind == 6 && In(ht.r, x, y)) {
             Cal& c = g_cals[ht.ev];
-            if (!right) { c.on = !c.on; Save(); InvalidateRect(h, nullptr, FALSE); return 0; }
+            if (!right) { c.on = !c.on; Save(); if (c.id == HOL_CAL && c.on) RequestHolidays(FromMin(g_anchor).wYear); InvalidateRect(h, nullptr, FALSE); return 0; }
+            if (c.id == HOL_CAL) return 0;  // feriados: só ligar e desligar
             HMENU mm = CreatePopupMenu(), col = CreatePopupMenu();
             for (int i = 0; i < 7; i++) AppendMenuW(col, MF_STRING | (c.color == i ? MF_CHECKED : 0), 10 + i, Tr(COLOR_NAMES[i]));
             AppendMenuW(mm, MF_STRING, 1, Tr(L"Renomear"));
@@ -631,6 +766,21 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         for (auto& ht : g_hits) if (ht.kind == 3 && In(ht.r, x, y)) { Nav(ht.ev); return 0; }
         for (auto& ht : g_hits) if (ht.kind == 9 && In(ht.r, x, y)) { NewEvent(g_selDay, g_selDay + 9 * 60, g_view == V_MONTH); return 0; }
         for (auto& ht : g_hits) if (ht.kind == 10 && In(ht.r, x, y)) { g_selDay = AddMonths(MonthStart(g_selDay), ht.ev); InvalidateRect(h, nullptr, FALSE); return 0; }
+        for (auto& ht : g_hits) if (ht.kind == 13 && right && In(ht.r, x, y)) {  // nomes dos dias: começar a semana em...
+            HMENU mm = CreatePopupMenu();
+            AppendMenuW(mm, MF_STRING | (g_firstDow == 0 ? MF_CHECKED : 0), 1, Tr(L"Começar a Semana no Domingo"));
+            AppendMenuW(mm, MF_STRING | (g_firstDow == 1 ? MF_CHECKED : 0), 2, Tr(L"Começar a Semana na Segunda-feira"));
+            if (!g_holCC.empty()) {
+                AppendMenuW(mm, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(mm, MF_STRING | (g_holOn ? MF_CHECKED : 0), 3, Tr(L"Mostrar Feriados"));
+            }
+            int k = TrackPopupMenu(mm, TPM_RETURNCMD | TPM_RIGHTBUTTON, scr.x, scr.y, 0, h, nullptr);
+            DestroyMenu(mm);
+            if (k == 1 || k == 2) { g_firstDow = k - 1; g_firstDowSet = true; Save(); }
+            if (k == 3) { if (Cal* hc = FindCal(HOL_CAL)) { hc->on = !hc->on; Save(); if (hc->on) RequestHolidays(FromMin(g_anchor).wYear); } }
+            InvalidateRect(h, nullptr, FALSE);
+            return 0;
+        }
         for (auto& ht : g_hits) if (ht.kind == 11 && In(ht.r, x, y)) { g_anchor = g_selDay = ht.day; InvalidateRect(h, nullptr, FALSE); return 0; }
         for (auto& ht : g_hits) if (ht.kind == 12 && In(ht.r, x, y)) {  // busca: digita e Enter vai ao próximo evento com o texto
             D2D1_RECT_F fr = D2D1::RectF(ht.r.left - 200, ht.r.top + 8, ht.r.left - 8, ht.r.bottom - 8);
@@ -654,6 +804,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             auto& ht = g_hits[i];
             if (ht.kind != 1 || !In(ht.r, x, y)) continue;
             g_selEv = ht.ev; g_selDay = ht.day;
+            if (ht.ev < 0) { g_selEv = -1; InvalidateRect(h, nullptr, FALSE); return 0; }  // feriado: só de leitura
             if (right) { InvalidateRect(h, nullptr, FALSE); EvMenu(ht.ev, scr); return 0; }
             if (dbl) { Rename(ht.ev); return 0; }
             InvalidateRect(h, nullptr, FALSE);
@@ -729,6 +880,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     if (semaforo::Aqua()) { TB = 112; SIDE = 218.5f; }
     if (!CreateMain(hi, L"CalendarioJanela", Tr(L"Calendário"), Proc, semaforo::Aqua() ? 1137 : 1100, semaforo::Aqua() ? 760 : 760)) return 1;
     SetTimer(wnd, 1, 30000, nullptr);
+    LoadHolidayCache();
     ShowWindow(wnd, show);
     return Run();
 }

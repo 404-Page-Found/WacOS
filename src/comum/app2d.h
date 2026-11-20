@@ -486,6 +486,27 @@ inline D2D1_COLOR_F SidebarColor() {
     return Tinted(Dark() ? D2D1::ColorF(40 / 255.f, 40 / 255.f, 42 / 255.f) : D2D1::ColorF(242 / 255.f, 242 / 255.f, 245 / 255.f));
 }
 
+// Grava um ajuste no %APPDATA%\Shell\ajustes.txt (o mesmo dos Ajustes do Sistema). Com o Shell aberto, a mudança vai
+// para ele (WM_COPYDATA 'SJST'): ele grava no arquivo dele e recarrega; sem o Shell (modo só apps), grava aqui.
+inline void SetAppSetting(const wchar_t* key, const std::wstring& v) {
+    HWND sh = FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr);
+    if (!sh) sh = FindWindowW(L"ShellMensagens", nullptr);
+    std::wstring kv = std::wstring(key) + L"=" + v;
+    if (sh) {
+        COPYDATASTRUCT cd{ 0x534A5354, (DWORD)((kv.size() + 1) * sizeof(wchar_t)), (void*)kv.c_str() };
+        DWORD_PTR r = 0;
+        if (SendMessageTimeoutW(sh, WM_COPYDATA, (WPARAM)wnd, (LPARAM)&cd, SMTO_ABORTIFHUNG, 500, &r) && r) return;
+    }
+    std::wstring path = DataPath(L"ajustes.txt"), want = std::wstring(key) + L"=";
+    auto lines = ReadLines(path);
+    bool done = false;
+    for (auto& l : lines) if (l.rfind(want, 0) == 0) { l = kv; done = true; }
+    if (!done) lines.push_back(kv);
+    WriteLines(path, lines);
+    static UINT msg = RegisterWindowMessageW(L"ShellAjustesMudaram");
+    if (sh) PostMessageW(sh, msg, 0, 0);
+}
+
 inline int Run() {
     if (!FotoPath().empty() && wnd) SetTimer(nullptr, 0, 1800, FotoTick);  // teste: espera carregar e salva a foto
     MSG m;

@@ -26,6 +26,9 @@ float g_resizeTile;
 float g_large = 128;        // tamanho máximo na ampliação
 bool g_magnify = false;
 bool g_autohide = false;
+bool g_smart = false;        // ocultação inteligente: só esconde quando uma janela encosta no Dock
+bool g_covered = false;      // alguma janela por cima da área do Dock agora
+DWORD g_coverAt = 0;
 // Proporções medidas no vídeo do Sequoia (ícone de 80 px): os ícones encostam uns nos outros
 // (o espaço é a margem do próprio desenho), o fundo é o ícone + ~9% embaixo (onde fica o ponto),
 // ~4% dos lados e fica a ~10% da borda da tela; o separador ocupa meio ícone.
@@ -103,6 +106,7 @@ ui::GpuSurface g_gi;           // ícones: GPU (DirectComposition), quadros no r
 RECT g_win{};                  // janela dos ícones dentro da faixa de baixo da tela (px)
 D2D1_RECT_F g_lastBg{};
 const UINT WM_DOCKFRAME = WM_APP + 40;
+const UINT_PTR TIMER_HIDECHECK = 7101;  // ocultação parada: olha o mouse e as janelas sem redesenhar
 std::vector<Item> g_items;
 std::map<std::wstring, ID2D1Bitmap*> g_bmps;
 ID2D1RenderTarget* g_bmpRt;
@@ -508,6 +512,41 @@ float BounceOffset(const App& a) {
     auto n = g_nudge.find(a.id);  // notificação nova: um pulo só
     if (n != g_nudge.end() && now - n->second < 620) return -hop(now - n->second, 620) * g_tile * 0.45f;
     return 0;
+}
+
+// Ocultação inteligente: alguma janela de app (não minimizada, nesta mesa) cobre a área do Dock à mostra?
+// Como a "ocultação inteligente" dos docks do Windows: janela maximizada ou arrastada até embaixo esconde o Dock.
+bool WindowOverDock() {
+    float sc = Sc();
+    RECT mon = Monitor();
+    RECT dk{ mon.left + (LONG)(g_bg.left * sc), mon.bottom - (LONG)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN) * sc),
+             mon.left + (LONG)(g_bg.right * sc), mon.bottom };
+    if (dk.right <= dk.left) return false;
+    struct C { RECT dk; bool hit; } c{ dk, false };
+    EnumWindows([](HWND h, LPARAM p) -> BOOL {
+        auto* c = (C*)p;
+        if (!IsWindowVisible(h) || IsIconic(h) || apps::IsShellWindow(h) || shell::Nossa(h)) return TRUE;
+        LONG_PTR ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+        bool app = apps::IsAppWindow(h);
+        // diálogo de um app (janela com dona) também conta; menus, dicas e camadas transparentes não
+        if (!app && (!GetWindow(h, GW_OWNER) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT)))) return TRUE;
+        if (!app) { DWORD cl = 0; DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cl, sizeof(cl)); if (cl) return TRUE; }
+        RECT r; if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) GetWindowRect(h, &r);
+        RECT x; if (IntersectRect(&x, &r, &c->dk)) { c->hit = true; return FALSE; }
+        return TRUE;
+    }, (LPARAM)&c);
+    return c.hit;
+}
+
+// Esconder agora? Sempre (ocultação comum) ou só com janela por cima (inteligente); o mouse na borda de baixo mostra.
+bool WantHidden() {
+    POINT c; GetCursorPos(&c);
+    RECT mon = Monitor();
+    float sc = Sc();
+    bool nearEdge = c.x >= mon.left && c.x < mon.right &&
+                    (c.y >= mon.bottom - 2 || (g_reveal > 0.5f && c.y >= mon.bottom - (LONG)((g_bg.bottom - g_bg.top + 30) * sc)));
+    if (g_smart && GetTickCount() - g_coverAt >= 100) { g_coverAt = GetTickCount(); g_covered = WindowOverDock(); }
+    return (!g_smart || g_covered) && !nearEdge && g_press < 0;
 }
 
 bool Animating() {
@@ -1185,7 +1224,8 @@ void BackgroundMenu() {
     SetForegroundWindow(g_owner);
     c.y -= 120;
     std::wstring tema = shell::Setting(L"tema", L"auto");
-    int id = ctxmenu::ShowItems(g_owner, c, { MI(Tr(L"Ativar Ocultação"), 1, g_autohide), MI(Tr(L"Ativar Ampliação"), 2, g_magnify), MSep(),
+    int id = ctxmenu::ShowItems(g_owner, c, { MI(Tr(L"Ativar Ocultação"), 1, g_autohide && !g_smart), MI(Tr(L"Ocultação Inteligente"), 7, g_smart),
+                                               MI(Tr(L"Ativar Ampliação"), 2, g_magnify), MSep(),
                                                MI(Tr(L"Aparência Automática"), 4, tema != L"claro" && tema != L"escuro"),
                                                MI(Tr(L"Aparência Clara"), 5, tema == L"claro"), MI(Tr(L"Aparência Escura"), 6, tema == L"escuro"), MSep(),
                                                MI(Tr(L"Ajustes do Dock…"), 3) });
@@ -1195,7 +1235,12 @@ void BackgroundMenu() {
         menubar::ApplyTheme();
         return;
     }
-    if (id == 1) { g_autohide = !g_autohide; g_hidden = g_autohide; shell::ApplyWorkArea(); ui::FrameClock(g_icons, WM_DOCKFRAME, true); }
+    if (id == 1 || id == 7) {
+        bool smart = id == 7 ? !g_smart : false, on = id == 7 ? smart : !(g_autohide && !g_smart);
+        shell::SetSetting(L"ocultar", !on ? L"0" : smart ? L"inteligente" : L"1");
+        g_autohide = on; g_smart = smart; g_covered = false; g_coverAt = 0; g_hidden = false;
+        shell::ApplyWorkArea(); ui::FrameClock(g_icons, WM_DOCKFRAME, true);
+    }
     if (id == 2) g_magnify = !g_magnify;
     if (id == 3) shell::OpenSettings(L"dock");
     Paint();
@@ -1430,7 +1475,14 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         Paint();
         return 0;
     }
-    case WM_DOCKSTACK: Paint(); return 0;  // as imagens da pilha de Downloads chegaram
+    case WM_DOCKSTACK: Paint(); return 0;
+    case WM_TIMER:
+        if (w == TIMER_HIDECHECK) {
+            if (!g_autohide) { KillTimer(h, TIMER_HIDECHECK); return 0; }
+            if (WantHidden() != g_hidden) { KillTimer(h, TIMER_HIDECHECK); ui::FrameClock(g_icons, WM_DOCKFRAME, true); }
+            return 0;
+        }
+        break;  // as imagens da pilha de Downloads chegaram
     case WM_DOCKFRAME: {
             double now = anim::Now();
             float dt = g_lastFrame ? (float)std::clamp((now - g_lastFrame) / 1000.0, 0.0, 0.05) : 0.016f;
@@ -1440,16 +1492,19 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_magAmt += (magTarget - g_magAmt) * (1 - std::exp(-dt / 0.05f));
             if (std::fabs(magTarget - g_magAmt) < 0.002f) g_magAmt = magTarget;
             if (g_autohide) {  // aparece com o mouse na borda de baixo
-                POINT c; GetCursorPos(&c);
-                RECT mon = Monitor();
-                bool nearEdge = c.y >= mon.bottom - 2 || (g_reveal > 0.5f && c.y >= mon.bottom - (LONG)((g_bg.bottom - g_bg.top + 30) * sc));
-                g_hidden = !nearEdge && g_press < 0;
+                g_hidden = WantHidden();
                 g_reveal = std::clamp(g_reveal + (g_hidden ? -dt : dt) / 0.32f, 0.f, 1.f);  // 0,32 s, com a curva do Mac
             } else g_reveal = 1;
             for (auto& it : g_items) if (it.kind == I_MINWIN && it.leaving && SlotFactor(it) <= 0.001f) { BuildItems(); break; }  // o espaço fechou: sai da lista
             bool anim = Animating();
             Paint();
             if (!anim && !g_autohide) ui::FrameClock(g_icons, WM_DOCKFRAME, false);
+            // ocultação parada (toda escondida ou toda à mostra): sem quadro a cada atualização da tela, só uma
+            // olhada a cada 100 ms no mouse e nas janelas (antes o Dock se redesenhava sem parar, pesado em GPU fraca)
+            else if (!anim && g_autohide && g_reveal == (g_hidden ? 0.f : 1.f)) {
+                ui::FrameClock(g_icons, WM_DOCKFRAME, false);
+                SetTimer(g_icons, TIMER_HIDECHECK, 100, nullptr);
+            }
         }
         return 0;
     }
@@ -1477,7 +1532,9 @@ static void ReadSettings() {
     g_tile = (float)_wtof(shell::Setting(L"tamanho", L"48").c_str());
     g_large = (float)_wtof(shell::Setting(L"ampliacao_tamanho", L"128").c_str());
     g_magnify = shell::Setting(L"ampliacao", L"0") == L"1";
-    g_autohide = shell::Setting(L"ocultar", L"0") == L"1";
+    std::wstring oc = shell::Setting(L"ocultar", L"0");  // 0, 1 (sempre) ou inteligente
+    g_autohide = oc == L"1" || oc == L"inteligente";
+    g_smart = oc == L"inteligente";
     g_tile = g_tileWant = std::clamp(g_tile, 16.f, 128.f);
     g_large = std::clamp(g_large, g_tile, 256.f);
     FitTile();
@@ -1502,10 +1559,10 @@ void dock::IconsChanged() {
 }
 
 void dock::ReloadSettings() {
-    bool hide = g_autohide;
+    bool hide = g_autohide, smart = g_smart;
     ReadSettings();
     if (!g_icons) return;
-    if (hide != g_autohide) { g_hidden = g_autohide; ui::FrameClock(g_icons, WM_DOCKFRAME, true); }
+    if (hide != g_autohide || smart != g_smart) { g_hidden = false; g_covered = false; g_coverAt = 0; ui::FrameClock(g_icons, WM_DOCKFRAME, true); }
     g_win = {}; g_lastBg = {};
     BuildItems();  // a pasta Downloads pode ter entrado ou saído
     Paint();

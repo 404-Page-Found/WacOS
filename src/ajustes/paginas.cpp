@@ -1458,7 +1458,10 @@ Page MesaDock() {
                        [monDev] { std::wstring v = Setting(L"dock_monitor", L""); for (int i = 0; i < (int)monDev.size(); i++) if (!_wcsicmp(v.c_str(), monDev[i].c_str())) return i; return 0; },
                        [monDev](int i) { SetSetting(L"dock_monitor", monDev[std::clamp(i, 0, (int)monDev.size() - 1)]); });
     monRow.enabled = monDev.size() > 1;
-    Row hide = Toggle(L"Ocultar e mostrar o Dock automaticamente", flag(L"ocultar", L"0"), setFlag(L"ocultar"));
+    // Inteligente: só esconde quando uma janela encosta no Dock (pedido de um usuário no Reddit)
+    Row hide = Popup(L"Ocultar o Dock", { L"Nunca", L"Automaticamente", L"Quando uma janela encostar nele" },
+                     [] { std::wstring v = Setting(L"ocultar", L"0"); return v == L"1" ? 1 : v == L"inteligente" ? 2 : 0; },
+                     [](int i) { SetSetting(L"ocultar", i == 1 ? L"1" : i == 2 ? L"inteligente" : L"0"); });
     Row anim = Toggle(L"Animar aplicativos ao abrir", flag(L"animar_abertura", L"1"), setFlag(L"animar_abertura"));
     Row ind = Toggle(L"Mostrar indicadores de aplicativos abertos", flag(L"indicadores", L"1"), setFlag(L"indicadores"));
     Row dl = Toggle(L"Mostrar a pasta Downloads no Dock", flag(L"dock_downloads", L"1"), setFlag(L"dock_downloads"));

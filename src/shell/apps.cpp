@@ -221,6 +221,8 @@ static bool IsTaskbarWindow(HWND h) {
     return GetWindowTextLengthW(h) > 0 || lone;  // aviso sem título (Ableton): vale também
 }
 
+bool apps::IsAppWindow(HWND h) { return IsTaskbarWindow(h); }
+
 App* apps::OfWindow(HWND h) {
     std::wstring id = IdOfWindow(h);
     if (App* a = FindById(id)) return a;

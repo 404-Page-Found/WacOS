@@ -159,16 +159,74 @@ RECT FrameRect(HWND h) {
 
 bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
 int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
+
+// Recorte arredondado [x0, x1) × [y0, y1) com raio r (px), simétrico e sempre por dentro do arco que a moldura
+// suavizada (UpdateCorners) desenha: um pixel só entra se o centro dele fica a 0,5 px ou mais para dentro do arco.
+// O CreateRoundRectRgn do Windows não é simétrico (sai ~1 px a mais à direita e embaixo): os degraus dele
+// passavam do arco suavizado e sobravam "cantinhos" claros nas janelas no tema claro (20/11/2026).
+HRGN RoundRgn(int x0, int y0, int x1, int y1, int r) {
+    int w = x1 - x0, h = y1 - y0;
+    r = std::max(0, std::min(r, std::min(w, h) / 2));
+    std::vector<RECT> rows;
+    auto inset = [&](int y) {  // quantos pixels ficam de fora no começo da linha y (0 = topo)
+        int yy = y < r ? y : h - 1 - y;
+        if (yy >= r) return 0;
+        float dy = r - (yy + 0.5f), lim = r - 0.5f;
+        float in2 = lim * lim - dy * dy;
+        if (in2 < 0) return -1;  // linha inteira fora do arco
+        return (int)std::ceil(r - std::sqrt(in2) - 0.5f);
+    };
+    for (int y = 0; y < h; y++) {
+        int k = inset(y);
+        if (k < 0 || 2 * k >= w) continue;
+        if (y >= r && y < h - r) { rows.push_back({ x0, y0 + y, x1, y0 + h - r }); y = h - r - 1; continue; }  // o meio de uma vez
+        rows.push_back({ x0 + k, y0 + y, x1 - k, y0 + y + 1 });
+    }
+    std::vector<char> buf(sizeof(RGNDATAHEADER) + rows.size() * sizeof(RECT));
+    auto* rd = (RGNDATA*)buf.data();
+    rd->rdh = { sizeof(RGNDATAHEADER), RDH_RECTANGLES, (DWORD)rows.size(), (DWORD)(rows.size() * sizeof(RECT)), { x0, y0, x1, y1 } };
+    memcpy(rd->Buffer, rows.data(), rows.size() * sizeof(RECT));
+    return ExtCreateRegion(nullptr, (DWORD)buf.size(), rd);
+}
 bool OwnApp();     // mais abaixo: um dos apps do WacOS
 const float PATCH_L = 80, PATCH_R = 3 * 46 + 6;  // pt: botões do Mac / os três botões do app (46 pt cada no Windows)
 
+// Apps do Windows (barra de título padrão, mais alta que a do Mac): os botões 4 pt mais para dentro; na medida do
+// Mac eles pareciam colados na borda (Reddit, 20/11/2026). Os apps do WacOS, barras próprias e o Leopard ficam como estão.
+float WinAppInset(Info* in) {
+    return in->custom || in->tool || OwnApp() || UnifiedBar(in->owner) || leopard::On() ? 0.f : 4.f;
+}
+
+// posição dos três botões (pt): centro do 1º, passo entre centros e raio; o desenho e o clique usam esta
+void LightsLayout(Info* in, float& lx0, float& lpitch, float& lr) {
+    lx0 = in->tool ? 14.f : 19.f; lpitch = in->tool ? 20.f : 23.f; lr = in->tool ? 6.f : 7.f;
+    // Tahoe (guia macOS26-Theme-Reference, seção 9.1, medido): só título = 14×14 com o 1º em x 9 (centro 16),
+    // 23 entre eles; painel utilitário = 10×10 em x 8 (centro 13), 17 entre eles
+    if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; lr = in->tool ? 5.f : 7.f; }
+    if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; lr = 7; }  // macOS 27: com barra de ferramentas 26, 49, 72; só título 16, 39, 62
+    if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
+    lx0 += WinAppInset(in);
+}
+
+void Insets(Info* in, int& l, int& t, int& rr, int& b);
 RECT BarRect(Info* in) {
     if (int u = UnifiedBar(in->owner)) {  // a faixa de cima da área do app
         POINT c{ 0, 0 }; ClientToScreen(in->owner, &c);
         RECT cr; GetClientRect(in->owner, &cr);
         return { c.x, c.y, c.x + cr.right, c.y + (int)std::lround(u * Scale(in->owner)) };
     }
-    if (!in->custom) return CaptionRect(in->owner);
+    if (!in->custom) {
+        RECT r = CaptionRect(in->owner);
+        // tamanho fixo (diálogos): o recorte pega a janela inteira, com a borda do Windows dos lados da barra; a barra
+        // vai até o recorte, senão sobrava uma faixa lisa ao lado dela (bem visível no metal do Leopard, 20/11/2026)
+        if (in->rgn.cx && !IsZoomed(in->owner)) {
+            int l, t, rr, b; Insets(in, l, t, rr, b);
+            RECT wr; GetWindowRect(in->owner, &wr);
+            r.left = std::min(r.left, wr.left + l); r.right = std::max(r.right, wr.right - rr);
+            r.top = std::min(r.top, wr.top + t);  // e de cima, rente ao recorte (a linha de 1 px do topo também)
+        }
+        return r;
+    }
     RECT f = FrameRect(in->owner);
     float sc = Scale(in->owner);
     int h = in->barH ? in->barH : (int)(32 * sc);
@@ -235,12 +293,8 @@ void Paint(Info* in) {
         static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
         LONG st = in->style;
         bool can[3] = { true, (st & WS_MINIMIZEBOX) != 0, (st & WS_MAXIMIZEBOX) != 0 };
-        float lx0 = in->tool ? 14.f : 19.f, lpitch = in->tool ? 20.f : 23.f, lr = in->tool ? 6.f : 7.f;
-        // Tahoe (guia macOS26-Theme-Reference, seção 9.1, medido): só título = 14×14 com o 1º em x 9 (centro 16),
-        // 23 entre eles; painel utilitário = 10×10 em x 8 (centro 13), 17 entre eles
-        if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; lr = in->tool ? 5.f : 7.f; }
-        if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; lr = 7; }  // macOS 27: com barra de ferramentas 26, 49, 72; só título 16, 39, 62
-        if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
+        float lx0, lpitch, lr;
+        LightsLayout(in, lx0, lpitch, lr);
         for (int k = 0; k < 3; k++) {
             D2D1_POINT_2F c{ lx0 + k * lpitch, H / 2 };
             bool lit = (in->active || in->hoverLights) && can[k];
@@ -306,10 +360,8 @@ int HitLight(Info* in, POINT clientPt) {
     RECT r = BarRect(in);
     float H = (r.bottom - r.top) / sc;
     float x = clientPt.x / sc, y = clientPt.y / sc;
-    float lx0 = in->tool ? 14.f : 19.f, lpitch = in->tool ? 20.f : 23.f;
-    if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; }  // mesmas posições do desenho
-    if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; }
-    if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; }  // mesmas posições do desenho
+    float lx0, lpitch, lr;
+    LightsLayout(in, lx0, lpitch, lr);  // mesmas posições do desenho
     for (int k = 0; k < 3; k++) if (std::fabs(x - (lx0 + k * lpitch)) <= 9 && std::fabs(y - H / 2) <= 8) return k;
     return -1;
 }
@@ -589,8 +641,8 @@ void ApplyRegion(Info* in) {
     if (sz.cx == in->rgn.cx && sz.cy == in->rgn.cy) return;
     int l, t, rr, b;
     Insets(in, l, t, rr, b);
-    // um pouco mais fechado que o arco: a borda suavizada (UpdateCorners) cobre o que sobra
-    int R = CornerRadius(h) * 2 + 2;
+    // por dentro do arco: a borda suavizada (UpdateCorners) cobre o que sobra
+    int R = CornerRadius(h);
     in->rgn = sz;
     // a borda fina e o arredondamento do Windows seriam desenhados no tamanho antigo, em volta do recorte
     COLORREF none = 0xFFFFFFFE;  // DWMWA_COLOR_NONE
@@ -601,7 +653,7 @@ void ApplyRegion(Info* in) {
     // bordas invisíveis), um retângulo escuro de bordas retas em volta de diálogos
     DWMNCRENDERINGPOLICY off = DWMNCRP_DISABLED;
     DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &off, sizeof(off));
-    SetWindowRgn(h, CreateRoundRectRgn(l, t, sz.cx - rr + 1, sz.cy - b + 1, R, R), TRUE);
+    SetWindowRgn(h, RoundRgn(l, t, sz.cx - rr, sz.cy - b, R), TRUE);
     PaintNC(in);
 }
 
@@ -829,7 +881,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         RECT r = BarRect(in);
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
-        if (p.x / sc < (in->custom ? PATCH_L : UnifiedBar(in->owner) > 40 ? 84 : 72)) return HTCLIENT;
+        if (p.x / sc < (in->custom ? PATCH_L : (UnifiedBar(in->owner) > 40 ? 84 : 72) + WinAppInset(in))) return HTCLIENT;
         if (in->custom && p.x / sc > (r.right - r.left) / sc - PATCH_R) return HTCLIENT;  // os três botões; o resto deixa o clique passar para a barra (arrastar)
         return HTTRANSPARENT;
     }
@@ -1458,8 +1510,8 @@ void CantoLeve(HWND h) {
     }
     int W = wr.right - wr.left, H = wr.bottom - wr.top;
     if (W - 2 * b < 200 || H - b < 120) return;
-    int r = CornerRadius(h), d = r * 2 + 2;
-    HRGN g = CreateRoundRectRgn(b, 0, W - b + 1, H - b + 1, d, d);
+    int r = CornerRadius(h);
+    HRGN g = RoundRgn(b, 0, W - b, H - b, r);
     if (g && !SetWindowRgn(h, g, TRUE)) DeleteObject(g);
     SetPropW(h, PROP_CANTO, (HANDLE)(INT_PTR)r);
 }

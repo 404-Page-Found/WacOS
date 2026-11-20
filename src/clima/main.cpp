@@ -1,9 +1,11 @@
 // Clima (Weather do Mac): à esquerda as cidades (a primeira é a dos Ajustes, a mesma do widget); à direita, sobre
 // um fundo da cor do céu, a cidade, a temperatura grande, a condição, máx./mín., a previsão por hora (24 h), a de
 // 10 dias (com a barra de mín.–máx.) e os quadros de sensação, umidade, vento e sol. Dados do Open-Meteo (sem chave).
-// "+" procura uma cidade pelo nome (geocodificação do Open-Meteo); botão direito numa cidade remove.
+// "+" procura uma cidade pelo nome (geocodificação do Open-Meteo); botão direito numa cidade: tornar "Meu Local"
+// (vai para os Ajustes, o mesmo do widget) ou apagar (o "Meu Local" também, se houver outra para ficar no lugar).
 // Cidades em %APPDATA%\Shell\clima.txt.
 #include "../comum/app2d.h"
+#include "../comum/cidade_padrao.h"
 #include <winhttp.h>
 #include <map>
 #include <mutex>
@@ -14,7 +16,8 @@ using namespace app2d;
 
 namespace {
 
-const float SB = 230;
+const float SB_W = 230;
+bool g_side = true;  // barra lateral das cidades (o botão dela esconde e mostra; antes não havia como)
 const UINT WM_DATA = WM_APP + 5, WM_FIELDLOST = WM_APP + 77;
 
 struct Hour { double t; float temp; int code; bool day; };
@@ -137,9 +140,16 @@ std::wstring Setting(const wchar_t* key, const wchar_t* def) {
     for (auto& l : ReadLines(DataPath(L"ajustes.txt"))) { size_t e = l.find(L'='); if (e != std::wstring::npos && l.substr(0, e) == key) return l.substr(e + 1); }
     return def;
 }
+// "Meu Local" vai para os Ajustes (tempoCidade/Lat/Lon), o mesmo do widget da mesa
+void SetMyPlace(const Place& p) {
+    SetAppSetting(L"tempoCidade", p.name);
+    SetAppSetting(L"tempoLat", p.lat);
+    SetAppSetting(L"tempoLon", p.lon);
+}
 void Load() {
     g_places.clear();
-    g_places.push_back({ Setting(L"tempoCidade", L"Campinas"), Setting(L"tempoLat", L"-22.9056"), Setting(L"tempoLon", L"-47.0608") });
+    cidade::Padrao def;  // sem cidade nos Ajustes: a do fuso do Windows (antes era sempre Campinas)
+    g_places.push_back({ Setting(L"tempoCidade", def.nome.c_str()), Setting(L"tempoLat", def.lat.c_str()), Setting(L"tempoLon", def.lon.c_str()) });
     for (auto& l : ReadLines(g_file)) { auto f = Split(l); if (f.size() >= 4 && f[0] == L"C") g_places.push_back({ Unesc(f[1]), f[2], f[3] }); }
 }
 
@@ -238,17 +248,23 @@ void PaintGoldenWx() {
     g_hits.clear();
     D2D1_SIZE_F sz = Size();
     D2D1_COLOR_F white = Rgb(255, 255, 255), dim = Rgb(255, 255, 255, 0.72f);
-    const float SBG = 270;
+    const float SBG = g_side ? 270.f : 0.f;
     Place pl; bool have = g_sel >= 0 && g_sel < (int)g_places.size();
     if (have) { std::lock_guard<std::mutex> l(g_mx); pl = g_places[g_sel]; }
     Wx sky = have && pl.wx.ok ? pl.wx : Wx{};
     if (!have || !pl.wx.ok) { sky.day = true; sky.code = 1; }
     SkyFill(D2D1::RectF(0, 0, sz.width, sz.height), sky, 0);
-    // ---- lateral
+    // ---- lateral (escondida: o botão dela fica na barra, logo depois dos três botões da janela)
+    if (!g_side) {
+        D2D1_RECT_F tb = D2D1::RectF(84, 8, 120, 44);
+        Fill(tb, Rgb(255, 255, 255, 0.16f), 18); IconSidebar({ 102, 26 }, white); BarButton(tb);
+        g_hits.push_back({ 3, 0, tb });
+    } else {
     SkyFill(D2D1::RectF(0, 0, SBG, sz.height), sky, 0.28f);
     Fill(D2D1::RectF(SBG - 0.5f, 0, SBG, sz.height), Rgb(0, 0, 0, 0.18f));
     D2D1_RECT_F tb = D2D1::RectF(244 - 18, 8, 244 + 18, 44);
     Fill(tb, Rgb(255, 255, 255, 0.16f), 18); IconSidebar({ 244, 26 }, white); BarButton(tb);
+    g_hits.push_back({ 3, 0, tb });
     D2D1_RECT_F sr = D2D1::RectF(9, 63, 262, 97);
     Fill(sr, Rgb(255, 255, 255, 0.16f), 17);
     br->SetColor(Rgb(255, 255, 255, 0.22f)); rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 0.25f, sr.top + 0.25f, sr.right - 0.25f, sr.bottom - 0.25f), 16.75f, 16.75f), br, 0.5f);
@@ -271,9 +287,11 @@ void PaintGoldenWx() {
         y += 76;
     }
     if (!g_status.empty()) Text(g_status, g_tfSmall, D2D1::RectF(12, sz.height - 30, SBG - 10, sz.height - 8), dim);
+    }  // g_side
     // "+" no conteúdo
-    D2D1_RECT_F add = D2D1::RectF(297 - 18, 8, 297 + 18, 44);
-    Fill(add, Rgb(255, 255, 255, 0.16f), 18); IconPlus({ 297, 26 }, white);
+    float addX = g_side ? 297.f : 146.f;
+    D2D1_RECT_F add = D2D1::RectF(addX - 18, 8, addX + 18, 44);
+    Fill(add, Rgb(255, 255, 255, 0.16f), 18); IconPlus({ addX, 26 }, white);
     g_hits.push_back({ 2, 0, add }); BarButton(add);
     if (!have) return;
     float X0 = SBG, cx = (SBG + sz.width) / 2;
@@ -411,8 +429,13 @@ void Paint() {
     D2D1_SIZE_F sz = Size();
     D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139), white = Rgb(255, 255, 255), dim = Rgb(255, 255, 255, 0.7f);
     rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(242, 242, 245));
+    const float SB = g_side ? SB_W : 0.f;
+    D2D1_RECT_F tog = D2D1::RectF(10, 10, 38, 38);  // mostrar/esconder a lateral
+    auto toggle = [&](D2D1_COLOR_F c) { wchar_t sg[2] = { 0xE700, 0 }; Text(sg, g_tfIcon, tog, c); g_hits.push_back({ 3, 0, tog }); };
     // ---- cidades
+    if (g_side) {
     Fill(D2D1::RectF(0, 0, SB, sz.height), dark ? Rgb(40, 40, 42) : Rgb(236, 236, 240));
+    toggle(text);
     D2D1_RECT_F add = D2D1::RectF(SB - 40, 10, SB - 10, 38);
     wchar_t p[2] = { 0xE710, 0 }; Text(p, g_tfIcon, add, text);
     g_hits.push_back({ 2, 0, add });
@@ -442,11 +465,12 @@ void Paint() {
         y += 78;
     }
     if (!g_status.empty()) Text(g_status, g_tfSmall, D2D1::RectF(12, sz.height - 30, SB - 10, sz.height - 8), gray);
+    }  // g_side
     // ---- cidade escolhida
-    if (g_sel < 0 || g_sel >= (int)g_places.size()) { EndPaint(); return; }
+    if (g_sel < 0 || g_sel >= (int)g_places.size()) { if (!g_side) toggle(text); EndPaint(); return; }
     Place pl; { std::lock_guard<std::mutex> l(g_mx); pl = g_places[g_sel]; }
     D2D1_RECT_F main = D2D1::RectF(SB, 0, sz.width, sz.height);
-    if (!pl.wx.ok) { Text(pl.loading ? Tr(L"Carregando…") : Tr(L"Sem conexão com o serviço do tempo."), g_tfCond, main, gray); EndPaint(); return; }
+    if (!pl.wx.ok) { Text(pl.loading ? Tr(L"Carregando…") : Tr(L"Sem conexão com o serviço do tempo."), g_tfCond, main, gray); if (!g_side) toggle(text); EndPaint(); return; }
     const Wx& w = pl.wx;
     {
         D2D1_COLOR_F a, b; Sky(w, a, b);
@@ -457,6 +481,7 @@ void Paint() {
         if (lg) { rt->FillRectangle(main, lg); lg->Release(); }
         if (st) st->Release();
     }
+    if (!g_side) toggle(white);
     float cx = (SB + sz.width) / 2, W = sz.width - SB;
     Text(g_sel == 0 ? std::wstring(Tr(L"Meu Local")) : pl.name, g_tfCity, D2D1::RectF(SB, 24, sz.width, 62), white);
     if (g_sel == 0) Text(pl.name, g_tfSmallC, D2D1::RectF(SB, 58, sz.width, 76), dim);
@@ -562,17 +587,27 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (field.h) FieldEnd(0);
         float s = Sc(), x = GET_X_LPARAM(l) / s, y = GET_Y_LPARAM(l) / s;
         for (auto& ht : g_hits) if (In(ht.r, x, y)) {
+            if (ht.kind == 3) { g_side = !g_side; InvalidateRect(h, nullptr, FALSE); return 0; }
             if (ht.kind == 2) {
-                D2D1_RECT_F fr = BAR > 0 ? D2D1::RectF(38, 71, 256, 89) : D2D1::RectF(12, 12, SB - 46, 36);
+                if (!g_side) { g_side = true; Paint(); }  // a busca fica na lateral
+                D2D1_RECT_F fr = BAR > 0 ? D2D1::RectF(38, 71, 256, 89) : D2D1::RectF(12, 12, SB_W - 46, 36);
                 FieldOpen(fr, L"", 13, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) Search(t); });
                 return 0;
             }
             if (ht.kind == 1) {
-                if (m == WM_RBUTTONUP && ht.arg > 0) {
+                if (m == WM_RBUTTONUP) {
                     POINT scr{ GET_X_LPARAM(l), GET_Y_LPARAM(l) }; ClientToScreen(h, &scr);
-                    HMENU mm = CreatePopupMenu(); AppendMenuW(mm, MF_STRING, 1, Tr(L"Apagar"));
-                    if (TrackPopupMenu(mm, TPM_RETURNCMD | TPM_RIGHTBUTTON, scr.x, scr.y, 0, h, nullptr) == 1) { g_places.erase(g_places.begin() + ht.arg); g_sel = 0; Save(); }
+                    HMENU mm = CreatePopupMenu();
+                    if (ht.arg > 0) AppendMenuW(mm, MF_STRING, 2, Tr(L"Usar como Meu Local"));
+                    AppendMenuW(mm, MF_STRING | (g_places.size() > 1 ? 0 : MF_GRAYED), 1, Tr(L"Apagar"));
+                    int k = TrackPopupMenu(mm, TPM_RETURNCMD | TPM_RIGHTBUTTON, scr.x, scr.y, 0, h, nullptr);
                     DestroyMenu(mm);
+                    if (k == 2) { std::lock_guard<std::mutex> lk(g_mx); std::swap(g_places[0], g_places[ht.arg]); SetMyPlace(g_places[0]); g_sel = 0; Save(); }
+                    else if (k == 1 && g_places.size() > 1) {
+                        { std::lock_guard<std::mutex> lk(g_mx); g_places.erase(g_places.begin() + ht.arg); }
+                        if (ht.arg == 0) SetMyPlace(g_places[0]);  // o "Meu Local" saiu: a próxima cidade fica no lugar
+                        g_sel = 0; Save();
+                    }
                 } else g_sel = ht.arg;
                 InvalidateRect(h, nullptr, FALSE);
             }

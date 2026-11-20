@@ -3,9 +3,10 @@
 // Medidas da referência (Sequoia, 0,72 px por pt): pequeno 170 × 170 pt, médio 364 × 170 pt, 16 pt entre
 // eles, canto de 21 pt. Claro: as cores de cada widget (Tempo em degradê do céu, Calendário branco, Relógio
 // Mundial preto, Relógio em vidro). Escuro: todos em vidro desfocado da mesa, com texto e símbolos brancos.
-// O tempo vem do Open-Meteo (sem chave), a cada 15 min, para a cidade em ajustes.txt (padrão: Campinas - SP);
+// O tempo vem do Open-Meteo (sem chave), a cada 15 min, para a cidade em ajustes.txt (padrão: a do fuso do Windows, comum/cidade_padrao.h);
 // a última resposta fica em %APPDATA%\Shell\tempo.json para aparecer já ao ligar.
 #include "shell.h"
+#include "../comum/cidade_padrao.h"
 #include "../menu/context_menu.h"
 #include <dwmapi.h>
 #include <shellapi.h>
@@ -60,7 +61,7 @@ std::mutex g_mx;
 Weather g_wx;
 std::atomic<bool> g_fetching{ false };
 
-std::wstring City() { return shell::Setting(L"tempoCidade", L"Campinas"); }
+std::wstring City() { static cidade::Padrao def; return shell::Setting(L"tempoCidade", def.nome.c_str()); }  // sem cidade: a do fuso do Windows
 
 std::string Section(const std::string& j, const char* key) {
     size_t p = j.find(std::string("\"") + key + "\":{");
@@ -150,7 +151,8 @@ std::string HttpGet(const wchar_t* host, const std::wstring& path) {
 
 void Fetch() {
     if (g_fetching.exchange(true)) return;
-    std::wstring lat = shell::Setting(L"tempoLat", L"-22.9056"), lon = shell::Setting(L"tempoLon", L"-47.0608");
+    static cidade::Padrao def;
+    std::wstring lat = shell::Setting(L"tempoLat", def.lat.c_str()), lon = shell::Setting(L"tempoLon", def.lon.c_str());
     std::thread([lat, lon] {
         std::wstring path = L"/v1/forecast?latitude=" + lat + L"&longitude=" + lon +
             L"&current=temperature_2m,weather_code,is_day&hourly=temperature_2m,weather_code,is_day"

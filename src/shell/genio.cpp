@@ -108,12 +108,21 @@ ID3D11DeviceContext* g_ctx;
 IDCompositionDesktopDevice* g_dev;
 IDCompositionTarget* g_target;
 IDCompositionVisual2* g_root;
-IDCompositionSurface* g_surf;
+// Níveis de detalhe: a foto inteira e cópias com metade, um quarto... da LARGURA (a altura fica), cada uma a
+// média de 2 pixels vizinhos da anterior. Só na largura porque o funil estreita a janela muito antes de achatá-la:
+// reduzir as duas direções juntas trazia, numa janela fina mas ainda alta, linhas esticadas em blocos. Na altura,
+// as faixas finas (cada uma com poucas linhas) já fazem a média. O compositor só filtra 2×2 pixels: encolhendo a foto inteira até ~5% ele pulava linhas e
+// colunas e o gênio ficava serrilhado e "pixelado" (Reddit, 20/11/2026). Cada nível tem as suas faixas (o de baixo,
+// menor, com menos) e a de cima some quando a sua escala passa de ~0,6 para 0,5, mostrando a de baixo.
+const int MAX_LEVELS = 6;
+IDCompositionSurface* g_surf[MAX_LEVELS];
+IDCompositionVisual2* g_level[MAX_LEVELS];  // um grupo por nível; o nível 0 (a foto inteira) por cima
+int g_levels;
 IDCompositionEffectGroup* g_fx;
 HWND g_wnd, g_cap;                 // a camada do compositor e a janela da foto
 HTHUMBNAIL g_capTh;
 bool g_ok, g_tried, g_active;
-struct Strip { IDCompositionVisual2* v = nullptr; IDCompositionScaleTransform* sc = nullptr; };
+struct Strip { IDCompositionVisual2* v = nullptr; IDCompositionScaleTransform* sc = nullptr; IDCompositionEffectGroup* fx = nullptr; int level = 0; };
 std::vector<Strip> g_strips;
 const UINT_PTR T_BACK = 1, T_END = 2, T_SETTLE = 3;
 
@@ -143,7 +152,9 @@ bool Init(HINSTANCE hi) {
     g_dev->CreateEffectGroup(&g_fx);
     if (g_fx) g_root->SetEffect(g_fx);
     g_root->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR);
-    g_root->SetBorderMode(DCOMPOSITION_BORDER_MODE_HARD);  // faixas encostadas sem fresta entre elas
+    // borda suave: o contorno do funil sai suavizado, não em escadinha. Para não aparecer fresta entre as faixas,
+    // cada uma desce 2 linhas por baixo da seguinte e fica por cima dela (Start)
+    g_root->SetBorderMode(DCOMPOSITION_BORDER_MODE_SOFT);
     g_target->SetRoot(g_root);
     g_dev->Commit();
     g_ok = true;
@@ -178,11 +189,16 @@ void HideCap() {
 
 void Clear() {
     for (auto& s : g_strips) {
-        if (s.v) { g_root->RemoveVisual(s.v); s.v->Release(); }
+        if (s.v) { if (g_level[s.level]) g_level[s.level]->RemoveVisual(s.v); s.v->Release(); }
         if (s.sc) s.sc->Release();
+        if (s.fx) s.fx->Release();
     }
     g_strips.clear();
-    if (g_surf) { g_surf->Release(); g_surf = nullptr; }
+    for (int k = 0; k < MAX_LEVELS; k++) {
+        if (g_level[k]) { g_root->RemoveVisual(g_level[k]); g_level[k]->Release(); g_level[k] = nullptr; }
+        if (g_surf[k]) { g_surf[k]->Release(); g_surf[k] = nullptr; }
+    }
+    g_levels = 0;
     g_dev->Commit();
     HideCap();
 }
@@ -274,14 +290,29 @@ bool Snap(HWND h, bool show, std::vector<uint32_t>& px, int& w, int& hh) {
     return true;
 }
 
-bool Upload(const std::vector<uint32_t>& px, int w, int hh) {
-    if (FAILED(g_dev->CreateSurface(w, hh, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, &g_surf))) return false;
+bool Upload(const std::vector<uint32_t>& px, int w, int hh, IDCompositionSurface** out) {
+    if (FAILED(g_dev->CreateSurface(w, hh, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE_PREMULTIPLIED, out))) return false;
     ID3D11Texture2D* tex = nullptr; POINT off{};
-    if (FAILED(g_surf->BeginDraw(nullptr, IID_PPV_ARGS(&tex), &off))) return false;
+    if (FAILED((*out)->BeginDraw(nullptr, IID_PPV_ARGS(&tex), &off))) return false;
     D3D11_BOX box{ (UINT)off.x, (UINT)off.y, 0, (UINT)(off.x + w), (UINT)(off.y + hh), 1 };
     g_ctx->UpdateSubresource(tex, 0, &box, px.data(), w * 4, 0);
     tex->Release();
-    return SUCCEEDED(g_surf->EndDraw());
+    return SUCCEEDED((*out)->EndDraw());
+}
+
+// metade da largura: cada pixel é a média dos 2 vizinhos (cores pré-multiplicadas: a média vale para o alfa também)
+void Half(const std::vector<uint32_t>& in, int w, int h, std::vector<uint32_t>& out, int& ow, int& oh) {
+    ow = std::max(1, (w + 1) / 2); oh = h;
+    out.assign((size_t)ow * oh, 0);
+    for (int y = 0; y < oh; y++) {
+        const uint32_t* row = &in[(size_t)y * w];
+        uint32_t* dst = &out[(size_t)y * ow];
+        for (int x = 0; x < ow; x++) {
+            uint32_t a = row[2 * x], b = row[std::min(2 * x + 1, w - 1)];
+            // média byte a byte sem separar os canais
+            dst[x] = (a | b) - (((a ^ b) & 0xFEFEFEFEu) >> 1);
+        }
+    }
 }
 
 // true: o compositor está animando (o motor antigo não roda)
@@ -291,40 +322,77 @@ bool Start(HWND h) {
     std::vector<uint32_t> px; int sw = 0, sh = 0;
     if (!Snap(h, !g_a.restore, px, sw, sh)) { Log(L"gênio (compositor): sem foto da janela; motor antigo"); return false; }
     double tSnap = anim::Now() - t0;
-    if (!Upload(px, sw, sh)) { Log(L"gênio (compositor): superfície falhou; motor antigo"); Clear(); return false; }
+    // os níveis: a foto inteira e as metades, até ~16 px ou MAX_LEVELS
+    std::vector<uint32_t> lv = std::move(px); int lw = sw, lh = sh;
+    int dims[MAX_LEVELS][2]{};
+    for (g_levels = 0; g_levels < MAX_LEVELS; g_levels++) {
+        if (!Upload(lv, lw, lh, &g_surf[g_levels])) break;
+        dims[g_levels][0] = lw; dims[g_levels][1] = lh;
+        if (lw < 24) { g_levels++; break; }
+        std::vector<uint32_t> nx; int nw, nh; Half(lv, lw, lh, nx, nw, nh);
+        lv = std::move(nx); lw = nw; lh = nh;
+    }
+    if (!g_levels) { Log(L"gênio (compositor): superfície falhou; motor antigo"); Clear(); return false; }
+    // grupos de cada nível: o de baixo (o menor) primeiro, cada um por cima do anterior
+    for (int k = g_levels - 1; k >= 0; k--) {
+        if (FAILED(g_dev->CreateVisual(&g_level[k]))) { Clear(); return false; }
+        g_root->AddVisual(g_level[k], TRUE, k + 1 < g_levels ? g_level[k + 1] : nullptr);
+    }
     SetWindowPos(g_wnd, HWND_TOPMOST, g_ovRect.left, g_ovRect.top, g_ovRect.right - g_ovRect.left, g_ovRect.bottom - g_ovRect.top, SWP_NOACTIVATE);
     const float D = DURATION;
-    const int K = 24, n = g_a.n;
-    for (int i = 0; i < n; i++) {
-        float v0 = (float)i / n, v1 = (float)(i + 1) / n;
-        float top = v0 * sh, bot = v1 * sh;          // as linhas da foto desta faixa
-        Strip s;
-        if (FAILED(g_dev->CreateVisual(&s.v))) { Clear(); return false; }
-        s.v->SetContent(g_surf);
-        s.v->SetClip(D2D_RECT_F{ 0.f, top, (float)sw, bot });
-        std::vector<float> ox(K), oy(K), sx(K), sy(K);
-        for (int k = 0; k < K; k++) {
-            float t = (float)k / (K - 1);
-            float pp = g_a.restore ? 1 - anim::Ease(t) : anim::Ease(t);
-            float L, R, ya, yb; StripAt(pp, v0, v1, L, R, ya, yb);
-            sx[k] = std::max(0.f, (R - L) / sw);
-            sy[k] = std::max(0.f, (yb - ya) / (bot - top));
-            ox[k] = L - g_ovRect.left;
-            oy[k] = ya - g_ovRect.top - top * sy[k];   // a linha `top` da foto cai em ya
+    const int K = 32;
+    // faixas finas (~3 px de janela) no nível 0: a curva do funil sem degraus; cada nível menor tem a metade
+    const int n0 = std::clamp((int)((g_a.win.bottom - g_a.win.top) / 3), 24, 200);
+    int total = 0;
+    for (int lvl = 0; lvl < g_levels; lvl++) {
+        const int n = lvl == 0 ? n0 : std::max(12, n0 / 2);  // os níveis estreitos aparecem com a janela já fina
+        IDCompositionVisual2* prev = nullptr;  // cada faixa entra por baixo da anterior (a de cima cobre a emenda)
+        const float lw2 = (float)dims[lvl][0], lh2 = (float)dims[lvl][1];
+        const float mult = (float)(1 << lvl);  // escala da foto inteira -> escala deste nível
+        for (int i = 0; i < n; i++) {
+            float v0 = (float)i / n, v1 = (float)(i + 1) / n;
+            float top = v0 * lh2, bot = v1 * lh2;          // as linhas da foto (deste nível) desta faixa
+            Strip st; st.level = lvl;
+            if (FAILED(g_dev->CreateVisual(&st.v))) { Clear(); return false; }
+            st.v->SetContent(g_surf[lvl]);
+            st.v->SetClip(D2D_RECT_F{ 0.f, top, lw2, i + 1 < n ? std::min(lh2, bot + 2.f) : bot });  // 2 linhas por baixo da seguinte
+            std::vector<float> ox(K), oy(K), sx(K), sy(K), op(K);
+            bool fades = false;
+            for (int k = 0; k < K; k++) {
+                float t = (float)k / (K - 1);
+                float pp = g_a.restore ? 1 - anim::Ease(t) : anim::Ease(t);
+                float L, R, ya, yb; StripAt(pp, v0, v1, L, R, ya, yb);
+                sx[k] = std::max(0.f, (R - L) / lw2);
+                sy[k] = std::max(0.f, (yb - ya) / (bot - top));
+                ox[k] = L - g_ovRect.left;
+                oy[k] = ya - g_ovRect.top - top * sy[k];   // a linha `top` da foto cai em ya
+                // escala deste nível na tela: abaixo de ~0,5 o filtro do compositor pula pixels; o nível menor assume
+                float m = sx[k];  // os níveis só reduzem a largura
+                op[k] = lvl + 1 < g_levels ? Smooth(0.5f, 0.65f, m) : 1.f;
+                if (op[k] < 0.999f) fades = true;
+                (void)mult;
+            }
+            g_dev->CreateScaleTransform(&st.sc);
+            IDCompositionAnimation *ax = Curve(ox, D), *ay = Curve(oy, D), *asx = Curve(sx, D), *asy = Curve(sy, D);
+            if (ax) { st.v->SetOffsetX(ax); ax->Release(); }
+            if (ay) { st.v->SetOffsetY(ay); ay->Release(); }
+            if (st.sc) {
+                st.sc->SetCenterX(0.f); st.sc->SetCenterY(0.f);
+                if (asx) { st.sc->SetScaleX(asx); asx->Release(); }
+                if (asy) { st.sc->SetScaleY(asy); asy->Release(); }
+                st.v->SetTransform(st.sc);
+            }
+            if (fades && SUCCEEDED(g_dev->CreateEffectGroup(&st.fx)) && st.fx) {
+                if (IDCompositionAnimation* ao = Curve(op, D)) { st.fx->SetOpacity(ao); ao->Release(); }
+                st.v->SetEffect(st.fx);
+            }
+            g_level[lvl]->AddVisual(st.v, FALSE, prev);
+            prev = st.v;
+            g_strips.push_back(st);
+            total++;
         }
-        g_dev->CreateScaleTransform(&s.sc);
-        IDCompositionAnimation *ax = Curve(ox, D), *ay = Curve(oy, D), *asx = Curve(sx, D), *asy = Curve(sy, D);
-        if (ax) { s.v->SetOffsetX(ax); ax->Release(); }
-        if (ay) { s.v->SetOffsetY(ay); ay->Release(); }
-        if (s.sc) {
-            s.sc->SetCenterX(0.f); s.sc->SetCenterY(0.f);
-            if (asx) { s.sc->SetScaleX(asx); asx->Release(); }
-            if (asy) { s.sc->SetScaleY(asy); asy->Release(); }
-            s.v->SetTransform(s.sc);
-        }
-        g_root->AddVisual(s.v, TRUE, nullptr);
-        g_strips.push_back(s);
     }
+    const int n = total;
     if (g_fx) {  // some de leve ao entrar no Dock (igual ao motor antigo)
         std::vector<float> op(K);
         for (int k = 0; k < K; k++) {
@@ -342,7 +410,7 @@ bool Start(HWND h) {
     UINT ms = (UINT)std::lround(D * 1000);
     if (g_a.restore) SetTimer(g_wnd, T_BACK, (UINT)(ms * 0.4f), nullptr);
     SetTimer(g_wnd, T_END, ms + 20, nullptr);
-    Log(L"gênio (compositor): %d faixas, foto %dx%d em %.1f ms, preparo %.1f ms; o resto é com o DWM", n, sw, sh, tSnap, anim::Now() - t0);
+    Log(L"gênio (compositor): %d faixas em %d níveis, foto %dx%d em %.1f ms, preparo %.1f ms; o resto é com o DWM", n, g_levels, sw, sh, tSnap, anim::Now() - t0);
     dock::Update();
     return true;
 }

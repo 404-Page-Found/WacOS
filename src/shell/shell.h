@@ -181,6 +181,7 @@ void ForgetRecent(const std::wstring& id);  // tira um app da seção de recente
 bool OpenAtLogin(const App& a);
 void SetOpenAtLogin(const App& a, bool on);
 void ShowInFinder(const App& a);
+bool IsAppWindow(HWND h);       // janela que apareceria na barra de tarefas (regras do Alt+Tab)
 bool IsShellWindow(HWND h);     // nossas janelas (não entram no Dock nem na barra)
 bool LoneOwned(HWND h);         // janela com dona escondida (aviso sozinho de um app): conta como janela do app
 std::wstring PackIconByName(const std::wstring& name, const std::wstring& exe = L"");  // ícone do pacote do Sequoia

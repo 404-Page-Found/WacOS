@@ -1,19 +1,24 @@
 // Relógio (Clock do Mac): Relógio Mundial, Alarmes, Cronômetro e Timer, nas abas do alto (Ctrl+1..4).
 //  - Mundial: cidades (fusos do Windows), hora, "Hoje/Amanhã" e a diferença; + adiciona, botão direito remove.
 //  - Alarmes: hora grande, nome, dias e o interruptor; + cria, clique edita a hora, botão direito apaga/renomeia.
-//    Quem toca é o Shell (banner do Mac + som), mesmo com o app fechado: %APPDATA%\Shell\alarmes.txt.
+//    Quem toca é o Shell (banner do Mac + som), mesmo com o app fechado: %APPDATA%\Shell\relogio.txt. Sem o Shell
+//    (modo só apps), o próprio app toca enquanto estiver aberto.
+//  - "Outra Cidade…" no +: qualquer cidade pelo nome (Open-Meteo), com o fuso convertido pelo ICU do Windows.
 //  - Cronômetro: Iniciar/Parar, Volta/Zerar e a lista de voltas (a melhor em verde, a pior em vermelho).
 //  - Timer: escolher minutos (atalhos e − / +), Iniciar/Pausar/Cancelar; ao acabar toca e a janela vem para frente.
 #include "../comum/app2d.h"
 #include <mmsystem.h>
+#include <thread>
+#include <winhttp.h>
 #pragma comment(lib, "winmm.lib")
+#pragma comment(lib, "winhttp.lib")
 
 using namespace app2d;
 
 namespace {
 
 float TB = 56;  // macOS 27: 52 (barra unificada)
-const UINT WM_FIELDLOST = WM_APP + 77;
+const UINT WM_FIELDLOST = WM_APP + 77, WM_CITYFOUND = WM_APP + 8;
 int g_tab = 0;  // 0 mundial, 1 alarmes, 2 cronômetro, 3 timer
 IDWriteTextFormat *g_tfSeg, *g_tfBig, *g_tfBigR, *g_tfHuge, *g_tfRow, *g_tfSub, *g_tfBtn, *g_tfIcon, *g_tfMono;
 
@@ -32,12 +37,18 @@ const City CITIES[] = {
     { L"Cairo", L"Egypt Standard Time" }, { L"Nairóbi", L"E. Africa Standard Time" }, { L"UTC", L"UTC" },
 };
 const int NCITIES = (int)(sizeof(CITIES) / sizeof(CITIES[0]));
-std::vector<int> g_world;  // índices em CITIES
+// cidades que o usuário procurou pelo nome (Outra Cidade…): no g_world como 1000 + índice aqui
+struct Custom { std::wstring name, tz; };
+std::vector<Custom> g_custom;
+const int CUSTOM0 = 1000;
+std::vector<int> g_world;  // índices em CITIES (ou CUSTOM0 + índice em g_custom)
+const wchar_t* CityTz(int i) { return i >= CUSTOM0 ? g_custom[i - CUSTOM0].tz.c_str() : CITIES[i].tz; }
+std::wstring CityName(int i) { return i >= CUSTOM0 ? g_custom[i - CUSTOM0].name : std::wstring(Tr(CITIES[i].name)); }
 
 bool CityTime(int i, SYSTEMTIME& out) {
     DYNAMIC_TIME_ZONE_INFORMATION d{};
     for (DWORD k = 0; EnumDynamicTimeZoneInformation(k, &d) == ERROR_SUCCESS; k++)
-        if (!wcscmp(d.TimeZoneKeyName, CITIES[i].tz)) {
+        if (!wcscmp(d.TimeZoneKeyName, CityTz(i))) {
             SYSTEMTIME utc; GetSystemTime(&utc);
             return SystemTimeToTzSpecificLocalTimeEx(&d, &utc, &out) != FALSE;
         }
@@ -51,17 +62,20 @@ int g_nextId = 1;
 std::wstring g_file;
 
 void Save() {
-    std::vector<std::wstring> out{ L"# Relógio do WacOS: W = cidade do Relógio Mundial, A = alarme (id, hora, minuto, ligado, nome, dias)" };
+    std::vector<std::wstring> out{ L"# Relógio do WacOS: W = cidade do Relógio Mundial, C = cidade própria (nome, fuso do Windows), A = alarme (id, hora, minuto, ligado, nome, dias)" };
+    for (auto& c : g_custom) out.push_back(L"C\t" + Esc(c.name) + L"\t" + c.tz);
     for (int i : g_world) out.push_back(L"W\t" + std::to_wstring(i));
     for (auto& a : g_alarms) out.push_back(L"A\t" + std::to_wstring(a.id) + L"\t" + std::to_wstring(a.hh) + L"\t" + std::to_wstring(a.mm) + L"\t" + (a.on ? L"1" : L"0") + L"\t" + Esc(a.label) + L"\t" + std::to_wstring(a.days));
     WriteLines(g_file, out);
 }
 void Load() {
-    g_world.clear(); g_alarms.clear();
+    g_world.clear(); g_alarms.clear(); g_custom.clear();
     bool any = false;
-    for (auto& l : ReadLines(g_file)) {
+    auto lines = ReadLines(g_file);
+    for (auto& l : lines) { auto f = Split(l); if (f.size() >= 3 && f[0] == L"C") g_custom.push_back({ Unesc(f[1]), f[2] }); }
+    for (auto& l : lines) {
         auto f = Split(l);
-        if (f.size() >= 2 && f[0] == L"W") { int i = _wtoi(f[1].c_str()); if (i >= 0 && i < NCITIES) g_world.push_back(i); any = true; }
+        if (f.size() >= 2 && f[0] == L"W") { int i = _wtoi(f[1].c_str()); if ((i >= 0 && i < NCITIES) || (i >= CUSTOM0 && i - CUSTOM0 < (int)g_custom.size())) g_world.push_back(i); any = true; }
         else if (f.size() >= 7 && f[0] == L"A") g_alarms.push_back({ _wtoi(f[1].c_str()), _wtoi(f[2].c_str()), _wtoi(f[3].c_str()), f[4] == L"1", Unesc(f[5]), _wtoi(f[6].c_str()) });
     }
     if (!any && g_world.empty()) g_world = { 0, 5, 25, 17 };  // São Paulo, Londres, Nova York, Tóquio
@@ -202,7 +216,7 @@ void PaintWorldGolden(D2D1_SIZE_F sz, bool dark) {
         Circle({ x, y }, 4.2f, Rgb(255, 255, 255, 0.9f), true);
         Circle({ x, y }, 3.2f, Rgb(255, 149, 0), true);
         wchar_t hm[24]; swprintf_s(hm, L"%d:%02d", t.wHour, t.wMinute);
-        Text(Tr(CITIES[i].name), g_tfCityB, D2D1::RectF(x + 7, y - 9, x + 160, y + 5), Rgb(255, 255, 255));
+        Text(CityName(i), g_tfCityB, D2D1::RectF(x + 7, y - 9, x + 160, y + 5), Rgb(255, 255, 255));
         Text(hm, g_tfCityT, D2D1::RectF(x + 7, y + 4, x + 160, y + 15), Rgb(255, 255, 255, 0.85f));
     }
     // cartões com o relógio analógico
@@ -233,7 +247,7 @@ void PaintWorldGolden(D2D1_SIZE_F sz, bool dark) {
         rt->DrawLine({ c.x - (float)sin(ss) * 8, c.y + (float)cos(ss) * 8 }, { c.x + (float)sin(ss) * 46, c.y - (float)cos(ss) * 46 }, br, 1);
         Circle(c, 3, Rgb(255, 149, 0), true);
         Circle(c, 1.4f, day ? Rgb(255, 255, 255) : Rgb(0, 0, 0), true);
-        wchar_t nm[96]; swprintf_s(nm, L"%ls, %d:%02d", Tr(CITIES[i].name), t.wHour, t.wMinute);
+        wchar_t nm[96]; swprintf_s(nm, L"%ls, %d:%02d", CityName(i).c_str(), t.wHour, t.wMinute);
         Text(nm, g_tfCard, D2D1::RectF(x0 + 6, cy0 + 136, x0 + 164, cy0 + 154), dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31));
         FILETIME a, b2; SystemTimeToFileTime(&here, &a); SystemTimeToFileTime(&t, &b2);
         long long diffMin = ((long long)(((ULONGLONG)b2.dwHighDateTime << 32 | b2.dwLowDateTime) - ((ULONGLONG)a.dwHighDateTime << 32 | a.dwLowDateTime))) / 600000000LL;
@@ -346,7 +360,7 @@ void Paint() {
             else swprintf_s(off, L", %+lld h", dh / 2);
             D2D1_RECT_F row = D2D1::RectF(X, y, W, y + 74);
             Text(day + off, g_tfSub, D2D1::RectF(X, y + 10, W - 200, y + 30), gray);
-            Text(Tr(CITIES[i].name), g_tfRow, D2D1::RectF(X, y + 30, W - 200, y + 60), text);
+            Text(CityName(i), g_tfRow, D2D1::RectF(X, y + 30, W - 200, y + 60), text);
             wchar_t hm[16]; swprintf_s(hm, L"%d:%02d", t.wHour, t.wMinute);
             Text(hm, g_tfBigR, D2D1::RectF(W - 220, y, W, y + 74), text);
             Fill(D2D1::RectF(X, y + 74, W, y + 75), line);
@@ -426,7 +440,32 @@ void Paint() {
     EndPaint();
 }
 
+// Sem o Shell (modo só apps) ninguém tocava os alarmes: o app toca enquanto estiver aberto
+void CheckAlarms() {
+    SYSTEMTIME t; GetLocalTime(&t);
+    static int last = -1;
+    int now = t.wHour * 60 + t.wMinute;
+    if (now == last) return;
+    bool first = last < 0;
+    last = now;
+    if (first) return;  // ao abrir não toca o minuto que já está correndo
+    if (FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr) || FindWindowW(L"ShellMensagens", nullptr)) return;  // o Shell toca
+    bool changed = false;
+    for (auto& a : g_alarms) {
+        if (!a.on || a.hh != t.wHour || a.mm != t.wMinute) continue;
+        if (a.days && !(a.days & (1 << t.wDayOfWeek))) continue;
+        if (!a.days) { a.on = false; changed = true; }  // uma vez só: desliga (como no Mac)
+        PlaySoundW(L"SystemExclamation", nullptr, SND_ALIAS | SND_ASYNC);
+        FLASHWINFO fw{ sizeof(fw), wnd, FLASHW_ALL | FLASHW_TIMERNOFG, 6, 0 }; FlashWindowEx(&fw);
+        wchar_t msg[160]; swprintf_s(msg, L"%ls\n%d:%02d", a.label.empty() ? Tr(L"Alarme") : a.label.c_str(), a.hh, a.mm);
+        if (changed) Save();
+        MessageBoxW(wnd, msg, Tr(L"Relógio"), MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+    }
+    if (changed) { Save(); InvalidateRect(wnd, nullptr, FALSE); }
+}
+
 void Tick() {
+    CheckAlarms();
     if (g_tmRun && !g_tmPaused && TmLeft() == 0) {  // timer acabou
         g_tmRun = false;
         PlaySoundW(L"SystemExclamation", nullptr, SND_ALIAS | SND_ASYNC);
@@ -438,12 +477,81 @@ void Tick() {
     if (g_swRun || (g_tmRun && !g_tmPaused) || ++n % 20 == 0) InvalidateRect(wnd, nullptr, FALSE);
 }
 
+// Fuso IANA ("Europe/Warsaw", o que o Open-Meteo devolve) -> nome do fuso no Windows ("Central European Standard
+// Time"), pelo ICU que vem no Windows 10 1903+ (icu.dll)
+std::wstring WindowsTz(const std::wstring& iana) {
+    typedef int (*GetWinId)(const wchar_t*, int, wchar_t*, int, int*);
+    static HMODULE icu = LoadLibraryExW(L"icu.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    static GetWinId f = icu ? (GetWinId)GetProcAddress(icu, "ucal_getWindowsTimeZoneID") : nullptr;
+    if (!f) return L"";
+    wchar_t out[128] = {}; int st = 0;
+    int n = f(iana.c_str(), (int)iana.size(), out, 127, &st);
+    return st > 0 || n <= 0 ? L"" : std::wstring(out, n);
+}
+std::string Utf8Of(const std::wstring& w) { int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr); std::string s(n, '\0'); WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr); return s; }
+std::wstring WideOf(const std::string& s) { int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0); std::wstring w(n, L'\0'); MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n); return w; }
+std::string JsonField(const std::string& j, const char* key) {
+    std::string k = std::string("\"") + key + "\":\"";
+    size_t p = j.find(k); if (p == std::string::npos) return "";
+    p += k.size(); size_t e = j.find('"', p);
+    return e == std::string::npos ? "" : j.substr(p, e - p);
+}
+void FindCity(const std::wstring& q) {
+    if (q.empty()) return;
+    HWND h = wnd;
+    std::thread([q, h] {
+        std::string u = Utf8Of(q), enc;
+        for (unsigned char c : u) { if (isalnum(c) || c == '-' || c == '.') enc += (char)c; else { char b[4]; sprintf_s(b, "%%%02X", c); enc += b; } }
+        std::wstring path = L"/v1/search?count=1&language=" + std::wstring(idioma::En() ? L"en" : L"pt") + L"&name=" + WideOf(enc);
+        std::string body;
+        HINTERNET ses = WinHttpOpen(L"WacOS-Clock/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (ses) {
+            WinHttpSetTimeouts(ses, 5000, 5000, 8000, 8000);
+            HINTERNET con = WinHttpConnect(ses, L"geocoding-api.open-meteo.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+            HINTERNET req = con ? WinHttpOpenRequest(con, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE) : nullptr;
+            if (req && WinHttpSendRequest(req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(req, nullptr)) {
+                DWORD avail = 0;
+                while (WinHttpQueryDataAvailable(req, &avail) && avail && body.size() < 64 * 1024) {
+                    std::string chunk(avail, '\0'); DWORD got = 0;
+                    if (!WinHttpReadData(req, chunk.data(), avail, &got) || !got) break;
+                    body.append(chunk.data(), got);
+                }
+            }
+            if (req) WinHttpCloseHandle(req);
+            if (con) WinHttpCloseHandle(con);
+            WinHttpCloseHandle(ses);
+        }
+        auto* c = new Custom;
+        if (body.find("\"results\"") != std::string::npos) { c->name = WideOf(JsonField(body, "name")); c->tz = WideOf(JsonField(body, "timezone")); }
+        if (!PostMessageW(h, WM_CITYFOUND, 0, (LPARAM)c)) delete c;
+    }).detach();
+}
+void CityFound(Custom* c) {
+    std::wstring tz = c->tz.empty() ? L"" : WindowsTz(c->tz);
+    if (c->name.empty() || tz.empty()) MessageBoxW(wnd, Tr(L"Cidade não encontrada."), Tr(L"Relógio"), MB_OK | MB_ICONINFORMATION);
+    else {
+        int idx = -1;
+        for (int k = 0; k < (int)g_custom.size(); k++) if (g_custom[k].name == c->name && g_custom[k].tz == tz) idx = k;
+        if (idx < 0) { g_custom.push_back({ c->name, tz }); idx = (int)g_custom.size() - 1; }
+        if (std::find(g_world.begin(), g_world.end(), CUSTOM0 + idx) == g_world.end()) g_world.push_back(CUSTOM0 + idx);
+        Save();
+    }
+    delete c;
+    InvalidateRect(wnd, nullptr, FALSE);
+}
 void AddCity(POINT scr) {
     HMENU m = CreatePopupMenu();
+    AppendMenuW(m, MF_STRING, 9999, Tr(L"Outra Cidade…"));
+    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
     for (int i = 0; i < NCITIES; i++) AppendMenuW(m, MF_STRING | (std::find(g_world.begin(), g_world.end(), i) != g_world.end() ? MF_CHECKED : 0), i + 1, Tr(CITIES[i].name));
     int c = TrackPopupMenu(m, TPM_RETURNCMD, scr.x, scr.y, 0, wnd, nullptr);
     DestroyMenu(m);
-    if (c > 0 && std::find(g_world.begin(), g_world.end(), c - 1) == g_world.end()) { g_world.push_back(c - 1); Save(); }
+    if (c == 9999) {  // digita o nome; Enter procura
+        D2D1_SIZE_F sz = Size();
+        FieldOpen(D2D1::RectF(sz.width - 300, TB + 12, sz.width - 24, TB + 36), L"", 14, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) FindCity(t); });
+        return;
+    }
+    if (c > 0 && c <= NCITIES && std::find(g_world.begin(), g_world.end(), c - 1) == g_world.end()) { g_world.push_back(c - 1); Save(); }
 }
 
 // hora do alarme digitada ("7:30", "0730", "19h")
@@ -507,6 +615,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_CTLCOLOREDIT: return FieldColors((HDC)w, Dark() ? RGB(30, 30, 30) : RGB(255, 255, 255));
     case WM_FIELDLOST: if (field.h && GetFocus() != field.h) FieldEnd(0); return 0;
     case WM_TIMER: Tick(); return 0;
+    case WM_CITYFOUND: CityFound((Custom*)l); return 0;
     case WM_LBUTTONDOWN: case WM_RBUTTONUP: {
         if (field.h) FieldEnd(0);
         float s = Sc(), x = GET_X_LPARAM(l) / s, y = GET_Y_LPARAM(l) / s;
