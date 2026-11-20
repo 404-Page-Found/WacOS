@@ -1553,3 +1553,5 @@
 { L"Restaurar Ícone Original", L"Восстановить исходный значок" },
 { L"Ícones e programas", L"Значки и программы" },
 { L"Escolha o novo ícone de “%ls”", L"Выберите новый значок для «%ls»" },
+{ L"Barras de título do Mac", L"Заголовки окон Mac" },
+{ L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Чтобы заголовки окон Mac снова появились в приложениях, выйдите из Windows и войдите снова." },

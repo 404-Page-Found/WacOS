@@ -1553,3 +1553,5 @@
 { L"Restaurar Ícone Original", L"Orijinal Simgeyi Geri Yükle" },
 { L"Ícones e programas", L"Simgeler ve programlar" },
 { L"Escolha o novo ícone de “%ls”", L"“%ls” için yeni simgeyi seçin" },
+{ L"Barras de título do Mac", L"Mac başlık çubukları" },
+{ L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Mac başlık çubuklarının uygulamalarda yeniden görünmesi için Windows oturumunu kapatıp yeniden açın." },

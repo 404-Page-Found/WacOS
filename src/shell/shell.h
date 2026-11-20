@@ -249,8 +249,9 @@ std::wstring LastSaved();  // caminho escolhido no último Salvar (até 20 s atr
 }
 namespace janelas {  // barra de título do Mac nas janelas dos outros programas (janelas.cpp + MacJanela.dll)
 void Start();
-void Stop();          // devolve o visual do Windows e tira os ganchos
+void Stop();          // devolve o visual do Windows e tira os ganchos (reiniciando: só tira os ganchos)
 void Foreground(HWND h);
+void ManterAoReiniciar();  // o próximo Stop é um reinício: as janelas ficam com a barra (o Shell novo assume)
 }
 namespace barras {  // barra de título do Mac por fora, sem nada dentro dos outros programas (modo nativo; barras.cpp)
 void Start();
@@ -304,6 +305,7 @@ void Search(const std::wstring& foldedQuery, size_t max, const std::function<boo
 namespace atualizacao {  // aviso de versão nova no GitHub (atualizacao.cpp)
 void Start(HWND msgWnd);  // thread: confere 90 s depois e a cada 6 h; avisa msgWnd
 bool Handle(UINT m);      // na MsgProc: mostra a notificação (uma vez por versão); true = era a mensagem
+void Avisar(const std::wstring& title, const std::wstring& body);  // notificação do WacOS (vira o banner do Mac)
 }
 namespace migrar {  // troca de nome Sequoia → WacOS (migrar.cpp)
 bool TrocarPeloNovo();  // rodando como SequoiaShell.exe com o WacOSShell.exe ao lado: abre o novo (true = sair)

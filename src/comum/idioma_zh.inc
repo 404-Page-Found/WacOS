@@ -1553,3 +1553,5 @@
 { L"Restaurar Ícone Original", L"恢复原始图标" },
 { L"Ícones e programas", L"图标和程序" },
 { L"Escolha o novo ícone de “%ls”", L"选择“%ls”的新图标" },
+{ L"Barras de título do Mac", L"Mac 标题栏" },
+{ L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"要让应用重新显示 Mac 标题栏，请注销 Windows 后重新登录。" },

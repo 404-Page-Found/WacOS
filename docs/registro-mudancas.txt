@@ -714,3 +714,21 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   DLLs de gancho está cheia (erro 126 em todas as janelas). Para instalar: C:\Users\Public\wacos-b18\instalar-dll-b18.ps1 e sair e
   entrar no Windows. Nada no registro do Windows.
   DESFAZER: copiar os arquivos de b18-antes-174923 de volta para %LOCALAPPDATA%\Programs\WacOS\bin e reiniciar o Shell.
+[2026-11-20 18:25 PC] BUILD-18: CANTOS QUE SOBRAVAM E TABELA DE GANCHOS CHEIA (pedido via sessão "Teste briefing completo").
+  1) CANTOS BRANCOS DEPOIS DE REINICIAR (Deluge com a barra do Windows e 4 arcos brancos por fora): src\janelas\macjanela.cpp: a moldura
+     dos cantos (MacJanelaCanto) confere a cada 500 ms se a janela ainda tem a marca "MacJanela"; sem ela, some. O desfazer (Detach)
+     também apaga as molduras/faixas órfãs da janela na thread (de outra cópia da DLL). Não reproduzido aqui (a causa exata do print não
+     foi vista); a trava cobre o caso de a janela voltar ao Windows sem a moldura saber.
+  2) REINICIAR NÃO SOLTA MAIS AS JANELAS: src\shell\janelas.cpp Stop: no ShellReiniciar (main.cpp chama janelas::ManterAoReiniciar) o
+     Shell só tira os ganchos; a DLL (presa nos apps) continua com as janelas e o Shell novo assume (se a DLL dele for outra versão, a DLL
+     nova pede à antiga que solte: TakeOver). Antes o reinício soltava todas e, com a tabela cheia, todas ficavam sem a barra. Com
+     janelas_mac=0, o Shell novo manda o desfazer ao abrir. Sair do Shell (Ctrl+Alt+Shift+F12 etc.) continua desfazendo tudo.
+     Medido no PC: reinício com o código antigo 6 -> 3 janelas com a barra; com o novo 3 -> 6 (nenhuma solta).
+  3) ERRO 126 (tabela de 32 DLLs de gancho cheia): no primeiro 126 o Shell para de tentar pôr gancho (antes tentava a cada janela: 176
+     falhas no log de um dia) e mostra UMA notificação do WacOS por login (atualizacao::Avisar, remetente WacOS.Atualizacao): "Barras de
+     título do Mac" / "As barras de título do Mac precisam que você saia e entre de novo no Windows..." (12 idiomas). O login avisado fica
+     em aviso_ganchos=<id do login> no ajustes.txt. Testado no PC: 1 aviso no log, nenhuma falha repetida depois. WacOSTitleBars: o aviso
+     fica só no log dele.
+  Instalado: WacOSShell.exe e WacOSTitleBars.exe (backup em %LOCALAPPDATA%\SequoiaBinariosAntigos\b18-antes-182131). A WacOSWindow.dll
+  nova (item 1) NÃO foi instalada (tabela cheia): C:\Users\Public\wacos-b18\instalar-dll-b18.ps1 e sair e entrar no Windows.
+  DESFAZER: copiar os arquivos de b18-antes-182131 de volta e reiniciar o Shell; apagar aviso_ganchos do ajustes.txt.

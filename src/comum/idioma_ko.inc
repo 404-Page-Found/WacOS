@@ -1553,3 +1553,5 @@
 { L"Restaurar Ícone Original", L"원래 아이콘으로 복원" },
 { L"Ícones e programas", L"아이콘 및 프로그램" },
 { L"Escolha o novo ícone de “%ls”", L"“%ls”의 새 아이콘 선택" },
+{ L"Barras de título do Mac", L"Mac 제목 막대" },
+{ L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"앱에 Mac 제목 막대를 다시 표시하려면 Windows에서 로그아웃한 후 다시 로그인하세요." },

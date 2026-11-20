@@ -1553,3 +1553,5 @@
 { L"Restaurar Ícone Original", L"元のアイコンに戻す" },
 { L"Ícones e programas", L"アイコンとプログラム" },
 { L"Escolha o novo ícone de “%ls”", L"“%ls” の新しいアイコンを選択" },
+{ L"Barras de título do Mac", L"Mac のタイトルバー" },
+{ L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"アプリに Mac のタイトルバーを戻すには、Windows からサインアウトしてもう一度サインインしてください。" },

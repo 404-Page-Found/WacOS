@@ -710,6 +710,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else Log(L"reiniciar: não abriu o Shell novo (%lu)", GetLastError());
         mesa::NoExplorerOnExit();
         tray::SemAvisoAoSair();
+        janelas::ManterAoReiniciar();  // as janelas ficam com a barra do Mac (o Shell novo assume; ver janelas::Stop)
         shell::Quit(L"reiniciar");
         return 0;
     }

@@ -48,6 +48,36 @@ const wchar_t* EXCLUDED_PATH[] = {
 
 std::wstring Lower(std::wstring s) { for (auto& c : s) c = towlower(c); return s; }
 
+// Tabela de DLLs de gancho do Windows cheia (erro 126: no máximo 32 DLLs diferentes por login; cada versão nova da
+// WacOSWindow.dll ocupa um lugar até todos os apps que a carregaram fecharem). Antes o Shell tentava de novo a cada
+// janela (176 falhas no log de um dia) e ninguém sabia o que fazer. Agora: para de tentar e avisa UMA vez por login.
+bool g_cheio = false;
+bool g_manter = false;  // reiniciando o Shell: as janelas ficam com a DLL que já têm (o Shell novo assume)
+
+// identificador do login atual (muda a cada entrada no Windows): o aviso sai uma vez por login
+std::wstring LoginId() {
+    HANDLE t = nullptr;
+    TOKEN_STATISTICS ts{}; DWORD got = 0;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &t)) return L"";
+    bool ok = GetTokenInformation(t, TokenStatistics, &ts, sizeof(ts), &got) != FALSE;
+    CloseHandle(t);
+    if (!ok) return L"";
+    wchar_t b[40]; swprintf_s(b, L"%08lx%08lx", (unsigned long)ts.AuthenticationId.HighPart, ts.AuthenticationId.LowPart);
+    return b;
+}
+
+void GanchoFalhou(DWORD tid, DWORD err, const wchar_t* onde) {
+    if (err != ERROR_MOD_NOT_FOUND) { Log(L"janelas: gancho falhou %ls, thread %lu (erro %lu)", onde, tid, err); return; }
+    if (g_cheio) return;
+    g_cheio = true;
+    Log(L"janelas: tabela de DLLs de gancho do Windows cheia (erro 126, thread %lu): sem novas barras até sair e entrar no Windows", tid);
+    std::wstring id = LoginId();
+    if (!id.empty() && shell::Setting(L"aviso_ganchos", L"") == id) return;  // já avisou neste login
+    shell::SetSetting(L"aviso_ganchos", id);
+    atualizacao::Avisar(Tr(L"Barras de título do Mac"),
+                        Tr(L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps."));
+}
+
 void LoadList(const std::wstring& f, bool criar) {
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") || !fp) {
@@ -202,6 +232,7 @@ void Consider(HWND h) {
     if (!tid || pid == GetCurrentProcessId()) return;
     if (g_hooks.count(tid) || g_hooks32.count(tid)) { PostMessageW(h, WM_NULL, 0, 0); return; }
     if (TelaCheiaExclusiva()) return;  // jogo/apresentação em tela cheia: nada novo agora (volta na próxima janela)
+    if (g_cheio) return;  // tabela de ganchos cheia: não adianta tentar (GanchoFalhou)
     bool is32 = false;
     Permissao pm = Allowed(h, pid, &is32);
     if (!pm.ok || (tipo == 2 && !pm.chromium)) return;
@@ -217,7 +248,7 @@ void Consider(HWND h) {
     // todos os programas que a carregaram fecham. NUNCA cair para o MacJanela.dll sem cópia: um programa
     // que já tem uma versão antiga carregada com esse mesmo caminho recebe o endereço do gancho da versão
     // nova e trava (o Ableton fechou assim).
-    if (!hk) { Log(L"janelas: gancho falhou na thread %lu (erro %lu)", tid, GetLastError()); return; }
+    if (!hk) { GanchoFalhou(tid, GetLastError(), L"ao mostrar"); return; }
     g_hooks[tid] = hk;
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
 }
@@ -235,7 +266,7 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     if ((st & WS_CHILD) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) || !((st & WS_CAPTION) == WS_CAPTION || (st & WS_THICKFRAME))) return;
     DWORD pid = 0, tid = GetWindowThreadProcessId(h, &pid);
     if (!tid || pid == GetCurrentProcessId() || g_hooks.count(tid) || g_hooks32.count(tid)) return;
-    if (TelaCheiaExclusiva()) return;
+    if (TelaCheiaExclusiva() || g_cheio) return;
     // sem a barra do Windows: só a janela do Chromium/Electron
     wchar_t cls[32] = {}; GetClassNameW(h, cls, 32);
     bool propria = (st & WS_CAPTION) != WS_CAPTION;
@@ -255,8 +286,8 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     }
     HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_proc, g_dll, tid);
     // antes era silencioso: com os 32 lugares de DLL de gancho cheios (erro 126) nenhum app novo recebia a barra e o
-    // log não dizia nada (o Consider, no "mostrar", tenta de novo e registra)
-    if (!hk) { static int n = 0; if (n++ < 20) Log(L"janelas: gancho falhou na criação, thread %lu (erro %lu)", tid, GetLastError()); return; }
+    // log não dizia nada
+    if (!hk) { GanchoFalhou(tid, GetLastError(), L"na criação"); return; }
     g_hooks[tid] = hk;
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra antes de mostrar
 }
@@ -300,7 +331,15 @@ void janelas::Start() {
             Log(L"janelas: WacOSTitleBars fechado (o Shell assume as barras)");
         }
     }
-    if (shell::Setting(L"janelas_mac", L"1") != L"1") return;
+    UINT undo = RegisterWindowMessageW(L"MacJanelaDesfazer");
+    if (shell::Setting(L"janelas_mac", L"1") != L"1") {
+        // desligado: o Shell anterior pode ter saído reiniciando (sem desfazer, ver Stop): as janelas voltam ao Windows agora
+        EnumWindows([](HWND h, LPARAM undo) -> BOOL {
+            if (GetPropW(h, L"MacJanela") || GetPropW(h, L"MacJanelaLeve")) PostMessageW(h, (UINT)undo, 0, 0);
+            return TRUE;
+        }, undo);
+        return;
+    }
     std::wstring copy = OwnCopy(DLL_WINDOW, L"WacOSWindow");
     // sem cópia própria, nada de gancho: o mesmo caminho com outra versão trava os programas (ver Consider)
     if (copy.empty()) {
@@ -330,12 +369,27 @@ void janelas::Start() {
 }
 
 void janelas::Foreground(HWND h) { Consider(h); }
+void janelas::ManterAoReiniciar() { g_manter = true; }
 
 void janelas::Stop() {
     if (!g_dll) return;
     if (g_ev) { UnhookWinEvent(g_ev); g_ev = nullptr; }
     if (g_evCreate) { UnhookWinEvent(g_evCreate); g_evCreate = nullptr; }
-    // devolve o visual do Windows a todas as janelas transformadas (a DLL desfaz na thread de cada uma)
+    // devolve o visual do Windows a todas as janelas transformadas (a DLL desfaz na thread de cada uma).
+    // Reiniciando (ShellReiniciar), não: a DLL fica carregada nos apps (presa) e continua cuidando das janelas; o Shell
+    // novo põe o gancho e, se a DLL dele for outra versão, ela mesma pede à antiga que solte e assume (TakeOver na DLL).
+    // Antes o reinício soltava todas e, com a tabela de ganchos cheia (erro 126), TODAS ficavam sem a barra do Mac até
+    // sair e entrar no Windows (e às vezes sobravam os cantos).
+    if (g_manter) {
+        Log(L"janelas: reiniciando: as janelas ficam com a barra do Mac (o Shell novo assume)");
+        for (auto& [t, hk] : g_hooks) UnhookWindowsHookEx(hk);
+        g_hooks.clear();
+        g_hooks32.clear();
+        if (HWND host = FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr)) PostMessageW(host, HOST_QUIT, 0, 0);
+        g_proc = nullptr;
+        g_dll = nullptr;
+        return;
+    }
     UINT undo = RegisterWindowMessageW(L"MacJanelaDesfazer");
     EnumWindows([](HWND h, LPARAM undo) -> BOOL {
         if (GetPropW(h, L"MacJanela") || GetPropW(h, L"MacJanelaLeve")) SendMessageTimeoutW(h, (UINT)undo, 0, 0, SMTO_ABORTIFHUNG, 300, nullptr);

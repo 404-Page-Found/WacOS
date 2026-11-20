@@ -1553,3 +1553,5 @@
 { L"Restaurar Ícone Original", L"Restaurer l’icône d’origine" },
 { L"Ícones e programas", L"Icônes et programmes" },
 { L"Escolha o novo ícone de “%ls”", L"Choisissez la nouvelle icône de « %ls »" },
+{ L"Barras de título do Mac", L"Barres de titre du Mac" },
+{ L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Pour que les barres de titre du Mac reviennent dans vos apps, fermez la session Windows puis rouvrez-la." },

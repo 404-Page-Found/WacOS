@@ -507,7 +507,9 @@ LRESULT CALLBACK CornerProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_TIMER) {
         HWND target = (HWND)GetWindowLongPtrW(h, GWLP_USERDATA);
         if (!target) return 0;
-        if (!IsWindow(target) || GetPropW(target, L"MacJanelaMoldura") != (HANDLE)h) { DestroyWindow(h); return 0; }
+        // sem a marca "MacJanela" a janela já voltou ao Windows (desfeita por outra cópia da DLL, ou o desfazer não
+        // achou esta moldura): sobravam 4 arcos brancos por fora dos cantos do Deluge depois de reiniciar o Shell
+        if (!IsWindow(target) || GetPropW(target, L"MacJanelaMoldura") != (HANDLE)h || !GetPropW(target, PROP)) { DestroyWindow(h); return 0; }
         if (!IsWindowVisible(target) || IsIconic(target)) ShowWindow(h, SW_HIDE);
         return 0;
     }
@@ -1460,6 +1462,13 @@ void Detach(HWND h, Info* in) {
     for (HWND& c : in->corner) if (c) { DestroyWindow(c); c = nullptr; }
     RemovePropW(h, L"MacJanelaMoldura");
     if (in->preview) { DestroyWindow(in->preview); in->preview = nullptr; }
+    // peças órfãs desta janela na thread (moldura ou faixa de uma volta anterior, de outra cópia da DLL): somem junto
+    EnumThreadWindows(GetCurrentThreadId(), [](HWND w, LPARAM owner) -> BOOL {
+        wchar_t c[32] = {};
+        if (GetWindow(w, GW_OWNER) == (HWND)owner && GetClassNameW(w, c, 32) && (!wcscmp(c, L"MacJanelaCanto") || !wcscmp(c, L"MacJanelaBarra")))
+            DestroyWindow(w);
+        return TRUE;
+    }, (LPARAM)h);
     if (in->dropShadow) SetClassLongPtrW(h, GCL_STYLE, GetClassLongPtrW(h, GCL_STYLE) | CS_DROPSHADOW);
     DWORD cornerDef = 0;  // DWMWCP_DEFAULT
     DwmSetWindowAttribute(h, 33, &cornerDef, sizeof(cornerDef));
