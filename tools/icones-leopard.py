@@ -163,6 +163,9 @@ for sub in ('extra', 'sequoia'):
         try: aquifica(os.path.join(pasta, arq), os.path.join(DST, arq)); aq += 1
         except Exception as e: print('não deu para aquificar', arq, e)
 print(f'{aq} ícones modernos no estilo Aqua')
+# os desenhados à mão para o Leopard (Chrome de 2008, Claude com volume) por cima dos aquificados
+import subprocess
+subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icones-leopard-desenhados.py'), DST], check=False)
 with open(os.path.join(DST, 'CREDITOS.txt'), 'w', encoding='utf-8') as f:
     f.write('Pacote "Leopard Icons" (650 ícones, itransform.freehostia.com), baixado pelo usuário. Uso pessoal; não distribuir.\n'
             'Gerado por tools\\icones-leopard.py.\n')

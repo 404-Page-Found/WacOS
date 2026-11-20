@@ -47,6 +47,9 @@ const wchar_t* PROP = L"MacJanela";          // janela já tratada
 const wchar_t* PROP_MENU = L"MacJanelaMenu";  // a barra de menus guardada (a barra do Shell lê daqui)
 const UINT_PTR SUBCLASS_ID = 0x4D41434A;
 UINT g_msgTile;  // "MacJanelaEncaixar": reaplica o encaixe logo depois do fim do arrasto
+// carregada pelo próprio app do WacOS (WacOSPropria, barra_mac.h), não pelo gancho do Shell: a barra é do app e
+// o "desfazer" do Shell (ao sair) não vale aqui
+bool g_proprio = false;
 UINT g_msgUndo, g_msgZoom;  // Zoom: "MacJanelaAmpliar" (o Shell manda no Win+↑/↓; a DLL usa para converter o maximizar)
 ID2D1Factory* g_d2d;
 IDWriteFactory* g_dw;
@@ -1068,6 +1071,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         SetPropW(h, L"MacJanelaPintando", (HANDLE)2);
         SetTimer(h, 0x4D50, 34, UncloakShown);
     }
+    if (m == g_msgUndo && g_proprio) return 1;  // app do WacOS: a barra fica (o Shell saindo não a tira)
     if (m == g_msgUndo) { StopShowHook(); Detach(h, in); return 1; }
     static UINT msgSettings = RegisterWindowMessageW(L"ShellAjustesMudaram");  // tema trocado (Leopard, Tahoe…): redesenha já
     if (m == msgSettings && msgSettings) {
@@ -1462,6 +1466,7 @@ void CantoLeve(HWND h) {
 
 LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
     static UINT msgShow = RegisterWindowMessageW(L"MacJanelaMostrar");
+    if (m == g_msgUndo && g_msgUndo && g_proprio) return DefSubclassProc(h, m, w, l);
     if (m == g_msgUndo && g_msgUndo && GetPropW(h, PROP_CANTO)) { SetWindowRgn(h, nullptr, TRUE); RemovePropW(h, PROP_CANTO); }
     if (m == WM_NCDESTROY) { RemovePropW(h, PROP_CANTO); RemovePropW(h, L"MacJanelaCantoB"); }
     if (m == WM_WINDOWPOSCHANGED && l && !(((WINDOWPOS*)l)->flags & SWP_NOSIZE)) CantoLeve(h);
@@ -1740,6 +1745,24 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK GetMsgProc(int code, WPARAM w,
         }
     }
     return CallNextHookEx(nullptr, code, w, l);
+}
+
+// Os apps do WacOS que não desenham os próprios botões (app2d.h, Pré-Visualização) carregam esta DLL eles mesmos
+// (src\comumarra_mac.h) e chamam esta entrada na thread da interface, antes de criar a janela: o mesmo gancho
+// do Shell, mas posto pelo próprio app só na thread dele e sem módulo (não ocupa lugar na lista de DLLs de gancho
+// do Windows). Assim a barra é igual com e sem o Shell aberto.
+extern "C" __declspec(dllexport) BOOL WINAPI WacOSPropria() {
+    if (g_proprio) return TRUE;
+    g_proprio = true;
+    if (!g_msgUndo) g_msgUndo = RegisterWindowMessageW(L"MacJanelaDesfazer");
+    if (!g_msgZoom) g_msgZoom = RegisterWindowMessageW(L"MacJanelaAmpliar");
+    if (!g_msgTile) g_msgTile = RegisterWindowMessageW(L"MacJanelaEncaixar");
+    DWORD tid = GetCurrentThreadId();
+    HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, nullptr, tid);
+    // o gancho do WM_SHOWWINDOW já agora: a janela principal nasce com a barra do Mac (sem esperar a 1ª mensagem)
+    if (g_tlsShow != TLS_OUT_OF_INDEXES && !TlsGetValue(g_tlsShow))
+        TlsSetValue(g_tlsShow, SetWindowsHookExW(WH_CALLWNDPROCRET, ShowProc, nullptr, tid));
+    return hk != nullptr;
 }
 
 // Programas de 32 bits: o Shell é de 64 bits e um gancho só carrega DLL da mesma arquitetura. Então o Shell

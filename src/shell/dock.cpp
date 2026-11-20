@@ -42,14 +42,14 @@ const DWORD ACR_DARK = 0x401E1C1C, ACR_LIGHT = 0x40F6F6F6;  // AABBGGRR
 // sobre ela, refletidos no tampo, e o app aberto ganha a luz azul na frente da prateleira (desenho em Paint)
 #define LEO_DOCK (liquid::Leopard())
 #define PAD_TOP (g_tile * (TAHOE_DOCK ? 0.156f : LEO_DOCK ? 0.06f : 0.099f))
-#define PAD_BOTTOM (g_tile * (TAHOE_DOCK ? 0.148f : LEO_DOCK ? 0.48f : 0.196f))
+#define PAD_BOTTOM (g_tile * (TAHOE_DOCK ? 0.148f : LEO_DOCK ? 0.36f : 0.196f))  // Leopard: a frente ~0,32 ícone abaixo do pé (fotos de referência)
 // Tahoe, guia macOS26-Theme-Reference (seção 36, medido com ícone de 64): cada ícone ocupa 68 × 84 (passo
 // 1,0625), 8 de margem antes do primeiro, separador de 31 (0,484); a altura reservada dá os 90 medidos
 #define PAD_X (g_tile * (TAHOE_DOCK ? 0.125f : LEO_DOCK ? 0.55f : 0.041f))
 #define MARGIN (g_tile * (LEO_DOCK ? 0.f : 0.10f))  // Leopard: a prateleira encosta no pé da tela
-#define SEP_W (g_tile * (TAHOE_DOCK ? 0.484f : 0.40f))
-// Leopard (comparado com a Dock do 10.5): os ícones ocupam o espaço inteiro e quase se encostam (passo de 1,06 ícone)
-#define SLOT (g_tile * (TAHOE_DOCK ? 1.0625f : LEO_DOCK ? 1.06f : 1.076f))
+#define SEP_W (g_tile * (TAHOE_DOCK ? 0.484f : LEO_DOCK ? 0.80f : 0.40f))  // Leopard: o vão largo da faixa zebrada (~0,85 ícone na captura)
+// Leopard (comparado com as fotos de referência): passo de ~1,17 ícone entre os desenhos
+#define SLOT (g_tile * (TAHOE_DOCK ? 1.0625f : LEO_DOCK ? 1.17f : 1.076f))  // Leopard: passo de ~1,17 ícone (medido nas fotos de referência do usuário)
 #define DOCK_RADIUS (g_tile * (TAHOE_DOCK ? 0.40f : 0.28f))  // Tahoe: 0,5 A (medido); Sequoia: 0,3 A
 const float ART_PACK_0 = 1.0f;   // PNGs do pacote: já têm a margem do Mac (desenho = 80%)
 const float ART_WIN_0 = 0.80f;   // ícones do Windows (recortados): mesmo corpo visual
@@ -739,7 +739,7 @@ void Paint() {
     };
     if (leo) {
         float base = g_bg.top + PAD_TOP + g_tile;
-        leoBack = base - g_tile * 0.42f; leoFront = g_bg.bottom - std::max(2.f, g_tile * 0.04f); leoIn = (leoFront - leoBack) * 0.95f;
+        leoBack = base - g_tile * 0.52f; leoFront = g_bg.bottom - std::max(2.f, g_tile * 0.04f); leoIn = (leoFront - leoBack) * 0.95f;
         ID2D1Factory* fac = nullptr; rt->GetFactory(&fac);
         if (fac && SUCCEEDED(fac->CreatePathGeometry(&shelf))) {
             ID2D1GeometrySink* sk = nullptr;
@@ -751,16 +751,17 @@ void Paint() {
             }
         }
         if (fac) fac->Release();
-        // tampo (comparado com a Dock do 10.5): vidro prateado claro e mais opaco — o fundo escuro aparece pouco —, mais
-        // claro atrás, com a faixa de brilho junto da borda de trás
-        if (shelf) lin({ 0, leoBack }, { 0, leoFront }, { { 0, D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.70f) }, { 0.10f, D2D1::ColorF(0.90f, 0.90f, 0.92f, 0.62f) }, { 0.35f, D2D1::ColorF(0.82f, 0.83f, 0.85f, 0.56f) }, { 1, D2D1::ColorF(0.74f, 0.75f, 0.78f, 0.58f) } },
+        // tampo (captura do 10.5 sobre o fundo cinza: ~80 vira ~125 atrás e ~150 na frente): vidro TRANSLÚCIDO — o
+        // papel de parede aparece através dele —, um véu branco fraco, um pouco mais forte junto da borda de trás
+        if (shelf) lin({ 0, leoBack }, { 0, leoFront }, { { 0, D2D1::ColorF(1, 1, 1, 0.36f) }, { 0.08f, D2D1::ColorF(0.96f, 0.96f, 0.98f, 0.24f) }, { 0.45f, D2D1::ColorF(0.92f, 0.92f, 0.95f, 0.20f) }, { 1, D2D1::ColorF(0.95f, 0.95f, 0.97f, 0.30f) } },
                        [&](ID2D1Brush* b) { rt->FillGeometry(shelf, b); });
         // frente: a borda fina do vidro — um fio escuro e, embaixo, o fio claro
-        br->SetColor(D2D1::ColorF(0.55f, 0.56f, 0.58f, 0.95f));  // a borda da frente: um fio médio e o fio claro embaixo
+        // a borda da frente do vidro: a quina clara e brilhante (o fio branco forte) e a face fina embaixo, mais clara que o tampo
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
         rt->FillRectangle(D2D1::RectF(g_bg.left, leoFront, g_bg.right, leoFront + px), br);
-        br->SetColor(D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.98f));
-        rt->FillRectangle(D2D1::RectF(g_bg.left, leoFront + px, g_bg.right, g_bg.bottom), br);
-        br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));  // a borda do fundo e os lados
+        lin({ 0, leoFront + px }, { 0, g_bg.bottom }, { { 0, D2D1::ColorF(0.86f, 0.86f, 0.88f, 0.80f) }, { 1, D2D1::ColorF(0.62f, 0.62f, 0.65f, 0.80f) } },
+            [&](ID2D1Brush* b) { rt->FillRectangle(D2D1::RectF(g_bg.left, leoFront + px, g_bg.right, g_bg.bottom), b); });
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.70f));  // a borda do fundo (o fio de luz atrás dos ícones) e os lados
         rt->DrawLine({ g_bg.left + leoIn, leoBack }, { g_bg.right - leoIn, leoBack }, br, px);
         br->SetColor(D2D1::ColorF(1, 1, 1, 0.35f));
         rt->DrawLine({ g_bg.left + leoIn, leoBack }, { g_bg.left, leoFront }, br, px);
@@ -770,10 +771,10 @@ void Paint() {
     // para a frente
     auto reflect = [&](float baseY, auto draw) {
         if (!leo || !shelf) return;
-        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0.55f) }, { 1, D2D1::ColorF(1, 1, 1, 0) } };  // reflexo forte, como no 10.5
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0.30f) }, { 1, D2D1::ColorF(1, 1, 1, 0) } };  // reflexo sutil e curto (captura do 10.5)
         ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
         if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
-            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, baseY }, { 0, baseY + g_tile * 0.60f }), gs, &lb))) {
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, baseY }, { 0, baseY + g_tile * 0.42f }), gs, &lb))) {
             rt->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shelf, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), 1, lb), nullptr);
             D2D1_MATRIX_3X2_F old; rt->GetTransform(&old);
             rt->SetTransform(D2D1::Matrix3x2F::Scale(1, -1, { 0, baseY }) * old);
@@ -795,13 +796,30 @@ void Paint() {
     for (int i = 0; i < (int)g_items.size(); i++) {
         auto& it = g_items[i];
         if (it.kind == I_SEP && leo) {
-            // Leopard: a faixa tracejada branca que atravessa o tampo em perspectiva (do fundo para a frente)
+            // Leopard: a "faixa de pedestres" do 10.5 — barrinhas brancas horizontais empilhadas do fundo até a frente,
+            // em perspectiva (mais largas e mais altas na frente), seguindo a fuga do tampo
             float w = g_bg.right - g_bg.left, t = w > 0 ? (it.cx - g_bg.left) / w : 0.5f;
-            float bx = g_bg.left + leoIn + t * (w - 2 * leoIn);
-            br->SetColor(D2D1::ColorF(1, 1, 1, 0.85f));
-            for (int d = 0; d < 5; d++) {
-                float a = d / 5.f, b2 = (d + 0.55f) / 5.f;
-                rt->DrawLine({ bx + (it.cx - bx) * a, leoBack + (leoFront - leoBack) * a }, { bx + (it.cx - bx) * b2, leoBack + (leoFront - leoBack) * b2 }, br, 1.3f + a);
+            float bx = it.cx + (g_bg.left + leoIn + t * (w - 2 * leoIn) - it.cx) * 0.35f;  // a captura mostra a coluna quase em pé (só um pouco de fuga)
+            const int N = 7;
+            for (int d = 0; d < N; d++) {
+                float a = (d + 0.15f) / N, b2 = (d + 0.62f) / N;
+                float ya = leoBack + (leoFront - leoBack) * a, yb = leoBack + (leoFront - leoBack) * b2;
+                float xa = bx + (it.cx - bx) * a, xb = bx + (it.cx - bx) * b2;
+                float ha = g_tile * (0.10f + 0.09f * a), hb = g_tile * (0.10f + 0.09f * b2);
+                ID2D1Factory* f2 = nullptr; rt->GetFactory(&f2);
+                ID2D1PathGeometry* g2 = nullptr;
+                if (f2 && SUCCEEDED(f2->CreatePathGeometry(&g2))) {
+                    ID2D1GeometrySink* s2 = nullptr;
+                    if (SUCCEEDED(g2->Open(&s2))) {
+                        s2->BeginFigure({ xa - ha, ya }, D2D1_FIGURE_BEGIN_FILLED);
+                        s2->AddLine({ xa + ha, ya }); s2->AddLine({ xb + hb, yb }); s2->AddLine({ xb - hb, yb });
+                        s2->EndFigure(D2D1_FIGURE_END_CLOSED); s2->Close(); s2->Release();
+                        br->SetColor(D2D1::ColorF(0.86f, 0.86f, 0.88f, 0.28f + 0.22f * a));  // cinza discreto (fotos de referência do usuário)
+                        rt->FillGeometry(g2, br);
+                    }
+                    g2->Release();
+                }
+                if (f2) f2->Release();
             }
             continue;
         }
@@ -1586,6 +1604,16 @@ void dock::OpenAppsStack() {
         float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
         POINT a{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) };
         pilhas::ShowApps(a);
+        return;
+    }
+}
+
+void dock::OpenDownloadsStack() {
+    for (auto& it : g_items) {
+        if (it.kind != I_DOWNLOADS) continue;
+        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
+        POINT a{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) };
+        pilhas::Show(a);
         return;
     }
 }

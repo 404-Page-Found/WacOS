@@ -602,6 +602,11 @@ void Key(WORD vk, bool up) {
 // ================= desenho
 struct Pal { D2D1_COLOR_F tint, tile, tileLine, text, text2, off, offGlyph, track, fill, knobIcon; };
 Pal Colors() {
+    // Leopard: o branco dos menus do 10.5 (sempre claro), texto preto em Lucida, grupos em caixas cinza
+    if (liquid::Leopard())
+        return { D2D1::ColorF(1, 1, 1, 0.96f), D2D1::ColorF(0, 0, 0, 0.045f), D2D1::ColorF(0, 0, 0, 0.16f), D2D1::ColorF(0, 0, 0, 0.92f),
+                 D2D1::ColorF(0, 0, 0, 0.55f), D2D1::ColorF(1, 1, 1, 1), D2D1::ColorF(0.25f, 0.25f, 0.27f, 1), D2D1::ColorF(0, 0, 0, 0.2f),
+                 D2D1::ColorF(0.24f, 0.47f, 0.87f, 1), D2D1::ColorF(0, 0, 0, 0.6f) };
     if (ui::Dark())
         return { D2D1::ColorF(0.11f, 0.11f, 0.12f, 0.42f), D2D1::ColorF(1, 1, 1, 0.09f), D2D1::ColorF(1, 1, 1, 0.10f), D2D1::ColorF(1, 1, 1, 0.94f),
                  D2D1::ColorF(1, 1, 1, 0.55f), D2D1::ColorF(1, 1, 1, 0.16f), D2D1::ColorF(1, 1, 1, 0.9f), D2D1::ColorF(1, 1, 1, 0.14f),
@@ -625,7 +630,48 @@ void Sym(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const wchar_t* name, 
     dc->DrawTextW(&g, 1, g_tfGlyph, D2D1::RectF(cx - s / 2, cy - s / 2, cx + s / 2, cy + s / 2), br);
 }
 
-float PanelR() { return liquid::On() ? 26.f : RADIUS; }  // Tahoe: painel bem mais redondo
+float PanelR() { return liquid::On() ? 26.f : liquid::Leopard() ? 6.f : RADIUS; }  // Tahoe: painel bem mais redondo; Leopard: o canto do menu
+
+// ---- Mac OS X Leopard: peças do Aqua desenhadas aqui (o 10.5 não tinha Central de Controle; ela vira um menu da
+// barra no estilo da época: fundo branco de menu, caixas de grupo cinza, botões redondos em gel e controles
+// deslizantes com a trilha azul)
+void LeoGrad(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, const D2D1_GRADIENT_STOP* st, UINT n, bool ellipse = false) {
+    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(st, n, &gs)) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb))) {
+        if (ellipse) dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 }, (r.right - r.left) / 2, (r.bottom - r.top) / 2), lb);
+        else dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+    }
+    if (lb) lb->Release();
+    if (gs) gs->Release();
+}
+// gel do Aqua: azul (ligado) ou perolado (desligado), com o brilho forte na metade de cima
+void LeoGel(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r, float rad, bool blue, bool ellipse = false) {
+    D2D1_GRADIENT_STOP st[4] = { { 0, blue ? D2D1::ColorF(0.66f, 0.80f, 0.98f) : D2D1::ColorF(1, 1, 1) },
+                                 { 0.5f, blue ? D2D1::ColorF(0.38f, 0.60f, 0.93f) : D2D1::ColorF(0.94f, 0.94f, 0.94f) },
+                                 { 0.5f, blue ? D2D1::ColorF(0.22f, 0.45f, 0.86f) : D2D1::ColorF(0.86f, 0.86f, 0.86f) },
+                                 { 1, blue ? D2D1::ColorF(0.56f, 0.80f, 1.0f) : D2D1::ColorF(0.98f, 0.98f, 0.98f) } };
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.10f));  // a sombrinha embaixo
+    if (ellipse) dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 + 1 }, (r.right - r.left) / 2, (r.bottom - r.top) / 2), br);
+    else dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1), rad, rad), br);
+    LeoGrad(dc, r, rad, st, 4, ellipse);
+    br->SetColor(blue ? D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.9f) : D2D1::ColorF(0, 0, 0, 0.40f));
+    D2D1_RECT_F e = D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f);
+    if (ellipse) dc->DrawEllipse(D2D1::Ellipse({ (e.left + e.right) / 2, (e.top + e.bottom) / 2 }, (e.right - e.left) / 2, (e.bottom - e.top) / 2), br, 1);
+    else dc->DrawRoundedRectangle(D2D1::RoundedRect(e, rad - 0.5f, rad - 0.5f), br, 1);
+}
+IDWriteTextFormat* LeoFmt(float size, bool bold, bool center = false) {
+    auto* f = ui::FormatFace(L"Lucida Sans Unicode", size, bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL);
+    if (f) {
+        f->SetWordWrapping(center ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
+        if (center) f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        DWRITE_TRIMMING t{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        IDWriteInlineObject* dots = nullptr; ui::dw->CreateEllipsisTrimmingSign(f, &dots);
+        f->SetTrimming(&t, dots);
+        if (dots) dots->Release();
+    }
+    return f;
+}
 
 void Tile(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1_RECT_F r) {
     if (liquid::On()) {  // Tahoe: módulos em cápsulas de vidro (meia altura até 24 pt)
@@ -636,6 +682,15 @@ void Tile(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1_R
         liquid::Tile(dc, r, rad, ui::Dark());
         return;
     }
+    if (liquid::Leopard()) {  // caixa de grupo do 10.5: cinza bem claro afundado, fio mais escuro em cima
+        br->SetColor(p.tile);
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, 5, 5), br);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.13f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 4.5f, 4.5f), br, 1);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.07f));
+        dc->DrawLine({ r.left + 5, r.top + 1.5f }, { r.right - 5, r.top + 1.5f }, br, 1);
+        return;
+    }
     br->SetColor(p.tile);
     dc->FillRoundedRectangle(D2D1::RoundedRect(r, TILE_R, TILE_R), br);
     br->SetColor(p.tileLine);
@@ -644,6 +699,12 @@ void Tile(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1_R
 
 // círculo de liga/desliga (azul quando ligado) com o símbolo branco
 void Circle(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1_POINT_2F c, float r, bool on, const wchar_t* sym, wchar_t fb, D2D1_COLOR_F onColor) {
+    if (liquid::Leopard()) {  // botão redondo de gel: azul ligado, perolado desligado
+        LeoGel(dc, br, D2D1::RectF(c.x - r, c.y - r, c.x + r, c.y + r), r, on, true);
+        float s = r * 0.58f;
+        Sym(dc, br, sym, fb, D2D1::RectF(c.x - s, c.y - s, c.x + s, c.y + s), on ? D2D1::ColorF(1, 1, 1, 1) : p.offGlyph);
+        return;
+    }
     if (liquid::On() && !on) liquid::Tile(dc, D2D1::RectF(c.x - r, c.y - r, c.x + r, c.y + r), r, ui::Dark(), 1.3f);  // Tahoe: círculo de vidro
     else if (liquid::On()) {  // Tahoe ligado: círculo branco com o símbolo na cor do controle
         br->SetColor(D2D1::ColorF(1, 1, 1, 0.97f));
@@ -663,6 +724,24 @@ void Circle(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1
 // controle deslizante grosso do Sequoia: trilho translúcido, parte cheia branca e botão redondo na ponta
 void Slider(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1_RECT_F t, float v, const wchar_t* sym, wchar_t fb) {
     float h = t.bottom - t.top, rad = h / 2;
+    if (liquid::Leopard()) {
+        // controle deslizante do 10.5: símbolo pequeno à esquerda, trilha fina afundada com a parte cheia em gel azul
+        // e o botão redondo perolado
+        float cy = (t.top + t.bottom) / 2, s = 7;
+        Sym(dc, br, sym, fb, D2D1::RectF(t.left, cy - s, t.left + 2 * s, cy + s), p.text2);
+        D2D1_RECT_F tr = D2D1::RectF(t.left + 2 * s + 10, cy - 3, t.right - 4, cy + 3);
+        D2D1_GRADIENT_STOP g0[2] = { { 0, D2D1::ColorF(0.62f, 0.62f, 0.64f) }, { 1, D2D1::ColorF(0.86f, 0.86f, 0.87f) } };
+        LeoGrad(dc, tr, 3, g0, 2);
+        float x = tr.left + std::clamp(v, 0.f, 1.f) * (tr.right - tr.left);
+        if (x > tr.left + 1) {
+            D2D1_GRADIENT_STOP g1[3] = { { 0, D2D1::ColorF(0.30f, 0.52f, 0.90f) }, { 0.5f, D2D1::ColorF(0.42f, 0.66f, 0.96f) }, { 1, D2D1::ColorF(0.62f, 0.82f, 1.0f) } };
+            LeoGrad(dc, D2D1::RectF(tr.left, tr.top, x, tr.bottom), 3, g1, 3);
+        }
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.35f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tr.left + 0.5f, tr.top + 0.5f, tr.right - 0.5f, tr.bottom - 0.5f), 2.5f, 2.5f), br, 1);
+        LeoGel(dc, br, D2D1::RectF(x - 8, cy - 8, x + 8, cy + 8), 8, false, true);
+        return;
+    }
     if (liquid::On()) {  // Tahoe: trilho fino (4 pt) com a parte cheia branca, símbolo à esquerda, sem botão grande
         // guia macOS26-Theme-Reference (seções 21 e 40, medido): trilho de 219 no meio do módulo, ícones de 16 nas
         // duas pontas, trilho #E8E8E8 (claro) / #232323 (escuro) e a parte cheia branca
@@ -725,8 +804,41 @@ void Paint() {
     dc->CreateLayer(nullptr, &layer);
     dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), t), layer);
     const float R = PanelR();
-    if (!g_glass) { dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, PW, PanelH()), R, R), br); }
-    if (liquid::On()) {
+    const bool leo = liquid::Leopard();
+    // Leopard: as fontes em Lucida (trocadas só durante este desenho)
+    static IDWriteTextFormat *lB = LeoFmt(13, true), *lS = LeoFmt(11, false), *lT = LeoFmt(10, false, true);
+    struct Swap { IDWriteTextFormat **a, *b; ~Swap() { if (a) *a = b; } };
+    Swap sw1{ leo && lB ? &g_tfBold : nullptr, g_tfBold }, sw2{ leo && lS ? &g_tfSmall : nullptr, g_tfSmall }, sw3{ leo && lT ? &g_tfTile : nullptr, g_tfTile };
+    if (leo) {
+        if (lB) g_tfBold = lB;
+        if (lS) g_tfSmall = lS;
+        if (lT) { lT->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR); lT->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, 12, 9.5f); g_tfTile = lT; }
+        if (g_back && IsWindowVisible(g_back)) ShowWindow(g_back, SW_HIDE);  // sem o vidro desfocado
+        // o menu do 10.5: preso embaixo da barra (topo reto), cantos de baixo arredondados, branco quase opaco
+        ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
+        ID2D1PathGeometry* pg = nullptr;
+        float W = PW, H = PanelH();
+        if (fac && SUCCEEDED(fac->CreatePathGeometry(&pg))) {
+            ID2D1GeometrySink* sk = nullptr;
+            if (SUCCEEDED(pg->Open(&sk))) {
+                sk->BeginFigure({ 0, 0 }, D2D1_FIGURE_BEGIN_FILLED);
+                sk->AddLine({ W, 0 }); sk->AddLine({ W, H - R });
+                sk->AddArc(D2D1::ArcSegment({ W - R, H }, { R, R }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                sk->AddLine({ R, H });
+                sk->AddArc(D2D1::ArcSegment({ 0, H - R }, { R, R }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+                br->SetColor(p.tint);
+                dc->FillGeometry(pg, br);
+                br->SetColor(D2D1::ColorF(0, 0, 0, 0.28f));
+                dc->DrawGeometry(pg, br, 1);
+            }
+            pg->Release();
+        }
+        if (fac) fac->Release();
+    }
+    else if (!g_glass) { dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, PW, PanelH()), R, R), br); }
+    if (leo) {}
+    else if (liquid::On()) {
         if (!backdrop::Liquid()) liquid::Rim(dc, D2D1::RectF(0, 0, PW, PanelH()), R, ui::Dark());  // com o Liquid Glass o vidro já desenha o contorno
     } else {
     // borda do painel: escura por fora, clara por dentro (como o Dock)
@@ -773,8 +885,11 @@ void Paint() {
                                          std::tuple{ mir, L"rectangle.on.rectangle", (wchar_t)0xEC15, Tr(L"Espelhar\nTela"), H_MIRROR } }) {
         Tile(dc, br, p, r);
         if (id == H_STAGE && palco::On()) {  // ligado: o módulo fica aceso (azul), como os outros ligados
+            if (leo) LeoGel(dc, br, r, 5, true);
+            else {
             br->SetColor(D2D1::ColorF(0.04f, 0.47f, 1.f, 0.85f));
             dc->FillRoundedRectangle(D2D1::RoundedRect(r, 12, 12), br);
+            }
         }
         float cx = (r.left + r.right) / 2;
         Sym(dc, br, sym, fb, D2D1::RectF(cx - 10, r.top + 12, cx + 10, r.top + 28), id == H_STAGE && palco::On() ? D2D1::ColorF(1, 1, 1, 1) : p.text);
@@ -845,7 +960,7 @@ void Paint() {
     ui::GpuEnd(g_s);
     float pvx, pvy; Pivot(wpx, pvx, pvy);
     ui::GpuScale(g_s, mo.scale, pvx, pvy);
-    if (g_glass) backdrop::Fade(g_back, t, mo.scale, pvx, pvy);
+    if (g_glass && !leo) backdrop::Fade(g_back, t, mo.scale, pvx, pvy);
 }
 
 void Place() {
@@ -856,8 +971,9 @@ void Place() {
     int x = mi.rcMonitor.right - wpx - (int)std::lround(8 * sc), y = mi.rcMonitor.top + menubar::Height() + (int)std::lround(6 * sc);
     // Tahoe (guia, seção 40): os módulos começam 12 abaixo da barra e terminam a 14 da borda direita
     if (Tahoe()) { x = mi.rcMonitor.right - wpx - (int)std::lround((14 - T_M) * sc); y = mi.rcMonitor.top + menubar::Height() + (int)std::lround((12 - T_M) * sc); }
+    if (liquid::Leopard()) y = mi.rcMonitor.top + menubar::Height();  // Leopard: o menu sai colado na barra
     SetWindowPos(g_wnd, HWND_TOPMOST, x, y, wpx, hpx, SWP_NOACTIVATE);
-    SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE | (liquid::Leopard() ? 0 : SWP_SHOWWINDOW));
     // o desfoque por baixo da Central (só o desfoque, embaixo da barra de menus). Desligado por padrão desde
     // 16/11/2026: em cima de alguns fundos (Discord) ele embaçava o vidro dos módulos e deixava um brilho em
     // volta deles; o usuário confirmou que sumiu sem ele. central_veu=1 liga de novo.

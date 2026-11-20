@@ -42,6 +42,8 @@
 #include "../comum/idioma.h"
 #include "../comum/pressao.h"  // pressão de memória como a do Mac (a mesma conta do Shell)
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"  // tema Mac OS X: o metal da barra unificada
+#define LEO (semaforo::Leopard())
 
 // Peças do Finder (src/finder): desenho com alfa real (Direct2D sobre DirectComposition), a janela do
 // Tahoe com cantos de 26 pt e vidro da Composição, e a sombra própria que segue o canto redondo. As mesmas
@@ -580,6 +582,10 @@ Pal Colors() {  // Tahoe: o fundo da janela leva 10 % da cor do papel de parede 
     return p;
 }
 Pal ColorsBase() {
+    // Mac OS X (Leopard): fundo branco, listras azul-acinzentadas bem claras, seleção azul do Aqua, painel de metal claro
+    if (LEO) return { D2D1::ColorF(1, 1, 1), D2D1::ColorF(0.80f, 0.80f, 0.80f), D2D1::ColorF(0, 0, 0, 0.90f), D2D1::ColorF(0, 0, 0, 0.55f),
+                      D2D1::ColorF(0, 0, 0, 0.15f), D2D1::ColorF(243 / 255.f, 246 / 255.f, 250 / 255.f), D2D1::ColorF(0.89f, 0.89f, 0.89f), D2D1::ColorF(1, 1, 1),
+                      D2D1::ColorF(56 / 255.f, 117 / 255.f, 215 / 255.f), D2D1::ColorF(1, 1, 1), D2D1::ColorF(0.55f, 0.55f, 0.56f), D2D1::ColorF(1, 1, 1) };
     if (g_tahoe) {  // a barra e o painel são o próprio fundo; cápsulas de vidro claras por cima
         if (g_dark) return { D2D1::ColorF(0.110f, 0.110f, 0.118f), D2D1::ColorF(0.110f, 0.110f, 0.118f), D2D1::ColorF(1, 1, 1, 0.90f), D2D1::ColorF(1, 1, 1, 0.50f),
                              D2D1::ColorF(1, 1, 1, 0.10f), D2D1::ColorF(1, 1, 1, 0.045f), D2D1::ColorF(0.110f, 0.110f, 0.118f), D2D1::ColorF(1, 1, 1, 0.035f),
@@ -740,13 +746,22 @@ std::vector<std::pair<float, float>> ColSpans() {  // (esquerda, direita) de cad
 // pílula 1: Encerrar (273) e Informações (307,5); pílula 2: Ações (354,5) com a setinha (371)
 const D2D1_RECT_F PILL_A{ 282, PILL_TOP, 350, PILL_TOP + PILL_H }, PILL_B{ 362, PILL_TOP, 406, PILL_TOP + PILL_H };  // medidas do Tahoe
 D2D1_RECT_F BtnRect(int k) {  // área de clique de cada botão
+    // Mac OS X: na linha de ferramentas (embaixo do título de 22): Encerrar, Informações e a engrenagem ▾ em molduras de metal
+    if (LEO) return k == 0 ? D2D1_RECT_F{ 12, 26, 44, 48 } : k == 1 ? D2D1_RECT_F{ 50, 26, 82, 48 } : D2D1_RECT_F{ 88, 26, 128, 48 };
     if (k == 0) return { PILL_A.left, PILL_A.top, 317, PILL_A.bottom };
     if (k == 1) return { 317, PILL_A.top, PILL_A.right, PILL_A.bottom };
     return PILL_B;
 }
-D2D1_RECT_F SegRect(int i) { return { SEG_X + i * SEG_W, PILL_TOP, SEG_X + (i + 1) * SEG_W, PILL_TOP + SEG_H }; }
-D2D1_RECT_F SearchRect() { auto s = Client(); float r = s.width - 8; return { std::max(SEG_X + SEG_W * T_COUNT + 10, r - SEARCH_W), PILL_TOP, r, PILL_TOP + PILL_H }; }
-D2D1_POINT_2F LightCenter(int k) { return { 26.f + k * 23, 25 }; }  // como na referência
+D2D1_RECT_F SegRect(int i) {
+    if (LEO) { float w = 62, x0 = std::round(Client().width / 2 - w * T_COUNT / 2); return { x0 + i * w, 27, x0 + (i + 1) * w, 47 }; }  // Mac OS X: abas no meio
+    return { SEG_X + i * SEG_W, PILL_TOP, SEG_X + (i + 1) * SEG_W, PILL_TOP + SEG_H };
+}
+D2D1_RECT_F SearchRect() {
+    auto s = Client();
+    if (LEO) return { s.width - 12 - 130, 27, s.width - 12, 47 };
+    float r = s.width - 8; return { std::max(SEG_X + SEG_W * T_COUNT + 10, r - SEARCH_W), PILL_TOP, r, PILL_TOP + PILL_H };
+}
+D2D1_POINT_2F LightCenter(int k) { return LEO ? D2D1_POINT_2F{ 14.5f + k * 21, 11 } : D2D1_POINT_2F{ 26.f + k * 23, 25 }; }  // como na referência
 
 // ---- desenho
 void Line(ID2D1RenderTarget* rt, ID2D1Brush* b, float x1, float y1, float x2, float y2, float w = 1.4f) { rt->DrawLine({ x1, y1 }, { x2, y2 }, b, w); }
@@ -771,7 +786,97 @@ void DrawLights(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br) {
     }
 }
 
+void Grad(ID2D1RenderTarget* rt, D2D1_RECT_F r, float rad, std::initializer_list<D2D1_GRADIENT_STOP> st) {
+    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+    if (SUCCEEDED(rt->CreateGradientStopCollection(st.begin(), (UINT32)st.size(), &gs)) &&
+        SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+        rt->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+    if (lb) lb->Release();
+    if (gs) gs->Release();
+}
+// Mac OS X: a barra unificada de metal (título de 22 no meio e a linha de ferramentas embaixo)
+void DrawToolbarLeopard(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& pal) {
+    auto s = Client();
+    leopard::Metal(rt, D2D1::RectF(0, 0, s.width, TOOLBAR_H), g_active, false, true, 0);
+    DrawLights(rt, br);
+    static IDWriteTextFormat* tt = [] {
+        IDWriteTextFormat* f = nullptr;
+        g_dw->CreateTextFormat(L"Lucida Sans Unicode", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13, L"pt-br", &f);
+        if (f) { f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); }
+        return f;
+    }();
+    std::wstring title = Tr(L"Monitor de Atividade") + std::wstring(L" (") + Tr(L"Todos os Processos") + L")";
+    Text(rt, br, title, tt, D2D1::RectF(80, 0, s.width - 80, 22), D2D1::ColorF(0, 0, 0, g_active ? 0.85f : 0.45f));
+    auto bezel = [&](D2D1_RECT_F r, bool down) {  // moldura de metal clara dos botões do 10.5
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.45f));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1), 4, 4), br);
+        if (down) Grad(rt, r, 4, { { 0, D2D1::ColorF(0.50f, 0.50f, 0.51f) }, { 1, D2D1::ColorF(0.66f, 0.66f, 0.67f) } });
+        else Grad(rt, r, 4, { { 0, D2D1::ColorF(0.99f, 0.99f, 0.99f) }, { 1, D2D1::ColorF(0.84f, 0.84f, 0.84f) } });
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.42f));
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 3.5f, 3.5f), br, 1);
+    };
+    bool sel = Selected() != nullptr;
+    for (int k = 0; k < 3; k++) {
+        auto r = BtnRect(k);
+        bezel(r, false);
+        bool en = k == 2 || sel;
+        br->SetColor(D2D1::ColorF(0.1f, 0.1f, 0.1f, en ? 0.85f : 0.30f));
+        float cx = k == 2 ? r.left + 15 : (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+        if (k == 0) {  // o círculo com o X (Encerrar Processo)
+            rt->FillEllipse(D2D1::Ellipse({ cx, cy }, 7, 7), br);
+            br->SetColor(D2D1::ColorF(0.95f, 0.95f, 0.95f));
+            Line(rt, br, cx - 3, cy - 3, cx + 3, cy + 3, 1.6f); Line(rt, br, cx - 3, cy + 3, cx + 3, cy - 3, 1.6f);
+        } else if (k == 1) {  // o "i" num círculo
+            rt->FillEllipse(D2D1::Ellipse({ cx, cy }, 7, 7), br);
+            br->SetColor(D2D1::ColorF(0.95f, 0.95f, 0.95f));
+            rt->FillEllipse(D2D1::Ellipse({ cx, cy - 3.3f }, 1.1f, 1.1f), br);
+            Line(rt, br, cx, cy - 0.8f, cx, cy + 3.8f, 1.7f);
+        } else {  // a engrenagem ▾
+            for (int i = 0; i < 8; i++) { float a = i * 3.14159265f / 4; Line(rt, br, cx + std::cos(a) * 4.8f, cy + std::sin(a) * 4.8f, cx + std::cos(a) * 7.2f, cy + std::sin(a) * 7.2f, 2.2f); }
+            rt->FillEllipse(D2D1::Ellipse({ cx, cy }, 5, 5), br);
+            br->SetColor(D2D1::ColorF(0.9f, 0.9f, 0.9f)); rt->FillEllipse(D2D1::Ellipse({ cx, cy }, 1.8f, 1.8f), br);
+            br->SetColor(D2D1::ColorF(0.1f, 0.1f, 0.1f, 0.85f));
+            float ax = r.right - 10;
+            Line(rt, br, ax - 3, cy - 1.5f, ax, cy + 1.5f, 1.6f); Line(rt, br, ax, cy + 1.5f, ax + 3, cy - 1.5f, 1.6f);
+        }
+    }
+    // as abas: controle segmentado de metal, a escolhida afundada
+    D2D1_RECT_F all{ SegRect(0).left, SegRect(0).top, SegRect(T_COUNT - 1).right, SegRect(0).bottom };
+    bezel(all, false);
+    {
+        auto r = SegRect(g_tab);
+        Grad(rt, D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), g_tab == 0 || g_tab == T_COUNT - 1 ? 3.f : 0.f,
+             { { 0, D2D1::ColorF(0.52f, 0.52f, 0.53f) }, { 1, D2D1::ColorF(0.68f, 0.68f, 0.69f) } });
+    }
+    static IDWriteTextFormat* ts = [] {
+        IDWriteTextFormat* f = nullptr;
+        g_dw->CreateTextFormat(L"Lucida Sans Unicode", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 12, L"pt-br", &f);
+        if (f) { f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); }
+        return f;
+    }();
+    for (int i = 0; i < T_COUNT; i++) {
+        auto r = SegRect(i);
+        if (i + 1 < T_COUNT) { br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f)); Line(rt, br, std::floor(r.right) + 0.5f, r.top + 1, std::floor(r.right) + 0.5f, r.bottom - 1, 1); }
+        Text(rt, br, TAB_NAMES[i], ts, r, i == g_tab ? D2D1::ColorF(1, 1, 1) : D2D1::ColorF(0, 0, 0, 0.88f));
+    }
+    // a busca: o campo branco redondo afundado com a lupa ▾
+    auto sr = SearchRect();
+    float rad = (sr.bottom - sr.top) / 2;
+    br->SetColor(D2D1::ColorF(1, 1, 1));
+    rt->FillRoundedRectangle(D2D1::RoundedRect(sr, rad, rad), br);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.12f));
+    rt->FillRectangle(D2D1::RectF(sr.left + rad, sr.top + 1, sr.right - rad, sr.top + 3), br);
+    br->SetColor(g_searchFocus ? D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.9f) : D2D1::ColorF(0, 0, 0, 0.45f));
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 0.5f, sr.top + 0.5f, sr.right - 0.5f, sr.bottom - 0.5f), rad - 0.5f, rad - 0.5f), br, g_searchFocus ? 2.f : 1.f);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.6f));
+    float mx = sr.left + 12, my = (sr.top + sr.bottom) / 2 - 1;
+    rt->DrawEllipse(D2D1::Ellipse({ mx, my }, 4, 4), br, 1.4f);
+    Line(rt, br, mx + 2.8f, my + 2.8f, mx + 5.5f, my + 5.5f, 1.6f);
+    Text(rt, br, g_search + (g_searchFocus && GetTickCount() / 530 % 2 == 0 ? L"|" : L""), g_f13, D2D1::RectF(sr.left + 24, sr.top, sr.right - 10, sr.bottom), pal.text);
+}
+
 void DrawToolbar(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& pal) {
+    if (LEO) { DrawToolbarLeopard(rt, br, pal); return; }
     auto s = Client();
     br->SetColor(pal.bar);
     rt->FillRectangle(D2D1::RectF(0, 0, s.width, TOOLBAR_H), br);
@@ -868,6 +973,13 @@ void DrawHeader(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& pal)
     br->SetColor(pal.bg);
     rt->FillRectangle(D2D1::RectF(0, TOOLBAR_H, s.width, TOOLBAR_H + HEADER_H), br);
     auto spans = ColSpans();
+    if (LEO) {  // Mac OS X: cabeçalho branco com degradê, a coluna da ordem em azul claro do Aqua
+        Grad(rt, D2D1::RectF(0, TOOLBAR_H, s.width, TOOLBAR_H + HEADER_H), 0, { { 0, D2D1::ColorF(1, 1, 1) }, { 1, D2D1::ColorF(0.90f, 0.90f, 0.90f) } });
+        int sc = g_sortCol[g_tab];
+        if (sc >= 0 && sc < (int)spans.size())
+            Grad(rt, D2D1::RectF(spans[sc].first, TOOLBAR_H, spans[sc].second, TOOLBAR_H + HEADER_H), 0,
+                 { { 0, D2D1::ColorF(0.80f, 0.89f, 0.99f) }, { 0.5f, D2D1::ColorF(0.64f, 0.79f, 0.97f) }, { 1, D2D1::ColorF(0.74f, 0.86f, 0.99f) } });
+    }
     for (size_t i = 0; i < COLS[g_tab].size(); i++) {
         const Col& c = COLS[g_tab][i];
         bool sorted = (int)i == g_sortCol[g_tab];
@@ -1297,7 +1409,8 @@ LRESULT HitTestNC(HWND h, LPARAM l) {
     }
     D2D1_POINT_2F p{ pt.x / sc, pt.y / sc };
     if (p.y < TOOLBAR_H && g_sheet == SH_NONE) {
-        bool control = (p.x < 82) || In(SearchRect(), p) || In(PILL_A, p) || In(PILL_B, p) || (p.x >= SEG_X && p.x < SEG_X + T_COUNT * SEG_W);
+        bool control = (p.x < 82 && (!LEO || p.y < 22)) || In(SearchRect(), p) || In(BtnRect(0), p) || In(BtnRect(1), p) || In(BtnRect(2), p) ||
+                       (LEO ? (p.x >= SegRect(0).left && p.x < SegRect(T_COUNT - 1).right && p.y >= 22) : (p.x >= SEG_X && p.x < SEG_X + T_COUNT * SEG_W));
         for (int k = 0; k < 3; k++) if (In(BtnRect(k), p)) control = true;
         if (!control) return HTCAPTION;
     }

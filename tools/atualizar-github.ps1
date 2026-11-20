@@ -64,11 +64,17 @@ Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB)) MB).
 $dh = $h.Clone(); $dh['Accept'] = 'application/octet-stream'
 $ProgressPreference = 'SilentlyContinue'  # the PowerShell progress bar makes downloads very slow
 Invoke-WebRequest -UseBasicParsing -Headers $dh -Uri $asset.url -OutFile $zip
+# the package must be exactly the one GitHub published (the release lists its SHA-256 as "digest")
+if ($asset.digest -match '^sha256:([0-9a-fA-F]{64})$') {
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $Matches[1].ToUpper()) { Remove-Item $tmp -Recurse -Force; Fim 'The download does not match the published package (SHA-256). Nothing was installed.' 8 }
+    Write-Host 'SHA-256 checked.'
+}
 Write-Host 'Extracting...'
 Expand-Archive $zip (Join-Path $tmp 'pacote') -Force
 $script = Get-ChildItem (Join-Path $tmp 'pacote') -Recurse -Filter instalar.ps1 | Select-Object -First 1
 if (-not $script) { Fim 'The package has no instalar.ps1.' 8 }
 Write-Host 'Installing (only the files that changed; WacOS closes and reopens by itself)...'
-& powershell -NoProfile -ExecutionPolicy Bypass -File $script.FullName -Atualizar -Silencioso
+# in this same PowerShell, no second PowerShell started on the downloaded file
+& $script.FullName -Atualizar -Silencioso
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Fim "Done: WacOS $novo installed."

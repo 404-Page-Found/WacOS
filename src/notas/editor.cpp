@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include "../comum/simbolos.h"
+#include "../comum/semaforo.h"  // tema Leopard: o papel amarelo pautado das Notas do 10.5
 
 using editor::Pos;
 
@@ -387,6 +388,19 @@ void Draw(ID2D1DeviceContext* dc, D2D1_RECT_F a) {
     dc->PushAxisAlignedClip(a, D2D1_ANTIALIAS_MODE_ALIASED);
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(TextColor(), &br);
+    if (semaforo::Leopard()) {
+        // Leopard: o bloco amarelo das Notas do Mail — amarelo-claro, as pautas finas a cada 24 (rolam com o texto) e a
+        // margem dupla avermelhada à esquerda
+        br->SetColor(D2D1::ColorF(1, 0.976f, 0.73f));
+        dc->FillRectangle(a, br);
+        br->SetColor(D2D1::ColorF(0.55f, 0.62f, 0.80f, 0.35f));
+        float y0 = a.top + 40 - std::fmod(scrollY, 24.f);
+        for (float y = y0; y < a.bottom; y += 24) dc->DrawLine({ a.left, y }, { a.right, y }, br, 1);
+        br->SetColor(D2D1::ColorF(0.85f, 0.35f, 0.30f, 0.45f));
+        dc->DrawLine({ a.left + 10, a.top }, { a.left + 10, a.bottom }, br, 1);
+        dc->DrawLine({ a.left + 13, a.top }, { a.left + 13, a.bottom }, br, 1);
+        br->SetColor(TextColor());
+    }
 
     // data no alto, centralizada e cinza
     {

@@ -1,7 +1,8 @@
 #pragma once
 // Base dos apps pequenos desenhados com Direct2D (Lembretes, Calendário): fábricas, fonte SF/Inter/Segoe,
 // tema claro/escuro, texto, campo de edição (EDIT do Windows por cima, sem borda) e o arquivo de dados em
-// %APPDATA%\Shell. A barra de título do Mac vem da WacOSWindow.dll (a janela é comum, com barra do Windows).
+// %APPDATA%\Shell. A barra de título do Mac vem da WacOSWindow.dll (a janela é comum, com barra do Windows),
+// que o próprio app carrega no CreateMain (barra_mac.h), com ou sem o Shell.
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -21,6 +22,7 @@
 #include <vector>
 #include "idioma.h"
 #include "semaforo.h"  // semaforo::Aqua(): tema macOS Golden Gate
+#include "barra_mac.h"  // a WacOSWindow.dll carregada pelo próprio app (barra do Mac sem o Shell)
 #include <commctrl.h>
 #include <shellapi.h>
 #pragma comment(lib, "comctl32.lib")
@@ -413,10 +415,13 @@ inline HWND CreateMain(HINSTANCE hi, const wchar_t* cls, const wchar_t* title, W
     GetMonitorInfoW(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY), &mi);
     float s = GetDpiForSystem() / 96.f;
     int W = (int)(w * s), H = (int)(h * s);
+    // os três botões do Mac vêm da WacOSWindow.dll, carregada aqui mesmo (barra_mac.h): sem ela (DLL faltando),
+    // fica a barra comum do Windows, nunca a barra unificada sem botão nenhum
+    bool mac = barramac::Ligar();
     wnd = CreateWindowExW(0, cls, title, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - W) / 2,
                           mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - H) / 2, W, H, nullptr, nullptr, hi, nullptr);
     if (wnd) { BOOL dark = Dark(); DwmSetWindowAttribute(wnd, 20, &dark, sizeof(dark)); }
-    if (wnd && semaforo::Aqua() && barWanted > 0) {  // macOS 27: barra de ferramentas unificada
+    if (wnd && mac && semaforo::Aqua() && barWanted > 0) {  // macOS 27: barra de ferramentas unificada
         BAR = barWanted;
         SetPropW(wnd, L"WacOSBarraUnificada", (HANDLE)(INT_PTR)std::lround(BAR));
         SetWindowSubclass(wnd, UnifiedSub, 0x55A1, 0);

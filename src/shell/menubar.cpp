@@ -517,10 +517,11 @@ bool BarBackground() {
 
 void BarGlass(HWND bar) {
     if (!bar) return;
-    if (liquid::Leopard()) {  // Leopard: o degradê branco translúcido vem do Render (opaca: acrílico cheio por baixo)
-        ui::Acrylic(bar, shell::Setting(L"barra_translucida", L"1") == L"1" ? 0x30F2F2F2u : 0xFFE6E6E6u);
-        return;
-    }
+    // Leopard: o degradê branco translúcido vem do Render. Translúcida (padrão): transparência de verdade, SEM desfoque
+    // (o 10.5 deixava o papel de parede aparecer nítido através da barra); opaca: acrílico cheio por baixo
+    const bool leoClear = liquid::Leopard() && shell::Setting(L"barra_translucida", L"1") == L"1";
+    if (liquid::Leopard() && !leoClear) { ui::Acrylic(bar, 0xFFE6E6E6u); return; }
+    if (!leoClear)
     if (BarBackground()) { ui::Acrylic(bar, ui::Dark() ? 0x40141414u : 0x55F4F4F4u); return; }  // vidro bem claro: o papel de parede aparece, como no Mac
     // sem fundo: o DWM só respeita o alfa do que a barra desenha (nada de desfoque)
     struct ACCENT_POLICY { int state, flags; DWORD gradient; int anim; };
@@ -639,7 +640,7 @@ void Render() {
     bool liquid = backdrop::Liquid(), bgOn = BarBackground();
     D2D1_COLOR_F veil = dark ? D2D1::ColorF(0.06f, 0.06f, 0.07f, 0.18f) : D2D1::ColorF(1, 1, 1, 0.26f);
     if (liquid) veil.a = backdrop::Current().tinted ? veil.a : veil.a * 0.35f;
-    if (!bgOn) veil.a = 0;  // sem fundo (Tahoe): só o papel de parede atrás
+    if (!bgOn || leo) veil.a = 0;  // sem fundo (Tahoe): só o papel de parede atrás; Leopard: o degradê do Render é o fundo todo
     rt->CreateSolidColorBrush(veil, &br);
     rt->FillRectangle(D2D1::RectF(0, 0, W, H), br);  // tinta leve por cima do acrílico
     if (leo) {
@@ -649,7 +650,9 @@ void Render() {
         // medido numa captura do 10.5 a 1x: 248 no alto -> 204 embaixo, a linha de baixo quase preta
         // Aparência > "Barra de menus translúcida" desligada (o 10.5.2 trouxe a opção): opaca
         const float op = shell::Setting(L"barra_translucida", L"1") == L"1" ? 1.f : 1.12f;
-        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(248 / 255.f, 248 / 255.f, 248 / 255.f, std::min(1.f, 0.90f * op)) }, { 1, D2D1::ColorF(204 / 255.f, 204 / 255.f, 204 / 255.f, std::min(1.f, 0.88f * op)) } };
+        // translúcida: ~72 % de branco (o papel de parede passa nítido, como nas capturas do 10.5); opaca: cheia
+        const float a0 = op > 1 ? 1.f : 0.74f, a1 = op > 1 ? 1.f : 0.70f;
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(248 / 255.f, 248 / 255.f, 248 / 255.f, a0) }, { 1, D2D1::ColorF(214 / 255.f, 214 / 255.f, 214 / 255.f, a1) } };
         ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
         if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
             SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, 0 }, { 0, H }), gs, &lb)))

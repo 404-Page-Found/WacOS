@@ -70,8 +70,15 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
 
 }  // namespace
 
+static UINT_PTR g_timer;  // sem janela: o Windows dá o número do temporizador (o T_CANTO é ignorado)
 void cantos::Start() {
-    SetTimer(nullptr, T_CANTO, 50, Tick);
+    g_timer = SetTimer(nullptr, T_CANTO, 50, Tick);
+}
+
+// modo jogo (jogo.cpp): sem ler o ponteiro 20 vezes por segundo enquanto o jogo roda
+void cantos::Pausar(bool p) {
+    if (p && g_timer) { KillTimer(nullptr, g_timer); g_timer = 0; }
+    else if (!p && !g_timer) g_timer = SetTimer(nullptr, T_CANTO, 50, Tick);
 }
 
 bool cantos::NotaRapida() { return ActionOf(3) == L"nota"; }

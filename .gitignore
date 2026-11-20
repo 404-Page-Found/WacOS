@@ -27,3 +27,6 @@ icones/goldengate/
 icones/leopard/
 # Mac OS X cursor pack (RaZcaLinSIDe), downloaded by the user: personal use, rebuilt by tools/cursor-leopard.py
 cursor/Leopard/
+
+# Python bytecode of the tools
+__pycache__/

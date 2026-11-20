@@ -135,7 +135,16 @@ void AnimateTo(float target, double now) {
     g_animMs = target > g_mag ? GROW_MS : SHRINK_MS;
 }
 
+const UINT WM_PT_PAUSA = WM_APP + 0x50;  // modo jogo: wParam 1 tira o Raw Input, 0 devolve
+
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_PT_PAUSA) {
+        // num jogo, cada movimento do mouse (1000 por segundo num mouse de jogo) acordava esta thread
+        RAWINPUTDEVICE rid{ 0x01, 0x02, w ? (DWORD)RIDEV_REMOVE : (DWORD)RIDEV_INPUTSINK, w ? nullptr : h };
+        RegisterRawInputDevices(&rid, 1, sizeof(rid));
+        if (w) { g_hist.clear(); AnimateTo(1.f, anim::Now()); }
+        return 0;
+    }
     if (m == WM_INPUT) {
         RAWINPUT ri; UINT sz = sizeof(ri);
         if (GetRawInputData((HRAWINPUT)l, RID_INPUT, &ri, &sz, sizeof(RAWINPUTHEADER)) != (UINT)-1 && ri.header.dwType == RIM_TYPEMOUSE) {
@@ -200,6 +209,8 @@ void ponteiro::Start() {
     if (shell::Setting(L"sacudir_ponteiro", L"1") != L"1") return;
     std::thread(Thread).detach();
 }
+
+void ponteiro::Pausar(bool p) { if (g_wnd) PostMessageW(g_wnd, WM_PT_PAUSA, p ? 1 : 0, 0); }
 
 void ponteiro::Stop() {
     if (DWORD t = g_tid) PostThreadMessageW(t, WM_QUIT, 0, 0);

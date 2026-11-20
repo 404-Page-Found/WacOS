@@ -45,6 +45,8 @@ if ($Desfazer) {
     "QuickTime registrado ($Exe)"
 }
 # avisa o Explorador que as associações mudaram
-Add-Type -Namespace SQ -Name A -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int e, uint f, IntPtr a, IntPtr b);'
-[SQ.A]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+# avisar o Explorador: pelo WacOSShell.exe (modo ajudante), sem C# embutido no script
+$ajudante = Join-Path $PSScriptRoot '..\bin\WacOSShell.exe'
+function AvisarIcones { if (Test-Path $ajudante) { Start-Process $ajudante -ArgumentList '--avisar-icones' -Wait } }
+AvisarIcones
 if ($AbrirAjustes -and -not $Desfazer) { Start-Process ("ms-settings:defaultapps?registeredAppUser=" + [uri]::EscapeDataString($regName)) }

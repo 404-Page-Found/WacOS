@@ -22,6 +22,7 @@
 #include "../comum/ampliacao.h"  // botão verde com a animação do ampliar do Shell
 #include "../comum/idioma.h"
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"  // tema Mac OS X Leopard: a barra de metal e a barra lateral azul-acinzentada
 
 #pragma comment(lib, "imm32.lib")
 #pragma comment(lib, "windowscodecs.lib")
@@ -101,6 +102,13 @@ float ToolStart() { return g_sideHidden ? 128.f : SideW(); }  // onde começam o
 // ---- cores
 struct Pal { D2D1_COLOR_F side, list, editor, text, text2, text3, line, sel, selFocus, icon, iconOff, hover, field; };
 Pal Colors() {
+    // Leopard (as Notas do Mail do 10.5): barra lateral azul-acinzentada, lista branca com a seleção azul do Aqua; o papel
+    // amarelo pautado é desenhado pelo editor (editor.cpp)
+    if (semaforo::Leopard())
+        return { leopard::Sidebar(true, false), D2D1::ColorF(1, 1, 1), D2D1::ColorF(1, 0.98f, 0.76f),
+                 D2D1::ColorF(0, 0, 0, 0.90f), D2D1::ColorF(0, 0, 0, 0.55f), D2D1::ColorF(0, 0, 0, 0.30f), D2D1::ColorF(0, 0, 0, 0.12f),
+                 D2D1::ColorF(0.83f, 0.83f, 0.83f), D2D1::ColorF(56 / 255.f, 117 / 255.f, 215 / 255.f), D2D1::ColorF(0, 0, 0, 0.60f), D2D1::ColorF(0, 0, 0, 0.22f),
+                 D2D1::ColorF(0, 0, 0, 0.06f), D2D1::ColorF(1, 1, 1) };
     if (g_dark) return { D2D1::ColorF(0, 0, 0, 0.22f), D2D1::ColorF(0.157f, 0.157f, 0.165f), D2D1::ColorF(0.118f, 0.118f, 0.122f),
                          D2D1::ColorF(1, 1, 1, 0.88f), D2D1::ColorF(1, 1, 1, 0.50f), D2D1::ColorF(1, 1, 1, 0.30f), D2D1::ColorF(1, 1, 1, 0.09f),
                          D2D1::ColorF(1, 1, 1, 0.13f), D2D1::ColorF(0.60f, 0.47f, 0.07f), D2D1::ColorF(1, 1, 1, 0.58f), D2D1::ColorF(1, 1, 1, 0.22f),
@@ -823,6 +831,7 @@ void Render(ID2D1DeviceContext* dc) {
     if (!g_sideHidden) dc->FillRectangle(D2D1::RectF(SideW() - 0.5f, 0, SideW() + 0.5f, c.height), br);
     if (!g_gallery) dc->FillRectangle(D2D1::RectF(ListR() - 0.5f, 0, ListR() + 0.5f, c.height), br);
     if (g_listScroll > 0 && !g_gallery) { br->SetColor(pal.line); dc->FillRectangle(D2D1::RectF(ListL(), TOOLBAR_H - 0.5f, ListR(), TOOLBAR_H + 0.5f), br); }
+    if (semaforo::Leopard()) leopard::Metal(dc, D2D1::RectF(0, 0, c.width, TOOLBAR_H), GetForegroundWindow() == g_hwnd, false, true, 0);  // a barra unificada de metal
     DrawSidebar(dc, br, pal);
     DrawLights(dc, br);
     DrawToolbarButtons(dc, br, pal);
@@ -1321,7 +1330,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (l && !wcscmp((const wchar_t*)l, L"ImmersiveColorSet")) {
             DWORD v = 1, cb = sizeof(v);
             RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &cb);
-            g_dark = v == 0;
+            g_dark = v == 0 && !semaforo::Leopard();
             BOOL dm = g_dark; DwmSetWindowAttribute(h, 20, &dm, sizeof(dm));
             COLORREF border = g_dark ? RGB(88, 88, 92) : RGB(196, 196, 200); DwmSetWindowAttribute(h, 34, &border, sizeof(border));
             editor::SetDark(g_dark);
@@ -1689,7 +1698,7 @@ void CreateFormats() {
     if (g_fThumbT) g_fThumbT->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     if (g_fThumb) g_fThumb->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     g_fFmt[S_TITLE] = Fmt(19, B); g_fFmt[S_HEADING] = Fmt(15.5f, B); g_fFmt[S_SUBHEADING] = Fmt(13, B); g_fFmt[S_BODY] = Fmt(13, N); g_fFmt[S_MONO] = Fmt(12, N, DWRITE_TEXT_ALIGNMENT_LEADING, g_mono);
-    editor::SetFormats(g_family, g_mono);
+    editor::SetFormats(semaforo::Leopard() ? std::wstring(L"Segoe Print") : g_family, g_mono);  // Leopard: a letra manuscrita das notas (Marker Felt no Mac)
 }
 
 HICON PackIcon(const std::wstring& png, int px) {
@@ -1854,6 +1863,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     DWORD v = 1, cb = sizeof(v);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &cb);
     g_dark = forceDark >= 0 ? forceDark == 1 : v == 0;
+    if (semaforo::Leopard()) g_dark = false;  // o 10.5 não tinha modo escuro
     editor::SetDark(g_dark);
     store::Load();
     if (!g_capture && !g_quick) {

@@ -74,12 +74,13 @@ void sombras::Start() {
     g_hooks[0] = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnEvent, 0, 0, f);
     g_hooks[1] = SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, nullptr, OnEvent, 0, 0, f);
     g_hooks[2] = SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, nullptr, OnEvent, 0, 0, f);  // destruir, mostrar, esconder
-    g_hooks[3] = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnEvent, 0, 0, f);
+    jogo::GanchoPosicao(OnEvent, f);  // sai no modo jogo (jogo.cpp)
     EnumWindows([](HWND h, LPARAM) -> BOOL { Handle(h); return TRUE; }, 0);
 }
 
 void sombras::Stop() {
     for (auto& hk : g_hooks) if (hk) { UnhookWinEvent(hk); hk = nullptr; }
+    jogo::SoltarPosicao(OnEvent);
     for (auto& [h, s] : g_s) s->Destroy();
     g_s.clear();
 }

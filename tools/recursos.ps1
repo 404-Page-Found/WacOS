@@ -29,6 +29,7 @@ $itens = @(
     'WacOSContacts|Contacts|Contacts.png',
     'WacOSPhotos|Photos|Photos.png',
     'WacOSTimeMachine|Time Machine|Time Machine.png',
+    'WacOSTitleBars|WacOS Title Bars|',
     'WacOSWindow|WacOS Window Frames|',
     'WacOSWindow32|WacOS Window Frames (32-bit)|'
 )

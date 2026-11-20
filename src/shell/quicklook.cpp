@@ -739,11 +739,22 @@ void Load(const std::wstring& path) {
     HWND w = g_wnd;
     int px = (int)std::lround((g_isIcon ? 400 : 1200) * Sc());
     bool icon = g_isIcon;
-    std::thread([path, gen, w, px, icon, dir] {
+    // fotos: o arquivo inteiro até o tamanho da tela (a tela cheia do Quick Look usa tudo), não a miniatura
+    std::wstring ext = path.substr(path.find_last_of(L'.') == std::wstring::npos ? path.size() : path.find_last_of(L'.'));
+    for (auto& c : ext) c = towlower(c);
+    bool photo = !icon && !dir;
+    if (photo) {
+        photo = false;
+        for (auto e : { L".jpg", L".jpeg", L".jpe", L".jfif", L".png", L".bmp", L".gif", L".webp", L".heic", L".heif",
+                        L".avif", L".tif", L".tiff", L".jxr", L".wdp", L".ico", L".dds" })
+            if (ext == e) photo = true;
+    }
+    UINT screen = (UINT)std::max({ GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), 1600 });
+    std::thread([path, gen, w, px, icon, dir, photo, screen] {
         HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         auto* r = new std::tuple<int, UINT, UINT, std::vector<BYTE>>(gen, 0, 0, std::vector<BYTE>{});
         auto& [g, iw, ih, px2] = *r;
-        bool got = false;
+        bool got = photo && ui::LoadPhoto(path, screen, iw, ih, px2);  // sem codec (HEIC sem a extensão): a miniatura
         if (icon && dir && GetFileAttributesW((path + L"\\desktop.ini").c_str()) == INVALID_FILE_ATTRIBUTES) {  // a pasta do Mac (pacote de ícones)
             std::wstring png = ui::PackIcon(L"folder default");
             got = !png.empty() && ui::LoadPng(png, iw, ih, px2);

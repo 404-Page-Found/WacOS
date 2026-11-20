@@ -12,6 +12,9 @@
 // claros, então continuam legíveis).
 #include <d2d1.h>
 #include "semaforo.h"
+#include <map>
+#include <string>
+#include <cwctype>
 
 namespace leopard {
 
@@ -77,6 +80,35 @@ inline void Metal(ID2D1RenderTarget* rt, D2D1_RECT_F r, bool active, bool dark, 
 inline D2D1_COLOR_F Sidebar(bool active, bool dark) {
     if (dark) return D2D1::ColorF(0.17f, 0.18f, 0.20f, 1);
     return active ? D2D1::ColorF(214 / 255.f, 221 / 255.f, 229 / 255.f, 1) : D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1);
+}
+
+// o ícone de documento do 10.5 pela extensão (nome do PNG em icones\leopard; "" = a miniatura do Windows: fotos,
+// vídeos, apps). Usado pelo Finder e pelas Pilhas da Dock.
+inline std::wstring DocIcon(const std::wstring& name) {
+    const wchar_t* d = wcsrchr(name.c_str(), L'.');
+    std::wstring x = d ? d + 1 : L"";
+    for (auto& c : x) c = towlower(c);
+    static const std::map<std::wstring, const wchar_t*> m = {
+        { L"txt", L"doc texto" }, { L"md", L"doc texto" }, { L"ini", L"doc texto" }, { L"cfg", L"doc texto" }, { L"toml", L"doc texto" },
+        { L"json", L"doc texto" }, { L"yaml", L"doc texto" }, { L"yml", L"doc texto" }, { L"csv", L"doc planilha" }, { L"log", L"doc log" },
+        { L"pdf", L"doc pdf" }, { L"doc", L"doc word" }, { L"docx", L"doc word" }, { L"rtf", L"doc rich" }, { L"odt", L"doc word" },
+        { L"xls", L"doc planilha" }, { L"xlsx", L"doc planilha" }, { L"ods", L"doc planilha" },
+        { L"ppt", L"doc apresentacao" }, { L"pptx", L"doc apresentacao" }, { L"key", L"doc apresentacao" },
+        { L"zip", L"doc zip" }, { L"rar", L"doc zip" }, { L"7z", L"doc zip" }, { L"tar", L"doc zip" }, { L"gz", L"doc zip" },
+        { L"mp3", L"doc audio" }, { L"wav", L"doc audio" }, { L"flac", L"doc audio" }, { L"m4a", L"doc audio" }, { L"ogg", L"doc audio" },
+        { L"aif", L"doc audio" }, { L"aiff", L"doc audio" }, { L"mid", L"doc audio" }, { L"midi", L"doc audio" },
+        { L"html", L"doc html" }, { L"htm", L"doc html" }, { L"xml", L"doc xml" }, { L"js", L"doc script" }, { L"ps1", L"doc script" },
+        { L"sh", L"doc script" }, { L"bat", L"doc script" }, { L"cmd", L"doc script" }, { L"py", L"doc python" }, { L"c", L"doc c" },
+        { L"h", L"doc c" }, { L"cpp", L"doc cpp" }, { L"hpp", L"doc cpp" }, { L"cs", L"doc cpp" }, { L"java", L"doc java" },
+        { L"iso", L"doc disco" }, { L"img", L"doc disco" }, { L"ttf", L"doc fonte" }, { L"otf", L"doc fonte" },
+        { L"dll", L"doc exe" }, { L"sys", L"doc exe" },
+    };
+    auto it = m.find(x);
+    if (it != m.end()) return it->second;
+    static const wchar_t* media[] = { L"png", L"jpg", L"jpeg", L"gif", L"bmp", L"webp", L"heic", L"tif", L"tiff", L"ico", L"svg",
+                                      L"mp4", L"mov", L"mkv", L"avi", L"wmv", L"webm", L"m4v", L"exe", L"msi", L"lnk", L"url", L"appref-ms" };
+    for (auto* mm : media) if (x == mm) return L"";
+    return L"doc generico";
 }
 
 }  // namespace leopard

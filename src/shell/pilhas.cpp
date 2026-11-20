@@ -3,6 +3,7 @@
 // (painel de vidro com as miniaturas) ou em Lista (menu). O botão direito escolhe a ordem e o jeito de ver
 // (pilha_ordem / pilha_ver no ajustes.txt). Clicar num arquivo abre o arquivo; Esc ou clique fora fecha.
 #include "shell.h"
+#include "../comum/leopard.h"  // Leopard: as pastas azuis e os documentos do 10.5 nas Pilhas
 #include "../menu/context_menu.h"
 #include <dwmapi.h>
 #include <shlobj.h>
@@ -598,6 +599,12 @@ void ShowStack(POINT anchor, bool apps) {
                 std::wstring nm = paths[i].substr(paths[i].find_last_of(L'\\') + 1);
                 if (nm.size() > 4) nm.resize(nm.size() - 4);
                 std::wstring png = apps::PackIconByName(nm, L"");
+                got = !png.empty() && ui::LoadPng(png, w, h, bgra);
+            }
+            if (!got && !appsIcons && liquid::Leopard()) {  // Leopard: pasta azul / documento do Aqua (fotos e vídeos: miniatura)
+                DWORD at = GetFileAttributesW(paths[i].c_str());
+                std::wstring nm = at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY) ? std::wstring(L"folder default") : leopard::DocIcon(paths[i]);
+                std::wstring png = nm.empty() ? L"" : ui::PackIcon(nm);
                 got = !png.empty() && ui::LoadPng(png, w, h, bgra);
             }
             if (!got && !ui::FileImage(paths[i], px, w, h, bgra)) continue;

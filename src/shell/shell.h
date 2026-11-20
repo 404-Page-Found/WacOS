@@ -126,6 +126,8 @@ bool FileImage(const std::wstring& path, int px, UINT& w, UINT& h, std::vector<B
 void TrimToSquare(UINT& w, UINT& h, std::vector<BYTE>& bgra);
 void Downscale(UINT& w, UINT& h, std::vector<BYTE>& bgra, UINT maxSide);  // reduz (média por área) se passar de maxSide
 bool LoadPng(const std::wstring& path, UINT& w, UINT& h, std::vector<BYTE>& bgra);  // BGRA pré-multiplicado
+// foto inteira (JPG, PNG, WebP, HEIC...) pelo WIC, girada pelo EXIF e reduzida até maxSide (o Quick Look)
+bool LoadPhoto(const std::wstring& path, UINT maxSide, UINT& w, UINT& h, std::vector<BYTE>& bgra);
 std::wstring PackIcon(const std::wstring& name);  // "icones\sequoia\<nome>.png" se existir, senão ""
 
 void DrawFolder(ID2D1RenderTarget* rt, D2D1_RECT_F box, wchar_t glyph);   // pasta azul do Arquivos
@@ -318,6 +320,21 @@ bool IsOpen();
 void OpenMode(int mode);  // Tahoe: abre direto num modo (1 Aplicativos = o "Apps" do Dock, 2 Arquivos, 3 Ações); de novo fecha
 void Rescan();            // relê a lista de apps (um programa foi instalado ou removido)
 }
+namespace dashboard {  // Dashboard do Leopard (dashboard.cpp): Win+F12 / ShellAbrirPainel 16
+bool Create(HINSTANCE hi);
+void Toggle();
+bool IsOpen();
+}
+namespace espacos {  // Spaces do Leopard (espacos.cpp): Win+F8 / ShellAbrirPainel 17
+bool Create(HINSTANCE hi);
+void Toggle();
+bool IsOpen();
+}
+namespace tempo {  // a "viagem no tempo" do Time Machine do Leopard (tempo.cpp): app Time Machine / ShellAbrirPainel 18
+bool Create(HINSTANCE hi);
+void Enter();
+bool IsOpen();
+}
 namespace sobre {  // "Sobre Este Mac" do menu da Apple (sobre.cpp)
 bool Create(HINSTANCE hi);
 void Show();
@@ -342,6 +359,7 @@ void IconsChanged();     // o pacote de ícones mudou (tema): solta os ícones g
 namespace revelar {  // clique no vazio da área de trabalho mostra a mesa, como no Mac (revelar.cpp)
 void Start();
 void Stop();
+void Pausar(bool p);  // modo jogo: sem o gancho global do mouse
 void Foreground(HWND h);
 bool Owns(HWND h);  // janela minimizada por "mostrar a mesa" (não vai para o Dock)
 }
@@ -365,6 +383,7 @@ void SettingsChanged();                 // ajustes.txt mudou (explorer=0/1)
 bool TopColor(int barPx, float& r, float& g, float& b);
 bool Standalone();                      // sem Explorador agora (qualquer thread)
 void WallpaperNow(const std::wstring& path);  // o Ajustes escolheu este papel de parede: mostra já
+void DepoisDoJogo();                    // modo jogo acabou: refaz a mesa se a tela mudou durante o jogo
 // App antigo da Loja (UWP: Segurança do Windows...) não abre sem o Explorador (a janela dele vem de uma peça
 // que vive no explorer.exe). Abre o Explorador escondido, abre o app de novo e, sem nenhum desses apps
 // aberto por 15 s, volta ao modo sem Explorador. Qualquer thread.
@@ -394,6 +413,17 @@ struct Widget {
 void SetWidgets(std::vector<Widget> list, std::function<void()> onEdit);  // onEdit: "Editar Widgets…"
 struct Brief { std::wstring aumid, app; long long time; };  // notificação do Windows (só o necessário para o badge)
 std::vector<Brief> Recentes();  // as notificações da Central agora (qualquer thread)
+}
+namespace ilha {  // Ilha Dinâmica (ilha.cpp): notch/pílula preta no topo (música, timer, avisos, Estante...); ajuste ilha=1, ilha_estilo
+bool Create(HINSTANCE hi);
+void Reload();                  // ajustes mudaram (ilha, ilha_estilo, ilha_notificacoes, ilha_volume, ilha_passar)
+void SetFullscreen(bool locked); // a janela da frente mudou: confere tela cheia no monitor principal (jogo, vídeo, app) e some na hora
+bool On();
+// notificação nova: true = a ilha mostrou (o banner do canto não aparece). icon desenha o ícone do app em r (DIP)
+bool Notificacao(const std::wstring& app, const std::wstring& title, const std::wstring& body,
+                 std::function<void(ID2D1DeviceContext*, ID2D1SolidColorBrush*, D2D1_RECT_F)> icon, std::function<void()> click);
+bool Volume(float level, bool mute);  // teclas de volume: true = a ilha mostrou (sem o aviso de volume)
+void CapsLock();                // a tecla Caps Lock foi apertada (gancho de teclado do main.cpp)
 }
 namespace palco {  // Organizador Visual / Stage Manager (palco.cpp): ajuste organizador=1
 bool On();
@@ -431,6 +461,7 @@ void MediaCommand(const std::wstring& exePath, const std::wstring& aumid, int cm
 namespace cantos {  // Cantos Ativos (cantos.cpp): canto_se/sd/ie/id = nada|mission|mesa|launchpad|notificacoes|central|spotlight|bloquear|tela|nota
 void Start();
 bool NotaRapida();  // o canto inferior direito é o da Nota Rápida
+void Pausar(bool p);  // modo jogo: sem ler o ponteiro
 }
 namespace notarapida {  // canto inferior direito da tela abre a Nota Rápida (notarapida.cpp); `canto_nota_rapida=0` desliga
 void Create(HINSTANCE hi);
@@ -462,6 +493,11 @@ int Category(const std::wstring& appName);  // categoria do app (1..CategoryCoun
 int CategoryCount();
 const wchar_t* CategoryName(int k);
 void Rescan();  // relê a lista de apps (um programa foi instalado ou removido)
+// Fora do Launchpad e do painel Apps: tirado à mão (launchpad_ocultos) ou ferramenta do Windows com
+// launchpad_sem_sistema=1 (Painel de Controle, Mapa de Caracteres, Ferramentas do Windows...)
+bool Escondido(const std::wstring& name, const std::wstring& parsing);
+bool AppDoSistema(const std::wstring& name, const std::wstring& parsing);
+void Ocultar(const std::wstring& name);  // acrescenta a launchpad_ocultos
 }
 namespace instalados {  // vigia o Menu Iniciar e os apps da Store e avisa o Spotlight e o Launchpad (instalados.cpp)
 void Start();
@@ -475,6 +511,7 @@ int ReservedHeight();   // px reservados embaixo (área de trabalho)
 HMONITOR MonitorHandle();  // o monitor do Dock (ajuste dock_monitor; vazio = o principal)
 void Raise();          // traz o Dock para cima (ex.: por cima do Launchpad)
 void OpenAppsStack();  // Leopard: a pasta Aplicativos como Pilha em Grade
+void OpenDownloadsStack();  // a pilha Downloads (testes: ShellAbrirPainel 15)
 void ReloadSettings();  // o Ajustes do Sistema mudou tamanho, ampliação...
 void ApplyTheme();      // claro/escuro mudou
 void IconsChanged();    // o pacote de ícones mudou (tema Sequoia/Tahoe): solta os ícones guardados
@@ -597,4 +634,14 @@ void Start();
 void Stop();
 // tema Mac OS X Leopard: liga o cursor do Mac OS X (guardando o esquema de antes) ou devolve o de antes
 void TemaLeopard(bool on);
+void Pausar(bool p);  // modo jogo: sem Raw Input do mouse enquanto o jogo roda
+}
+namespace jogo {  // Modo Jogo (jogo.cpp): jogo na frente → desliga o que mais pesa; ajuste modo_jogo, lista %APPDATA%\Shell\jogos.txt
+void Start();
+void Reload();            // ajustes mudaram
+void Foreground(HWND h);  // a janela da frente mudou
+bool Ativo();
+// gancho de EVENT_OBJECT_LOCATIONCHANGE que sai durante o modo jogo (cada movimento do cursor chegava ao Shell)
+void GanchoPosicao(WINEVENTPROC fn, DWORD flags);
+void SoltarPosicao(WINEVENTPROC fn);
 }

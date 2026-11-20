@@ -68,7 +68,7 @@ Objetivo de qualidade: **ficar idêntico ao Mac** (medidas, curvas, tempos, text
 
 ### 4.1 Build
 `build.cmd [alvo]` na raiz. Alvos: (vazio = tudo), `shell`, `finder`, `ajustes`, `monitor`, `terminal`,
-`calculadora`, `notas`, `captura`, `menu` (bancada MenuTeste), `janelas` (SequoiaWindow.dll 64/32 +
+`calculadora`, `notas`, `captura`, `menu` (bancada MenuTeste), `titulos` (WacOSTitleBars.exe; também sai no `janelas`), `janelas` (SequoiaWindow.dll 64/32 +
 host 32), `dialogo` (DialogoMac.dll), `bandeja`. O build "tudo" **não** inclui `janelas` nem `dialogo`.
 Ícone e descrição de cada exe: `tools/recursos.ps1` (gerado no build).
 Flags: `/O2 /W3 /std:c++20 /utf-8 /DUNICODE`. Sem MSBuild, sem projeto .vcxproj.
@@ -112,6 +112,7 @@ início automático (tarefa agendada `SequoiaShell`), abrir agora. `desinstalar.
 | `SequoiaNotes.exe` | `src/notas` | Notas (texto rico, `%APPDATA%\Shell\Notas`) |
 | `SequoiaScreenshot.exe` | `src/captura` | Captura de Tela (Win+Shift+3/4/5) |
 | `WacOSWindow.dll` / `WacOSWindow32.dll` | `src/janelas` | barra de título do Mac e controles nas janelas dos outros programas (gancho em 64 bits pelo Shell; 32 bits pela própria DLL dentro do rundll32 de 32 bits do Windows, entrada WacOSHost) |
+| `WacOSTitleBars.exe` | `src/titulos` + `src/shell/janelas.cpp` | só as barras de título do Mac, sem o Shell (`--sair` desliga; o Shell fecha e assume). Os apps sem botões próprios (app2d.h, Pré-Visualização) carregam a `WacOSWindow.dll` sozinhos (`src/comum/barra_mac.h`, entrada `WacOSPropria`); o Shell não põe gancho em exe com "wacos" no nome |
 | `DialogoMac.dll` / `DialogoMac32.dll` | `src/dialogo` | troca IFileOpenDialog/IFileSaveDialog pelo Finder (HKCU CLSID, `tools/dialogo-ligar.ps1`) |
 | `ferramentas\MenuTeste.exe` | `src/tools/menu_teste.cpp` | bancada do menu de contexto (`--dump`, `--demo`, `--demo <pasta> --quente`) |
 
@@ -125,7 +126,7 @@ apps (Dock: fixos em dock.txt, abertos, recentes), atalhos (tarefas do app no me
 backdrop (vidro: Composition + **vidro real** por captura de janelas), bloqueio (tela de bloqueio própria),
 boot (tela de inicialização), cantos (Cantos Ativos), central (Central de Controle + Editar Controles),
 dialogs (Abrir/Salvar trocado por fora), dock, foto/fotogpu (fotos de janelas), genio (efeito gênio),
-indice (índice de arquivos do Spotlight), instalados (lista de apps), janelas (aplica a SequoiaWindow.dll),
+indice (índice de arquivos do Spotlight), instalados (lista de apps), jogo (Modo Jogo: jogo na frente desliga vidro real, ganchos de posição e de mouse, Cantos Ativos e o índice; `modo_jogo`, `jogos.txt`), janelas (aplica a SequoiaWindow.dll),
 launchpad (Launchpad/Apps do Tahoe), limites (barra e Dock são limites das janelas), liquid (desenho do Tahoe),
 menubar, menus (menus Win32 dos apps no visual do Mac, sem injetar), mesa (papel de parede e ícones, sem
 Explorer), mesas (áreas virtuais), missioncontrol (Mission Control e Exposé), notarapida, notificacoes,

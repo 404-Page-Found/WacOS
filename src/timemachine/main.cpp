@@ -134,7 +134,7 @@ void Paint() {
     y += 10;
     float bx = X;
     Button(D2D1::RectF(bx, y, bx + 190, y + 32), Tr(L"Fazer Backup Agora"), H_NOW, true, dark); bx += 200;
-    Button(D2D1::RectF(bx, y, bx + 190, y + 32), Tr(L"Restaurar Arquivos…"), H_RESTORE, false, dark); bx += 200;
+    Button(D2D1::RectF(bx, y, bx + 190, y + 32), semaforo::Leopard() ? Tr(L"Entrar no Time Machine") : Tr(L"Restaurar Arquivos…"), H_RESTORE, false, dark); bx += 200;
     y += 44; bx = X;
     Button(D2D1::RectF(bx, y, bx + 190, y + 32), Tr(L"Escolher Disco…"), H_DISK, false, dark); bx += 200;
     Button(D2D1::RectF(bx, y, bx + 190, y + 32), Tr(L"Opções…"), H_OPTIONS, false, dark);
@@ -225,7 +225,17 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SetTimer(h, 1, 3000, nullptr);
                 break;
             }
-            case H_RESTORE: ShellExecuteW(nullptr, L"open", L"FileHistory.exe", nullptr, nullptr, SW_SHOWNORMAL); break;
+            case H_RESTORE: {
+                // tema Leopard: a "viagem no tempo" do Mac (galáxia e a pilha de janelas), desenhada pelo Shell
+                // (tempo.cpp); nos outros temas, a restauração do Windows
+                HWND sh = semaforo::Leopard() ? FindWindowW(L"ShellMensagens", nullptr) : nullptr;
+                if (sh) {
+                    DWORD pid = 0; GetWindowThreadProcessId(sh, &pid);
+                    AllowSetForegroundWindow(pid);
+                    PostMessageW(sh, RegisterWindowMessageW(L"ShellAbrirPainel"), 18, 0);
+                } else ShellExecuteW(nullptr, L"open", L"FileHistory.exe", nullptr, nullptr, SW_SHOWNORMAL);
+                break;
+            }
             case H_OPTIONS: Options(scr); break;
             }
             InvalidateRect(h, nullptr, FALSE);

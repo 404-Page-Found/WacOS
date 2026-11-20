@@ -15,11 +15,13 @@ $HK = [Microsoft.Win32.Registry]::CurrentUser
 $lines = New-Object System.Collections.Generic.List[string]
 function Say($s) { $lines.Add($s) }
 
-Add-Type -Namespace W -Name N -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int e, uint f, System.IntPtr a, System.IntPtr b);'
+# avisar o Explorador: pelo WacOSShell.exe (modo ajudante), sem C# embutido no script
+$ajudante = Join-Path $PSScriptRoot '..\bin\WacOSShell.exe'
+function AvisarIcones { if (Test-Path $ajudante) { Start-Process $ajudante -ArgumentList '--avisar-icones' -Wait } }
 
 function Refresh {
-    [W.N]::SHChangeNotify(0x08000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)  # SHCNE_ASSOCCHANGED, SHCNF_FLUSH
-    try { Start-Process "$env:WINDIR\System32\ie4uinit.exe" -ArgumentList '-show' -Wait -WindowStyle Hidden } catch {}
+    AvisarIcones  # SHCNE_ASSOCCHANGED, SHCNF_FLUSH
+    try { Start-Process "$env:WINDIR\System32\ie4uinit.exe" -ArgumentList '-show' -Wait } catch {}
 }
 
 if ($Desfazer) {

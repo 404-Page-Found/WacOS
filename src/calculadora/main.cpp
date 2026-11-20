@@ -30,6 +30,7 @@
 #include "../comum/ampliacao.h"
 #include "../comum/idioma.h"
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"  // tema Mac OS X Leopard: o metal da janela
 
 #pragma comment(lib, "windowscodecs.lib")
 
@@ -631,16 +632,20 @@ float Side() { return g_sidebar ? SBW : 0; }
 bool ConvOn() { return g_convert && g_mode != M_PROG; }
 D2D1_SIZE_F ContentSize() {  // sem a barra lateral
     float conv = ConvOn() ? CONV_H : 0;
-    if (g_mode == M_BASIC) return { 229, 405 + conv };
+    if (g_mode == M_BASIC) return { 229, (semaforo::Leopard() ? 282.f : 405.f) + conv };  // Leopard: teclas baixas, janela compacta
     if (g_mode == M_SCI) return { g_sciW, g_sciH + conv };
     return { 572, 442 };
 }
-float KeysTop() { return (g_mode == M_BASIC ? 132.f : g_mode == M_SCI ? 113.f : 206.f) + (ConvOn() ? CONV_H : 0); }
+float KeysTop() {
+    if (semaforo::Leopard() && g_mode != M_PROG) return 96.f + (ConvOn() ? CONV_H : 0);  // Leopard: o visor baixo do 10.5
+    return (g_mode == M_BASIC ? 132.f : g_mode == M_SCI ? 113.f : 206.f) + (ConvOn() ? CONV_H : 0);
+}
 D2D1_RECT_F KeyRect(const KeyDef& k) {
     auto c = Client();
     float x0 = Side(), W = c.width - x0, H = c.height, top = KeysTop();
     if (g_mode == M_BASIC) {
         float d = 47.5f, cx = x0 + 34.5f + 53.5f * k.col, cy = top + d / 2 + 53.1f * k.row;
+        if (semaforo::Leopard()) { cy = top + 13 + 34 * k.row; return { cx - d / 2 - 2, cy - 14, cx + d / 2 + 2, cy + 14 }; }  // Leopard: passo de 34
         return { cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2 };
     }
     int cols = g_mode == M_SCI ? 10 : 8;
@@ -649,9 +654,10 @@ D2D1_RECT_F KeyRect(const KeyDef& k) {
     float x = x0 + mx + k.col * (kw + gx), y = top + k.row * (kh + gy);
     return { x, y, x + kw, y + kh };
 }
-D2D1_POINT_2F LightCenter(int k) { return { 23.f + k * 23, 25 }; }
-D2D1_POINT_2F SideBtnCenter() { return { Side() + (g_mode == M_BASIC ? 123.5f : 105.5f), 26 }; }
-D2D1_POINT_2F ModeBtnCenter() { return { Client().width - 26.5f, 26 }; }
+D2D1_POINT_2F LightCenter(int k) { return semaforo::Leopard() ? D2D1_POINT_2F{ 14.5f + k * 21, 11 } : D2D1_POINT_2F{ 23.f + k * 23, 25 }; }  // Leopard: na barra de 22
+// Leopard: os dois botões redondos ficam pequenos (metade) na ponta direita da barra de título de 22
+D2D1_POINT_2F SideBtnCenter() { return semaforo::Leopard() ? D2D1_POINT_2F{ Client().width - 34, 11 } : D2D1_POINT_2F{ Side() + (g_mode == M_BASIC ? 123.5f : 105.5f), 26 }; }
+D2D1_POINT_2F ModeBtnCenter() { return semaforo::Leopard() ? D2D1_POINT_2F{ Client().width - 13, 11 } : D2D1_POINT_2F{ Client().width - 26.5f, 26 }; }
 const float ROUND_R = 18;
 D2D1_RECT_F HistRect(int i) { float y = TB + 4 + i * HIST_H - g_histScroll; return { 8, y, SBW - 8, y + HIST_H - 4 }; }
 bool In(D2D1_RECT_F r, D2D1_POINT_2F p) { return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
@@ -1191,6 +1197,11 @@ D2D1_COLOR_F Rgb(int r, int g, int b, float a = 1) { return D2D1::ColorF(r / 255
 D2D1_COLOR_F Mix(D2D1_COLOR_F a, D2D1_COLOR_F b, float t) { return D2D1::ColorF(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, a.a + (b.a - a.a) * t); }
 struct Pal { D2D1_COLOR_F bg, key[4], text, opText, sub, round, roundBorder, icon, sidebar, line, rim, hover, disabled; };
 Pal Colors() {
+    // Leopard (Calculadora do 10.5/10.6): corpo de metal cinza, teclas em pílula perolada com texto preto, visor amarelo
+    if (semaforo::Leopard())
+        return { Rgb(196, 196, 196), { Rgb(250, 250, 250), Rgb(250, 250, 250), Rgb(250, 250, 250), Rgb(250, 250, 250) }, Rgb(0, 0, 0), Rgb(0, 0, 0),
+                 Rgb(0, 0, 0, 0.55f), Rgb(240, 240, 240), Rgb(0, 0, 0, 0.35f), Rgb(40, 40, 40), Rgb(214, 221, 229), Rgb(0, 0, 0, 0.15f),
+                 Rgb(0, 0, 0, 0.10f), Rgb(0, 0, 0, 0.06f), Rgb(0, 0, 0, 0.30f) };
     if (g_dark) return { Rgb(36, 41, 45), { Rgb(48, 52, 55), Rgb(70, 74, 76), Rgb(113, 117, 119), Rgb(255, 139, 0) }, Rgb(236, 237, 237), Rgb(255, 255, 255),
                          Rgb(255, 255, 255, 0.52f), Rgb(25, 29, 32), Rgb(255, 255, 255, 0.07f), Rgb(233, 234, 234), Rgb(29, 33, 36), Rgb(255, 255, 255, 0.09f),
                          Rgb(255, 255, 255, 0.06f), Rgb(255, 255, 255, 0.07f), Rgb(255, 255, 255, 0.28f) };
@@ -1257,6 +1268,8 @@ void DrawRoundButtons(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal
         auto c = which == 0 ? SideBtnCenter() : ModeBtnCenter();
         bool hov = g_hover.kind == (which == 0 ? TG_SIDEBTN : TG_MODEBTN);
         bool on = which == 0 && g_sidebar;
+        D2D1_MATRIX_3X2_F oldT; rt->GetTransform(&oldT);
+        if (semaforo::Leopard()) rt->SetTransform(D2D1::Matrix3x2F::Scale(0.5f, 0.5f, c) * oldT);
         br->SetColor(hov || on ? Mix(pal.round, g_dark ? Rgb(255, 255, 255) : Rgb(0, 0, 0), g_dark ? 0.1f : 0.06f) : pal.round);
         rt->FillEllipse(D2D1::Ellipse(c, ROUND_R, ROUND_R), br);
         GlassRim(rt, { c.x - ROUND_R, c.y - ROUND_R, c.x + ROUND_R, c.y + ROUND_R }, ROUND_R, 3);
@@ -1276,6 +1289,7 @@ void DrawRoundButtons(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal
                 rt->FillRectangle({ x, y, x + 1.9f, y + 1.6f }, br);
             }
         }
+        rt->SetTransform(oldT);
     }
 }
 
@@ -1341,10 +1355,31 @@ void DrawKeys(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& pal) {
         D2D1_COLOR_F toward = (g_dark || style == S_OP) ? Rgb(255, 255, 255) : Rgb(0, 0, 0);
         if (hov) c = Mix(c, toward, style == S_OP ? 0.1f : g_dark ? 0.07f : 0.04f);
         if (glow > 0) c = Mix(c, toward, glow * (style == S_OP ? 0.4f : g_dark ? 0.32f : 0.14f));
+        if (semaforo::Leopard()) {
+            // Leopard: tecla de canto 5 com o degradê perolado (branco em cima, cinza no meio) e o contorno cinza;
+            // apertada ou acesa pelo teclado, azul do Aqua
+            float cy0 = (r.top + r.bottom) / 2, hh = std::min(r.bottom - r.top - 4, k.id == K_EQ && r.bottom - r.top > 60 ? 999.f : 26.f);
+            D2D1_RECT_F q{ r.left + 2, cy0 - hh / 2, r.right - 2, cy0 + hh / 2 };
+            bool blue = glow > 0.3f;
+            D2D1_GRADIENT_STOP st[4] = { { 0, blue ? Rgb(170, 205, 250) : Rgb(255, 255, 255) }, { 0.5f, blue ? Rgb(100, 155, 235) : Rgb(242, 242, 242) },
+                                         { 0.5f, blue ? Rgb(60, 120, 222) : Rgb(226, 226, 226) }, { 1, blue ? Rgb(150, 205, 255) : Rgb(248, 248, 248) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            br->SetColor(Rgb(255, 255, 255, 0.5f));
+            rt->FillRoundedRectangle({ { q.left, q.top + 1, q.right, q.bottom + 1 }, 5, 5 }, br);
+            if (SUCCEEDED(rt->CreateGradientStopCollection(st, 4, &gs)) &&
+                SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, q.top }, { 0, q.bottom }), gs, &lb)))
+                rt->FillRoundedRectangle({ q, 5, 5 }, lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            br->SetColor(hov ? Rgb(0, 0, 0, 0.55f) : Rgb(0, 0, 0, 0.38f));
+            rt->DrawRoundedRectangle({ { q.left + 0.5f, q.top + 0.5f, q.right - 0.5f, q.bottom - 0.5f }, 4.5f, 4.5f }, br, 1);
+            r = q;
+        } else {
         br->SetColor(c);
         D2D1_ROUNDED_RECT rr{ r, rad, rad };
         rt->FillRoundedRectangle(rr, br);
         GlassRim(rt, r, rad, style == S_OP ? 2 : style == S_TOP ? 1 : 0);
+        }
         D2D1_COLOR_F tc = style == S_OP ? pal.opText : (style == S_TOP && !g_dark ? pal.text : pal.text);
         if (!en) tc = pal.disabled;
         br->SetColor(tc);
@@ -1361,6 +1396,7 @@ void DrawKeys(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& pal) {
         else size = digit ? 19 : lab.size() > 3 ? 14 : 16;
         if (k.id == K_NEG) size = g_mode == M_BASIC ? 22 : 19;
         if (k.id == K_PCT && g_mode == M_BASIC) size = 24;
+        if (semaforo::Leopard()) size = std::min(size, 14.f);  // Leopard: o texto pequeno das teclas do 10.5
         size = std::min(size, (r.bottom - r.top) * 0.5f);
         float w = RunsWidth(rs, size, DWRITE_FONT_WEIGHT_NORMAL);
         float maxW = (r.right - r.left) - 8;
@@ -1380,6 +1416,7 @@ void DrawStdDisplay(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& 
     bool basic = g_mode == M_BASIC;
     float greySize = basic ? 21 : 17, bigSize = basic ? 32 : 27;
     float greyBase = basic ? 80 : 68, bigBase = basic ? 118 : 101;
+    if (semaforo::Leopard()) { greySize = 13; bigSize = 22; greyBase = 50; bigBase = 78; }  // Leopard: no visor de cristal líquido
     std::vector<Run> grey, big;
     auto num = [&](double v) { std::vector<Run> r(1); r[0].t = FormatNum(v, basic ? 10 : 15); return r; };
     if (g_rpn) {
@@ -1532,6 +1569,41 @@ void Render() {
     g_rt->Clear(pal.bg);
     ID2D1SolidColorBrush* br = nullptr;
     g_rt->CreateSolidColorBrush(pal.text, &br);
+    if (semaforo::Leopard()) {
+        // Leopard: a janela inteira de metal (degradê cinza), o título no meio da barra e o visor de cristal líquido
+        auto cs = Client();
+        D2D1_GRADIENT_STOP st[2] = { { 0, Rgb(214, 214, 214) }, { 1, Rgb(170, 170, 170) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(g_rt->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(g_rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, 0 }, { 0, cs.height }), gs, &lb)))
+            g_rt->FillRectangle({ 0, 0, cs.width, cs.height }, lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        leopard::Metal(g_rt, { 0, 0, cs.width, 22 }, g_active, false, true, 0);
+        static IDWriteTextFormat* tt = [] {
+            IDWriteTextFormat* f = nullptr; IDWriteFactory* dw = nullptr;
+            DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), (IUnknown**)&dw);
+            if (dw) { dw->CreateTextFormat(L"Lucida Sans Unicode", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13, L"pt-br", &f); dw->Release(); }
+            if (f) { f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); }
+            return f;
+        }();
+        std::wstring title = Tr(L"Calculadora");
+        br->SetColor(Rgb(0, 0, 0, g_active ? 0.85f : 0.45f));
+        if (tt) g_rt->DrawTextW(title.c_str(), (UINT32)title.size(), tt, { 80, 0, cs.width - 80, 22 }, br);
+        if (g_mode != M_PROG) {
+            D2D1_RECT_F lcd{ Side() + 10, 30, cs.width - 10, KeysTop() - 10 };
+            D2D1_GRADIENT_STOP s2[2] = { { 0, Rgb(226, 234, 190) }, { 1, Rgb(240, 245, 205) } };
+            if (SUCCEEDED(g_rt->CreateGradientStopCollection(s2, 2, &gs)) &&
+                SUCCEEDED(g_rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, lcd.top }, { 0, lcd.bottom }), gs, &lb)))
+                g_rt->FillRoundedRectangle({ lcd, 4, 4 }, lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            br->SetColor(Rgb(0, 0, 0, 0.45f));
+            g_rt->DrawRoundedRectangle({ { lcd.left + 0.5f, lcd.top + 0.5f, lcd.right - 0.5f, lcd.bottom - 0.5f }, 3.5f, 3.5f }, br, 1);
+            br->SetColor(Rgb(0, 0, 0, 0.12f));  // a sombra por dentro em cima
+            g_rt->FillRectangle({ lcd.left + 1, lcd.top + 1, lcd.right - 1, lcd.top + 3 }, br);
+        }
+    }
     DrawSidebar(g_rt, br, pal);
     if (g_mode == M_PROG) DrawProgDisplay(g_rt, br, pal);
     else if (ConvOn()) DrawConvert(g_rt, br, pal);
@@ -1553,8 +1625,8 @@ void Invalidate() { InvalidateRect(g_hwnd, nullptr, FALSE); }
 Target HitTarget(D2D1_POINT_2F p) {
     Target t;
     for (int k = 0; k < 3; k++) if (InCircle(LightCenter(k), 8, p)) return { TG_LIGHT, k };
-    if (InCircle(SideBtnCenter(), ROUND_R, p)) return { TG_SIDEBTN, 0 };
-    if (InCircle(ModeBtnCenter(), ROUND_R, p)) return { TG_MODEBTN, 0 };
+    if (InCircle(SideBtnCenter(), semaforo::Leopard() ? ROUND_R / 2 : ROUND_R, p)) return { TG_SIDEBTN, 0 };
+    if (InCircle(ModeBtnCenter(), semaforo::Leopard() ? ROUND_R / 2 : ROUND_R, p)) return { TG_MODEBTN, 0 };
     if (g_sidebar && p.x < SBW && p.y >= TB)
         for (int i = 0; i < (int)g_hist.size(); i++) if (In(HistRect(i), p)) return { TG_HIST, i };
     for (size_t i = 0; i < g_keys.size(); i++) if (In(KeyRect(g_keys[i]), p)) return { TG_KEY, (int)i };
@@ -2042,7 +2114,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR cmd, int show) {
     float sc = dx / 96.f;
     float side = g_sidebar ? SBW : 0;
     float cw = g_mode == M_BASIC ? 229 : g_mode == M_SCI ? g_sciW : 572;
-    float ch = g_mode == M_BASIC ? 405 : g_mode == M_SCI ? g_sciH : 442;
+    float ch = g_mode == M_BASIC ? (semaforo::Leopard() ? 282.f : 405.f) : g_mode == M_SCI ? g_sciH : 442;
     if (g_convert && g_mode != M_PROG) ch += CONV_H;
     int w = (int)std::lround((cw + side) * sc), hgt = (int)std::lround(ch * sc);
     int x, y;

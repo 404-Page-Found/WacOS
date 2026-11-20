@@ -1303,7 +1303,7 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (w == SPI_SETWORKAREA && primary) { Arrange(); Redraw(); }
         return 0;
     case WM_DISPLAYCHANGE: case WM_DPICHANGED:
-        PostMessageW(g_ctl, WM_MS_REBUILD, 0, 0);
+        PostMessageW(g_ctl, WM_MS_REBUILD, 0, m == WM_DPICHANGED);  // DPI: refaz mesmo com os mesmos retângulos
         return 0;
     case WM_MS_ENDEDIT: if (g_edit && GetFocus() != g_edit) EndEdit(w != 0); return 0;
     case WM_LBUTTONDOWN: {
@@ -1481,6 +1481,24 @@ void DestroyDesk() {
     if (g_drop) { g_drop->Release(); g_drop = nullptr; }
     Log(L"mesa: janelas da mesa fechadas");
     g_live = false;  // as janelas novas nascem opacas; o Tick confere de novo
+}
+
+// os monitores de agora são outros que os da mesa (número ou retângulos)?
+bool g_forceRebuild = false, g_rebuildLater = false;
+bool MonitorsChanged() {
+    std::vector<RECT> now;
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR hm, HDC, LPRECT, LPARAM l) -> BOOL {
+        MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(hm, &mi);
+        ((std::vector<RECT>*)l)->push_back(mi.rcMonitor);
+        return TRUE;
+    }, (LPARAM)&now);
+    if (now.size() != g_mons.size()) return true;
+    for (auto& r : now) {
+        bool found = false;
+        for (auto& m : g_mons) if (EqualRect(&r, &m.r)) { found = true; break; }
+        if (!found) return true;
+    }
+    return false;
 }
 
 void CreateDesk() {
@@ -1693,6 +1711,7 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         if (w == 1) Tick();
         if (w == 2) { KillTimer(h, 2); if (DeskExists()) Reload(); }
+        if (w == 7) { KillTimer(h, 7); PostMessageW(h, WM_MS_REBUILD, 1, 0); }  // a tela assentou: confere e refaz
         if (w == 3) {  // widgets mudaram de lugar?
             if (!DeskExists()) return 0;
             static std::vector<RECT> last;
@@ -1715,6 +1734,14 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MS_ICONS: TakeIcons(); return 0;
     case WM_MS_WALLNOW: if (DeskExists()) { Log(L"mesa: papel de parede escolhido no Ajustes; mostrando já"); LoadWallpapers(); } return 0;
     case WM_MS_REBUILD:
+        // Cada aviso de tela (WM_DISPLAYCHANGE/DPI) refazia a mesa na hora e decodificava o papel de parede de novo: um
+        // jogo entrando e saindo da tela cheia dava isso a cada segundo (Fortnite, 20/11/2026: 101 linhas da mesa no
+        // log). Agora espera a tela assentar (1,2 s), só refaz se os monitores mudaram mesmo, e não no meio de um jogo
+        // (fica para quando ele fechar: mesa::DepoisDoJogo)
+        if (w != 1) { if (l) g_forceRebuild = true; SetTimer(h, 7, 1200, nullptr); return 0; }
+        if (jogo::Ativo()) { g_rebuildLater = true; return 0; }
+        if (!g_forceRebuild && !MonitorsChanged()) { Log(L"mesa: aviso de tela sem mudança nos monitores; mesa mantida"); return 0; }
+        g_forceRebuild = false;
         if (DeskExists()) {
             bool shellWas = g_standalone;
             if (shellWas) CallUser32("SetShellWindow", nullptr);
@@ -1828,6 +1855,11 @@ void mesa::Start(HINSTANCE hi, HWND msgWnd) {
     Log(L"mesa: ajuste explorer=%ls, Shell registrado como shell do Windows: %ls", shell::Setting(L"explorer", L"(vazio)").c_str(), WinlogonIsOurs() ? L"sim" : L"não");
     if (!shell::nativo) StartWatchdog();  // sempre: Ctrl+Alt+Shift+F11 e Shell travado devolvem o Explorador; Shell caído também
     Tick();
+}
+
+// o jogo fechou: a troca de tela que ficou para depois (confere de novo se os monitores mudaram)
+void mesa::DepoisDoJogo() {
+    if (g_rebuildLater && g_ctl) { g_rebuildLater = false; PostMessageW(g_ctl, WM_MS_REBUILD, 1, 0); }
 }
 
 void mesa::SettingsChanged() {

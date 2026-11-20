@@ -85,6 +85,10 @@ bool Allowed(DWORD pid, bool* is32) {
     // Xbox/jogos da Loja continuam fora (anti-cheat)
     if (full.find(L"\\windowsapps\\") != std::wstring::npos && (full.find(L"microsoft.gaming") != std::wstring::npos || full.find(L"xbox") != std::wstring::npos)) ok = false;
     for (auto e : EXCLUDED_EXE) if (exe == e) ok = false;
+    // os apps do WacOS: os que usam esta barra carregam a DLL eles mesmos (src\comum\barra_mac.h), com ou sem o
+    // Shell; os outros desenham a própria. O gancho aqui punha uma segunda cópia por cima
+    // (também as cópias renomeadas na hora de instalar, "inst-...-wacosfinder.exe")
+    if (exe.find(L"wacos") != std::wstring::npos) ok = false;
     for (auto e : EXCLUDED_PATH) if (full.find(e) != std::wstring::npos) ok = false;
     for (auto& e : g_extra) if (exe == e || full.find(e) != std::wstring::npos) ok = false;
     g_procOk[pid] = ok;
@@ -186,7 +190,19 @@ std::wstring OwnCopy(const std::wstring& file, const wchar_t* prefix) {
 }  // namespace
 
 void janelas::Start() {
-    if (shell::Setting(L"janelas_mac", L"1") != L"1" || g_dll) return;
+    if (g_dll) return;
+    // só as barras, sem o Shell (WacOSTitleBars.exe, src\titulos): o Shell assume. Fechar devolve as janelas
+    // ao Windows e o gancho daqui entra logo depois (esperando ele sair: dois ganchos na mesma thread não)
+    if (HWND only = FindWindowW(L"WacOSBarrasDeTitulo", nullptr)) {
+        DWORD pid = 0; GetWindowThreadProcessId(only, &pid);
+        if (pid != GetCurrentProcessId()) {
+            HANDLE ph = OpenProcess(SYNCHRONIZE, FALSE, pid);
+            PostMessageW(only, WM_CLOSE, 0, 0);
+            if (ph) { WaitForSingleObject(ph, 3000); CloseHandle(ph); }
+            Log(L"janelas: WacOSTitleBars fechado (o Shell assume as barras)");
+        }
+    }
+    if (shell::Setting(L"janelas_mac", L"1") != L"1") return;
     std::wstring copy = OwnCopy(DLL_WINDOW, L"WacOSWindow");
     // sem cópia própria, nada de gancho: o mesmo caminho com outra versão trava os programas (ver Consider)
     if (copy.empty()) {

@@ -971,11 +971,10 @@ bool CanArrange() { return g_mode == 1 && !g_appsList && g_chip == 0 && Fold(g_q
 void BuildMode() {
     if (g_mode == 1) {
         std::vector<Result> v;
-        std::wstring hid = L"|" + shell::Setting(L"launchpad_ocultos", L"") + L"|";
         {
             std::lock_guard<std::mutex> l(g_mu);
-            for (auto& a : g_apps)
-                if (ChipAllows(K_APP, a.name) && hid.find(L"|" + a.name + L"|") == std::wstring::npos) v.push_back({ K_APP, a.name, a.parsing, L"", a.use });
+            for (auto& a : g_apps)  // sem os tirados à mão e, com launchpad_sem_sistema, sem as ferramentas do Windows
+                if (ChipAllows(K_APP, a.name) && !launchpad::Escondido(a.name, a.parsing)) v.push_back({ K_APP, a.name, a.parsing, L"", a.use });
         }
         std::sort(v.begin(), v.end(), [](const Result& a, const Result& b) { return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; });
         auto ord = SplitBar(shell::Setting(L"apps_ordem", L""));  // a ordem arrastada; quem não está nela vai para o fim
@@ -2224,6 +2223,10 @@ void AppsMenu(HWND h, LPARAM l) {
     std::vector<ctxmenu::Item> items;
     items.push_back(mi(Tr(g_edit ? L"Concluir Edição" : L"Editar Apps"), 1, !g_edit && !CanArrange()));
     items.push_back(mi(Tr(L"Organizar por Nome"), 2, shell::Setting(L"apps_ordem", L"").empty()));
+    bool semSis = shell::Setting(L"launchpad_sem_sistema", L"0") == L"1";
+    ctxmenu::Item sys = mi(Tr(L"Ocultar Apps do Sistema"), 3);  // Painel de Controle, Mapa de Caracteres, Ferramentas do Windows...
+    sys.checked = semSis;
+    items.push_back(sys);
     auto hid = SplitBar(shell::Setting(L"launchpad_ocultos", L""));
     if (!hid.empty()) {
         ctxmenu::Item sub = mi(Tr(L"Trazer de Volta"), 0);
@@ -2237,6 +2240,7 @@ void AppsMenu(HWND h, LPARAM l) {
     int id = ctxmenu::ShowItems(h, sp, items);
     if (id == 1) { if (g_edit) EndEdit(); else StartEdit(); }
     else if (id == 2) { shell::SetSetting(L"apps_ordem", L""); RebuildKeep(); }
+    else if (id == 3) { shell::SetSetting(L"launchpad_sem_sistema", semSis ? L"0" : L"1"); RebuildKeep(); }
     else if (id == 99) { shell::SetSetting(L"launchpad_ocultos", L""); RebuildKeep(); }
     else if (id >= 100 && id - 100 < (int)hid.size()) {
         hid.erase(hid.begin() + (id - 100));
@@ -2572,11 +2576,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         ClientToScreen(h, &sp);
         // "Mostrar no Finder" (abrir o local do arquivo), como no menu do Spotlight do Mac
         bool onDisk = path.find(L":\\") != std::wstring::npos;
-        if (onDisk) ctxmenu::ExtraNext({ { Tr(L"Mostrar no Finder"), 1, false, false, false, L"Ctrl+Enter", {}, 0xE838 } });
+        std::vector<ctxmenu::Item> extra;
+        if (onDisk) extra.push_back({ Tr(L"Mostrar no Finder"), 1, false, false, false, L"Ctrl+Enter", {}, 0xE838 });
+        if (r.kind == K_APP && g_mode == 1) extra.push_back({ Tr(L"Ocultar do Launchpad"), 2, false, false, false, L"", {}, 0xED1A });  // painel Apps
+        if (!extra.empty()) ctxmenu::ExtraNext(extra);
         auto res = ctxmenu::Show(h, sp, folder, { path }, GetKeyState(VK_SHIFT) < 0);
         ctxmenu::ExtraNext({});
         Log(L"spotlight: menu de %ls%ls", path.c_str(), res.chosen ? L" (comando escolhido)" : L"");
         if (res.extra == 1) { Open(i, true); return 0; }
+        if (res.extra == 2) { HideApp(i); return 0; }
         if (res.chosen) Close();
         return 0;
     }

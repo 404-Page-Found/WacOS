@@ -419,6 +419,9 @@ void Watcher() {
         DWORD now = GetTickCount(), d = GetLogicalDrives();
         bool drivesChanged = d != drives;
         bool calm = now - lastChange > 3000;
+        // modo jogo (jogo.cpp): o jogo escreve sem parar (logs, cache de shaders) e cada leva de mudanças virava uma
+        // reindexação no meio da partida; as pastas ficam anotadas em `pending` e entram quando o jogo fechar
+        if (jogo::Ativo() && !drivesChanged) continue;
         if (drivesChanged || (full && calm && now - lastBuild > 120000) || (!full && !pending.empty() && calm)) {
             SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);  // CPU e disco em prioridade de fundo
             bool ok = !drivesChanged && !full && pending.size() <= 300;
@@ -466,6 +469,7 @@ void indice::Start() {
             // junto com o boot por ~3 minutos, disputando disco com o Windows e os apps)
             Sleep(GetTickCount64() < 10 * 60 * 1000 ? 4 * 60 * 1000 : 30 * 1000);
         }
+        while (jogo::Ativo()) Sleep(5000);  // a varredura da abertura (disco inteiro) espera o jogo fechar
         SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
         Rebuild();  // atualiza o que mudou enquanto o Shell estava fechado
         SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);

@@ -29,6 +29,7 @@
 #include <thread>
 #include <vector>
 #include "../comum/semaforo.h"  // semaforo::Aqua(): tema macOS Golden Gate
+#include "../comum/barra_mac.h"  // os três botões do Mac (WacOSWindow.dll), com ou sem o Shell
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Data.Pdf.h>
 #include <winrt/Windows.Storage.h>
@@ -1059,12 +1060,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     MONITORINFO mi{ sizeof(mi) }; POINT c; GetCursorPos(&c);
     GetMonitorInfoW(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY), &mi);
     int W = std::min(1400L, (mi.rcWork.right - mi.rcWork.left) * 7 / 10), H = (mi.rcWork.bottom - mi.rcWork.top) * 8 / 10;
+    bool mac = barramac::Ligar();
     g_wnd = CreateWindowExW(WS_EX_ACCEPTFILES, wc.lpszClassName, Tr(L"Pré-Visualização"), WS_OVERLAPPEDWINDOW,
                             mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - W) / 2, mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - H) / 2, W, H,
                             nullptr, nullptr, hi, nullptr);
     if (!g_wnd) return 1;
     BOOL dark = Dark(); DwmSetWindowAttribute(g_wnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &dark, sizeof(dark));
-    if (semaforo::Aqua()) {  // macOS 27: barra unificada (a DLL só desenha os três botões)
+    if (mac && semaforo::Aqua()) {  // macOS 27: barra unificada (a DLL só desenha os três botões)
         g_unified = true;
         SetPropW(g_wnd, L"WacOSBarraUnificada", (HANDLE)(INT_PTR)52);
         SetWindowPos(g_wnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);

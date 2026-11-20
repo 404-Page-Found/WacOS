@@ -22,6 +22,7 @@
 #define EXE_MUSIC        L"WacOSMusic.exe"            // Música
 #define EXE_QUICKTIME    L"WacOSQuickTime.exe"        // QuickTime Player
 #define EXE_FORCEQUIT    L"WacOSForceQuit.exe"        // Forçar Encerrar Aplicativos (Ctrl+Alt+Esc)
+#define EXE_TITLEBARS    L"WacOSTitleBars.exe"         // só as barras de título do Mac, sem o Shell (src	itulos)
 #define DLL_WINDOW       L"WacOSWindow.dll"          // antes MacJanela.dll
 #define DLL_WINDOW32     L"WacOSWindow32.dll"         // antes MacJanela32.dll
 // (WacOSWindow32Host.exe saiu no build-12: o hospedeiro de 32 bits agora é o rundll32 do Windows)

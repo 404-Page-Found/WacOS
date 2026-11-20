@@ -483,6 +483,14 @@ void revelar::Start() {
     t.detach();
 }
 
+// Modo jogo (jogo.cpp): sem o gancho global do mouse enquanto o jogo roda (cada clique do jogo passava pelo Shell);
+// o gancho volta numa thread nova quando o jogo fecha
+void revelar::Pausar(bool p) {
+    if (!g_wnd) return;  // "clique mostra a mesa" desligado: não há gancho
+    if (p) { if (DWORD t = g_hookThread) { g_hookThread = 0; PostThreadMessageW(t, WM_QUIT, 0, 0); } }
+    else if (!g_hookThread) std::thread([] { g_hookThread = GetCurrentThreadId(); HookThread(); }).detach();
+}
+
 // outra janela veio para a frente (clicou na faixa de uma janela, Alt+Tab, Dock): todas voltam
 void revelar::Foreground(HWND h) {
     if (!g_revealed || !h || apps::IsShellWindow(h) || IsDesktopWindow(h)) return;

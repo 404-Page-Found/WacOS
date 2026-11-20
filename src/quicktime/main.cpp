@@ -500,13 +500,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     RegisterClassExW(&bc);
     MONITORINFO mi{ sizeof(mi) }; POINT c; GetCursorPos(&c); GetMonitorInfoW(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY), &mi);
     float s = GetDpiForSystem() / 96.f; int W = (int)(800 * s), H = (int)(480 * s);
+    bool mac = barramac::Ligar();  // os três botões do Mac (WacOSWindow.dll), com ou sem o Shell
     wnd = CreateWindowExW(WS_EX_ACCEPTFILES, wc.lpszClassName, L"QuickTime Player", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                           mi.rcWork.left + (mi.rcWork.right - mi.rcWork.left - W) / 2, mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top - H) / 2, W, H, nullptr, nullptr, hi, nullptr);
     if (!wnd) return 1;
     BOOL dark = TRUE; DwmSetWindowAttribute(wnd, 20, &dark, sizeof(dark));  // o QuickTime é sempre escuro
     g_video = CreateWindowExW(WS_EX_ACCEPTFILES, vc.lpszClassName, L"", WS_CHILD | WS_VISIBLE, 0, 0, W, H, wnd, nullptr, hi, nullptr);
     g_bar = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, bc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, wnd, nullptr, hi, nullptr);
-    if (semaforo::Aqua()) {
+    if (mac && semaforo::Aqua()) {
         // a barra de título de 32 do app (a DLL só põe os três botões a 16)
         SetPropW(wnd, L"WacOSBarraUnificada", (HANDLE)(INT_PTR)std::lround(GG_TOP));
         BAR = GG_TOP;

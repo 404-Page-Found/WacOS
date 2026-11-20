@@ -677,6 +677,71 @@ bool ui::LoadPng(const std::wstring& path, UINT& w, UINT& h, std::vector<BYTE>& 
     return ok;
 }
 
+// Foto inteira pelo WIC (o Quick Look): a miniatura do Windows para em ~1024 px e ficava borrada numa tela de
+// 3440. Gira pela orientação do EXIF (foto de celular) e reduz (Fant) até maxSide; nunca amplia.
+bool ui::LoadPhoto(const std::wstring& path, UINT maxSide, UINT& w, UINT& h, std::vector<BYTE>& bgra) {
+    IWICImagingFactory* wic = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) return false;
+    IWICBitmapDecoder* dec = nullptr;
+    bool ok = false;
+    if (SUCCEEDED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec))) {
+        IWICBitmapFrameDecode* fr = nullptr;
+        if (SUCCEEDED(dec->GetFrame(0, &fr))) {
+            UINT fw = 0, fh = 0; fr->GetSize(&fw, &fh);
+            USHORT orient = 1;  // 1 normal, 3 = 180°, 6 = 90° horário, 8 = 90° anti-horário (2/4/5/7: espelhadas)
+            IWICMetadataQueryReader* q = nullptr;
+            if (SUCCEEDED(fr->GetMetadataQueryReader(&q))) {
+                for (auto key : { L"/app1/ifd/{ushort=274}", L"/ifd/{ushort=274}", L"System.Photo.Orientation" }) {
+                    PROPVARIANT v; PropVariantInit(&v);
+                    if (SUCCEEDED(q->GetMetadataByName(key, &v)) && v.vt == VT_UI2) { orient = v.uiVal; PropVariantClear(&v); break; }
+                    PropVariantClear(&v);
+                }
+                q->Release();
+            }
+            IWICBitmapSource* src = fr; src->AddRef();
+            if (fw && fh && maxSide && (fw > maxSide || fh > maxSide)) {
+                double k = (double)maxSide / std::max(fw, fh);
+                IWICBitmapScaler* sc = nullptr;
+                if (SUCCEEDED(wic->CreateBitmapScaler(&sc)) &&
+                    SUCCEEDED(sc->Initialize(src, std::max(1u, (UINT)(fw * k)), std::max(1u, (UINT)(fh * k)), WICBitmapInterpolationModeFant))) {
+                    src->Release(); src = sc;
+                } else if (sc) sc->Release();
+            }
+            WICBitmapTransformOptions tr = WICBitmapTransformRotate0;
+            switch (orient) {
+            case 2: tr = WICBitmapTransformFlipHorizontal; break;
+            case 3: tr = WICBitmapTransformRotate180; break;
+            case 4: tr = WICBitmapTransformFlipVertical; break;
+            case 5: tr = (WICBitmapTransformOptions)(WICBitmapTransformRotate90 | WICBitmapTransformFlipHorizontal); break;
+            case 6: tr = WICBitmapTransformRotate90; break;
+            case 7: tr = (WICBitmapTransformOptions)(WICBitmapTransformRotate270 | WICBitmapTransformFlipHorizontal); break;
+            case 8: tr = WICBitmapTransformRotate270; break;
+            }
+            if (tr != WICBitmapTransformRotate0) {
+                IWICBitmapFlipRotator* rot = nullptr;
+                if (SUCCEEDED(wic->CreateBitmapFlipRotator(&rot)) && SUCCEEDED(rot->Initialize(src, tr))) { src->Release(); src = rot; }
+                else if (rot) rot->Release();
+            }
+            IWICFormatConverter* cv = nullptr;
+            if (SUCCEEDED(wic->CreateFormatConverter(&cv)) &&
+                SUCCEEDED(cv->Initialize(src, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) {
+                cv->GetSize(&w, &h);
+                if (w && h && (size_t)w * h <= 80'000'000) {
+                    bgra.resize((size_t)w * h * 4);
+                    ok = SUCCEEDED(cv->CopyPixels(nullptr, w * 4, (UINT)bgra.size(), bgra.data()));
+                }
+            }
+            if (cv) cv->Release();
+            src->Release();
+            fr->Release();
+        }
+        dec->Release();
+    }
+    wic->Release();
+    if (!ok) bgra.clear();
+    return ok;
+}
+
 // Pasta dos ícones do Sequoia (icones\sequoia, ao lado de bin\): uso pessoal, ver icones\LEIA-ME.txt.
 std::wstring ui::PackIcon(const std::wstring& name) {
     std::wstring root = shell::dir.substr(0, shell::dir.find_last_of(L'\\')) + L"\\icones";

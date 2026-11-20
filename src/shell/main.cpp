@@ -69,6 +69,7 @@ const UINT WM_APP_VOLUME = WM_APP + 42;
 static bool g_volumeKeys = true;  // ajuste volume_mac: teclas de volume com o aviso do Mac (0 = o Windows trata)
 
 static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
+    if (code == HC_ACTION && w == WM_KEYDOWN && ((KBDLLHOOKSTRUCT*)l)->vkCode == VK_CAPITAL) ilha::CapsLock();  // Ilha Dinâmica: aviso do Caps Lock
     if (code == HC_ACTION && g_volumeKeys && !bloqueio::Active()) {
         // teclas de volume (Fn + F-teclas): o Shell muda o volume em 16 passos e mostra o aviso do Mac
         // (o painel do Windows não aparece). Só essas três teclas: os atalhos Ctrl+Alt+Shift+F11/F12 seguem livres.
@@ -161,6 +162,13 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 // de novo (igual ao Espaço); repetição de tecla segurada não conta
                 if (down && !g_tabHeld) PostMessageW(g_msg, WM_APP_MISSION, 0, 0);
                 g_tabHeld = down;
+                g_winCombo = g_winEaten = true;
+                return 1;
+            } else if (g_winDown && down && (k->vkCode == VK_F12 || k->vkCode == VK_F8) && liquid::Leopard()) {
+                // Leopard: Win+F12 = Dashboard (o F12 do Mac), Win+F8 = Spaces (o F8 do Mac). Só com o Win: o F12 sozinho
+                // continua dos apps (ferramentas do navegador)
+                static UINT openPanel = RegisterWindowMessageW(L"ShellAbrirPainel");
+                PostMessageW(g_msg, openPanel, k->vkCode == VK_F12 ? 16 : 17, 0);
                 g_winCombo = g_winEaten = true;
                 return 1;
             } else if (g_winDown && down && !g_winCombo && (k->vkCode == 'I' || k->vkCode == VK_TAB)) {
@@ -645,11 +653,12 @@ static void CheckFullscreen() {
     }
     dock::SetFullscreen(locked || (fs && fm == dock::MonitorHandle()));
     menubar::SetFullscreen(locked || fs, fm);
+    ilha::SetFullscreen(locked);  // a ilha confere sozinha a tela cheia do monitor principal (jogo, vídeo, app)
 }
 
 static void CALLBACK OnWinEvent(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (ev == EVENT_OBJECT_LOCATIONCHANGE && (obj != OBJID_WINDOW || h != GetForegroundWindow())) return;
-    if (ev == EVENT_SYSTEM_FOREGROUND) revelar::Foreground(h);
+    if (ev == EVENT_SYSTEM_FOREGROUND) { revelar::Foreground(h); jogo::Foreground(h); }
     CheckFullscreen();
 }
 
@@ -723,6 +732,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else if (w == 12) dock::OpenAppsStack();   // Leopard: a pilha Aplicativos (testes)
         else if (w == 13) seletor::Step(1);        // o seletor de apps sem segurar o Alt (testes; 14 fecha)
         else if (w == 14) seletor::Key(VK_ESCAPE);
+        else if (w == 15) dock::OpenDownloadsStack();  // a pilha Downloads (testes)
+        else if (w == 16) dashboard::Toggle();         // Leopard: Dashboard (Win+F12)
+        else if (w == 17) espacos::Toggle();           // Leopard: Spaces (Win+F8)
+        else if (w == 18) tempo::Enter();              // Leopard: a viagem no tempo do Time Machine
         else if (w == 11) {  // Quick Look de uma foto do macOS 27 (testes)
             wchar_t p[MAX_PATH] = {}; GetEnvironmentVariableW(L"USERPROFILE", p, MAX_PATH);
             quicklook::Toggle(std::wstring(p) + L"\\Pictures\\Wallpapers macOS\\macOS 27\\macos-27-golden-4096x2160-27635.jpg");
@@ -804,6 +817,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         auto themeNow = [] { return liquid::Leopard() ? 3 : liquid::Golden() ? 2 : (int)liquid::On(); };
         if (lastTheme < 0) lastTheme = themeNow();
         LoadSettings();
+        ilha::Reload();
         static int lastEn = -1;
         if (lastEn < 0) lastEn = idioma::En();
         if (bool en = shell::Setting(L"idioma", L"en") == L"en"; (int)en != lastEn) {  // Ajustes > Geral > Idioma
@@ -837,6 +851,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         menubar::Update();
         shell::ApplyWorkArea();
         mesa::SettingsChanged();
+        jogo::Reload();  // modo_jogo e jogos.txt
         palco::Sync();
         return 0;
     }
@@ -981,7 +996,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, m, w, l);
 }
 
+int AjudanteRodar(const wchar_t* cmd);  // ajudante.cpp: --sair, --aplicar-cursor... (para os scripts do instalador)
+
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
+    if (int r = AjudanteRodar(GetCommandLineW()); r >= 0) return r;
     if (migrar::TrocarPeloNovo()) return 0;  // nome velho (SequoiaShell.exe): o WacOSShell.exe ao lado assume
     if (const wchar_t* a = wcsstr(GetCommandLineW(), L"--depois-de ")) {  // reinício: espera o Shell antigo sair (até 20 s)
         if (HANDLE old = OpenProcess(SYNCHRONIZE, FALSE, wcstoul(a + 12, nullptr, 10))) { WaitForSingleObject(old, 20000); CloseHandle(old); }
@@ -1063,9 +1081,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     widgets::Create(hi);  // widgets na mesa (abaixo de todas as janelas)
     bloqueio::Create(hi);  // tela de bloqueio do Sequoia (Win+L)
     notificacoes::Create(hi);  // Central de Notificações (clique no relógio da barra de menus)
+    ilha::Create(hi);  // Ilha Dinâmica (ajuste ilha=1)
     notarapida::Create(hi);  // canto inferior direito: Nota Rápida
     progresso::Create(hi);  // copiar/mover/apagar: a janela de progresso do Finder no lugar da do Windows
     cantos::Start();         // Cantos Ativos (Mission Control, mesa, Launchpad... por canto)
+    jogo::Start();           // Modo Jogo: jogo na frente desliga o que mais pesa (vidro real, ganchos do mouse...)
     boot::Progress(0.7f);
     tray::Start([] { menubar::Update(); });
     mesa::Start(hi, g_msg);  // ajuste explorer=0: a mesa é nossa e o explorer.exe sai
@@ -1091,7 +1111,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     g_volumeKeys = shell::Setting(L"volume_mac", L"1") == L"1";
     if (g_fullHook || g_volumeKeys || shell::Setting(L"bloqueio", L"1") != L"0") std::thread(KeyThread).detach();  // sem o Launchpad: só barra teclas com a tela travada
     SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT);
-    SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    jogo::GanchoPosicao(OnWinEvent, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);  // sai no modo jogo (jogo.cpp)
     SetTimer(g_msg, 1, 1000, nullptr);
     SetTimer(g_msg, 2, 200, nullptr);
     SetTimer(g_msg, 9, 3000, nullptr);  // pré-carregar o menu de contexto (depois que o Shell já apareceu)
@@ -1152,6 +1172,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     genio::Create(hi);
     widgets::Create(hi);
     notificacoes::Create(hi);
+    ilha::Create(hi);
     notarapida::Create(hi);
     progresso::Create(hi);
     cantos::Start();
@@ -1182,7 +1203,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     g_volumeKeys = shell::Setting(L"volume_mac", L"1") == L"1";
     if (g_fullHook || g_volumeKeys) std::thread(KeyThread).detach();
     SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT);
-    SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT);
+    jogo::GanchoPosicao(OnWinEvent, WINEVENT_OUTOFCONTEXT);  // sai no modo jogo (jogo.cpp)
     SetTimer(g_msg, 1, 1000, nullptr);
     SetTimer(g_msg, 9, 3000, nullptr);
     Log(L"pronto (nativo): %zu apps no Dock", apps::list.size());

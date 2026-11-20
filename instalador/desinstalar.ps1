@@ -9,39 +9,45 @@ function Pergunta($texto) { (Read-Host "$texto (s/n)").Trim().ToLower().StartsWi
 Write-Host "WacOS - desinstalar`n"
 if (-not (Pergunta "Remover o WacOS de $dest?")) { exit }
 
-Add-Type -Namespace SeqDes -Name U -MemberDefinition '[DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern System.IntPtr FindWindow(string c,string t); [DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr h,uint m,System.IntPtr w,System.IntPtr l);'
+# as chamadas do Windows (fechar o Shell, devolver as janelas, cursor) são feitas pelo próprio WacOSShell.exe (modo
+# ajudante, src\shell\ajudante.cpp), sem C# embutido no script (o antivírus estranhava)
+# um WacOSShell.exe que já tem o modo ajudante (os antigos abririam o Shell em vez de ajudar)
+function Ajudante([string[]]$lista) {
+    foreach ($e in $lista) {
+        if (-not (Test-Path $e)) { continue }
+        $b = [IO.File]::ReadAllBytes($e)
+        foreach ($o in 0, 1) { if ([Text.Encoding]::Unicode.GetString($b, $o, $b.Length - $o).Contains('--desfazer-janelas')) { return (Resolve-Path $e).Path } }
+    }
+    return $null
+}
+$ajudante = Ajudante @((Join-Path $dest 'bin\WacOSShell.exe'), (Join-Path $PSScriptRoot 'bin\WacOSShell.exe'), (Join-Path $PSScriptRoot '..\bin\WacOSShell.exe'))
+if ($ajudante -and -not $ajudante.StartsWith($dest)) {  # o do pacote: copiado para fora, a pasta da instalação sai no fim
+    $c = Join-Path $env:TEMP 'WacOSShell-ajudante.exe'; Copy-Item $ajudante $c -Force; $ajudante = $c
+}
 if (Get-Process WacOSShell -ErrorAction SilentlyContinue) {
-    $h = [SeqDes.U]::FindWindow('ShellMensagens', $null)
-    if ($h -ne [IntPtr]::Zero) { [SeqDes.U]::PostMessage($h, 0x0312, [IntPtr]1, [IntPtr]::Zero) | Out-Null }
+    if ($ajudante) { Start-Process $ajudante -ArgumentList '--sair' -Wait }
     for ($i = 0; $i -lt 40 -and (Get-Process WacOSShell -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 500 }
 }
 if (Get-Process WacOSShell -ErrorAction SilentlyContinue) { Write-Host 'O Shell não fechou: feche com Ctrl+Alt+Shift+F12 e rode de novo.'; Read-Host 'Enter para sair'; exit }
 
+# Só as barras de título (WacOSTitleBars, instalação sem o Shell): sai devolvendo as janelas ao Windows
+if (Get-Process WacOSTitleBars -ErrorAction SilentlyContinue) {
+    $tb = Join-Path $dest 'bin\WacOSTitleBars.exe'
+    if (Test-Path $tb) { Start-Process $tb -ArgumentList '--sair' -Wait }
+    for ($i = 0; $i -lt 20 -and (Get-Process WacOSTitleBars -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 250 }
+    Get-Process WacOSTitleBars -ErrorAction SilentlyContinue | Stop-Process -Force
+}
+
 # Janelas dos apps com a barra do Mac: o Shell manda cada uma voltar ao normal ao sair, mas com pouco tempo
 # (300 ms) e uma vez só; app ocupado ou janela escondida ficava com a barra do Mac. Aqui manda de novo, com
 # mais tempo, a todas que ainda estão marcadas, e confere.
-Add-Type -Namespace SeqDes -Name J -MemberDefinition @'
-public delegate bool EP(System.IntPtr h, System.IntPtr l);
-[DllImport("user32.dll")] public static extern bool EnumWindows(EP f, System.IntPtr l);
-[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern System.IntPtr GetPropW(System.IntPtr h, string s);
-[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern uint RegisterWindowMessageW(string s);
-[DllImport("user32.dll")] public static extern System.IntPtr SendMessageTimeoutW(System.IntPtr h, uint m, System.IntPtr w, System.IntPtr l, uint f, uint t, out System.IntPtr r);
-public static int Undo(bool send) {
-    uint msg = RegisterWindowMessageW("MacJanelaDesfazer"); int n = 0;
-    EnumWindows((h, l) => {
-        if (GetPropW(h, "MacJanela") != System.IntPtr.Zero || GetPropW(h, "MacJanelaLeve") != System.IntPtr.Zero) {
-            n++; System.IntPtr r; if (send) SendMessageTimeoutW(h, msg, System.IntPtr.Zero, System.IntPtr.Zero, 2 /*SMTO_ABORTIFHUNG*/, 3000, out r);
-        }
-        return true; }, System.IntPtr.Zero);
-    return n;
+if ($ajudante) {
+    $sobrou = (Start-Process $ajudante -ArgumentList '--desfazer-janelas' -Wait -PassThru).ExitCode
+    if ($sobrou -gt 0) { Write-Host "$sobrou janela(s) não responderam (app travado): voltam ao normal quando o app for fechado e aberto de novo." }
 }
-'@
-$marcadas = [SeqDes.J]::Undo($true)
-Start-Sleep -Milliseconds 500
-$sobrou = [SeqDes.J]::Undo($false)
-if ($marcadas) { Write-Host ("Janelas devolvidas ao visual do Windows: {0}" -f ($marcadas - $sobrou)) }
-if ($sobrou) { Write-Host "$sobrou janela(s) não responderam (app travado): voltam ao normal quando o app for fechado e aberto de novo." }
-Get-Process WacOSFinder, WacOSSettings, WacOSActivityMonitor, WacOSTerminal, WacOSCalculator, WacOSNotes, WacOSScreenshot, WacOSWindow32Host -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process WacOSFinder, WacOSSettings, WacOSActivityMonitor, WacOSTerminal, WacOSCalculator, WacOSNotes, WacOSScreenshot, WacOSWindow32Host,
+            WacOSPreview, WacOSReminders, WacOSCalendar, WacOSTextEdit, WacOSClock, WacOSWeather, WacOSContacts, WacOSPhotos,
+            WacOSTimeMachine, WacOSMusic, WacOSQuickTime, WacOSForceQuit -ErrorAction SilentlyContinue | Stop-Process -Force
 if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) { Start-Process explorer.exe }
 
 # barra do Windows nos outros monitores (o Shell desliga enquanto roda e devolve ao sair; se não devolveu, devolve aqui)
@@ -56,10 +62,12 @@ if ($antes -match '=(.+)$') {
 
 Unregister-ScheduledTask -TaskName 'WacOS' -Confirm:$false -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName 'SequoiaShell' -Confirm:$false -ErrorAction SilentlyContinue  # nome antigo
+Unregister-ScheduledTask -TaskName 'WacOS Title Bars' -Confirm:$false -ErrorAction SilentlyContinue  # só as barras de título
 # pastas voltam a abrir no Explorador (desfaz o --padrao on)
 $finder = Join-Path $dest 'bin\WacOSFinder.exe'
 if (Test-Path $finder) { Start-Process $finder -ArgumentList '--quieto', '--padrao', 'off' -Wait }
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'WacOS.lnk') -ErrorAction SilentlyContinue
+Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'WacOS') -Recurse -Force -ErrorAction SilentlyContinue  # atalhos dos apps avulsos
 
 # extras: janela de Abrir/Salvar e ícones do sistema voltam aos do Windows. Decide pelo que está aplicado de
 # verdade (chaves e backups), não só pelo log: instalação antiga, atualizada ou com o log perdido também volta.
@@ -85,6 +93,17 @@ if ((Test-Path "$docs\backup-icones-sistema.json") -or (Test-Path "$docs\backup-
     } else { Write-Host "Os ícones do Mac estão aplicados, mas falta $dest\tools\icones-sistema.ps1 para desfazer. Nada foi apagado."; Read-Host 'Enter para sair'; exit }
 }
 
+# tema Leopard ligado: o cursor dele (em $dest\cursor\Leopard, que vai ser apagado) dá lugar ao que o Shell guardou
+# ao entrar no tema (%APPDATA%\Shell\cursor-antes.txt, papel=caminho)
+$curAntes = Join-Path $env:APPDATA 'Shell\cursor-antes.txt'
+$curReg = 'HKCU:\Control Panel\Cursors'
+if ((Test-Path $curAntes) -and ((Get-ItemProperty $curReg -ErrorAction SilentlyContinue).Arrow -like "$dest\cursor\Leopard\*")) {
+    foreach ($l in Get-Content $curAntes -Encoding utf8) { if ($l -match '^([^=]+)=(.*)$') { Set-ItemProperty $curReg -Name $Matches[1] -Value $Matches[2] } }
+    Remove-Item $curAntes -ErrorAction SilentlyContinue
+    if ($ajudante) { Start-Process $ajudante -ArgumentList '--aplicar-cursor' -Wait }
+    Write-Host 'Cursor de antes do tema Leopard devolvido.'
+}
+
 # cursor: volta o que estava antes
 if (Test-Path $log) {
     $creg = 'HKCU:\Control Panel\Cursors'
@@ -93,8 +112,7 @@ if (Test-Path $log) {
         if ($l -match 'cursor-antes: ([^=]+)=(.*)$') { Set-ItemProperty $creg -Name $Matches[1] -Value $Matches[2]; $voltou = $true }
     }
     if ($voltou) {
-        Add-Type -Namespace SeqCurD -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool SystemParametersInfo(uint a, uint b, System.IntPtr c, uint d);'
-        [SeqCurD.U]::SystemParametersInfo(0x57, 0, [IntPtr]::Zero, 3) | Out-Null
+        if ($ajudante) { Start-Process $ajudante -ArgumentList '--aplicar-cursor' -Wait }
     }
 }
 

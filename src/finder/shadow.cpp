@@ -61,11 +61,17 @@ void Rebuild(int w, int h, RECT win, float scale) {
         }
         return;
     }
+    // Embaixo da janela não escurece (a barra lateral é translúcida), menos nos cantos: o DWM arredonda a janela e,
+    // com o buraco retangular, sobrava um canto claro fora da curva. Com cantos maiores (mod "rounded corners" do
+    // Windhawk, raio que não dá para saber) isso aparecia como um quadro quadrado em volta (Reddit, 20/11/2026).
+    // O buraco agora tem os cantos redondos com raio folgado (24 pt): cobre qualquer canto até esse tamanho.
+    float rc = 24.f * scale;
     for (int y = 0; y < h; y++) {
         bool rowInside = y >= win.top && y < win.bottom;
+        float fy = y + 0.5f, cy = std::fmax(std::fmax(win.top + rc - fy, fy - (win.bottom - rc)), 0.f);
         for (int x = 0; x < w; x++) {
-            // embaixo da janela não escurece: a barra lateral é translúcida
-            if (rowInside && x >= win.left && x < win.right) { px[y * w + x] = 0; continue; }
+            float fx = x + 0.5f, cx = std::fmax(std::fmax(win.left + rc - fx, fx - (win.right - rc)), 0.f);
+            if (rowInside && x >= win.left && x < win.right && cx * cx + cy * cy <= rc * rc) { px[y * w + x] = 0; continue; }
             float a = amount * ax[x] * ay[y];
             BYTE A = (BYTE)std::lround(std::fmin(a, 1.f) * 255);
             px[y * w + x] = (UINT32)A << 24;  // preto pré-multiplicado

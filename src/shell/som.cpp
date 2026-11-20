@@ -743,5 +743,6 @@ void som::Key(UINT vk, bool fine) {
         SetVolume(g_au.mute ? 0 : v);
     }
     if (g_open) { PaintMenu(); return; }  // com o menu aberto, o controle dele mostra
+    if (ilha::Volume(g_au.mute ? 0 : g_au.vol, g_au.mute)) { HideHud(); return; }  // Ilha Dinâmica ligada: o volume aparece nela
     ShowHud();
 }

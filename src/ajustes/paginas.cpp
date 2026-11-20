@@ -324,6 +324,10 @@ Page Energia() {
     p.groups.push_back(G({ Toggle(L"Soneca de Apps", [] { return Setting(L"app_nap", L"1") != L"0"; },
                                   [](bool v) { SetSetting(L"app_nap", v ? L"1" : L"0"); },
                                   L"Programas com todas as janelas escondidas, minimizadas ou cobertas por 30 segundos passam a gastar menos processador, como o App Nap do Mac. Voltam ao normal assim que aparecem. Não vale para o que está tocando ou gravando som.") }));
+    // Modo Jogo do Mac (shell\jogo.cpp): jogo na frente → o Shell desliga o que mais pesa até o jogo fechar
+    p.groups.push_back(G({ Toggle(L"Modo Jogo", [] { return Setting(L"modo_jogo", L"1") != L"0"; },
+                                  [](bool v) { SetSetting(L"modo_jogo", v ? L"1" : L"0"); },
+                                  L"Quando um jogo vem para a frente, o WacOS desliga o vidro real, os efeitos que acompanham o mouse e os Cantos Ativos e passa a usar menos processador, até o jogo fechar. Jogos que não forem reconhecidos podem ser postos em jogos.txt, na pasta de ajustes.") }));
     p.groups.push_back(Plain(Buttons({ { L"Opções de Energia…", [] { OpenUri(L"ms-settings:powersleep"); } } })));
     return p;
 }
@@ -652,21 +656,19 @@ Row TemaRow() {
     // Leopard continua no visual do Sequoia) e, por cima, o Aqua de 2007: barra de menus clara com a maçã grafite, Dock
     // em prateleira espelhada, botões de gel e barras cinza metálico. Ligar o Liquid Glass em outro lugar desliga o
     // Leopard sozinho (leopard só vale com liquid_glass=0).
-    // O Leopard ainda não saiu (fora do build-12): só aparece com leopard_previa=1 no ajustes.txt, ou para quem já
-    // está nele (para conseguir sair). Sem a opção, o pacote também não leva icones\leopard nem cursor\Leopard.
-    bool leopardOn = Setting(L"leopard_previa", L"0") == L"1" || Setting(L"leopard", L"0") == L"1";
-    std::vector<std::wstring> temas = { L"macOS Sequoia", L"macOS Tahoe", L"macOS Golden Gate" };
-    if (leopardOn) temas.push_back(L"Mac OS X Leopard");
+    // Lançado em 20/11/2026 (antes só aparecia com leopard_previa=1): o pacote leva icones\leopard e cursor\Leopard.
+    // ordem do usuário: o mais novo primeiro (0 Golden Gate, 1 Tahoe, 2 Sequoia, 3 Leopard)
+    std::vector<std::wstring> temas = { L"macOS Golden Gate", L"macOS Tahoe", L"macOS Sequoia", L"Mac OS X Leopard" };
     return Popup(L"Tema", temas,
                      [] {
-                         if (Setting(L"liquid_glass", L"0") != L"1") return Setting(L"leopard", L"0") == L"1" ? 3 : 0;
-                         return Setting(L"golden_gate", L"0") == L"1" ? 2 : 1;
+                         if (Setting(L"liquid_glass", L"0") != L"1") return Setting(L"leopard", L"0") == L"1" ? 3 : 2;
+                         return Setting(L"golden_gate", L"0") == L"1" ? 0 : 1;
                      },
                      [](int i) {
-                         if (i == 2) SetSetting(L"liquid_estilo", L"nitido");  // o vidro do Golden Gate é o controle deslizante
+                         if (i == 0) SetSetting(L"liquid_estilo", L"nitido");  // o vidro do Golden Gate é o controle deslizante
                          SetSetting(L"leopard", i == 3 ? L"1" : L"0");
-                         SetSetting(L"golden_gate", i == 2 ? L"1" : L"0");
-                         SetSetting(L"liquid_glass", i == 1 || i == 2 ? L"1" : L"0");
+                         SetSetting(L"golden_gate", i == 0 ? L"1" : L"0");
+                         SetSetting(L"liquid_glass", i == 0 || i == 1 ? L"1" : L"0");
                          // o papel de parede do usuário nunca muda ao trocar de tema (o usuário pediu)
                          Rebuild();
                      });
@@ -1395,6 +1397,22 @@ Page CentralControle() {
                       [](int i) { SetSetting(L"relogio_curto", i == 1 ? L"1" : L"0"); });
     clock.icon = 0xE787; clock.iconColor = C_GRAY;
     p.groups.push_back(G({ clock }));
+    // Ilha Dinâmica (src/shell/ilha.cpp): desligada por padrão; as outras opções só valem com ela ligada
+    auto on = [](const wchar_t* k, const wchar_t* d) { std::wstring kk = k, dd = d; return std::function<bool()>([kk, dd] { return Setting(kk.c_str(), dd.c_str()) == L"1"; }); };
+    auto set = [](const wchar_t* k) { std::wstring kk = k; return std::function<void(bool)>([kk](bool v) { SetSetting(kk.c_str(), v ? L"1" : L"0"); Rebuild(); }); };
+    std::vector<Row> ilha = { Toggle(L"Ilha Dinâmica", on(L"ilha", L"0"), set(L"ilha"),
+                                     L"Mostra no topo da tela a música tocando, timers, notificações, downloads, o volume e uma estante de arquivos. Passe o ponteiro sobre ela para abrir.") };
+    if (Setting(L"ilha", L"0") == L"1") {
+        // estilo: notch (entalhe grudado no topo), ilha (pílula sempre na barra) ou só quando acontece algo
+        Row est = Popup(L"Estilo", { L"Notch", L"Ilha", L"Só quando houver algo" },
+                        [] { std::wstring v = Setting(L"ilha_estilo", L"notch"); return v == L"ilha" ? 1 : v == L"notificacao" ? 2 : 0; },
+                        [](int i) { SetSetting(L"ilha_estilo", i == 1 ? L"ilha" : i == 2 ? L"notificacao" : L"notch"); });
+        ilha.push_back(est);
+        ilha.push_back(Toggle(L"Abrir ao passar o ponteiro", on(L"ilha_passar", L"1"), set(L"ilha_passar")));
+        ilha.push_back(Toggle(L"Mostrar notificações na ilha", on(L"ilha_notificacoes", L"1"), set(L"ilha_notificacoes")));
+        ilha.push_back(Toggle(L"Mostrar o volume na ilha", on(L"ilha_volume", L"1"), set(L"ilha_volume")));
+    }
+    p.groups.push_back(G(ilha, L"Ilha Dinâmica"));
     return p;
 }
 

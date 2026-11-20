@@ -947,7 +947,7 @@ void Dump() {
 void Poll(bool refresh) {
     static HWINEVENTHOOK fg = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnWinChange, 0, 0, WINEVENT_OUTOFCONTEXT);
     static HWINEVENTHOOK ch = SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_REORDER, nullptr, OnWinChange, 0, 0, WINEVENT_OUTOFCONTEXT | shell::SemProprio());
-    static HWINEVENTHOOK mv = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnWinChange, 0, 0, WINEVENT_OUTOFCONTEXT | shell::SemProprio());
+    static bool mv = (jogo::GanchoPosicao(OnWinChange, WINEVENT_OUTOFCONTEXT | shell::SemProprio()), true);  // sai no modo jogo (jogo.cpp)
     (void)fg; (void)ch; (void)mv;
     if (g_busy) { capDirty = true; return; }  // chamada de dentro dela mesma: o temporizador pega depois
     g_busy = true;
@@ -1380,6 +1380,8 @@ void backdrop::Reload() {
     s.refraction = std::clamp(s.refraction, 0.f, 1.f);
     s.tintK = std::clamp(s.tintK, 0.f, 1.f);
     s.real = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1" && !rg::semCaptura;  // aparece nas gravações (montado pelas janelas)
+    // modo jogo (jogo.cpp): o vidro real remontava o fundo a cada quadro do jogo atrás das peças; fica o vidro comum
+    if (jogo::Ativo()) s.real = false;
     g_style = s;
     if (g_comp) rg::SetActive(s.real);
     // menus (barra de menus, Dock, Central): mais opacos que os painéis, para ler bem

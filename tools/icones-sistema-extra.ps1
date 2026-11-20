@@ -17,13 +17,16 @@ $lines = New-Object System.Collections.Generic.List[string]
 function Say($s) { $lines.Add($s) }
 function Fim { $lines | Set-Content $out -Encoding utf8 }
 function Stamp { Get-Date -Format 'yyyy-MM-dd HH:mm' }
-Add-Type -Namespace W -Name N -MemberDefinition '[DllImport("shell32.dll", CharSet=CharSet.Unicode)] public static extern void SHChangeNotify(int e, uint f, string a, System.IntPtr b);'
+# avisar o Explorador: pelo WacOSShell.exe (modo ajudante), sem C# embutido no script
+$ajudante = Join-Path $PSScriptRoot '..\bin\WacOSShell.exe'
+function AvisarIcones { if (Test-Path $ajudante) { Start-Process $ajudante -ArgumentList '--avisar-icones' -Wait } }
+function AvisarPasta($p) { if (Test-Path $ajudante) { Start-Process $ajudante -ArgumentList '--avisar-pasta', ('"' + $p + '"') -Wait } }
 function Refresh {
-    [W.N]::SHChangeNotify(0x08000000, 0x1000, $null, [IntPtr]::Zero)  # SHCNE_ASSOCCHANGED
-    try { Start-Process "$env:WINDIR\System32\ie4uinit.exe" -ArgumentList '-show' -Wait -WindowStyle Hidden } catch {}
+    AvisarIcones  # SHCNE_ASSOCCHANGED
+    try { Start-Process "$env:WINDIR\System32\ie4uinit.exe" -ArgumentList '-show' -Wait } catch {}
 }
 function Elevated($a) {
-    try { $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Maquina $a"; Say "parte da máquina (administrador): saída $($p.ExitCode)" }
+    try { $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Maquina $a"; Say "parte da máquina (administrador): saída $($p.ExitCode)" }
     catch { Say "parte da máquina: permissão de administrador negada ($($_.Exception.Message))" }
 }
 
@@ -93,7 +96,7 @@ if ($Desfazer) {
                 if ($it.folderAttrs) { (Get-Item $it.folder -Force).Attributes = $it.folderAttrs }
                 Say "removido $p"
             }
-            [W.N]::SHChangeNotify(0x00001000, 0x0005 -bor 0x1000, $it.folder, [IntPtr]::Zero)  # SHCNE_UPDATEDIR
+            AvisarPasta $it.folder  # SHCNE_UPDATEDIR
         }
         Remove-Item $bdir -Recurse -Force
         Add-Content $log -Encoding utf8 "`r`n[$(Stamp)] desktop.ini das pastas do usuário: DESFEITO (cópias originais devolvidas)."
@@ -140,7 +143,7 @@ else {
             (Get-Item $f -Force).Attributes = (Get-Item $f -Force).Attributes -bor [IO.FileAttributes]::ReadOnly  # o Windows só lê o desktop.ini de pasta marcada
             $list += [pscustomobject]@{ folder = $f; existed = $false; folderAttrs = $fa }
         }
-        [W.N]::SHChangeNotify(0x00001000, 0x0005 -bor 0x1000, $f, [IntPtr]::Zero)
+        AvisarPasta $f
         Say "$p -> IconResource=$icon"
     }
     ConvertTo-Json @($list) -Depth 3 | Set-Content $bini -Encoding utf8

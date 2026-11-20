@@ -365,11 +365,11 @@ void GlassEnd() {
 // ================= cores
 struct Pal { D2D1_COLOR_F tint, tintPill, text, text2, line, close, closeGlyph, chip, header; };
 Pal Colors() {
-    // Leopard: os avisos da época eram os balões do Growl ("Smoke"): cartão preto translúcido, texto branco
+    // Leopard: cartão claro do Aqua (o usuário preferiu claro ao "Smoke" escuro do Growl): branco perolado, texto preto
     if (liquid::Leopard())
-        return { D2D1::ColorF(0.04f, 0.04f, 0.05f, 0.80f), D2D1::ColorF(0.10f, 0.10f, 0.11f, 0.80f), D2D1::ColorF(1, 1, 1, 0.97f),
-                 D2D1::ColorF(1, 1, 1, 0.70f), D2D1::ColorF(1, 1, 1, 0.12f), D2D1::ColorF(0.30f, 0.30f, 0.32f, 0.98f),
-                 D2D1::ColorF(1, 1, 1, 0.90f), D2D1::ColorF(1, 1, 1, 0.16f), D2D1::ColorF(1, 1, 1, 0.97f) };
+        return { D2D1::ColorF(0.97f, 0.97f, 0.97f, 0.95f), D2D1::ColorF(0.95f, 0.95f, 0.95f, 0.95f), D2D1::ColorF(0, 0, 0, 0.90f),
+                 D2D1::ColorF(0, 0, 0, 0.60f), D2D1::ColorF(0, 0, 0, 0.25f), D2D1::ColorF(0.93f, 0.93f, 0.93f, 1),
+                 D2D1::ColorF(0, 0, 0, 0.70f), D2D1::ColorF(0, 0, 0, 0.08f), D2D1::ColorF(1, 1, 1, 0.97f) };
     if (liquid::On()) {  // Tahoe: vidro de verdade, o fundo desfocado aparece (antes a tinta deixava o cartão quase opaco)
         Pal p = Dark()
             ? Pal{ D2D1::ColorF(0.10f, 0.10f, 0.11f, 0.40f), D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.36f), D2D1::ColorF(1, 1, 1, 0.95f),
@@ -754,21 +754,35 @@ void Border(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1
     dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), rad - 0.5f, rad - 0.5f), br, 1);
 }
 
+// Leopard: o cartão claro do Aqua (degradê branco -> cinza bem claro, fio cinza, luz no alto e sombra leve)
+void LeoCard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r, float rad, float a) {
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.18f * a));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1.5f, r.right, r.bottom + 2), rad, rad), br);
+    D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0.97f * a) }, { 1, D2D1::ColorF(0.89f, 0.89f, 0.90f, 0.97f * a) } };
+    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+    if (lb) lb->Release();
+    if (gs) gs->Release();
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f * a));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), rad - 0.5f, rad - 0.5f), br, 1);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.9f * a));
+    dc->DrawLine({ r.left + rad, r.top + 1.5f }, { r.right - rad, r.top + 1.5f }, br, 1);
+}
+
 void DrawCard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, const Group& g, const Note& n, D2D1_RECT_F r, const std::wstring& key) {
     if (liquid::Leopard()) {
-        // Leopard (balão "Smoke" do Growl): preto translúcido de cantos 8 com o fio claro, o ícone à esquerda, o título
-        // em negrito branco e o texto branco embaixo; sem a hora
-        br->SetColor(D2D1::ColorF(0.04f, 0.04f, 0.05f, 0.78f));
-        dc->FillRoundedRectangle(D2D1::RoundedRect(r, 8, 8), br);
-        br->SetColor(D2D1::ColorF(1, 1, 1, 0.18f));
-        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 7.5f, 7.5f), br, 1);
+        // Leopard: cartão claro do Aqua de cantos 8, o ícone à esquerda, o título
+        // em negrito preto e o texto embaixo; sem a hora
+        LeoCard(dc, br, r, 8, 1);
         float cy0 = (r.top + r.bottom) / 2;
         DrawIcon(dc, br, g, D2D1::RectF(r.left + ICON_X, cy0 - ICON / 2, r.left + ICON_X + ICON, cy0 + ICON / 2));
         float tx0 = r.left + TEXT_X, top0 = r.top + PAD_V;
-        Text(dc, br, n.title, g_tfTitle, D2D1::RectF(tx0, top0, r.right - PAD_R, top0 + TITLE_H), D2D1::ColorF(1, 1, 1, 0.97f));
+        Text(dc, br, n.title, g_tfTitle, D2D1::RectF(tx0, top0, r.right - PAD_R, top0 + TITLE_H), D2D1::ColorF(0, 0, 0, 0.92f));
         auto& b0 = Body(n);
         if (b0.first) {
-            br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.78f));
             dc->DrawTextLayout({ tx0, top0 + TITLE_H }, b0.first, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
         return;
@@ -865,10 +879,104 @@ void PaintClock(ID2D1DeviceContext* dc, float w, float h, bool dark) {
     br->Release();
 }
 
+// ---- Mac OS X Leopard: os widgets do Dashboard do 10.5 (o iCal em folha de calendário e o relógio redondo)
+void LeoGrad(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, std::initializer_list<D2D1_GRADIENT_STOP> st, bool ellipse = false) {
+    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(st.begin(), (UINT)st.size(), &gs)) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb))) {
+        if (ellipse) dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 }, (r.right - r.left) / 2, (r.bottom - r.top) / 2), lb);
+        else dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+    }
+    if (lb) lb->Release();
+    if (gs) gs->Release();
+}
+void PaintCalendarLeo(ID2D1DeviceContext* dc, float w, float h, bool) {
+    ID2D1SolidColorBrush* br = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+    SYSTEMTIME t; GetLocalTime(&t);
+    D2D1_RECT_F pg = D2D1::RectF(14, 12, w - 14, h - 16);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.35f));  // a sombra do widget
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(pg.left, pg.top + 3, pg.right, pg.bottom + 4), 9, 9), br);
+    LeoGrad(dc, pg, 9, { { 0, D2D1::ColorF(1, 1, 1) }, { 1, D2D1::ColorF(0.88f, 0.88f, 0.89f) } });
+    float band = (pg.bottom - pg.top) * 0.30f;
+    ID2D1Layer* l = nullptr; dc->CreateLayer(nullptr, &l);
+    ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+    ID2D1RoundedRectangleGeometry* rg = nullptr; f->CreateRoundedRectangleGeometry(D2D1::RoundedRect(pg, 9, 9), &rg);
+    dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), rg), l);
+    LeoGrad(dc, D2D1::RectF(pg.left, pg.top, pg.right, pg.top + band), 0, { { 0, D2D1::ColorF(0.93f, 0.36f, 0.33f) }, { 0.5f, D2D1::ColorF(0.82f, 0.13f, 0.12f) }, { 1, D2D1::ColorF(0.70f, 0.06f, 0.06f) } });
+    dc->PopLayer();
+    rg->Release(); f->Release(); l->Release();
+    static const wchar_t* meses[] = { L"JAN", L"FEV", L"MAR", L"ABR", L"MAI", L"JUN", L"JUL", L"AGO", L"SET", L"OUT", L"NOV", L"DEZ" };
+    IDWriteTextFormat* tm = Fmt(band * 0.55f, DWRITE_FONT_WEIGHT_BOLD, L"Lucida Sans Unicode");
+    Text(dc, br, Tr(meses[(t.wMonth + 11) % 12]), tm, D2D1::RectF(pg.left, pg.top, pg.right, pg.top + band), D2D1::ColorF(1, 1, 1, 1), DWRITE_TEXT_ALIGNMENT_CENTER);
+    if (tm) tm->Release();
+    IDWriteTextFormat* big = Fmt((pg.bottom - pg.top - band) * 0.66f, DWRITE_FONT_WEIGHT_BOLD, L"Lucida Sans Unicode");
+    Text(dc, br, std::to_wstring(t.wDay), big, D2D1::RectF(pg.left, pg.top + band, pg.right, pg.bottom), D2D1::ColorF(0.1f, 0.1f, 0.1f, 1), DWRITE_TEXT_ALIGNMENT_CENTER);
+    if (big) big->Release();
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.35f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(pg.left + 0.5f, pg.top + 0.5f, pg.right - 0.5f, pg.bottom - 0.5f), 8.5f, 8.5f), br, 1);
+    br->Release();
+}
+void PaintClockLeo(ID2D1DeviceContext* dc, float w, float h, bool) {
+    ID2D1SolidColorBrush* br = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+    D2D1_POINT_2F c{ w / 2, h / 2 - 2 };
+    float R = std::min(w, h) / 2 - 12;
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.35f));
+    dc->FillEllipse(D2D1::Ellipse({ c.x, c.y + 3 }, R + 1, R + 1), br);
+    // o aro cromado e o mostrador branco do relógio do Dashboard
+    LeoGrad(dc, D2D1::RectF(c.x - R, c.y - R, c.x + R, c.y + R), 0, { { 0, D2D1::ColorF(0.97f, 0.97f, 0.98f) }, { 0.5f, D2D1::ColorF(0.62f, 0.63f, 0.66f) }, { 1, D2D1::ColorF(0.92f, 0.92f, 0.94f) } }, true);
+    float r2 = R * 0.88f;
+    LeoGrad(dc, D2D1::RectF(c.x - r2, c.y - r2, c.x + r2, c.y + r2), 0, { { 0, D2D1::ColorF(0.86f, 0.86f, 0.87f) }, { 1, D2D1::ColorF(1, 1, 1) } }, true);
+    D2D1_COLOR_F ink = D2D1::ColorF(0.08f, 0.08f, 0.08f, 1);
+    IDWriteTextFormat* num = Fmt(r2 * 0.24f, DWRITE_FONT_WEIGHT_BOLD, L"Lucida Sans Unicode");
+    for (int i = 1; i <= 12; i++) {
+        float a = i * 3.14159265f / 6;
+        float x = c.x + std::sin(a) * r2 * 0.76f, y = c.y - std::cos(a) * r2 * 0.76f;
+        Text(dc, br, std::to_wstring(i), num, D2D1::RectF(x - 14, y - 10, x + 14, y + 10), ink, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+    if (num) num->Release();
+    SYSTEMTIME t; GetLocalTime(&t);
+    float mn = t.wMinute + t.wSecond / 60.f, hr = (t.wHour % 12) + mn / 60;
+    ID2D1StrokeStyle* st = nullptr;
+    ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+    f->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND), nullptr, 0, &st);
+    auto hand = [&](float ang, float len, float width, D2D1_COLOR_F col, float tail) {
+        br->SetColor(col);
+        D2D1_POINT_2F d{ std::sin(ang), -std::cos(ang) };
+        dc->DrawLine({ c.x - d.x * tail, c.y - d.y * tail }, { c.x + d.x * len, c.y + d.y * len }, br, width, st);
+    };
+    hand(hr * 3.14159265f / 6, r2 * 0.50f, 3.6f, ink, r2 * 0.08f);
+    hand(mn * 3.14159265f / 30, r2 * 0.74f, 2.6f, ink, r2 * 0.08f);
+    hand((float)t.wSecond * 3.14159265f / 30, r2 * 0.80f, 1.2f, D2D1::ColorF(0.85f, 0.10f, 0.08f, 1), r2 * 0.18f);
+    br->SetColor(D2D1::ColorF(0.85f, 0.10f, 0.08f, 1));
+    dc->FillEllipse(D2D1::Ellipse(c, 2.8f, 2.8f), br);
+    if (st) st->Release();
+    f->Release();
+    br->Release();
+}
+
+// Os widgets da Central (embaixo das notificações): cada um some com central_<id>=0 no ajustes.txt, pelo
+// "Editar Widgets…" da Central ou pelo botão direito em cima dele ("Remover Widget")
+struct CentralWidget { const wchar_t* id; const wchar_t* name; };
+const CentralWidget CENTRAL_W[] = { { L"calendario", L"Calendário" }, { L"relogio", L"Relógio" } };
+std::vector<int> g_widgetKind;  // g_widgets[i] é CENTRAL_W[g_widgetKind[i]] (só com os padrões)
+
+bool CentralOn(int k) { return shell::Setting((std::wstring(L"central_") + CENTRAL_W[k].id).c_str(), L"1") != L"0"; }
+
 void DefaultWidgets() {
     g_widgets.clear();
-    g_widgets.push_back({ WIDGET_S, WIDGET_S, PaintCalendar, [] { ShellExecuteW(nullptr, L"open", L"outlookcal:", nullptr, nullptr, SW_SHOWNORMAL); } });
-    g_widgets.push_back({ WIDGET_S, WIDGET_S, PaintClock, [] { ShellExecuteW(nullptr, L"open", L"ms-clock:", nullptr, nullptr, SW_SHOWNORMAL); } });
+    g_widgetKind.clear();
+    if (CentralOn(0)) {
+        g_widgets.push_back({ WIDGET_S, WIDGET_S, [](ID2D1DeviceContext* dc, float w, float h, bool d) { (liquid::Leopard() ? PaintCalendarLeo : PaintCalendar)(dc, w, h, d); },
+                              [] { ShellExecuteW(nullptr, L"open", L"outlookcal:", nullptr, nullptr, SW_SHOWNORMAL); } });
+        g_widgetKind.push_back(0);
+    }
+    if (CentralOn(1)) {
+        g_widgets.push_back({ WIDGET_S, WIDGET_S, [](ID2D1DeviceContext* dc, float w, float h, bool d) { (liquid::Leopard() ? PaintClockLeo : PaintClock)(dc, w, h, d); },
+                              [] { ShellExecuteW(nullptr, L"open", L"ms-clock:", nullptr, nullptr, SW_SHOWNORMAL); } });
+        g_widgetKind.push_back(1);
+    }
 }
 
 D2D1_RECT_F Cur(const Anim& a) { return D2D1::RectF(a.l.x, a.t.x, a.r.x, a.b.x); }
@@ -896,6 +1004,9 @@ void Paint() {
     g_hits.clear();
     ID2D1Layer* layer = nullptr;
     dc->CreateLayer(nullptr, &layer);
+    // Leopard: nada de vidro; tudo em cartões claros do Aqua, widgets soltos como no Dashboard
+    const bool leo = liquid::Leopard();
+    auto smoke = [&](D2D1_RECT_F r, float rad, float a) { LeoCard(dc, br, r, rad, std::min(1.f, a + 0.2f)); };  // o cartão claro
     for (auto& key : g_order) {
         auto it = g_anim.find(key);
         if (it == g_anim.end()) continue;
@@ -921,13 +1032,14 @@ void Paint() {
         switch (e.kind) {
         case K_CARD:
             if (!g || e.note < 0 || e.note >= (int)g->notes.size()) break;
-            GlassRect(px, CardR() * sc, p.tint, alpha);
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+            if (!leo) GlassRect(px, CardR() * sc, p.tint, alpha);
+            if (!g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
             DrawCard(dc, br, p, *g, g->notes[e.note], r, e.key);
             g_hits.push_back({ r, e.act, e.group, e.note, -1, e.key });
             break;
         case K_UNDER: {
             D2D1_COLOR_F t = p.tint; t.a *= e.layer == 1 ? 0.85f : 0.7f;
+            if (leo) { smoke(r, 8, e.layer == 1 ? 0.62f : 0.48f); g_hits.push_back({ D2D1::RectF(r.left, cut, r.right, r.bottom), e.act, e.group, 0, -1, L"n:" + std::to_wstring(g ? g->notes[0].id : 0) }); break; }
             GlassRect(px, CardR() * sc, t, alpha * (e.layer == 1 ? 0.9f : 0.75f), std::max(0.f, cut * sc));
             if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.9f, 0.9f, 0.91f, 0.9f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
             Border(dc, br, p, r, CardR());
@@ -942,8 +1054,14 @@ void Paint() {
         }
         case K_PILL: {
             float rad = (r.bottom - r.top) / 2;
-            GlassRect(px, rad * sc, p.tintPill, alpha);
             bool hv = g_hover == e.key;
+            if (leo) {
+                smoke(r, rad, hv ? 0.85f : 0.70f);
+                Text(dc, br, e.text, g_tfPill, r, D2D1::ColorF(0, 0, 0, 0.85f), DWRITE_TEXT_ALIGNMENT_CENTER);
+                g_hits.push_back({ r, e.act, e.group, -1, -1, e.key });
+                break;
+            }
+            GlassRect(px, rad * sc, p.tintPill, alpha);
             if (hv) { br->SetColor(p.chip); dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br); }
             if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br); }
             Border(dc, br, p, r, rad);
@@ -953,17 +1071,20 @@ void Paint() {
         }
         case K_CIRCLE: {
             float rad = (r.right - r.left) / 2;
-            GlassRect(px, rad * sc, p.tintPill, alpha);
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 }, rad, rad), br); }
+            if (leo) smoke(r, rad, 0.70f);
+            else GlassRect(px, rad * sc, p.tintPill, alpha);
+            if (!g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 }, rad, rad), br); }
             DrawCircleButton(dc, br, p, r, e.act == A_SETTINGS, g_hover == e.key);
             g_hits.push_back({ r, e.act, e.group, -1, -1, e.key });
             break;
         }
         case K_WIDGET: {
             if (e.widget < 0 || e.widget >= (int)g_widgets.size()) break;
+            if (!leo) {  // Leopard: o widget do Dashboard desenha a própria forma, sem placa
             GlassRect(px, WidgetR() * sc, p.tint, alpha);
             if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, WidgetR(), WidgetR()), br); }
             Border(dc, br, p, r, WidgetR());
+            }
             D2D1_MATRIX_3X2_F old; dc->GetTransform(&old);
             dc->PushAxisAlignedClip(r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
             dc->SetTransform(D2D1::Matrix3x2F::Translation(r.left, r.top) * old);
@@ -977,9 +1098,10 @@ void Paint() {
             Text(dc, br, e.text, g_tfEmpty, r, D2D1::ColorF(1, 1, 1, 0.92f), DWRITE_TEXT_ALIGNMENT_CENTER, true);
             break;
         case K_EMPTY: {
-            GlassRect(px, CardR() * sc, p.tint, alpha);
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
-            Border(dc, br, p, r, CardR());
+            if (leo) smoke(r, 8, 0.75f);
+            else GlassRect(px, CardR() * sc, p.tint, alpha);
+            if (!g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+            if (!leo) Border(dc, br, p, r, CardR());
             br->SetColor(p.text2);
             float cx = (r.left + r.right) / 2;
             simbolo::Draw(dc, L"bell.badge.fill", D2D1::RectF(cx - 11, r.top + 14, cx + 11, r.top + 36), br);
@@ -1142,6 +1264,35 @@ void Options(int gi, int ni, D2D1_RECT_F r) {
     Animate();
 }
 
+// "Editar Widgets…" da Central (e o botão direito num widget dela): ligar/desligar o Calendário e o Relógio daqui;
+// os widgets da mesa têm o menu deles ("Widgets da Mesa…")
+void WidgetsMenu(D2D1_RECT_F r, int widget) {
+    std::vector<ctxmenu::Item> items;
+    for (int k = 0; k < (int)std::size(CENTRAL_W); k++) {
+        ctxmenu::Item it; it.label = Tr(CENTRAL_W[k].name); it.id = 10 + k; it.checked = CentralOn(k); items.push_back(it);
+    }
+    ctxmenu::Item sep; sep.separator = true; items.push_back(sep);
+    if (widget >= 0 && widget < (int)g_widgetKind.size()) { ctxmenu::Item rm; rm.label = Tr(L"Remover Widget"); rm.id = 1; items.push_back(rm); }
+    ctxmenu::Item desk; desk.label = Tr(L"Widgets da Mesa…"); desk.id = 2; items.push_back(desk);
+    RECT wr; GetWindowRect(g_wnd, &wr);
+    float sc = Sc();
+    POINT pt{ wr.left + (LONG)(r.left * sc), wr.top + (LONG)((r.bottom + 4) * sc) };
+    g_menu = true;
+    int id = ctxmenu::ShowItems(g_wnd, pt, items);
+    g_menu = false;
+    int off = -1;
+    if (id == 1) off = g_widgetKind[widget];
+    else if (id >= 10 && id < 10 + (int)std::size(CENTRAL_W)) {
+        int k = id - 10;
+        if (CentralOn(k)) off = k;
+        else shell::SetSetting((std::wstring(L"central_") + CENTRAL_W[k].id).c_str(), L"1");
+    } else if (id == 2) { Close(); POINT c; GetCursorPos(&c); widgets::EditMenu(c); return; }
+    if (off >= 0) shell::SetSetting((std::wstring(L"central_") + CENTRAL_W[off].id).c_str(), L"0");
+    if (id > 0 && !g_customWidgets) DefaultWidgets();
+    SetForegroundWindow(g_wnd);
+    Animate();
+}
+
 const Hit* HitAt(D2D1_POINT_2F p) {
     const Hit* hit = nullptr;
     for (auto& h : g_hits) if (p.x >= h.r.left && p.x < h.r.right && p.y >= h.r.top && p.y < h.r.bottom) hit = &h;  // o último desenhado vence
@@ -1198,9 +1349,8 @@ void Click(D2D1_POINT_2F p) {
     }
     case A_MORE: g_showAll = true; break;
     case A_EDIT:
-        Close();
-        if (g_editWidgets) g_editWidgets();
-        else { POINT c; GetCursorPos(&c); widgets::EditMenu(c); }  // os widgets da mesa: ligar/desligar cada um
+        if (g_editWidgets) { Close(); g_editWidgets(); return; }
+        WidgetsMenu(hit.r, -1);  // Calendário e Relógio da Central; "Widgets da Mesa…" leva ao menu da mesa
         return;
     case A_SETTINGS: Close(); shell::OpenSettings(L"notificacoes"); return;
     case A_PERMISSION: Close(); ShellExecuteW(nullptr, L"open", L"ms-settings:privacy-notifications", nullptr, nullptr, SW_SHOWNORMAL); return;
@@ -1265,7 +1415,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_open) Click(p);
         return 0;
     }
-    case WM_RBUTTONUP: return 0;
+    case WM_RBUTTONUP: {  // botão direito num widget da Central: ligar/desligar e "Remover Widget"
+        if (!g_open || g_customWidgets) return 0;
+        const Hit* hh = HitAt(Pt(l));
+        if (hh && hh->act == A_WIDGET) { Hit copy = *hh; WidgetsMenu(copy.r, copy.widget); }
+        return 0;
+    }
     case WM_MOUSEMOVE: {
         if (!g_open) return 0;
         TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 }; TrackMouseEvent(&t);
@@ -1511,6 +1666,14 @@ void ChecarAvisos() {
 void BannerShowNote(const Note& n) {
     // jogo ou vídeo em tela cheia no monitor do banner: sem banner (ela fica na Central), senão o jogo sai da tela cheia
     if (shell::NaoIncomodar(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY))) { Log(L"notificação: banner calado (app em tela cheia)"); return; }
+    // Ilha Dinâmica ligada: a notificação aparece nela, no lugar do banner do canto
+    if (!g_open && !g_closing) {
+        Group gr{ n.aumid, n.app, {} };
+        Note nn = n;
+        if (ilha::Notificacao(n.app, n.title, n.body,
+                              [gr](ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r) { DrawIcon(dc, br, gr, r); },
+                              [nn] { OpenApp(nn); })) { Log(L"notificação na ilha: %ls", n.app.c_str()); return; }
+    }
     if (g_open || g_closing || !BannersOn() || !g_bwnd) return;
     bool wasIn = g_bshow && !g_bout;
     g_bnote = n;
@@ -1666,7 +1829,7 @@ bool notificacoes::Create(HINSTANCE hi) {
     }
     // o toast do Windows sai da tela assim que aparece (o banner do Mac fica no lugar)
     SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnToast, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
-    SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, OnToast, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    jogo::GanchoPosicao(OnToast, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);  // sai no modo jogo (jogo.cpp)
     std::thread(Worker).detach();
     return true;
 }
