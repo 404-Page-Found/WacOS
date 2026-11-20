@@ -15,6 +15,7 @@ rem   build.cmd captura   so a Captura de Tela (WacOSScreenshot.exe: Win+Shift+3
 rem   build.cmd preview   so a Pre-Visualizacao (WacOSPreview.exe: imagens e PDF)
 rem   build.cmd apps      so Lembretes, Calendario e TextEdit
 rem   build.cmd janelas   barra de titulo do Mac nos outros programas (WacOSWindow.dll, 32 e 64 bits, e WacOSTitleBars.exe)
+rem   build.cmd setup     so o WacOSSetup.exe (instalar, atualizar e desinstalar)
 rem   build.cmd titulos   so o WacOSTitleBars.exe (as barras de titulo sem o Shell)
 rem   build.cmd bandeja   so o prototipo da bandeja (BandejaTeste.exe)
 setlocal
@@ -30,7 +31,7 @@ if not exist bin\ferramentas mkdir bin\ferramentas
 rem icones e descricoes (VERSIONINFO) de cada programa
 set "RES=bin\obj\res"
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\recursos.ps1 -Out %RES% >nul || exit /b 1
-for %%n in (WacOSShell WacOSFinder WacOSSettings WacOSActivityMonitor WacOSTerminal WacOSCalculator WacOSNotes WacOSScreenshot WacOSPreview WacOSReminders WacOSCalendar WacOSTextEdit WacOSClock WacOSWeather WacOSContacts WacOSPhotos WacOSTimeMachine WacOSMusic WacOSQuickTime WacOSForceQuit WacOSTitleBars WacOSWindow WacOSWindow32) do (
+for %%n in (WacOSShell WacOSFinder WacOSSettings WacOSActivityMonitor WacOSTerminal WacOSCalculator WacOSNotes WacOSScreenshot WacOSPreview WacOSReminders WacOSCalendar WacOSTextEdit WacOSClock WacOSWeather WacOSContacts WacOSPhotos WacOSTimeMachine WacOSMusic WacOSQuickTime WacOSForceQuit WacOSTitleBars WacOSSetup WacOSWindow WacOSWindow32) do (
   rc /nologo /fo %RES%\%%n.res %RES%\%%n.rc >nul || exit /b 1
 )
 
@@ -51,6 +52,11 @@ if /i "%1"=="janelas" (
   call "%VSDIR%\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul || exit /b 1
   if not exist bin\obj32 mkdir bin\obj32
   cl /nologo /EHsc /O2 /W3 /std:c++20 /utf-8 /DUNICODE /D_UNICODE /Fo:bin\obj32\ /LD src\janelas\macjanela.cpp src\janelas\controles.cpp %RES%\WacOSWindow32.res /Fe:bin\WacOSWindow32.dll /link /IMPLIB:bin\obj32\WacOSWindow32.lib %LIBS% || exit /b 1
+  exit /b 0
+)
+
+if /i "%1"=="setup" (
+  call :setup || exit /b 1
   exit /b 0
 )
 
@@ -144,10 +150,17 @@ if /i "%1"=="apps" exit /b 0
 :shell
 rem /Zi + /DEBUG: simbolos em bin\obj\WacOSShell.pdb (perfil de CPU e falhas); /OPT:REF,ICF mantem o exe enxuto
 cl %CFLAGS% /Zi /Fd:bin\obj\shell.pdb src\shell\*.cpp bin\obj\context_menu.obj %RES%\WacOSShell.res /Fe:bin\WacOSShell.exe %LFLAGS% version.lib wlanapi.lib powrprof.lib propsys.lib windowscodecs.lib d3d11.lib dxgi.lib dcomp.lib dxguid.lib /DEBUG /OPT:REF /OPT:ICF /PDB:bin\obj\WacOSShell.pdb || exit /b 1
+call :setup || exit /b 1
 exit /b 0
 
 rem so as barras de titulo, sem o Shell: src\titulos + o janelas.cpp do Shell (objetos em pasta propria)
 :titulos
 if not exist bin\obj\titulos mkdir bin\obj\titulos
 cl %CFLAGS% /Fo:bin\obj\titulos\ src\titulos\main.cpp src\shell\janelas.cpp %RES%\WacOSTitleBars.res /Fe:bin\WacOSTitleBars.exe %LFLAGS% || exit /b 1
+exit /b 0
+
+rem o instalador unico (instalar, atualizar, desinstalar): src\setup
+:setup
+if not exist bin\obj\setup mkdir bin\obj\setup
+cl %CFLAGS% /Fo:bin\obj\setup\ src\setup\main.cpp %RES%\WacOSSetup.res /Fe:bin\WacOSSetup.exe %LFLAGS% windowscodecs.lib taskschd.lib winhttp.lib bcrypt.lib || exit /b 1
 exit /b 0

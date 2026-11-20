@@ -459,6 +459,12 @@ Page Atualizacao() {
         std::wstring label = u.faltam.empty() ? Tr(L"Há uma versão nova do WacOS.")
                            : std::to_wstring(u.faltam.size()) + (u.faltam.size() == 1 ? Tr(L" mudança para instalar.") : Tr(L" mudanças para instalar."));
         rows.push_back(Button(label, L"Atualizar Agora", [] {
+            // o instalador do WacOS (WacOSSetup.exe, na pasta da instalação): baixa, confere e instala, com janela própria
+            std::wstring setup = BinDir().substr(0, BinDir().find_last_of(L'\\')) + L"\\WacOSSetup.exe";
+            if (GetFileAttributesW(setup.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                ShellExecuteW(nullptr, L"open", setup.c_str(), L"--atualizar", nullptr, SW_SHOWNORMAL);
+                return;
+            }
             std::wstring cmd = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + UpdScript() + L"\"";
             STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
             if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }

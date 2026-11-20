@@ -8,31 +8,32 @@ $prog = 'SequoiaMusic.Audio'
 $exts = '.mp3', '.m4a', '.flac', '.wav', '.aac', '.ogg', '.wma', '.aif', '.aiff', '.opus'
 $cls = 'HKCU:\Software\Classes'
 $capKey = 'HKCU:\Software\SequoiaShell\Musica\Capabilities'
-$regName = 'Música (Sequoia)'
+$regName = 'WacOS Music'
+$regAntigo = 'Música (Sequoia)'  # nome das versões antigas (em português: aparecia assim em Aplicativos padrão, issue #2)
 
 if ($Desfazer) {
     foreach ($e in $exts) { Remove-ItemProperty "$cls\$e\OpenWithProgids" -Name $prog -ErrorAction SilentlyContinue }
     Remove-Item "$cls\$prog" -Recurse -ErrorAction SilentlyContinue
     Remove-Item "$cls\Applications\WacOSMusic.exe" -Recurse -ErrorAction SilentlyContinue
-    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName -ErrorAction SilentlyContinue
+    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName, $regAntigo -ErrorAction SilentlyContinue
     Remove-Item 'HKCU:\Software\SequoiaShell\Musica' -Recurse -ErrorAction SilentlyContinue
     "Música: registro desfeito"
 } else {
     if (-not (Test-Path $Exe)) { throw "não achei $Exe" }
     $cmd = "`"$Exe`" `"%1`""
     New-Item "$cls\$prog\shell\open\command" -Force | Out-Null
-    Set-ItemProperty "$cls\$prog" -Name '(default)' -Value 'Arquivo de Áudio'
-    Set-ItemProperty "$cls\$prog" -Name 'FriendlyTypeName' -Value 'Arquivo de Áudio'
+    Set-ItemProperty "$cls\$prog" -Name '(default)' -Value 'Audio File'
+    Set-ItemProperty "$cls\$prog" -Name 'FriendlyTypeName' -Value 'Audio File'
     New-Item "$cls\$prog\DefaultIcon" -Force | Out-Null
     Set-ItemProperty "$cls\$prog\DefaultIcon" -Name '(default)' -Value "`"$Exe`",0"
     Set-ItemProperty "$cls\$prog\shell\open\command" -Name '(default)' -Value $cmd
     New-Item "$cls\Applications\WacOSMusic.exe\shell\open\command" -Force | Out-Null
-    Set-ItemProperty "$cls\Applications\WacOSMusic.exe" -Name 'FriendlyAppName' -Value 'Música'
+    Set-ItemProperty "$cls\Applications\WacOSMusic.exe" -Name 'FriendlyAppName' -Value 'Music'
     Set-ItemProperty "$cls\Applications\WacOSMusic.exe\shell\open\command" -Name '(default)' -Value $cmd
     New-Item "$cls\Applications\WacOSMusic.exe\SupportedTypes" -Force | Out-Null
     New-Item "$capKey\FileAssociations" -Force | Out-Null
-    Set-ItemProperty $capKey -Name 'ApplicationName' -Value 'Música'
-    Set-ItemProperty $capKey -Name 'ApplicationDescription' -Value 'Música do WacOS'
+    Set-ItemProperty $capKey -Name 'ApplicationName' -Value 'Music'
+    Set-ItemProperty $capKey -Name 'ApplicationDescription' -Value 'WacOS Music'
     Set-ItemProperty $capKey -Name 'ApplicationIcon' -Value "`"$Exe`",0"
     foreach ($e in $exts) {
         New-Item "$cls\$e\OpenWithProgids" -Force | Out-Null
@@ -41,6 +42,7 @@ if ($Desfazer) {
         Set-ItemProperty "$capKey\FileAssociations" -Name $e -Value $prog
     }
     New-Item 'HKCU:\Software\RegisteredApplications' -Force -ErrorAction SilentlyContinue | Out-Null
+    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regAntigo -ErrorAction SilentlyContinue
     Set-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName -Value 'Software\SequoiaShell\Musica\Capabilities'
     "Música registrado ($Exe)"
 }

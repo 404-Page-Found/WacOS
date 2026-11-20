@@ -8,21 +8,22 @@ $prog = 'SequoiaQuickTime.Video'
 $exts = '.mp4', '.mov', '.m4v', '.mkv', '.avi', '.wmv', '.webm', '.mpg', '.mpeg', '.3gp'
 $cls = 'HKCU:\Software\Classes'
 $capKey = 'HKCU:\Software\SequoiaShell\QuickTime\Capabilities'
-$regName = 'QuickTime Player (Sequoia)'
+$regName = 'WacOS QuickTime Player'
+$regAntigo = 'QuickTime Player (Sequoia)'  # nome das versões antigas
 
 if ($Desfazer) {
     foreach ($e in $exts) { Remove-ItemProperty "$cls\$e\OpenWithProgids" -Name $prog -ErrorAction SilentlyContinue }
     Remove-Item "$cls\$prog" -Recurse -ErrorAction SilentlyContinue
     Remove-Item "$cls\Applications\WacOSQuickTime.exe" -Recurse -ErrorAction SilentlyContinue
-    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName -ErrorAction SilentlyContinue
+    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName, $regAntigo -ErrorAction SilentlyContinue
     Remove-Item 'HKCU:\Software\SequoiaShell\QuickTime' -Recurse -ErrorAction SilentlyContinue
     "QuickTime: registro desfeito"
 } else {
     if (-not (Test-Path $Exe)) { throw "não achei $Exe" }
     $cmd = "`"$Exe`" `"%1`""
     New-Item "$cls\$prog\shell\open\command" -Force | Out-Null
-    Set-ItemProperty "$cls\$prog" -Name '(default)' -Value 'Filme'
-    Set-ItemProperty "$cls\$prog" -Name 'FriendlyTypeName' -Value 'Filme'
+    Set-ItemProperty "$cls\$prog" -Name '(default)' -Value 'Movie'
+    Set-ItemProperty "$cls\$prog" -Name 'FriendlyTypeName' -Value 'Movie'
     New-Item "$cls\$prog\DefaultIcon" -Force | Out-Null
     Set-ItemProperty "$cls\$prog\DefaultIcon" -Name '(default)' -Value "`"$Exe`",0"
     Set-ItemProperty "$cls\$prog\shell\open\command" -Name '(default)' -Value $cmd
@@ -32,7 +33,7 @@ if ($Desfazer) {
     New-Item "$cls\Applications\WacOSQuickTime.exe\SupportedTypes" -Force | Out-Null
     New-Item "$capKey\FileAssociations" -Force | Out-Null
     Set-ItemProperty $capKey -Name 'ApplicationName' -Value 'QuickTime Player'
-    Set-ItemProperty $capKey -Name 'ApplicationDescription' -Value 'QuickTime Player do WacOS'
+    Set-ItemProperty $capKey -Name 'ApplicationDescription' -Value 'WacOS QuickTime Player'
     Set-ItemProperty $capKey -Name 'ApplicationIcon' -Value "`"$Exe`",0"
     foreach ($e in $exts) {
         New-Item "$cls\$e\OpenWithProgids" -Force | Out-Null
@@ -41,6 +42,7 @@ if ($Desfazer) {
         Set-ItemProperty "$capKey\FileAssociations" -Name $e -Value $prog
     }
     New-Item 'HKCU:\Software\RegisteredApplications' -Force -ErrorAction SilentlyContinue | Out-Null
+    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regAntigo -ErrorAction SilentlyContinue
     Set-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name $regName -Value 'Software\SequoiaShell\QuickTime\Capabilities'
     "QuickTime registrado ($Exe)"
 }

@@ -122,7 +122,8 @@ themes).
 ## Install
 
 1. Download the `WacOS-<date>.zip` from the [latest release](https://github.com/renzyxx/WacOS/releases/latest).
-2. Extract it anywhere and run `instalar.cmd`.
+2. Extract it anywhere and open **`WacOSSetup.exe`**: one app that installs, updates, changes and uninstalls WacOS,
+   in the style of the macOS Installer.
 
 Apple's fonts, sounds and cursors can't be shipped in this repository, so the installer offers to fetch them on
 your own PC, from where their owners publish them:
@@ -134,13 +135,15 @@ your own PC, from where their owners publish them:
   the page, you download it, and it picks the file up from your Downloads folder.
 
 WacOS installs for your user only (no administrator rights) in `%LOCALAPPDATA%\Programs\WacOS`.
-Everything it changes is logged in `instalacao.log` there, and `desinstalar.cmd` undoes it.
+Everything it changes is logged in `instalacao.log` there. To uninstall, use **Settings > Apps > Installed apps >
+WacOS > Uninstall** (or open `WacOSSetup.exe` again). The old `instalar.cmd` / `desinstalar.cmd` scripts are still in
+the package for advanced use.
 
 - Quit WacOS: `Ctrl+Alt+Shift+F12`. Emergency exit (brings Explorer back): `Ctrl+Alt+Shift+F11`.
 
 ### Use only the apps, or only the title bars
 
-Have your own setup? `instalar.cmd` asks what to install:
+Have your own setup? `WacOSSetup.exe` asks what to install:
 
 1. **Full WacOS** (menu bar, Dock, Finder...).
 2. **Only the apps you pick** (Finder, Notes, Calculator, Music, Preview...): shortcuts go to a **WacOS** folder in
@@ -159,7 +162,8 @@ rounded corners) should no longer leave a square frame around them.
 
 New versions are published as numbered releases (`build-N`). In **System Settings > General > Software Update**,
 WacOS checks GitHub on its own, shows the installed version, the latest one and the commits you don't have yet, and
-**Update Now** downloads and installs it (only programs, icons and sounds are replaced; your settings stay).
+**Update Now** opens `WacOSSetup.exe`, which downloads the new package, checks its SHA-256 against the one GitHub
+publishes and installs it (only programs, icons and sounds are replaced; your settings stay).
 GitHub Actions checks that every commit to `main` builds.
 
 ## Is it safe?
@@ -171,7 +175,7 @@ Fair question for anything that replaces your taskbar. You don't have to trust t
   suggestions (only while you type in Spotlight) and GitHub (to check for updates). No telemetry, no accounts.
   Run it behind a firewall like simplewall or GlassWire and watch for yourself.
 - **What it installs.** One scheduled task to start at sign-in, with normal user rights. No services, no drivers,
-  no administrator rights. `desinstalar.cmd` removes everything.
+  no administrator rights. Uninstalling (Installed apps > WacOS) removes everything.
 - **Antivirus.** A shell has to do things that look suspicious to heuristics: start at sign-in, use keyboard and
   mouse hooks for shortcuts like the Win key and hot corners, and load its title bar DLL into other apps. The
   build-12 package shows [1/66 on VirusTotal](https://www.virustotal.com/gui/file/310ab4f16824500a8d77225fef66a62e499c32d6d5484a8752b119b7f24e67f3),

@@ -132,7 +132,7 @@ $mr = Join-Path $dest 'tools\musica-registrar.ps1'
 if (Test-Path $mr) { & $mr -Desfazer } else {
     foreach ($e in '.mp3', '.m4a', '.flac', '.wav', '.aac', '.ogg', '.wma', '.aif', '.aiff', '.opus') { Remove-ItemProperty "HKCU:\Software\Classes\$e\OpenWithProgids" -Name 'SequoiaMusic.Audio' -ErrorAction SilentlyContinue }
     Remove-Item 'HKCU:\Software\Classes\SequoiaMusic.Audio', 'HKCU:\Software\Classes\Applications\WacOSMusic.exe', 'HKCU:\Software\SequoiaShell\Musica' -Recurse -ErrorAction SilentlyContinue
-    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name 'Música (Sequoia)' -ErrorAction SilentlyContinue
+    Remove-ItemProperty 'HKCU:\Software\RegisteredApplications' -Name 'Música (Sequoia)', 'WacOS Music' -ErrorAction SilentlyContinue
 }
 Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
 if (Test-Path $dest) { Write-Host "Alguns arquivos estavam em uso; apague $dest depois de reiniciar o PC." }

@@ -30,6 +30,7 @@ $itens = @(
     'WacOSPhotos|Photos|Photos.png',
     'WacOSTimeMachine|Time Machine|Time Machine.png',
     'WacOSTitleBars|WacOS Title Bars|',
+    'WacOSSetup|WacOS Setup|repo:docs\logo-256.png',
     'WacOSWindow|WacOS Window Frames|',
     'WacOSWindow32|WacOS Window Frames (32-bit)|'
 )
@@ -43,6 +44,7 @@ function Make-Ico([string]$png, [string]$ico) {
             $bmp = New-Object Drawing.Bitmap $s, $s, ([Drawing.Imaging.PixelFormat]::Format32bppArgb)
             $g = [Drawing.Graphics]::FromImage($bmp)
             $g.InterpolationMode = 'HighQualityBicubic'; $g.SmoothingMode = 'HighQuality'; $g.PixelOffsetMode = 'HighQuality'; $g.CompositingQuality = 'HighQuality'
+            if ($png -like '*logo*') { $g.InterpolationMode = 'NearestNeighbor'; $g.PixelOffsetMode = 'Half' }  # o logo é pixel art: sem borrar
             $g.DrawImage($src, 0, 0, $s, $s); $g.Dispose()
             $ms = New-Object IO.MemoryStream; $bmp.Save($ms, [Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
             $frames += , @($s, $ms.ToArray())
@@ -65,11 +67,14 @@ foreach ($linha in $itens) {
     $nome, $desc, $png = $linha.Split('|')
     $ext = if ($nome -like 'WacOSWindow' -or $nome -like 'WacOSWindow32') { 'dll' } else { 'exe' }
     $iconLine = ''
-    $pngPath = if ($png) { Join-Path $pack $png } else { '' }
+    # "repo:<caminho>": um PNG do próprio repositório (o logo do WacOS, docs\logo-256.png) em vez do pacote de ícones
+    $pngPath = if ($png -like 'repo:*') { Join-Path (Split-Path $PSScriptRoot -Parent) $png.Substring(5) } elseif ($png) { Join-Path $pack $png } else { '' }
     if ($pngPath -and (Test-Path $pngPath)) {
         $ico = Join-Path $Out "$nome.ico"
         if (!(Test-Path $ico) -or (Get-Item $ico).LastWriteTime -lt (Get-Item $pngPath).LastWriteTime) { Make-Ico $pngPath $ico }
         $iconLine = "1 ICON `"$nome.ico`""
+        # o instalador desenha o logo na barra lateral: o PNG vai embutido (recurso 2, RCDATA)
+        if ($nome -eq 'WacOSSetup') { $iconLine += "`r`n2 RCDATA `"" + ($pngPath -replace '\\', '\\') + "`"" }
     }
     $rc = @"
 #include <winver.h>

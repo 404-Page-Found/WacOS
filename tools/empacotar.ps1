@@ -103,6 +103,8 @@ if (-not $SemAjustes) {
 }
 
 Copy-Item "$root\instalador\*" $pkg
+# o instalador único (instalar, atualizar, desinstalar), na raiz do pacote: é o que a pessoa abre
+if (Test-Path "$bin\WacOSSetup.exe") { Copy-Item "$bin\WacOSSetup.exe" "$pkg\WacOSSetup.exe" } else { Write-Host 'faltando: bin\WacOSSetup.exe' }
 if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path "$pkg\*" -DestinationPath $zip -CompressionLevel Optimal
 Remove-Item $pkg -Recurse -Force
