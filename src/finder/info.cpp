@@ -114,8 +114,7 @@ std::wstring FullDate(const FILETIME& ft) {
     FILETIME lt; SYSTEMTIME st;
     FileTimeToLocalFileTime(&ft, &lt); FileTimeToSystemTime(&lt, &st);
     wchar_t d[96] = {}, t[32] = {};
-    if (idioma::En()) GetDateFormatEx(L"en-US", 0, &st, L"MMMM d, yyyy", d, 96, nullptr);
-    else GetDateFormatEx(L"pt-BR", 0, &st, L"d 'de' MMMM 'de' yyyy", d, 96, nullptr);
+    GetDateFormatEx(idioma::Locale(), 0, &st, idioma::DatePattern(idioma::D_LONG), d, 96, nullptr);
     GetTimeFormatEx(L"pt-BR", 0, &st, L"HH:mm", t, 32);
     return std::wstring(d) + Tr(L" às ") + t;
 }

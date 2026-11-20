@@ -157,8 +157,8 @@ std::wstring ShortDate(ULONGLONG ft) {  // na lista: hora (hoje), Ontem, dia da 
 std::wstring LongDate(ULONGLONG ft) {
     SYSTEMTIME s = Local(ft);
     wchar_t b[96];
-    if (idioma::En()) swprintf_s(b, L"%ls %d, %d at %02d:%02d", Cap(Tr(MONTHS[s.wMonth - 1])).c_str(), s.wDay, s.wYear, s.wHour, s.wMinute);
-    else swprintf_s(b, L"%d de %ls de %d às %02d:%02d", s.wDay, MONTHS[s.wMonth - 1], s.wYear, s.wHour, s.wMinute);
+    if (idioma::Pt()) swprintf_s(b, L"%d de %ls de %d às %02d:%02d", s.wDay, MONTHS[s.wMonth - 1], s.wYear, s.wHour, s.wMinute);
+    else return idioma::DateTime(s, idioma::D_LONG);  // "November 20, 2026 at 14:30", "20. November 2026 um 14:30"
     return b;
 }
 

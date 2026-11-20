@@ -134,7 +134,7 @@ void PaintMonth(D2D1_SIZE_F sz, bool dark, D2D1_COLOR_F text, D2D1_COLOR_F gray,
         Fill(D2D1::RectF(c.right - 1, c.top, c.right, c.bottom), line);
         // número do dia (hoje: no círculo vermelho)
         std::wstring n = std::to_wstring(s.wDay);
-        if (s.wDay == 1) { std::wstring mn = MonthName(s.wMonth); n = n + L" " + mn.substr(0, 3) + L"."; }
+        if (s.wDay == 1) { std::wstring mn = MonthName(s.wMonth); n = n + L" " + (idioma::Pt() || idioma::En() ? mn.substr(0, 3) + L"." : idioma::MonthName(s.wMonth, true)); }  // "1 nov.", "1 11月"
         D2D1_RECT_F nr = D2D1::RectF(c.right - 70, c.top + 4, c.right - 8, c.top + 26);
         if (day == today) {
             float w = TextW(g_tfDayNum, n) + 12;

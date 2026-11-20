@@ -154,7 +154,7 @@ void Layout() {
             lastKey = key;
             wchar_t b[64];
             if (years) swprintf_s(b, L"%d", st.wYear);
-            else swprintf_s(b, idioma::En() ? L"%ls %d" : L"%ls de %d", MonthName(st.wMonth), st.wYear);
+            else wcsncpy_s(b, idioma::Date(st, idioma::D_MONTH_YEAR).c_str(), _TRUNCATE);  // "novembro de 2026", "November 2026"
             g_heads.push_back({ b, y });
             y += HEADH;
         }
@@ -254,11 +254,7 @@ void PaintGolden2(D2D1_SIZE_F sz, bool dark) {
         if (!g_shown.empty()) {
             auto fmt = [](const FILETIME& f) {
                 SYSTEMTIME st; FILETIME loc; FileTimeToLocalFileTime(&f, &loc); FileTimeToSystemTime(&loc, &st);
-                static const wchar_t* en[] = { L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec" };
-                static const wchar_t* pt[] = { L"jan.", L"fev.", L"mar.", L"abr.", L"mai.", L"jun.", L"jul.", L"ago.", L"set.", L"out.", L"nov.", L"dez." };
-                wchar_t b[48];
-                if (idioma::En()) swprintf_s(b, L"%ls %d, %d", en[st.wMonth - 1], st.wDay, st.wYear); else swprintf_s(b, L"%d de %ls de %d", st.wDay, pt[st.wMonth - 1], st.wYear);
-                return std::wstring(b);
+                return idioma::Date(st, idioma::D_SHORT);  // "20 de nov. de 2026", "Nov 20, 2026"
             };
             range = fmt(g_all[g_shown.front()].time) + L" – " + fmt(g_all[g_shown.back()].time);
         }

@@ -152,7 +152,7 @@ void Search(const std::wstring& q) {
     std::thread([q, h] {
         std::string u = ToUtf8(q), enc;
         for (unsigned char c : u) { if (isalnum(c) || c == '-' || c == '.') enc += (char)c; else { char b[4]; sprintf_s(b, "%%%02X", c); enc += b; } }
-        std::wstring path = L"/v1/search?count=1&language=" + std::wstring(idioma::En() ? L"en" : L"pt") + L"&name=" + Utf8(enc);
+        std::wstring path = L"/v1/search?count=1&language=" + std::wstring(idioma::Code()) + L"&name=" + Utf8(enc);
         std::string body = HttpGet(L"geocoding-api.open-meteo.com", path);
         auto* p = new Place;
         if (!body.empty() && body.find("\"results\"") != std::string::npos) {
@@ -309,8 +309,7 @@ void PaintGoldenWx() {
             double a = k * 3.14159265 / 36; float r0 = k % 18 == 0 ? 36.f : 40.f;
             rt->DrawLine({ c.x + (float)sin(a) * r0, c.y - (float)cos(a) * r0 }, { c.x + (float)sin(a) * 44, c.y - (float)cos(a) * 44 }, br, 0.8f);
         }
-        const wchar_t* L4[4] = { L"N", L"L", L"S", L"O" };
-        if (idioma::En()) L4[1] = L"E", L4[3] = L"W";
+        const wchar_t* L4[4] = { idioma::Compass(0), idioma::Compass(1), idioma::Compass(2), idioma::Compass(3) };
         for (int k = 0; k < 4; k++) { double a = k * 3.14159265 / 2; Text(L4[k], g_tfHdr, D2D1::RectF(c.x + (float)sin(a) * 30 - 8, c.y - (float)cos(a) * 30 - 8, c.x + (float)sin(a) * 30 + 8, c.y - (float)cos(a) * 30 + 8), white); }
         swprintf_s(t, L"%d", (int)std::lround(w.wind));
         Text(t, g_tfCondTitle, D2D1::RectF(c.x - 20, c.y - 12, c.x + 20, c.y + 6), white);

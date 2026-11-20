@@ -137,10 +137,10 @@ std::wstring DateText(ULONGLONG t, bool full) {
     if (!t) return Tr(L"Hoje (Agora)");
     FILETIME ft{ (DWORD)t, (DWORD)(t >> 32) }, lt; SYSTEMTIME st;
     FileTimeToLocalFileTime(&ft, &lt); FileTimeToSystemTime(&lt, &st);
-    static const wchar_t* meses[] = { L"janeiro", L"fevereiro", L"março", L"abril", L"maio", L"junho", L"julho", L"agosto", L"setembro", L"outubro", L"novembro", L"dezembro" };
     wchar_t b[96];
-    if (full) swprintf_s(b, L"%d de %ls de %d, %02d:%02d", st.wDay, Tr(meses[st.wMonth - 1]), st.wYear, st.wHour, st.wMinute);
-    else swprintf_s(b, L"%02d/%02d %02d:%02d", st.wDay, st.wMonth, st.wHour, st.wMinute);
+    if (full) swprintf_s(b, L"%ls, %02d:%02d", idioma::Date(st, idioma::D_LONG).c_str(), st.wHour, st.wMinute);  // "20 de novembro de 2026, 14:30"
+    else if (idioma::DecimalComma()) swprintf_s(b, L"%02d/%02d %02d:%02d", st.wDay, st.wMonth, st.wHour, st.wMinute);
+    else swprintf_s(b, L"%02d/%02d %02d:%02d", st.wMonth, st.wDay, st.wHour, st.wMinute);  // en, ja, zh, ko: mês antes do dia
     return b;
 }
 

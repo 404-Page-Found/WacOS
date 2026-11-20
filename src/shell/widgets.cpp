@@ -518,7 +518,9 @@ void PaintCalendar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, float w, fl
     int days = dim[t.wMonth - 1] + (t.wMonth == 2 && ((t.wYear % 4 == 0 && t.wYear % 100) || t.wYear % 400 == 0));
     int rows = (startDow + days + 6) / 7;
     D2D1_COLOR_F ink = dark ? WHITE : C(0, 0, 0), weekend = dark ? C(1, 1, 1, 0.45f) : C(0, 0, 0, 0.40f);
-    const wchar_t* heads = idioma::En() ? L"SMTWTFS" : L"DSTQQSS";
+    std::wstring heads = idioma::En() ? L"SMTWTFS" : idioma::Pt() ? L"DSTQQSS" : L"";
+    if (heads.empty())  // os outros idiomas: a inicial do nome mais curto do Windows ("D L M M J V S", "日月火水木金土")
+        for (int c = 0; c < 7; c++) { std::wstring n = idioma::Cap(idioma::DayName(c, 2)); heads += n.empty() ? L'?' : n[0]; }
     float pitchX = 21.2f, x0 = 21, top = 44, pitchY = rows > 5 ? 17 : 19.8f;
     for (int c = 0; c < 7; c++) {
         wchar_t s[2] = { heads[c], 0 };

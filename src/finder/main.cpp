@@ -2774,11 +2774,8 @@ static std::wstring DateText(ULONGLONG mtime) {
     wchar_t b[80];
     if (g_relDates && d == n) swprintf_s(b, Tr(L"Hoje às %02d:%02d"), st.wHour, st.wMinute);  // relativas: opção
     else if (g_relDates && d + 1 == n) swprintf_s(b, Tr(L"Ontem às %02d:%02d"), st.wHour, st.wMinute);
-    else if (idioma::En()) {
-        static const wchar_t* en[] = { L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec" };
-        swprintf_s(b, L"%ls %d, %d at %02d:%02d", en[st.wMonth - 1], st.wDay, st.wYear, st.wHour, st.wMinute);
-    }
-    else swprintf_s(b, L"%d de %ls de %d às %02d:%02d", st.wDay, months[st.wMonth - 1], st.wYear, st.wHour, st.wMinute);
+    else if (idioma::Pt()) swprintf_s(b, L"%d de %ls de %d às %02d:%02d", st.wDay, months[st.wMonth - 1], st.wYear, st.wHour, st.wMinute);
+    else return idioma::DateTime(st, idioma::D_SHORT);  // "Nov 20, 2026 at 14:30", "20 nov. 2026 à 14:30"
     return b;
 }
 
