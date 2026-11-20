@@ -1881,6 +1881,9 @@ bool FullOnPrimary() {
         if (SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) continue;
         LONG ex = GetWindowLongW(h, GWL_EXSTYLE), st = GetWindowLongW(h, GWL_STYLE);
         if (ex & WS_EX_TRANSPARENT) continue;  // sobreposições que não pegam clique (Discord, NVIDIA...)
+        // sobreposições que nunca ganham o foco: a "NVIDIA GeForce Overlay" (CEF-OSC-WIDGET) fica do tamanho da tela,
+        // invisível, por cima da mesa o tempo todo; um app/vídeo em tela cheia de verdade é uma janela que se ativa
+        if ((ex & WS_EX_NOACTIVATE) || ((ex & WS_EX_TOOLWINDOW) && (ex & WS_EX_LAYERED))) continue;
         RECT r, x;
         if (!GetWindowRect(h, &r) || !IntersectRect(&x, &r, &m)) continue;
         wchar_t cls[64] = {}; GetClassNameW(h, cls, 64);
