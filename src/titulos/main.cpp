@@ -44,6 +44,11 @@ std::wstring shell::Setting(const wchar_t* key, const wchar_t* def) {
     return val;
 }
 
+// sem gravar no ajustes.txt (aqui só se lê) e sem a notificação do Shell: o aviso da tabela de ganchos cheia
+// (janelas.cpp) fica só no log
+void shell::SetSetting(const wchar_t*, const std::wstring&) {}
+void atualizacao::Avisar(const std::wstring& title, const std::wstring& body) { Log(L"aviso: %ls — %ls", title.c_str(), body.c_str()); }
+
 namespace {
 
 void CALLBACK OnForeground(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWORD) {

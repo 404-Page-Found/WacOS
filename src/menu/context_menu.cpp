@@ -758,6 +758,24 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     float sc = dx / 96.f; L.scale = sc;
     MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(mon, &mi);
     RECT wa = mi.rcWork;
+    // Como no Mac, o menu não passa por cima do Dock: o vidro dele (o Shell guarda na janela dos ícones, propriedade
+    // "WacOSDockVidro") sai da área em que o menu cabe, e um menu aberto perto dele sobe (ou anda de lado). O menu da
+    // mesa aberto embaixo descia por cima do Dock e os pontinhos dos apps apareciam colados na borda dele (print do
+    // dono, 20/11/2026).
+    if (HWND dk = FindWindowW(L"ShellDock", nullptr); dk && IsWindowVisible(dk) && sizeof(ULONG_PTR) >= 8) {
+        RECT wr, d, x;
+        ULONG_PTR pk = (ULONG_PTR)GetPropW(dk, L"WacOSDockVidro");
+        if (pk && GetWindowRect(dk, &wr)) {
+            d = { wr.left + (LONG)(pk & 0xFFFF), wr.top + (LONG)((pk >> 16) & 0xFFFF), wr.left + (LONG)((pk >> 16 >> 16) & 0xFFFF), wr.top + (LONG)((pk >> 16 >> 16 >> 16) & 0xFFFF) };
+            if (IntersectRect(&x, &d, &mi.rcMonitor) && EqualRect(&x, &d)) {  // na tela (oculto: fica fora dela)
+                int gap = (int)(4 * sc);
+                if (d.right - d.left >= d.bottom - d.top) { if (d.top > (mi.rcMonitor.top + mi.rcMonitor.bottom) / 2) wa.bottom = std::min<LONG>(wa.bottom, d.top - gap); }
+                else if (d.left < (mi.rcMonitor.left + mi.rcMonitor.right) / 2) wa.left = std::max<LONG>(wa.left, d.right + gap);
+                else wa.right = std::min<LONG>(wa.right, d.left - gap);
+                if (wa.bottom - wa.top < 200 || wa.right - wa.left < 200) wa = mi.rcWork;  // não sobra lugar: como antes
+            }
+        }
+    }
 
     L.tf = MakeFormat(M::FONT * sc, DWRITE_FONT_WEIGHT_NORMAL);
     L.tfHdr = MakeFormat(M::HDR_FONT * sc, DWRITE_FONT_WEIGHT_SEMI_BOLD);
@@ -792,8 +810,10 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     int x, top;
     if (!parentWin) {
         x = anchor.x + 1; top = anchor.y + 1;
-        if (x + w > wa.right) x = anchor.x - w;
-        if (top + h > wa.bottom) top = anchor.y - h;
+        // só o Dock no caminho (caberia na tela sem ele): o menu sobe/anda só o que falta, como no Mac, em vez de virar
+        // para o outro lado do ponto (o menu do próprio Dock, aberto em cima do ícone, pularia a altura inteira)
+        if (x + w > wa.right) x = x + w <= mi.rcWork.right ? wa.right - w : anchor.x - w;
+        if (top + h > wa.bottom) top = top + h <= mi.rcWork.bottom ? wa.bottom - h : anchor.y - h;
     } else {
         x = parentWin->right - (int)(3 * sc);
         top = itemTop - (int)(PadY() * sc);

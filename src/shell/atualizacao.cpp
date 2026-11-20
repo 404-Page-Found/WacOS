@@ -103,6 +103,22 @@ void atualizacao::Start(HWND msgWnd) {
     }).detach();
 }
 
+// Outros avisos do próprio WacOS pelo mesmo remetente (ex.: a tabela de ganchos cheia, janelas.cpp). Clicar abre o
+// Ajustes (OpenApp em notificacoes.cpp), como o aviso de atualização.
+void atualizacao::Avisar(const std::wstring& title, const std::wstring& body) {
+    Registrar();
+    std::wstring xml = L"<toast launch=\"aviso\"><visual><binding template=\"ToastGeneric\"><text>" + Xml(title) +
+                       L"</text><text>" + Xml(body) + L"</text></binding></visual></toast>";
+    try {
+        winrt::Windows::Data::Xml::Dom::XmlDocument doc;
+        doc.LoadXml(xml);
+        winrt::Windows::UI::Notifications::ToastNotificationManager::CreateToastNotifier(AUMID).Show(winrt::Windows::UI::Notifications::ToastNotification(doc));
+        Log(L"aviso do WacOS: %ls", title.c_str());
+    } catch (winrt::hresult_error const& e) {
+        Log(L"aviso do WacOS: notificação recusada (0x%08X %ls)", (unsigned)e.code(), e.message().c_str());
+    } catch (...) {}
+}
+
 bool atualizacao::Handle(UINT m) {
     if (!g_msg || m != g_msg) return false;
     std::wstring atual, novo;

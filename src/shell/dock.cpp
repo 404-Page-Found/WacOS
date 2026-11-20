@@ -190,7 +190,7 @@ RECT Strip() {
     GetMonitorInfoW(hm, &mi);
     RECT m = mi.rcMonitor;
     int H = (int)std::lround(WinH() * Sc());
-    int top = m.top + ((mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm));
+    int top = m.top + menubar::ReservedOn(hm);  // secundário sem barra de menus: a coluna começa no topo
     if (Pos() == 1) return { m.left, top, m.left + H, m.bottom };
     if (Pos() == 2) return { m.right - H, top, m.right, m.bottom };
     return { m.left, m.bottom - H, m.right, m.bottom };
@@ -561,29 +561,30 @@ std::vector<BYTE> Jail(UINT w, UINT h, const std::vector<BYTE>& src, bool dark) 
     return out;
 }
 
+// Menus abertos ficam por cima do Dock, como no Mac. Dock e menus são "sempre por cima" e vence quem subiu por último:
+// trazer o Dock para cima (Raise, troca de tamanho da faixa) passava por cima de um menu aberto perto dele (o menu
+// da mesa aberto embaixo, com os pontinhos do Dock por cima da borda dele; print do dono, 20/11/2026). Depois de
+// subir o Dock, os menus do Shell que estão na tela sobem de novo, na mesma ordem (submenu por cima do menu).
+void MenusPorCima() {
+    std::vector<HWND> menus;  // de cima para baixo
+    for (HWND w = GetTopWindow(nullptr); w; w = GetWindow(w, GW_HWNDNEXT)) {
+        if (!(GetWindowLongW(w, GWL_EXSTYLE) & WS_EX_TOPMOST)) break;  // acabou a faixa das janelas "sempre por cima"
+        DWORD pid = 0; GetWindowThreadProcessId(w, &pid);
+        if (pid != GetCurrentProcessId() || !IsWindowVisible(w)) continue;
+        wchar_t c[32] = {}; GetClassNameW(w, c, 32);
+        if (!wcscmp(c, L"MenuTahoePopup") || !wcscmp(c, L"MenuTestePopup") || !wcscmp(c, L"ShellMenuMac")) menus.push_back(w);
+    }
+    for (auto it = menus.rbegin(); it != menus.rend(); ++it)
+        SetWindowPos(*it, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
 // Ícone próprio do usuário (Ajustes > Personalizar o Dock > Ícones próprios): um PNG em %APPDATA%\Shell\icones-dock com o
 // nome do .exe (chrome.png, discord.png) ou o nome do app como aparece no Dock (Google Chrome.png). Vale como os do
 // pacote do Mac (o desenho já tem a margem). Vazio = sem ícone próprio.
-std::wstring CustomIconPath(const App& a) {
-    static std::wstring base;
-    if (base.empty()) {
-        PWSTR p = nullptr;
-        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { base = std::wstring(p) + L"\\Shell\\icones-dock\\"; CoTaskMemFree(p); }
-        else base = L"?";
-    }
-    std::vector<std::wstring> names;
-    std::wstring exe = a.exe.empty() ? a.id : a.exe;
-    size_t sl = exe.find_last_of(L"\\/");
-    if (sl != std::wstring::npos) exe = exe.substr(sl + 1);
-    if (exe.size() > 4 && !_wcsicmp(exe.c_str() + exe.size() - 4, L".exe")) exe.resize(exe.size() - 4);
-    if (!exe.empty() && exe.find(L':') == std::wstring::npos) names.push_back(exe);
-    if (!a.name.empty()) names.push_back(a.name);
-    for (auto& n : names) {
-        std::wstring f = base + n + L".png";
-        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) return f;
-    }
-    return L"";
-}
+// Desde a build-18 também pelo botão direito no app > Opções > Alterar Ícone… (apps.cpp, vale no Launchpad e no Alt+Tab).
+std::wstring IconName(const App& a) { return a.finder ? L"Finder" : a.name; }
+std::wstring IconExe(const App& a) { return a.finder ? L"" : a.exe.empty() ? a.id : a.exe; }
+std::wstring CustomIconPath(const App& a) { return apps::CustomIcon(IconName(a), IconExe(a)); }
 std::map<std::wstring, bool> g_customIcon;  // app -> tem ícone próprio (desenhado como os do pacote)
 
 ID2D1Bitmap* IconBitmap(ID2D1RenderTarget* rt, App& a) {
@@ -907,6 +908,13 @@ void Paint() {
     bool hasLabel = LabelGeom(g_dragging ? -1 : g_hover, lbox);
     D2D1_RECT_F bgw = RectToWin(g_bg);
     RECT want{ (LONG)std::floor(bgw.left * sc) - 2, (LONG)std::floor(bgw.top * sc) - 2, (LONG)std::ceil(bgw.right * sc) + 2, (LONG)std::ceil(bgw.bottom * sc) + 2 };
+    {   // o vidro do Dock (px da janela, 16 bits cada: esquerda, topo, direita, baixo) para os menus não passarem por
+        // cima dele (src\menu\context_menu.cpp OpenLevel)
+        auto u16 = [](LONG v) { return (ULONG_PTR)(std::clamp<LONG>(v, 0, 0xFFFF)); };
+        ULONG_PTR pk = u16(want.left) | (u16(want.top) << 16);
+        if (sizeof(ULONG_PTR) >= 8) pk |= ((ULONG_PTR)u16(want.right) << 16 << 16) | ((ULONG_PTR)u16(want.bottom) << 16 << 16 << 16);
+        SetPropW(g_icons, L"WacOSDockVidro", (HANDLE)pk);
+    }
     bool poofing = g_poof.t0 > 0 && anim::Now() - g_poof.t0 < POOF_MS;
     if (active && (!Vert() || g_dragging || g_resizing || poofing)) want = RECT{ 0, 0, W, H };
     else if (active) {
@@ -1229,6 +1237,7 @@ void Paint() {
         if (first || !EqualRect(&cur, &strip) || !IsWindowVisible(g_icons)) {
             ui::GpuOffset(g_gi, 0.f, 0.f);
             SetWindowPos(g_icons, HWND_TOPMOST, strip.left, strip.top, W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            MenusPorCima();
         }
     }
     PaintBack();
@@ -1377,6 +1386,10 @@ void ContextMenu(int i) {
     }
     opts.sub.push_back(MI(Tr(L"Abrir ao Iniciar Sessão"), 11, apps::OpenAtLogin(a)));
     opts.sub.push_back(MI(Tr(L"Mostrar no Finder"), 12));
+    // ícone próprio (pedido do Reddit, 20/11/2026): escolher uma imagem ou voltar ao original
+    opts.sub.push_back(MSep());
+    opts.sub.push_back(MI(Tr(L"Alterar Ícone…"), 18));
+    if (!CustomIconPath(a).empty()) opts.sub.push_back(MI(Tr(L"Restaurar Ícone Original"), 19));
     m.push_back(opts);
     m.push_back(MSep());
     if (!a.wins.empty()) {
@@ -1397,6 +1410,8 @@ void ContextMenu(int i) {
         break;
     case 11: apps::SetOpenAtLogin(*ap, !apps::OpenAtLogin(*ap)); break;
     case 12: apps::ShowInFinder(*ap); break;
+    case 18: apps::ChooseIcon(IconName(*ap), IconExe(*ap)); break;
+    case 19: apps::RestoreIcon(IconName(*ap), IconExe(*ap)); break;
     case 13: missioncontrol::ToggleApp(ap->id, ap->name); break;  // como no Mac: o Exposé do app
     case 14: apps::Hide(*ap); break;
     case 15: apps::Quit(*ap); break;
@@ -1715,6 +1730,17 @@ LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 HWND dock::Hwnd() { return g_icons; }
 HWND dock::Fundo() { return g_back; }
+// o vidro do Dock na tela (o que o último desenho guardou em "WacOSDockVidro"); false = Dock fora da tela/oculto
+bool dock::Vidro(RECT* out) {
+    if (!g_icons || !IsWindowVisible(g_icons) || sizeof(ULONG_PTR) < 8) return false;
+    ULONG_PTR pk = (ULONG_PTR)GetPropW(g_icons, L"WacOSDockVidro");
+    RECT wr;
+    if (!pk || !GetWindowRect(g_icons, &wr)) return false;
+    *out = { wr.left + (LONG)(pk & 0xFFFF), wr.top + (LONG)((pk >> 16) & 0xFFFF), wr.left + (LONG)((pk >> 16 >> 16) & 0xFFFF), wr.top + (LONG)((pk >> 16 >> 16 >> 16) & 0xFFFF) };
+    MONITORINFO mi{ sizeof(mi) };
+    RECT x;
+    return GetMonitorInfoW(MonitorFromRect(out, MONITOR_DEFAULTTONEAREST), &mi) && IntersectRect(&x, out, &mi.rcMonitor) && EqualRect(&x, out);
+}
 HMONITOR dock::MonitorHandle() { return DockMon(); }
 
 int dock::Posicao() { return Pos(); }
@@ -1766,6 +1792,7 @@ void dock::BadgesChanged() {
 void dock::IconsChanged() {
     for (auto& [k, b] : g_bmps) if (b) b->Release();
     g_bmps.clear();
+    g_customIcon.clear();  // ícone próprio escolhido ou restaurado (apps::ReloadIcons)
     if (g_icons) Paint();
 }
 
@@ -1897,4 +1924,5 @@ void dock::Raise() {  // por cima de janelas de tela inteira nossas (Launchpad)
     if (!g_icons) return;
     SetWindowPos(g_back, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     SetWindowPos(g_icons, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    MenusPorCima();
 }

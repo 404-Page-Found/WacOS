@@ -440,9 +440,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // em cima do Dock (o vidro dele): o clique passa pelos vãos transparentes entre os ícones e chegava à mesa
         // como "clique ao lado do Dock": as janelas iam para as bordas e voltavam com o app aberto pelo Dock
         // (Reddit, 20/11/2026: "clico embaixo, ele tenta minimizar tudo e tudo volta")
-        if (HWND f = dock::Fundo(); f && IsWindowVisible(f)) {
-            RECT r; GetWindowRect(f, &r);
-            UINT d = GetDpiForWindow(f);
+        // (build-18: pelo vidro guardado na janela dos ícones; o fundo some no tema Leopard e o clique voltava a passar)
+        if (RECT r; dock::Vidro(&r)) {
+            UINT d = GetDpiForWindow(dock::Fundo() ? dock::Fundo() : GetDesktopWindow());
             InflateRect(&r, MulDiv(12, d ? d : 96, 96), MulDiv(12, d ? d : 96, 96));
             if (PtInRect(&r, pt)) return 0;
         }
@@ -454,7 +454,11 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             // da mesa só no modo "Sempre" (o usuário: clicar na mesa não pode empurrar os apps; o canto de baixo, sim)
             MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY), &mi);
             UINT dpi = GetDpiForWindow(menubar::Hwnd() ? menubar::Hwnd() : GetDesktopWindow());
-            bool besideDock = pt.y >= mi.rcMonitor.bottom - MulDiv(100, dpi ? dpi : 96, 96);
+            int faixa = MulDiv(100, dpi ? dpi : 96, 96);
+            // Dock à esquerda/direita (build-17): a faixa "ao lado do Dock" é a daquela borda
+            int lado = dock::Posicao();
+            bool besideDock = lado == 1 ? pt.x < mi.rcMonitor.left + faixa : lado == 2 ? pt.x >= mi.rcMonitor.right - faixa
+                                                                               : pt.y >= mi.rcMonitor.bottom - faixa;
             if (modo == L"0") return 0;
             if (modo == L"palco" && shell::Setting(L"organizador", L"0") != L"1" && !besideDock) return 0;
         }

@@ -507,7 +507,9 @@ LRESULT CALLBACK CornerProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_TIMER) {
         HWND target = (HWND)GetWindowLongPtrW(h, GWLP_USERDATA);
         if (!target) return 0;
-        if (!IsWindow(target) || GetPropW(target, L"MacJanelaMoldura") != (HANDLE)h) { DestroyWindow(h); return 0; }
+        // sem a marca "MacJanela" a janela já voltou ao Windows (desfeita por outra cópia da DLL, ou o desfazer não
+        // achou esta moldura): sobravam 4 arcos brancos por fora dos cantos do Deluge depois de reiniciar o Shell
+        if (!IsWindow(target) || GetPropW(target, L"MacJanelaMoldura") != (HANDLE)h || !GetPropW(target, PROP)) { DestroyWindow(h); return 0; }
         if (!IsWindowVisible(target) || IsIconic(target)) ShowWindow(h, SW_HIDE);
         return 0;
     }
@@ -815,6 +817,16 @@ void CALLBACK ZoomPhoto(HWND w, UINT, UINT_PTR id, DWORD) {
     if (HWND s = FindWindowW(L"ShellMensagens", nullptr)) PostMessageW(s, msg, (WPARAM)w, 0);
 }
 
+// Janela do Qt (OBS Studio, DaVinci, apps Qt5/Qt6: classe "Qt<versão>QWindow..."). A prévia do OBS e outras áreas
+// desenhadas pela placa de vídeo não se redesenham escondidas: a foto da janela escondida no tamanho novo saía com o
+// conteúdo velho esticado e, ao reaparecer, a janela "pulava" (vídeo do Reddit, 20/11/2026). Para elas o Shell usa o
+// caminho dos apps que não desenham escondidos (flags 4): anima só a foto de antes, mostra a janela de verdade no
+// fim e espera ela estar desenhada para tirar a foto (ampliar.cpp CheckReady).
+bool QtWindow(HWND h) {
+    wchar_t c[64] = {};
+    return GetClassNameW(h, c, 64) && !wcsncmp(c, L"Qt", 2) && wcsstr(c, L"QWindow");
+}
+
 void MoveAnimated(Info* in, RECT z) {
     HWND h = in->owner;
     int l, t, rr, b;
@@ -826,7 +838,7 @@ void MoveAnimated(Info* in, RECT z) {
     RECT to{ z.left + (from.left - wr.left), z.top + (from.top - wr.top), z.right - (wr.right - from.right), z.bottom - (wr.bottom - from.bottom) };
     // a cor da barra vai junto: a foto às vezes sai com a barra sem pintar (preta)
     struct Msg { unsigned long long hwnd; RECT from, to; int flags; COLORREF cap; } msg{ (unsigned long long)(UINT_PTR)h, from, to,
-        in->custom ? 0 : in->tool ? 3 : 1, in->cap == CLR_INVALID ? (in->dark ? RGB(0x2D, 0x2D, 0x2F) : RGB(0xE9, 0xE9, 0xEA)) : in->cap };
+        (in->custom ? 0 : in->tool ? 3 : 1) | (QtWindow(h) ? 4 : 0), in->cap == CLR_INVALID ? (in->dark ? RGB(0x2D, 0x2D, 0x2F) : RGB(0xE9, 0xE9, 0xEA)) : in->cap };
     HWND sh = FindWindowW(L"ShellMensagens", nullptr);
     DWORD_PTR ok = 0;
     COPYDATASTRUCT cd{ 0x414D504C /*'AMPL'*/, sizeof(msg), &msg };
@@ -1182,6 +1194,13 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         SampleOwnDC(in);
         return r;
     }
+    // Pedido de maximizar pelo menu do sistema (Alt+Espaço, Win+↑ do Windows, atalho do app): vira o "ampliar" ANTES
+    // de o Windows maximizar. Pelo caminho de baixo (WM_SIZE maximizado) a janela aparecia um quadro maximizada,
+    // voltava ao tamanho de antes e só então animava: o "salto" do OBS no vídeo do Reddit (20/11/2026).
+    if (m == WM_SYSCOMMAND && (w & 0xFFF0) == SC_MAXIMIZE && !IsZoomed(h) && !IsIconic(h) && (in->style & WS_MAXIMIZEBOX) && !in->zoomed && g_msgZoom) {
+        ToggleZoom(in);
+        return 0;
+    }
     if (m == g_msgZoom && g_msgZoom) {
         // w = 1: o app (ou o Windows) maximizou; vira o "ampliar" com cantos. w = 0: alternar (Win+↑/↓ do Shell)
         if (w == 1 && IsZoomed(h)) {
@@ -1443,6 +1462,13 @@ void Detach(HWND h, Info* in) {
     for (HWND& c : in->corner) if (c) { DestroyWindow(c); c = nullptr; }
     RemovePropW(h, L"MacJanelaMoldura");
     if (in->preview) { DestroyWindow(in->preview); in->preview = nullptr; }
+    // peças órfãs desta janela na thread (moldura ou faixa de uma volta anterior, de outra cópia da DLL): somem junto
+    EnumThreadWindows(GetCurrentThreadId(), [](HWND w, LPARAM owner) -> BOOL {
+        wchar_t c[32] = {};
+        if (GetWindow(w, GW_OWNER) == (HWND)owner && GetClassNameW(w, c, 32) && (!wcscmp(c, L"MacJanelaCanto") || !wcscmp(c, L"MacJanelaBarra")))
+            DestroyWindow(w);
+        return TRUE;
+    }, (LPARAM)h);
     if (in->dropShadow) SetClassLongPtrW(h, GCL_STYLE, GetClassLongPtrW(h, GCL_STYLE) | CS_DROPSHADOW);
     DWORD cornerDef = 0;  // DWMWCP_DEFAULT
     DwmSetWindowAttribute(h, 33, &cornerDef, sizeof(cornerDef));
@@ -1875,6 +1901,13 @@ bool DentroDeJogo() {
     // os apps do próprio WacOS (WacOSPropria) e o hospedeiro de 32 bits (rundll32) sempre podem
     if (c.find(L"wacos") != std::wstring::npos || c.find(L"\\rundll32.exe") != std::wstring::npos) return false;
     if (jogos::ProgramaDeJogo(p)) return true;
+    // OBS Studio (jogos.h ProgramaNaoJogo): o overlay da Steam (OBS da Steam) e o XInput do navegador embutido não
+    // fazem dele um jogo; só os módulos de anti-cheat contam
+    if (jogos::ProgramaNaoJogo(p)) {
+        for (auto m : { L"BEClient_x64.dll", L"BEClient.dll", L"EasyAntiCheat_EOS.dll", L"EasyAntiCheat_x64.dll", L"EasyAntiCheat.dll" })
+            if (GetModuleHandleW(m)) return true;
+        return false;
+    }
     for (auto m : { L"GameOverlayRenderer64.dll", L"GameOverlayRenderer.dll", L"UnityPlayer.dll", L"GameAssembly.dll",
                     L"steam_api64.dll", L"steam_api.dll", L"EOSSDK-Win64-Shipping.dll", L"EOSSDK-Win32-Shipping.dll",
                     L"BEClient_x64.dll", L"BEClient.dll", L"EasyAntiCheat_EOS.dll", L"EasyAntiCheat_x64.dll", L"EasyAntiCheat.dll",

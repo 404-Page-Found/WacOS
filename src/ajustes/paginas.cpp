@@ -1426,7 +1426,12 @@ Page CentralControle() {
     Row clock = Popup(L"Relógio", { L"Dia, data e hora", L"Só a hora" }, [] { return Setting(L"relogio_curto", L"0") == L"1" ? 1 : 0; },
                       [](int i) { SetSetting(L"relogio_curto", i == 1 ? L"1" : L"0"); });
     clock.icon = 0xE787; clock.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock }));
+    // Reddit (dougnite, 20/11/2026): sem barra nos monitores secundários (o topo deles volta para as janelas)
+    Row todos = Toggle(L"Mostrar a barra de menus em todos os monitores", [] { return Setting(L"barra_todos_monitores", L"1") != L"0"; },
+                       [](bool v) { SetSetting(L"barra_todos_monitores", v ? L"1" : L"0"); },
+                       L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.");
+    todos.icon = 0xE7F4; todos.iconColor = C_GRAY;
+    p.groups.push_back(G({ clock, todos }));
     // Ilha Dinâmica (src/shell/ilha.cpp): desligada por padrão; as outras opções só valem com ela ligada
     auto on = [](const wchar_t* k, const wchar_t* d) { std::wstring kk = k, dd = d; return std::function<bool()>([kk, dd] { return Setting(kk.c_str(), dd.c_str()) == L"1"; }); };
     auto set = [](const wchar_t* k) { std::wstring kk = k; return std::function<void(bool)>([kk](bool v) { SetSetting(kk.c_str(), v ? L"1" : L"0"); Rebuild(); }); };

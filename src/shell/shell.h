@@ -185,6 +185,13 @@ bool IsAppWindow(HWND h);       // janela que apareceria na barra de tarefas (re
 bool IsShellWindow(HWND h);     // nossas janelas (não entram no Dock nem na barra)
 bool LoneOwned(HWND h);         // janela com dona escondida (aviso sozinho de um app): conta como janela do app
 std::wstring PackIconByName(const std::wstring& name, const std::wstring& exe = L"");  // ícone do pacote do Sequoia
+// Ícone próprio do app (Dock/Launchpad > Alterar Ícone…), em %APPDATA%\Shell\icones-dock: <exe>.png e <nome>.png
+std::wstring CustomIconDir();                                              // com a barra no fim
+std::wstring CustomIcon(const std::wstring& name, const std::wstring& exe);  // o PNG escolhido, ou ""
+bool HasCustomIcon(const std::wstring& name, const std::wstring& exe);
+void ChooseIcon(const std::wstring& name, const std::wstring& exe);   // janela de Abrir (outra thread); avisa "ShellIconeMudou"
+void RestoreIcon(const std::wstring& name, const std::wstring& exe);  // apaga o ícone próprio; avisa "ShellIconeMudou"
+void ReloadIcons();  // Dock, Alt+Tab e Launchpad relêem os ícones (thread da interface)
 extern std::vector<HWND> ours;
 }
 
@@ -219,6 +226,7 @@ HWND Hwnd();
 int Height();           // px
 void SetFullscreen(bool on, HMONITOR mon = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos)
 int HeightOn(HMONITOR mon);  // px da barra naquele monitor (cada monitor tem a sua barra)
+int ReservedOn(HMONITOR mon);  // px que a barra ocupa no topo daquele monitor (0: secundário sem barra, barra_todos_monitores=0)
 void Displays();        // monitores mudaram: uma barra em cada
 void ApplyTheme();      // claro/escuro mudou
 void SoundChanged(bool device);  // volume/mudo (ou, com device, a saída padrão) mudou, ou o menu Som abriu/fechou: redesenha
@@ -242,8 +250,9 @@ std::wstring LastSaved();  // caminho escolhido no último Salvar (até 20 s atr
 }
 namespace janelas {  // barra de título do Mac nas janelas dos outros programas (janelas.cpp + MacJanela.dll)
 void Start();
-void Stop();          // devolve o visual do Windows e tira os ganchos
+void Stop();          // devolve o visual do Windows e tira os ganchos (reiniciando: só tira os ganchos)
 void Foreground(HWND h);
+void ManterAoReiniciar();  // o próximo Stop é um reinício: as janelas ficam com a barra (o Shell novo assume)
 }
 namespace barras {  // barra de título do Mac por fora, sem nada dentro dos outros programas (modo nativo; barras.cpp)
 void Start();
@@ -297,6 +306,7 @@ void Search(const std::wstring& foldedQuery, size_t max, const std::function<boo
 namespace atualizacao {  // aviso de versão nova no GitHub (atualizacao.cpp)
 void Start(HWND msgWnd);  // thread: confere 90 s depois e a cada 6 h; avisa msgWnd
 bool Handle(UINT m);      // na MsgProc: mostra a notificação (uma vez por versão); true = era a mensagem
+void Avisar(const std::wstring& title, const std::wstring& body);  // notificação do WacOS (vira o banner do Mac)
 }
 namespace migrar {  // troca de nome Sequoia → WacOS (migrar.cpp)
 bool TrocarPeloNovo();  // rodando como SequoiaShell.exe com o WacOSShell.exe ao lado: abre o novo (true = sair)
@@ -495,6 +505,7 @@ int Category(const std::wstring& appName);  // categoria do app (1..CategoryCoun
 int CategoryCount();
 const wchar_t* CategoryName(int k);
 void Rescan();  // relê a lista de apps (um programa foi instalado ou removido)
+void IconsChanged();  // um ícone próprio mudou: relê a lista e os ícones (sem reaproveitar os guardados)
 // Fora do Launchpad e do painel Apps: tirado à mão (launchpad_ocultos) ou ferramenta do Windows com
 // launchpad_sem_sistema=1 (Painel de Controle, Mapa de Caracteres, Ferramentas do Windows...)
 bool Escondido(const std::wstring& name, const std::wstring& parsing);
@@ -509,6 +520,7 @@ bool Create(HINSTANCE hi);
 void Update();          // apps mudaram
 HWND Hwnd();
 HWND Fundo();  // o vidro, a janela mais de baixo do Dock
+bool Vidro(RECT* screen);  // retângulo do vidro do Dock na tela (todos os temas, também o Leopard); false = fora da tela
 int ReservedHeight();   // px reservados na borda do Dock (área de trabalho): embaixo ou do lado (Posicao)
 int Posicao();          // 0 embaixo, 1 esquerda, 2 direita (dock_posicao; o Leopard fica sempre embaixo)
 HMONITOR MonitorHandle();  // o monitor do Dock (ajuste dock_monitor; vazio = o principal)
