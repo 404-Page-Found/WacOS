@@ -374,6 +374,7 @@ namespace widgets {  // widgets da mesa: Relógio Mundial, Tempo, Relógio, Cale
 void Create(HINSTANCE hi);
 std::vector<RECT> Areas();  // onde estão (tela): os ícones da mesa não ficam embaixo deles
 void EditMenu(POINT pt);    // "Editar Widgets…": ligar/desligar cada widget (também sem nenhum na tela)
+void SettingsChanged();     // widget.<id>.on mudou no ajustes.txt (Ajustes > Personalizar a Mesa)
 }
 namespace mesa {  // mesa própria (papel de parede + ícones) e o modo sem explorer.exe (mesa.cpp, docs/sem-explorer.md)
 void Start(HINSTANCE hi, HWND msgWnd);  // ajuste explorer=0: fecha o Explorador e assume a mesa

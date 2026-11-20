@@ -623,3 +623,51 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 [2026-11-20 09:10 PC] TESTE do "Atualizar Agora" antigo (tools\atualizar-github.ps1 da instalação, como num PC com build-14): achou o build-15, baixou 172 MB, SHA-256 confere, rodou o instalar.ps1 -Atualizar do pacote, fechou e reabriu o WacOS (Finder e Captura de Tela, que estavam abertos, voltaram). Depois: bin\versao.txt = build-15, ajustes.txt igual ao de antes, RegisteredApplications 26/20 intactos, Abrir com deste PC sem mudança (aponta para o repositório, então não foi registrado de novo). Achado: o instalar.ps1 não copiava o WacOSSetup.exe para a instalação (quem atualiza pelo botão antigo ficava sem ele; o Atualizar Agora novo cai no script). Corrigido em instalador\instalar.ps1 (vale a partir da próxima versão publicada).
 
 [2026-11-20 PC] IDIOMAS NOVOS (pedido dos usuários de fora do Brasil no Reddit). Além de português e inglês: espanhol, francês, alemão, italiano, japonês, chinês simplificado, coreano, russo, polonês e turco. Ajustes > Geral > Idioma lista os 12, cada um com o nome na própria língua; grava idioma=<código> (pt, en, es, fr, de, it, ja, zh, ko, ru, pl, tr) no %APPDATA%\Shell\ajustes.txt (o padrão continua en). src\comum\idioma.h: idioma::Code()/Locale()/Current()/Pt(), En() continua (só inglês); um dicionário por idioma (idioma_<código>.inc, 1488 frases cada, as mesmas chaves em português do idioma_en.inc); o que faltar num idioma sai em inglês, não em português; TrPick(pt, en) usa a tradução quando tem o mesmo sentido do inglês (ou a chave "pt|en"). Datas pelo Windows no locale escolhido (idioma::Date/DateTime/MonthName/DayName): relógio da barra de menus, tela de bloqueio, Finder (lista e Obter Informações), Visualização Rápida, Notas, Fotos, Time Machine, Lembretes/Calendário (MonthName/WeekdayShort do app2d.h), widget de calendário (iniciais dos dias). Clima: language= da busca de cidades no Open-Meteo e a bússola no idioma. Spotlight: hl= das sugestões do Google no locale. Forçar Encerrar: vírgula decimal nos idiomas que usam vírgula. tools\idioma-conferir.py confere os dicionários (chaves faltando e %d/%ls diferentes do inglês). Nada no registro do Windows. DESFAZER: idioma=pt ou idioma=en nos Ajustes (ou no ajustes.txt).
+
+[2026-11-20 16:20] Pedidos de um usuário do Reddit (Windows 11 25H2), branch claude/electron-personalizacao-47c2bb:
+  1) DLL DAS JANELAS NUNCA EM JOGO OU ANTI-CHEAT (regra dura, risco de banimento). Duas travas:
+     - Shell (src\shell\janelas.cpp, antes de pôr o gancho; a mesma regra vale no WacOSTitleBars.exe): src\comum\jogos.h decide pelo
+       caminho do .exe e pelos arquivos da pasta dele no disco, sem abrir o processo do jogo além do nome. Fora: launchers e anti-cheat
+       pelo nome (Steam, Epic, Riot/Vanguard, EA, Battle.net, Ubisoft, GOG, Xbox, FACEIT, EAC, BattlEye, HoYoPlay...), pastas de jogos
+       (steamapps, Epic Games, Riot Games, XboxGames, \games\, \jogos\...), layout do Unreal (\Binaries\Win64\, -Shipping.exe), arquivos
+       de motor/loja/anti-cheat ao lado do .exe (UnityPlayer.dll, GameAssembly.dll, steam_api64.dll, EOSSDK, BEClient, pasta
+       EasyAntiCheat/BattlEye, galaxy64.dll, DLSS/XeSS...), janela de motor de jogo (UnrealWindow, UnityWndClass, SDL, GLFW, Valve001...),
+       os jogos do %APPDATA%\Shell\jogos.txt (lista do Modo Jogo) e programa com janela sem borda cobrindo o monitor (tela cheia sem
+       borda) que não seja Chromium. Nada novo enquanto um app roda em Direct3D tela cheia / modo apresentação (SHQueryUserNotificationState).
+       A decisão fica guardada por processo (pid + hora de criação: outro programa com o mesmo pid não herda).
+     - DLL (src\janelas\macjanela.cpp DllMain): se carregar mesmo assim num jogo (mesmo critério + módulos já carregados: overlay da
+       Steam, Unity, EOS, BattlEye, EAC, steam_api...), devolve FALSE e o Windows a descarrega na hora. Janela de motor de jogo aparecendo
+       na thread: a DLL para de agir naquele processo.
+     - Modo "barra própria" (janelas sem a barra do Windows) só na janela Chrome_WidgetWin_1 de app Chromium/Electron reconhecido pelos
+       arquivos (chrome.dll/msedge.dll carregado, ou resources.pak/icudtl.dat/v8_context_snapshot.bin ao lado do .exe). Antes qualquer
+       janela redimensionável sem barra (inclusive jogo em janela) recebia o gancho.
+     Testado no PC: uma janela de teste dentro de ...\steamapps\common\x\ recusou a DLL nova (o módulo não ficou no processo) e a mesma
+     janela fora dali recebeu a barra do Mac; classificação conferida nos programas abertos (Chrome/Discord/Claude = Chromium; Epic,
+     Steam e Xbox = jogo).
+  2) Títulos em jogos em modo janela: nada feito de propósito (a DLL não entra em jogo).
+  3) CANTOS DO CHROME/ELECTRON. Testado de novo no Edge 157 (perfil temporário InPrivate, DLL de teste dentro do processo): SetWindowRgn
+     NÃO corta o conteúdo do Chromium (DirectComposition numa janela filha do processo da GPU, "Intermediate D3D Window"), nem recortando
+     também essa janela filha; e tira o arredondamento do DWM (o canto fica quadrado). O único corte que vale é o do DWM. Agora o modo leve
+     pede DWMWCP_ROUND (no Leopard o pequeno) às janelas Chromium/Electron (as sem moldura, como Electron frame:false, não eram
+     arredondadas) e troca a borda de 1 px do Windows (cinza ou cor de destaque) por um contorno no tom do Mac (DWMWA_BORDER_COLOR); o
+     raio fica o do Windows (8 px a 100%), maior que isso o DWM não deixa. O recorte antigo (C:\Users\Public\MacCantos-ligado.txt) saiu.
+     Desfazer: o Shell manda MacJanelaDesfazer ao sair (volta DWMWCP_DEFAULT e a cor padrão da borda).
+  4) AJUSTES > GERAL TRAVANDO AO ROLAR: a chave "Abrir ao entrar no Windows" rodava schtasks.exe /Query A CADA DESENHO da linha (13-33 ms
+     por processo). Agora lê uma vez numa thread e guarda; o clique grava numa thread. A rolagem do Ajustes também passou a andar pelo
+     tempo real (antes 30% por tique de 15 ms) e o log ajustes-app.log ganhou "rolagem: N quadros em X ms (desenho médio/pior)".
+     Medido (janela 1100x650, página Geral até o fim e de volta, 3 vezes): antes 25,2 ms por quadro (~39 quadros/s), depois 5,3 ms
+     (~76 quadros/s).
+  5) PERSONALIZAÇÃO (Ajustes > Mesa e Dock > "Personalizar o Dock…" e "Personalizar a Mesa…"; Notificações > Central de Notificações).
+     Chaves novas no %APPDATA%\Shell\ajustes.txt (vazio = o padrão medido do Mac):
+       dock_espaco (pt a mais entre os ícones, 0-32), dock_margem (distância da borda, 0-40 pt), dock_raio (cantos do fundo, 0 reto a 100
+       pílula), dock_cor (auto/clara/escura/destaque), dock_opacidade (tinta do vidro, 0-100), dock_launchpad, dock_separador, dock_rotulos
+       (1/0), dock_indicador (ponto/traco); ícones próprios do Dock: PNG em %APPDATA%\Shell\icones-dock com o nome do .exe ou do app;
+       mesa_icone_tamanho (16-128, padrão 64), mesa_espaco (-20 a 80), mesa_texto (10-16, padrão 12); os widgets da mesa
+       (widget.<id>.on) agora seguem o arquivo na hora (widgets::SettingsChanged); notif_duracao (segundos do banner, 2-30, padrão 5).
+     A página também junta as chaves que já existiam (indicadores, animar_abertura, pulo_notificacao, mesa_grade, mesa_pilhas,
+     banners_mac, central_calendario, central_relogio). "Restaurar o Padrão" em cada página volta as chaves novas.
+     46 frases novas nos 11 dicionários (tools\idioma-conferir.py: 0 faltando). Posição do Dock à esquerda/direita continua desligada.
+  Nada no registro do Windows. Testado no PC: páginas novas do Ajustes (aberto pelo WMI, fotos). NÃO testado ao vivo: Dock, mesa e
+  banner com as chaves novas e a DLL nova no Shell instalado (a tabela de 32 DLLs de gancho está cheia neste PC, erro 126: a DLL nova só
+  carrega depois de sair e entrar na sessão; e a sessão principal testava o gênio no Shell instalado).
+  DESFAZER: apagar as chaves dock_*/mesa_icone_tamanho/mesa_espaco/mesa_texto/notif_duracao (ou "Restaurar o Padrão").

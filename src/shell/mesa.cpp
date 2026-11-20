@@ -50,8 +50,23 @@ std::mutex g_wallMx;
 std::wstring g_wallNow;                  // papel de parede escolhido agora (até o registro mostrar o mesmo)
 const UINT EXPLORER_EXIT = WM_USER + 436;  // "Sair do Explorador" (Shell_TrayWnd)
 
-// grade (pt)
-const float ICON = 64, CELL_W = 106, CELL_H = 108, MARGIN_R = 10, MARGIN_T = 8, LABEL_GAP = 5, LABEL_H = 32;
+// grade (pt). Tamanho do ícone, espaço da grade e tamanho do texto: Ajustes > Mesa e Dock > Personalizar a Mesa
+// (mesa_icone_tamanho, mesa_espaco, mesa_texto; padrão do Mac 64 / 0 / 12, como no "Mostrar Opções de Visualização")
+float ICON = 64, CELL_W = 106, CELL_H = 108, LABEL_H = 32, g_textoPt = 12;
+const float MARGIN_R = 10, MARGIN_T = 8, LABEL_GAP = 5;
+// relê as medidas; true se mudaram (os ícones precisam ser lidos de novo no tamanho novo)
+bool LerMedidas() {
+    auto num = [](const wchar_t* k, float d) { std::wstring v = shell::Setting(k, L""); return v.empty() ? d : (float)_wtof(v.c_str()); };
+    float icon = std::clamp(num(L"mesa_icone_tamanho", 64), 16.f, 128.f);
+    float esp = std::clamp(num(L"mesa_espaco", 0), -20.f, 80.f);
+    float txt = std::clamp(num(L"mesa_texto", 12), 10.f, 16.f);
+    bool mudou = icon != ICON || txt != g_textoPt || icon + 42 + esp != CELL_W;
+    ICON = icon; g_textoPt = txt;
+    LABEL_H = std::round(txt * 2.67f);         // duas linhas de nome
+    CELL_W = std::max(icon + 42 + esp, icon + 8);  // 106 com 64: o nome de duas linhas cabe
+    CELL_H = std::max(icon + 12 + LABEL_H + esp, icon + LABEL_H);
+    return mudou;
+}
 
 std::atomic<bool> g_standalone;  // explorer fechado por nós, a mesa é o shell
 // App da Loja antigo (UWP) pediu o Explorador (mesa::NeedExplorer): o modo sem Explorador fica suspenso
@@ -555,6 +570,7 @@ void Arrange(bool forgetSaved = false) {
 void QueueIcons();
 void Reload() {
     if (!Primary()) return;
+    LerMedidas();
     std::map<std::wstring, Item> old;
     for (auto& it : g_items) old[it.key] = std::move(it);
     g_items.clear();
@@ -681,11 +697,12 @@ int HitScreen(POINT p) { Mon* m = Primary(); if (!m) return -1; p.x -= m->r.left
 
 void EnsureFormat() {
     float s = Sc();
-    if (g_tf && g_tfScale == s) return;
+    static float pt = 0;
+    if (g_tf && g_tfScale == s && pt == g_textoPt) return;
     if (g_tf) g_tf->Release();
-    g_tf = nullptr; g_tfScale = s;
+    g_tf = nullptr; g_tfScale = s; pt = g_textoPt;
     ui::dw->CreateTextFormat(ui::family.c_str(), nullptr, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                             12 * s, L"", &g_tf);
+                             g_textoPt * s, L"", &g_tf);
     if (!g_tf) return;
     g_tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
     g_tf->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
@@ -1866,6 +1883,7 @@ void mesa::SettingsChanged() {
     Log(L"mesa: ajustes mudaram (explorer=%ls)", shell::Setting(L"explorer", L"1").c_str());
     if (g_ctl) { g_closeTries = 0; Tick(); }
     { static int lastIcons = -1; int on = IconesOn() ? 1 : 0; if (lastIcons >= 0 && on != lastIcons && Primary()) Redraw(); lastIcons = on; }  // ícones ligados/desligados nos Ajustes
+    if (LerMedidas() && Primary()) { ForgetIcons(); QueueIcons(); Redraw(); }  // tamanho do ícone, grade ou texto mudou
     if ((shell::Setting(L"mesa_pilhas", L"0") == L"1") != g_stacks && Primary()) {  // Pilhas ligadas/desligadas fora do menu da mesa
         g_openStacks.clear();
         for (auto& it : g_items) it.col = it.row = -1;
