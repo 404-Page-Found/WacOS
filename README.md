@@ -100,11 +100,17 @@ themes).
 ## Features
 
 - **Menu bar** with the active app's real menus, the Apple menu, status icons and the system tray.
-- **Dock** with magnification, running indicators, stacks (Downloads), minimized windows and the Trash.
+- **Dock** with magnification, running indicators, stacks (Downloads), minimized windows and the Trash. Put it on
+  the **bottom, left or right**, hide it always or only when a window touches it (**smart hide**), and customize
+  spacing, distance from the edge, corner rounding, glass color and opacity, labels, indicators and the divider.
+- **Change Icon…**: right-click an app in the Dock or Launchpad to use your own PNG/ICO (and restore the original).
+- **Genie** minimize animation drawn by the compositor, with smooth edges all the way into the Dock.
 - **Finder** (file manager), **Spotlight** (search with Applications, Files, Actions and Clipboard modes),
   **Control Center**, **Notification Center**, **Mission Control**, **Launchpad / Apps**, **Quick Look**,
   **Stage Manager** and **Hot Corners**.
-- **Mac title bars** (traffic lights, rounded corners, shadows) on other apps' windows.
+- **Mac title bars** (traffic lights, rounded corners, shadows) on other apps' windows. Chrome, Discord, Spotify and
+  other Chromium/Electron apps keep their own bar but get rounded corners and a Mac-style border that matches the
+  app's own light or dark look.
 - **macOS alerts** in place of Windows message boxes, and the Mac Open/Save panel through Finder.
 - **Built-in apps**: System Settings, Activity Monitor (with memory pressure), Terminal, Calculator, Notes,
   Reminders, Calendar, TextEdit, Preview, Photos, Music, QuickTime Player, Clock, Weather, Contacts,
@@ -117,7 +123,12 @@ themes).
   effects, Hot Corners, file indexing) until the game quits. System Settings > Energy.
 - **Launchpad**: hide any app (right-click > Hide from Launchpad), or all of Windows' system tools at once.
 - **Icon styles** (Default, Dark, Clear, Tinted), accent colors, light and dark appearance.
-- **English and Portuguese** interface (English is the default; System Settings > General > Language).
+- **Customize the desktop** (icon size, grid spacing, text size, widgets), **notifications** (banner duration,
+  Notification Center widgets) and the **menu bar** (show it on every display or only the main one).
+- **Calendar** with your country's holidays and Monday/Sunday start, **Weather** with any city as your location,
+  **Clock** with custom cities and alarms.
+- **12 languages**: English (default), Portuguese, Spanish, French, German, Italian, Japanese, Chinese, Korean,
+  Russian, Polish and Turkish (System Settings > General > Language). Dates follow the language too.
 
 ## Install
 
@@ -170,18 +181,43 @@ GitHub Actions checks that every commit to `main` builds.
 
 Fair question for anything that replaces your taskbar. You don't have to trust the author:
 
-- **Open code.** Every file is in this repository, and you can build it yourself (see [Build](#build)).
+- **Source available.** Every file is in this repository: read it, and build it yourself (see [Build](#build)).
 - **Network.** WacOS only talks to the weather service (`api.open-meteo.com`, for the weather widget), Google search
   suggestions (only while you type in Spotlight) and GitHub (to check for updates). No telemetry, no accounts.
   Run it behind a firewall like simplewall or GlassWire and watch for yourself.
 - **What it installs.** One scheduled task to start at sign-in, with normal user rights. No services, no drivers,
   no administrator rights. Uninstalling (Installed apps > WacOS) removes everything.
+- **Games are left alone.** The title bar DLL never loads into games, launchers or anything with anti-cheat: it
+  checks the program's folder, engine and anti-cheat files next to it, engine window classes and exclusive
+  fullscreen, and even if loaded it refuses to start inside a game. Add your own exceptions in
+  `%APPDATA%\Shell\janelas-excluidas.txt`.
 - **Antivirus.** A shell has to do things that look suspicious to heuristics: start at sign-in, use keyboard and
   mouse hooks for shortcuts like the Win key and hot corners, and load its title bar DLL into other apps. The
   build-12 package shows [1/66 on VirusTotal](https://www.virustotal.com/gui/file/310ab4f16824500a8d77225fef66a62e499c32d6d5484a8752b119b7f24e67f3),
   a single AI-based heuristic. The install scripts are plain PowerShell you can read: no inline C#, no hidden
   windows, and the updater checks the package's SHA-256 against the one GitHub publishes. If Microsoft Defender flags it on your PC, it's a false positive that has been
   reported to Microsoft; please [open an issue](https://github.com/renzyxx/WacOS/issues) with the threat name.
+
+## Testing and stability
+
+WacOS is tested on the author's PC after every change, and the [change log](docs/registro-mudancas.txt) (Portuguese)
+records what was changed, how it was checked and what wasn't. Some of the checks:
+
+- **Stress test** (15 to 30 minutes): test programs open, minimize and close windows non-stop while Mission Control
+  and Launchpad open and close, and the shell's memory, handles and GDI/USER objects are sampled. They go up and down
+  with Mission Control instead of growing; the test apps with the title bar DLL stay flat after 60+ cycles.
+- **Watchdog:** the shell restarts itself if it really freezes. A false alarm under heavy animation (it restarted a
+  working shell) was found in the stress test and fixed: zero restarts in the following runs.
+- **Animations frame by frame:** the genie and other compositor animations are recorded with Desktop Duplication
+  (a normal screenshot can't see them) and checked frame by frame. That's how the "pixelated" genie was traced to
+  stair-stepped slices and fixed with trapezoid slices.
+- **Title bars across updates:** the title bars load through a small fixed loader (`WacOSGancho.dll`), so updating or
+  restarting WacOS doesn't use up Windows' limited hook slots anymore; tested by swapping the title bar DLL three
+  times in one sign-in.
+- **Reported bugs** from Reddit, GitHub and Discord are reproduced when possible (videos help a lot!).
+
+Known limits: apps running as administrator can't get the Mac title bar from a shell that isn't elevated, and the
+first install of build-18 or later needs one sign-out so the new title bar loader takes over.
 
 ## Roadmap
 
@@ -205,7 +241,8 @@ Requires Visual Studio 2022 (or Build Tools 2022) with the C++ workload.
 build.cmd            everything
 build.cmd shell      the shell only (WacOSShell.exe: menu bar, Dock, Spotlight...)
 build.cmd finder     Finder only
-build.cmd janelas    Mac title bars for other apps (WacOSWindow.dll, 32 and 64 bit, and WacOSTitleBars.exe)
+build.cmd janelas    Mac title bars for other apps (WacOSWindow.dll and its fixed loader WacOSGancho.dll,
+                     32 and 64 bit, and WacOSTitleBars.exe)
 build.cmd titulos    WacOSTitleBars.exe only (the title bars without the shell)
 tools\empacotar.ps1  the installer package (dist\WacOS-<date>.zip)
 ```
@@ -214,7 +251,8 @@ tools\empacotar.ps1  the installer package (dist\WacOS-<date>.zip)
 
 - `src/shell`: the shell (menu bar, Dock, Spotlight, Control Center, Mission Control, Liquid Glass...).
 - `src/finder`, `src/ajustes` (System Settings), `src/monitor` (Activity Monitor) and the other apps in `src/*`.
-- `src/janelas`: Mac title bars injected into other apps' windows; `src/titulos`: the title bars without the shell.
+- `src/janelas`: Mac title bars injected into other apps' windows (`gancho.cpp` is the fixed loader Windows hooks
+  in; it loads the current `macjanela.cpp` DLL); `src/titulos`: the title bars without the shell.
 - `src/menu`: context menus on top of the real Windows shell extensions.
 - `src/comum`: shared code (names, language, glass, shadows).
 - `instalador`: install, update and uninstall scripts. `tools`: build and packaging tools.
@@ -226,7 +264,12 @@ Measured on the author's PC (i9-14900K, RTX 3070 Ti, 3440×1440 at 174 Hz). At r
 CPU core and no GPU time; with a game in front (Game Mode on) about 2% of one core and no GPU time. Memory: about
 350 to 500 MB for the shell (most of it is the Spotlight file index), plus around 100 MB for the hidden Finder that
 makes Finder windows open instantly. Animations run on the display's refresh clock, not timers, and nothing polls while
-idle.
+idle. Minimizing a window takes about 55 ms of preparation (window snapshot, detail levels and ~400 animated slices)
+before the genie starts; the rest runs on the GPU in the Windows compositor.
+
+On laptops with two GPUs, set `WacOSShell.exe` to **High performance** in Windows Settings > System > Display >
+Graphics. If animations still stutter, System Settings > Appearance > Transparency & Effects > **Reduce transparency**
+turns off the Liquid Glass blur, the heaviest effect.
 
 ## License
 
