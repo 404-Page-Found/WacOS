@@ -1,7 +1,7 @@
 ﻿# Publishes a new WacOS version on GitHub with the FULL package (programs, icons, SF fonts, macOS sounds and
 # cursor), built on this PC: the fonts, sounds and cursor are not in the repository, so GitHub Actions can't build
 # this package (it only checks that the code compiles).
-#   1. next version = build-<number of build-N releases + 1>
+#   1. next version = build-<highest build-N + 1>
 #   2. writes bin\versao.txt (version, commit, date): the updater compares it with the latest release
 #   3. tools\empacotar.ps1 -SemSistema -SemAjustes (no personal settings) -> dist\WacOS-<date>.zip
 #   4. git push, then a release with that zip as the latest
@@ -16,7 +16,8 @@ function L($s) { $s | Tee-Object -FilePath $log -Append | Write-Host }
 New-Item -ItemType Directory -Force (Join-Path $root 'dist') | Out-Null
 "" | Set-Content $log
 
-$n = @(gh release list -R $repo --limit 1000 --json tagName --jq '.[].tagName' | Where-Object { $_ -match '^build-\d+$' }).Count + 1
+# o maior build-N + 1 (não a contagem: as builds 1 a 16 foram apagadas em 20/11/2026, na troca de licença)
+$n = (@(gh release list -R $repo --limit 1000 --json tagName --jq '.[].tagName' | Where-Object { $_ -match '^build-(\d+)$' } | ForEach-Object { [int]($_ -replace '^build-', '') }) + @(17) | Measure-Object -Maximum).Maximum + 1
 $tag = "build-$n"
 git push -q origin main 2>&1 | Out-Null
 $sha = (git rev-parse HEAD).Trim()
