@@ -1529,12 +1529,48 @@ const UINT_PTR LEVE_ID = 0x4C455645;
 // (8 px a 100%); maior que isso o DWM não deixa. A sombra do Mac é do Shell (sombras.cpp).
 // Maximizada, minimizada ou em tela cheia: o DWM já não arredonda; nada a fazer.
 const wchar_t* PROP_CANTO = L"MacJanelaCanto";
+// O fundo do PRÓPRIO app é escuro? O contorno seguia o tema do sistema: Discord escuro com o Windows claro ganhava um
+// contorno cinza-claro que parecia uma borda branca em volta (20/11/2026). O Discord nem avisa o DWM que é escuro
+// (DWMWA_USE_IMMERSIVE_DARK_MODE = 0), então olha o conteúdo: uma foto da janela (PrintWindow com o conteúdo da GPU) e
+// a média de uns pontos perto das bordas. 1 claro, 2 escuro (guardado em MacJanelaFundo); 0 = ainda não sabe.
+const wchar_t* PROP_FUNDO = L"MacJanelaFundo";
+int AmostraFundo(HWND h) {
+    BOOL imm = FALSE;
+    if (SUCCEEDED(DwmGetWindowAttribute(h, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &imm, sizeof(imm))) && imm) return 2;
+    RECT wr, fb;
+    if (!GetWindowRect(h, &wr)) return 0;
+    if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb)))) fb = wr;
+    int W = wr.right - wr.left, H = wr.bottom - wr.top;
+    if (W < 80 || H < 80 || W > 16384 || H > 16384) return 0;
+    HDC sdc = GetDC(nullptr);
+    HDC mdc = CreateCompatibleDC(sdc);
+    HBITMAP bm = CreateCompatibleBitmap(sdc, W, H);
+    HGDIOBJ old = SelectObject(mdc, bm);
+    int r = 0;
+    if (PrintWindow(h, mdc, 2 /*PW_RENDERFULLCONTENT*/)) {
+        int ox = fb.left - wr.left, oy = fb.top - wr.top, fw = fb.right - fb.left, fh = fb.bottom - fb.top;
+        POINT pts[5] = { { ox + 12, oy + fh - 12 }, { ox + fw - 12, oy + fh - 12 }, { ox + fw / 2, oy + fh - 6 },
+                         { ox + 6, oy + fh / 2 }, { ox + fw - 6, oy + fh / 2 } };
+        double L = 0; int n = 0;
+        for (auto& pt : pts) {
+            COLORREF c = GetPixel(mdc, pt.x, pt.y);
+            if (c == CLR_INVALID) continue;
+            L += 0.299 * GetRValue(c) + 0.587 * GetGValue(c) + 0.114 * GetBValue(c); n++;
+        }
+        if (n) r = L / n < 110 ? 2 : 1;
+    }
+    SelectObject(mdc, old); DeleteObject(bm); DeleteDC(mdc); ReleaseDC(nullptr, sdc);
+    return r;
+}
+
 void CantoLeve(HWND h) {
     if (IsIconic(h)) return;
     DWORD pref = leopard::On() ? 3 /*DWMWCP_ROUNDSMALL*/ : 2 /*DWMWCP_ROUND*/;
     DwmSetWindowAttribute(h, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, &pref, sizeof(pref));
-    // contorno do Mac: escuro no tema claro, um cinza um pouco mais claro que a janela no escuro
-    bool dark = Dark();
+    // contorno do Mac: escuro numa janela clara, um cinza um pouco mais claro que a janela numa escura. Pela cor do
+    // app (AmostraFundo); enquanto não sabe, pelo tema do sistema
+    int fundo = (int)(INT_PTR)GetPropW(h, PROP_FUNDO);
+    bool dark = fundo ? fundo == 2 : Dark();
     COLORREF border = dark ? RGB(0x4A, 0x4A, 0x4D) : RGB(0xC2, 0xC2, 0xC5);
     if (GetPropW(h, PROP_CANTO) != (HANDLE)(INT_PTR)(dark ? 2 : 1)) {
         DwmSetWindowAttribute(h, 34 /*DWMWA_BORDER_COLOR*/, &border, sizeof(border));
@@ -1547,6 +1583,8 @@ void CantoLeveDesfazer(HWND h) {
     COLORREF c = 0xFFFFFFFF;  // DWMWA_COLOR_DEFAULT
     DwmSetWindowAttribute(h, 34, &c, sizeof(c));
     RemovePropW(h, PROP_CANTO);
+    RemovePropW(h, PROP_FUNDO);
+    RemovePropW(h, L"MacJanelaFundoN");
 }
 
 // Este processo é Chromium/Electron? (só eles recebem o modo barra própria). Pelo módulo do navegador carregado ou
@@ -1567,7 +1605,17 @@ LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PT
     if (m == g_msgUndo && g_msgUndo && g_proprio) return DefSubclassProc(h, m, w, l);
     if (m == g_msgUndo && g_msgUndo) CantoLeveDesfazer(h);
     if (m == WM_NCDESTROY) RemovePropW(h, PROP_CANTO);
-    if (m == WM_TIMER && w == 0x4D43) { CantoLeve(h); return 0; }  // tema claro/escuro mudou: a cor do contorno
+    if (m == WM_TIMER && w == 0x4D43) {  // tema claro/escuro mudou: a cor do contorno
+        // a cor do app: só nas duas primeiras voltas do timer com a janela à mostra (2 e 4 s, depois de ele pintar a tela
+        // de verdade); a foto custa alguns ms e não vale ficar repetindo
+        int vezes = (int)(INT_PTR)GetPropW(h, L"MacJanelaFundoN");
+        if (vezes < 2 && IsWindowVisible(h) && !IsIconic(h)) {
+            SetPropW(h, L"MacJanelaFundoN", (HANDLE)(INT_PTR)(vezes + 1));
+            if (int f = AmostraFundo(h)) SetPropW(h, PROP_FUNDO, (HANDLE)(INT_PTR)f);
+        }
+        CantoLeve(h);
+        return 0;
+    }  // tema claro/escuro mudou: a cor do contorno
     if (m == g_msgUndo && g_msgUndo) { BOOL on = FALSE; DwmSetWindowAttribute(h, 3, &on, sizeof(on)); ZoomShow(h); RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID); return 1; }
     if (m == msgShow && msgShow) { ZoomShow(h); return 1; }
     if (m == WM_NCDESTROY) { RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID); }
