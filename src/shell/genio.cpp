@@ -361,7 +361,10 @@ bool Start(HWND h) {
     std::vector<uint32_t> lv = std::move(px); int lw = sw, lh = sh;
     int dims[MAX_LEVELS][2]{};
     // faixas finas (~3 px de janela) no nível 0: a curva do funil sem degraus; cada nível menor tem a metade
-    const int n0 = std::clamp((int)((g_a.win.bottom - g_a.win.top) / 3), 24, 200);
+    // Com as faixas em trapézio (bordas iguais às das vizinhas) a borda é uma linha quebrada sem degraus: ~6 px de
+    // janela por faixa bastam. Eram ~3 px (até 200 faixas, 700 no total): montar tudo levava ~30 ms antes de a janela
+    // se mexer, e numa GTX 1660 a "pausa antes de minimizar" aparecia (Reddit, 20/11/2026)
+    const int n0 = std::clamp((int)((g_a.win.bottom - g_a.win.top) / 6), 24, 110);
     auto stripsOf = [&](int lvl) { return lvl == 0 ? n0 : std::max(12, n0 / 2); };  // os níveis estreitos aparecem com a janela já fina
     for (g_levels = 0; g_levels < MAX_LEVELS; g_levels++) {
         if (!Upload(lv, lw, lh, &g_surf[g_levels])) break;
@@ -375,6 +378,7 @@ bool Start(HWND h) {
         lv = std::move(nx); lw = nw; lh = nh;
     }
     if (!g_levels) { Log(L"gênio (compositor): superfície falhou; motor antigo"); Clear(); return false; }
+    const double tLv = anim::Now() - t0;  // foto + níveis + cópias em média, já na placa
     // grupos de cada nível: o de baixo (o menor) primeiro, cada um por cima do anterior
     for (int k = g_levels - 1; k >= 0; k--) {
         if (FAILED(g_dev->CreateVisual(&g_level[k]))) { Clear(); return false; }
@@ -382,7 +386,7 @@ bool Start(HWND h) {
     }
     SetWindowPos(g_wnd, HWND_TOPMOST, g_ovRect.left, g_ovRect.top, g_ovRect.right - g_ovRect.left, g_ovRect.bottom - g_ovRect.top, SWP_NOACTIVATE);
     const float D = DURATION;
-    const int K = 32;
+    const int K = 20;  // pontos por curva (Hermite entre eles: a curva continua suave)
     int total = 0;
     for (int lvl = 0; lvl < g_levels; lvl++) {
         const int n = stripsOf(lvl);
@@ -467,6 +471,7 @@ bool Start(HWND h) {
         }
     }
     const int n = total;
+    const double tStrips = anim::Now() - t0;  // + as faixas e as curvas
     if (g_fx) {  // some de leve ao entrar no Dock (igual ao motor antigo)
         std::vector<float> op(K);
         for (int k = 0; k < K; k++) {
@@ -484,7 +489,8 @@ bool Start(HWND h) {
     UINT ms = (UINT)std::lround(D * 1000);
     if (g_a.restore) SetTimer(g_wnd, T_BACK, (UINT)(ms * 0.4f), nullptr);
     SetTimer(g_wnd, T_END, ms + 20, nullptr);
-    Log(L"gênio (compositor): %d faixas em %d níveis, foto %dx%d em %.1f ms, preparo %.1f ms; o resto é com o DWM", n, g_levels, sw, sh, tSnap, anim::Now() - t0);
+    Log(L"gênio (compositor): %d faixas em %d níveis, foto %dx%d em %.1f ms, níveis até %.1f ms, faixas até %.1f ms, preparo %.1f ms; o resto é com o DWM",
+        n, g_levels, sw, sh, tSnap, tLv, tStrips, anim::Now() - t0);
     dock::Update();
     return true;
 }

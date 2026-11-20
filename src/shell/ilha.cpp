@@ -1,4 +1,4 @@
-// Ilha Dinâmica (Dynamic Island) no topo da tela, em três estilos (ajuste `ilha_estilo`):
+﻿// Ilha Dinâmica (Dynamic Island) no topo da tela, em três estilos (ajuste `ilha_estilo`):
 //  - notch (padrão): um entalhe preto grudado na borda de cima, centrado, da altura da barra de menus, com as
 //    "orelhas" côncavas do entalhe do MacBook. Fica sempre lá; cresce para os lados (asas) com o que está
 //    acontecendo e para baixo quando abre.
@@ -35,6 +35,7 @@
 #include <windowsx.h>
 #include <iphlpapi.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Media.Control.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
@@ -230,6 +231,30 @@ D2D1_COLOR_F ArtTint(const std::vector<BYTE>& px) {
     return D2D1::ColorF((float)(r + (1 - r) * k), (float)(g + (1 - g) * k), (float)(b + (1 - b) * k), 1);
 }
 
+// Qual sessão mostrar: a que está tocando; senão a "atual" do Windows; senão uma pausada com título. Antes era só a
+// atual do Windows, que pode ser uma aba parada do navegador enquanto o Spotify toca: "o Spotify não aparece na
+// ilha" (Reddit, 20/11/2026)
+wmc::GlobalSystemMediaTransportControlsSession PickSession(const wmc::GlobalSystemMediaTransportControlsSessionManager& mgr) {
+    using PS = wmc::GlobalSystemMediaTransportControlsSessionPlaybackStatus;
+    wmc::GlobalSystemMediaTransportControlsSession cur{ nullptr }, paused{ nullptr };
+    try { cur = mgr.GetCurrentSession(); } catch (...) {}
+    try {
+        auto all = mgr.GetSessions();
+        if (cur) {  // a atual tocando ganha das outras
+            auto pi = cur.GetPlaybackInfo();
+            if (pi && pi.PlaybackStatus() == PS::Playing) return cur;
+        }
+        for (auto const& x : all) {
+            if (!x) continue;
+            auto pi = x.GetPlaybackInfo();
+            if (!pi) continue;
+            if (pi.PlaybackStatus() == PS::Playing) return x;
+            if (!paused && pi.PlaybackStatus() == PS::Paused) paused = x;
+        }
+    } catch (...) {}
+    return cur ? cur : paused;
+}
+
 void MediaThread() {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     wmc::GlobalSystemMediaTransportControlsSessionManager mgr{ nullptr };
@@ -238,23 +263,28 @@ void MediaThread() {
     try {
         mgr = wmc::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
         mgr.CurrentSessionChanged([](auto&&, auto&&) { MediaWake(true); });
+        mgr.SessionsChanged([](auto&&, auto&&) { MediaWake(true); });  // app de mídia abriu/fechou (Spotify...)
     } catch (...) { Log(L"ilha: sem acesso aos controles de mídia do Windows"); return; }
     std::wstring lastKey;
     for (;;) {
         bool rebind; std::vector<Cmd> cmds;
         {
             std::unique_lock<std::mutex> l(g_mmx);
-            g_mcv.wait(l, [] { return g_mWake; });
+            // nada tocando: olha de novo a cada 2 s (outro app pode ter começado a tocar sem virar a sessão "atual")
+            if (g_md.playing) g_mcv.wait(l, [] { return g_mWake; });
+            else if (!g_mcv.wait_for(l, std::chrono::seconds(2), [] { return g_mWake; })) g_mRebind = true;
             g_mWake = false; rebind = g_mRebind; g_mRebind = false; cmds.swap(g_cmds);
         }
         Media out;
         try {
             if (rebind) {
-                if (ses) {
+                auto pick = PickSession(mgr);
+                bool same = pick && ses && pick.SourceAppUserModelId() == ses.SourceAppUserModelId();
+                if (!same && ses) {
                     try { ses.MediaPropertiesChanged(tProp); ses.PlaybackInfoChanged(tPlay); ses.TimelinePropertiesChanged(tTime); } catch (...) {}
                 }
-                ses = mgr.GetCurrentSession();
-                if (ses) {
+                if (!same) ses = pick;
+                if (ses && !same) {
                     tProp = ses.MediaPropertiesChanged([](auto&&, auto&&) { MediaWake(false); });
                     tPlay = ses.PlaybackInfoChanged([](auto&&, auto&&) { MediaWake(false); });
                     tTime = ses.TimelinePropertiesChanged([](auto&&, auto&&) { MediaWake(false); });

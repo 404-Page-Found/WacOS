@@ -1,4 +1,4 @@
-// Ajustes do Sistema: janela, barra lateral, barra de ferramentas, grupos e controles no visual do
+﻿// Ajustes do Sistema: janela, barra lateral, barra de ferramentas, grupos e controles no visual do
 // macOS Sequoia. As medidas vêm de capturas do Ajustes do Sequoia (janela de 715 pt de largura).
 #include "ajustes.h"
 #include "../menu/context_menu.h"
@@ -176,7 +176,33 @@ std::wstring aj::Setting(const wchar_t* key, const wchar_t* def) {
     return it != g_settings.end() ? it->second : def;
 }
 
+// Arrastando um slider: o valor muda a cada movimento do mouse, e cada gravação faz o Shell refazer o vidro inteiro
+// (backdrop::Reload) — o slider de transparência "travava" (20/11/2026). Durante o arrasto o valor vale na hora aqui
+// (o botão e a prévia andam junto), mas o arquivo e o Shell recebem no máximo a cada 120 ms; o último sempre chega
+// (timer e ao soltar o botão).
+bool g_sliding = false;
+DWORD g_lastSend = 0;
+std::wstring g_pendKey;
+const UINT_PTR T_SLIDE = 0x534C;
+void FlushSlide() {
+    if (g_hwnd) KillTimer(g_hwnd, T_SLIDE);
+    if (g_pendKey.empty()) return;
+    std::wstring k = g_pendKey, v = g_settings[k];
+    g_pendKey.clear();
+    g_lastSend = 0;
+    aj::SetSetting(k.c_str(), v);
+}
+
 void aj::SetSetting(const wchar_t* key, const std::wstring& v) {
+    if (g_sliding && GetTickCount() - g_lastSend < 120) {
+        g_settings[key] = v;
+        if (!g_pendKey.empty() && g_pendKey != key) FlushSlide();  // outro ajuste pendente: vai antes
+        g_pendKey = key;
+        if (g_hwnd) SetTimer(g_hwnd, T_SLIDE, 130, nullptr);
+        return;
+    }
+    g_lastSend = GetTickCount();
+    if (g_pendKey == key) { g_pendKey.clear(); if (g_hwnd) KillTimer(g_hwnd, T_SLIDE); }
     LoadSettings();  // o Shell também grava aqui: parte do arquivo atual
     g_settings[key] = v;
     FILE* fp = nullptr;
@@ -1748,7 +1774,8 @@ void SliderTo(const Hit& h, float x) {
     D2D1_RECT_F t = SliderTrack(*r, h.r);
     // h.r é a área de toque (trilho ± 10); recalcula o trilho a partir da linha original
     float v = std::clamp((x - (h.r.left + 10)) / std::max(1.f, (h.r.right - 10) - (h.r.left + 10)), 0.f, 1.f);
-    (void)t;
+    // macOS 27 (gg): o botão anda de 10 em 10 pt para dentro das pontas (DrawSlider); o mesmo aqui, senão ele fica fora do mouse
+    if (r->gg) v = std::clamp((x - (t.left + 10)) / std::max(1.f, (t.right - 10) - (t.left + 10)), 0.f, 1.f);
     // ímã no padrão: perto da marca (até 6 pt), o botão gruda nela
     if (r->hasDef) {
         float d = SliderDefault(*r), w = std::max(1.f, (h.r.right - 10) - (h.r.left + 10));
@@ -1879,6 +1906,7 @@ void Click(D2D1_POINT_2F p, bool right) {
         aj::Row* r = RowOf(h);
         if (!r || !r->enabled) break;
         g_drag.g = h.a; g_drag.r = h.b; g_drag.track = h.r;
+        g_sliding = true;
         SetCapture(g_hwnd);
         SliderTo(h, p.x);
         break;
@@ -1984,7 +2012,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_SETCURSOR: if (LOWORD(l) == HTCLIENT) return TRUE; break;
     case WM_LBUTTONDOWN: SetFocus(h); Click(ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l)), false); return 0;
     case WM_LBUTTONUP:
-        if (g_drag.g >= 0) { g_drag.g = g_drag.r = -1; ReleaseCapture(); ShowPage(); Invalidate(); }
+        if (g_drag.g >= 0) { g_drag.g = g_drag.r = -1; g_sliding = false; FlushSlide(); ReleaseCapture(); ShowPage(); Invalidate(); }
         return 0;
     case WM_MOUSEWHEEL: {
         POINT pt{ GET_X_LPARAM(l), GET_Y_LPARAM(l) };
@@ -2000,6 +2028,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_TIMER:
+        if (w == T_SLIDE) { FlushSlide(); return 0; }
         if (w == T_FRENTE) {  // já à mostra (o Shell terminou a animação de abrir): para a frente de verdade
             KillTimer(h, T_FRENTE);
             if (GetForegroundWindow() != h) { keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); }
