@@ -1910,7 +1910,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
         HMONITOR m2 = MonitorFromRect(&wr, MONITOR_DEFAULTTONULL);
         if (m2) { x = wr.left; y = wr.top; w = wr.right - wr.left; hgt = wr.bottom - wr.top; }
     }
-    g_hwnd = CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP | (g_quick ? WS_EX_TOPMOST : 0), wc.lpszClassName, g_quick ? TrPick(L"Nota Rápida", L"Quick Note") : TrPick(L"Notas", L"Notes"), WS_OVERLAPPEDWINDOW, x, y, w, hgt, nullptr, nullptr, hi, nullptr);
+    g_hwnd = CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP | (g_quick ? WS_EX_TOPMOST : 0), wc.lpszClassName, g_quick ? TrPick(L"Nota Rápida", L"Quick Note") : TrPick(L"Notas", L"Notes"), WS_OVERLAPPEDWINDOW & ~WS_SYSMENU, x, y, w, hgt, nullptr, nullptr, hi, nullptr);
+    // Sem WS_SYSMENU: com o "vidro" do DWM na janela inteira (abaixo) o DWM desenha os botões de legenda do Windows
+    // por baixo do nosso conteúdo. Com temas/mods que os desenham no estilo Mac à esquerda (OpenGlass, Windhawk...)
+    // eles apareciam pela barra lateral transparente: dois conjuntos de semáforos (print do Discord, 20/11/2026).
+    // Os nossos botões, o arrastar e o Alt+F4 não dependem do menu de sistema.
     ampliacao::Janela(g_hwnd);  // abrir e fechar animados (o Shell anima)
     g_dpi = (float)GetDpiForWindow(g_hwnd); g_scale = g_dpi / 96.f;
     MARGINS margins{ -1, -1, -1, -1 };

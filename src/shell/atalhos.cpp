@@ -13,6 +13,7 @@
 #include <propkey.h>
 #include <knownfolders.h>
 #include <map>
+#include <memory>
 #include <thread>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -377,11 +378,17 @@ static wmc::GlobalSystemMediaTransportControlsSession SessionOf(const std::wstri
 }
 
 atalhos::Media atalhos::MediaOf(const std::wstring& exePath, const std::wstring& aumid) {
-    Media m;
-    if (exePath.empty() && aumid.empty()) return m;
-    // WinRT síncrono não pode na thread da janela (STA): uma thread rápida faz a consulta
-    std::thread t([&] {
+    if (exePath.empty() && aumid.empty()) return {};
+    // WinRT síncrono não pode na thread da janela (STA): uma thread rápida faz a consulta. A espera tem limite: antes
+    // era join() sem limite, e um app de mídia que não responde (o pedido vai até ele) congelava o Shell inteiro no
+    // clique direito do ícone do Dock. Passou do limite: o menu abre sem os controles de mídia; a thread termina
+    // sozinha depois (o resultado fica no Job compartilhado e é descartado).
+    struct Job { Media m; HANDLE done = CreateEventW(nullptr, TRUE, FALSE, nullptr); ~Job() { if (done) CloseHandle(done); } };
+    auto job = std::make_shared<Job>();
+    if (!job->done) return {};
+    std::thread([job, exePath, aumid] {
         winrt::init_apartment(winrt::apartment_type::multi_threaded);
+        Media m;
         try {
             auto s = SessionOf(exePath, aumid);
             if (s) {
@@ -394,10 +401,12 @@ atalhos::Media atalhos::MediaOf(const std::wstring& exePath, const std::wstring&
                 m.title = p.Title().c_str(); m.artist = p.Artist().c_str();
             }
         } catch (...) {}
+        job->m = std::move(m);
+        SetEvent(job->done);
         winrt::uninit_apartment();
-    });
-    t.join();
-    return m;
+    }).detach();
+    if (WaitForSingleObject(job->done, 800) != WAIT_OBJECT_0) { Log(L"atalhos: controles de mídia não responderam em 800 ms (menu sem eles)"); return {}; }
+    return job->m;
 }
 
 void atalhos::MediaCommand(const std::wstring& exePath, const std::wstring& aumid, int cmd) {

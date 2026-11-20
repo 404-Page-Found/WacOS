@@ -210,19 +210,27 @@ float FontPx(HWND h) {  // tamanho do texto do controle (px)
 }
 
 // ---- fonte: SF Pro do mesmo tamanho (a disposição do diálogo continua a mesma)
-std::map<std::pair<HFONT, int>, HFONT> g_fonts;
+// Chave: a fonte pedida (tamanho, peso, estilo, conjunto de caracteres), não o handle dela. Pelo handle, cada diálogo
+// novo (o Windows cria a fonte do modelo a cada abertura e apaga ao fechar) criava mais uma fonte nossa que nunca era
+// solta: objetos GDI acumulando dentro do programa do usuário; e um handle reaproveitado com outro tamanho devolvia
+// a fonte antiga, do tamanho errado.
+std::map<std::wstring, HFONT> g_fonts;
 HFONT MacFont(HFONT f) {
     if (!f) return f;
     LOGFONTW lf{};
     if (!GetObjectW(f, sizeof(lf), &lf)) return f;
     if (!_wcsicmp(lf.lfFaceName, g_face.c_str())) return f;
-    auto key = std::make_pair(f, 0);
+    wchar_t k[96];
+    swprintf_s(k, L"%ld|%ld|%ld|%d|%d|%d|%d|%d", lf.lfHeight, lf.lfWidth, lf.lfWeight, lf.lfItalic, lf.lfUnderline, lf.lfStrikeOut,
+               lf.lfCharSet, lf.lfEscapement);
+    std::wstring key = k;
     auto it = g_fonts.find(key);
     if (it != g_fonts.end()) return it->second;
     wcsncpy_s(lf.lfFaceName, g_face.c_str(), _TRUNCATE);
     lf.lfQuality = CLEARTYPE_QUALITY;
     HFONT n = CreateFontIndirectW(&lf);
-    return g_fonts[key] = n ? n : f;
+    if (!n) return f;  // sem guardar: a fonte do app pode ser apagada por ele depois
+    return g_fonts[key] = n;
 }
 
 // ---- botões

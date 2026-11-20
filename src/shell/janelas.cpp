@@ -24,6 +24,7 @@ HOOKPROC g_proc;
 HWINEVENTHOOK g_ev;
 std::map<DWORD, HHOOK> g_hooks;      // thread -> gancho (64 bits)
 std::set<DWORD> g_hooks32;           // threads entregues ao host de 32 bits
+std::map<DWORD, ULONGLONG> g_nasc;   // thread -> quando nasceu (o Windows reaproveita os números de thread)
 struct Permissao { bool ok = false, chromium = false; ULONGLONG nasc = 0; std::wstring exe; };
 std::map<DWORD, Permissao> g_procOk; // processo -> permitido (chromium: Chromium/Electron, pode a barra própria)
 std::vector<std::wstring> g_extra;   // exclusões do usuário
@@ -33,6 +34,7 @@ const UINT HOST_HOOK = WM_APP + 1, HOST_QUIT = WM_APP + 2;
 const wchar_t* EXCLUDED_EXE[] = {
     L"explorer.exe", L"dwm.exe", L"shell.exe", L"arquivos.exe", L"ajustes.exe", L"monitoratividade.exe", L"terminal.exe", L"calculadora.exe", L"notas.exe",
     L"wacosshell.exe", L"wacosfinder.exe", L"wacossettings.exe", L"wacosactivitymonitor.exe", L"wacosterminal.exe", L"wacoscalculator.exe", L"wacosnotes.exe", L"wacoswindow32host.exe", L"searchhost.exe", L"startmenuexperiencehost.exe",
+    L"snippingtool.exe", L"screenclippinghost.exe",  // Ferramenta de Captura (gravação de tela parava: prints do Discord, 19/11/2026)
     L"applicationframehost.exe", L"textinputhost.exe", L"lockapp.exe", L"shellexperiencehost.exe", L"systemsettings.exe", L"taskmgr.exe",
     L"steam.exe", L"steamwebhelper.exe", L"gameoverlayui.exe", L"battle.net.exe", L"agent.exe", L"eadesktop.exe", L"eabackgroundservice.exe",
     L"origin.exe", L"epicgameslauncher.exe", L"epicwebhelper.exe", L"riotclientservices.exe", L"riotclientux.exe", L"riotclientuxrender.exe",
@@ -76,6 +78,29 @@ void GanchoFalhou(DWORD tid, DWORD err, const wchar_t* onde) {
     shell::SetSetting(L"aviso_ganchos", id);
     atualizacao::Avisar(Tr(L"Barras de título do Mac"),
                         Tr(L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps."));
+}
+
+ULONGLONG NascThread(DWORD tid) {
+    HANDLE th = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid);
+    if (!th) return 0;
+    FILETIME c{}, e{}, k{}, u{};
+    ULONGLONG r = GetThreadTimes(th, &c, &e, &k, &u) ? ((ULONGLONG)c.dwHighDateTime << 32 | c.dwLowDateTime) : 0;
+    CloseHandle(th);
+    return r;
+}
+
+// A thread já recebeu o gancho? Só se ainda for a mesma: o número de uma thread que morreu volta em outra (outro
+// programa) e antes ficava marcado como "já tem": aquele programa nunca ganhava a barra. O gancho antigo morreu com
+// a thread dele; aqui só se esquece a marca (e o UnhookWindowsHookEx do antigo não faz mal).
+bool JaTem(DWORD tid) {
+    if (!g_hooks.count(tid) && !g_hooks32.count(tid)) return false;
+    ULONGLONG n = NascThread(tid);
+    auto it = g_nasc.find(tid);
+    if (it != g_nasc.end() && it->second == n) return true;
+    if (auto h = g_hooks.find(tid); h != g_hooks.end()) { UnhookWindowsHookEx(h->second); g_hooks.erase(h); }
+    g_hooks32.erase(tid);
+    g_nasc.erase(tid);
+    return false;
 }
 
 void LoadList(const std::wstring& f, bool criar) {
@@ -230,7 +255,7 @@ void Consider(HWND h) {
     if (!tipo) return;
     DWORD pid = 0, tid = GetWindowThreadProcessId(h, &pid);
     if (!tid || pid == GetCurrentProcessId()) return;
-    if (g_hooks.count(tid) || g_hooks32.count(tid)) { PostMessageW(h, WM_NULL, 0, 0); return; }
+    if (JaTem(tid)) { PostMessageW(h, WM_NULL, 0, 0); return; }
     if (TelaCheiaExclusiva()) return;  // jogo/apresentação em tela cheia: nada novo agora (volta na próxima janela)
     if (g_cheio) return;  // tabela de ganchos cheia: não adianta tentar (GanchoFalhou)
     bool is32 = false;
@@ -241,6 +266,7 @@ void Consider(HWND h) {
         if (!host) return;
         PostMessageW(host, HOST_HOOK, tid, (LPARAM)h);
         g_hooks32.insert(tid);
+        g_nasc[tid] = NascThread(tid);
         return;
     }
     HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_proc, g_dll, tid);
@@ -250,6 +276,7 @@ void Consider(HWND h) {
     // nova e trava (o Ableton fechou assim).
     if (!hk) { GanchoFalhou(tid, GetLastError(), L"ao mostrar"); return; }
     g_hooks[tid] = hk;
+    g_nasc[tid] = NascThread(tid);
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
 }
 
@@ -265,7 +292,7 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     LONG st = GetWindowLongW(h, GWL_STYLE), ex = GetWindowLongW(h, GWL_EXSTYLE);
     if ((st & WS_CHILD) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) || !((st & WS_CAPTION) == WS_CAPTION || (st & WS_THICKFRAME))) return;
     DWORD pid = 0, tid = GetWindowThreadProcessId(h, &pid);
-    if (!tid || pid == GetCurrentProcessId() || g_hooks.count(tid) || g_hooks32.count(tid)) return;
+    if (!tid || pid == GetCurrentProcessId() || JaTem(tid)) return;
     if (TelaCheiaExclusiva() || g_cheio) return;
     // sem a barra do Windows: só a janela do Chromium/Electron
     wchar_t cls[32] = {}; GetClassNameW(h, cls, 32);
@@ -282,6 +309,7 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
         DWORD_PTR r = 0;
         SendMessageTimeoutW(host, HOST_HOOK, tid, (LPARAM)h, SMTO_ABORTIFHUNG, 200, &r);
         g_hooks32.insert(tid);
+        g_nasc[tid] = NascThread(tid);
         return;
     }
     HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_proc, g_dll, tid);
@@ -289,6 +317,7 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     // log não dizia nada
     if (!hk) { GanchoFalhou(tid, GetLastError(), L"na criação"); return; }
     g_hooks[tid] = hk;
+    g_nasc[tid] = NascThread(tid);
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra antes de mostrar
 }
 
@@ -398,6 +427,7 @@ void janelas::Stop() {
     for (auto& [t, hk] : g_hooks) UnhookWindowsHookEx(hk);
     g_hooks.clear();
     g_hooks32.clear();
+    g_nasc.clear();
     if (HWND host = FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr)) PostMessageW(host, HOST_QUIT, 0, 0);
     g_proc = nullptr;
     g_dll = nullptr;  // a DLL fica carregada (presa) no nosso processo também

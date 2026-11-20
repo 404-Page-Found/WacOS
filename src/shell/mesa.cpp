@@ -285,6 +285,11 @@ BOOL CallUser32(const char* fn, HWND h) {
 // os temporizadores param, o pulso para e o vigia reinicia o Shell.
 volatile LONG* g_pulse;
 void CALLBACK PulseTimer(HWND, UINT, UINT_PTR, DWORD) { if (g_pulse) InterlockedIncrement(g_pulse); }
+// O WM_TIMER só chega com a fila sem nenhuma mensagem postada. Animando sem parar (relógio de quadros no ritmo da tela,
+// gênio, vidro real com vídeo atrás), o pulso do timer passava fome por mais de 10 s e o vigia matava um Shell que estava
+// funcionando (teste de resistência de 20/11/2026: 4 reinícios em 20 min, o log seguindo até 2 s antes). Agora o laço
+// principal também dá o pulso; o timer continua para os laços modais (menus), que não passam pelo laço principal.
+DWORD g_pulseAt;
 
 void StartWatchdog() {
     if (!g_pulse) {
@@ -1836,6 +1841,11 @@ bool mesa::TopColor(int barPx, float& r, float& g, float& b) {
     r = (float)(sr / n / 255); g = (float)(sg / n / 255); b = (float)(sb / n / 255);
     lastBmp = p->wall; lastPx = barPx; cr = r; cg = g; cb = b;
     return true;
+}
+
+void mesa::Pulse() {
+    DWORD now = GetTickCount();
+    if (g_pulse && now - g_pulseAt >= 500) { g_pulseAt = now; InterlockedIncrement(g_pulse); }
 }
 
 void mesa::WallpaperNow(const std::wstring& path) {

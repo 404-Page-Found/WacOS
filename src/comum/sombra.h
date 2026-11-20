@@ -22,7 +22,8 @@ struct Sombra {
     SIZE last{};
     bool lastActive = true;
     // Tahoe (quem usa liga): medidas do macOS 26 (guia macOS26-Theme-Reference, seções 51 e 61; blur CSS = 2σ)
-    bool tahoe = false, dark = true, lastTahoe = false;
+    bool tahoe = false, dark = true, lastTahoe = false, lastDark = true;
+    bool sent = false;  // o bitmap atual já foi entregue ao DWM: sem mudança, a sombra só anda
 
     bool Create(HWND ownerWnd, HINSTANCE inst, const wchar_t* cls) {
         owner = ownerWnd;
@@ -86,8 +87,8 @@ struct Sombra {
         RECT r{ vis.left - m, vis.top - m, vis.right + m, vis.bottom + mb };
         SIZE size{ r.right - r.left, r.bottom - r.top };
         if (size.cx <= 0 || size.cy <= 0 || size.cx > 16384 || size.cy > 16384) return;
-        if (size.cx != last.cx || size.cy != last.cy || active != lastActive || tahoe != lastTahoe || !dib) {
-            lastTahoe = tahoe;
+        if (size.cx != last.cx || size.cy != last.cy || active != lastActive || tahoe != lastTahoe || (tahoe && dark != lastDark) || !dib) {
+            lastTahoe = tahoe; lastDark = dark; sent = false;
             RECT win{ m, m, m + (vis.right - vis.left), m + (vis.bottom - vis.top) };
             Rebuild(size.cx, size.cy, win, scale, active);
             last = size;
@@ -96,7 +97,10 @@ struct Sombra {
         if (!dib) return;
         POINT pos{ r.left, r.top }, zero{ 0, 0 };
         BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-        UpdateLayeredWindow(wnd, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA);
+        // Sem mudança de tamanho/estado: só a posição. Antes o bitmap inteiro (≈20 MB numa janela grande) ia de novo
+        // ao DWM a cada chamada (a DLL das janelas chama a cada 1,5 s, dentro do programa dos outros)
+        if (sent) UpdateLayeredWindow(wnd, nullptr, &pos, nullptr, nullptr, nullptr, 0, nullptr, 0);
+        else sent = UpdateLayeredWindow(wnd, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA) != FALSE;
         SetWindowPos(wnd, owner, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);  // logo abaixo da dona
     }
 
@@ -104,7 +108,7 @@ struct Sombra {
         if (wnd) DestroyWindow(wnd);
         if (dib) DeleteObject(dib);
         if (mem) DeleteDC(mem);
-        wnd = nullptr; dib = nullptr; mem = nullptr; last = {};
+        wnd = nullptr; dib = nullptr; mem = nullptr; last = {}; sent = false;
     }
 };
 

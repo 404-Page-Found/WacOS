@@ -389,6 +389,7 @@ void SettingsChanged();     // widget.<id>.on mudou no ajustes.txt (Ajustes > Pe
 namespace mesa {  // mesa própria (papel de parede + ícones) e o modo sem explorer.exe (mesa.cpp, docs/sem-explorer.md)
 void Start(HINSTANCE hi, HWND msgWnd);  // ajuste explorer=0: fecha o Explorador e assume a mesa
 void Stop(bool restartExplorer);        // false: caiu/fim da sessão (o vigia abre o Explorador)
+void Pulse();                           // laço principal: a interface andou (o vigia lê; ver mesa.cpp)
 void NoExplorerOnExit();                // reiniciando o Shell: ao sair, o Explorador não é aberto (o Shell novo vem já)
 void SettingsChanged();                 // ajustes.txt mudou (explorer=0/1)
 // cor média do papel de parede que a mesa está mostrando, na faixa atrás da barra de menus (0..1); false sem mesa
