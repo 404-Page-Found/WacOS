@@ -103,6 +103,7 @@ if (-not $SemAjustes) {
 }
 
 Copy-Item "$root\instalador\*" $pkg
+Copy-Item "$root\LICENSE" "$pkg\LICENSE.txt"  # a licença vai junto com o pacote (não redistribuir)
 # o instalador único (instalar, atualizar, desinstalar), na raiz do pacote: é o que a pessoa abre
 if (Test-Path "$bin\WacOSSetup.exe") { Copy-Item "$bin\WacOSSetup.exe" "$pkg\WacOSSetup.exe" } else { Write-Host 'faltando: bin\WacOSSetup.exe' }
 if (Test-Path $zip) { Remove-Item $zip }

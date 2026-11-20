@@ -230,10 +230,18 @@ idle.
 
 ## License
 
-The WacOS source code is released under the [GNU General Public License v3.0](LICENSE): you can use, study, change
-and share it, and if you distribute a modified version, its source code has to be released under the GPL too.
+**WacOS is source-available, not open source.** Copyright (c) 2026 renzyxx, all rights reserved.
+See [LICENSE](LICENSE) for the full terms.
+
+- ✅ You can read the code, build it and run WacOS on your own PCs for personal use, and send pull requests.
+- ❌ You can't copy the code (or parts of it) into another project, redistribute WacOS (re-uploads, mirrors,
+  repacks, modded builds) or use it commercially without written permission.
+
+Want to use something from WacOS in your own project, or port it? Open an issue and ask first.
+
 Apple's icons, fonts, sounds and wallpapers, and the third-party icon and cursor packs bundled in the release package,
-are not covered by it: they belong to their owners and are included for personal use only.
+are not covered by the license: they belong to their owners and are included for personal use only. One Windhawk mod
+in `docs/windhawk/bloqueio-sequoia/` is derived from GPL-3.0 code and keeps that license.
 
 ## Note
 
