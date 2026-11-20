@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"要让应用重新显示 Mac 标题栏，请注销 Windows 后重新登录。" },
 { L"Mostrar a barra de menus em todos os monitores", L"在所有显示器上显示菜单栏" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"关闭后，菜单栏只显示在主显示器上，其他显示器使用整个屏幕。" },
+{ L"Caminho copiado", L"已拷贝路径" },
+{ L"Copiar Nomes de Caminho", L"拷贝路径名称" },
+{ L"Copiar “", L"将“" },
+{ L"” como Nome de Caminho", L"”拷贝为路径名称" },
+{ L"Mostrar na Pasta Superior", L"在所在文件夹中显示" },

@@ -961,6 +961,29 @@ static std::vector<std::wstring> SelectedPaths() {
     return r;
 }
 
+// "Copiar “X” como Nome de Caminho", como no Finder (lá aparece segurando Option no menu, e com Option+Cmd+C) e como
+// o "Copiar como caminho" do Windows: o caminho completo de cada item, um por linha, na área de transferência
+// (sem as aspas que o Windows põe). No menu do item, no fundo da pasta, na barra de caminho e no título da janela.
+static void CopyPathnames(const std::vector<std::wstring>& paths) {
+    if (paths.empty() || !OpenClipboard(g_hwnd)) return;
+    std::wstring t;
+    for (size_t i = 0; i < paths.size(); i++) { if (i) t += L"\r\n"; t += paths[i]; }
+    EmptyClipboard();
+    if (HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, (t.size() + 1) * sizeof(wchar_t))) {
+        memcpy(GlobalLock(g), t.c_str(), (t.size() + 1) * sizeof(wchar_t));
+        GlobalUnlock(g);
+        if (!SetClipboardData(CF_UNICODETEXT, g)) GlobalFree(g);
+    }
+    CloseClipboard();
+    Flash(Tr(L"Caminho copiado"));
+}
+static std::wstring CopyPathLabel(const std::vector<std::wstring>& paths) {
+    if (paths.size() != 1) return Tr(L"Copiar Nomes de Caminho");
+    const std::wstring& q = paths[0];
+    std::wstring n = q.size() <= 3 ? DisplayName(q) : q.substr(q.find_last_of(L'\\') + 1);
+    return Tr(L"Copiar “") + n + Tr(L"” como Nome de Caminho");
+}
+
 // Obter Informações: uma janela por item (sem seleção, a pasta aberta), até 10 de uma vez
 static void GetInfo(std::vector<std::wstring> paths) {
     if (paths.empty() && !g_folder.empty()) paths.push_back(g_folder);
@@ -4661,7 +4684,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     std::vector<Item> items;
     std::vector<IAssocHandler*> handlers;
     enum { M_OPEN = 1, M_OPENTAB, M_TRASH, M_INFO, M_RENAME, M_ZIP, M_DUP, M_ALIAS, M_QL, M_COPY, M_SHARE, M_MORE, M_NEWFOLDER, M_PASTE,
-           M_VIEWOPTS, M_TERMINAL, M_TAGNONE, M_RUNPS, M_RUNADMIN, M_TAG0 = 40, M_SORT0 = 60, M_OTHER = 99, M_WITH0 = 100,
+           M_VIEWOPTS, M_TERMINAL, M_TAGNONE, M_RUNPS, M_RUNADMIN, M_COPYPATH, M_TAG0 = 40, M_SORT0 = 60, M_OTHER = 99, M_WITH0 = 100,
            M_PCOLOR0 = 200, M_PEMOJI0 = 220, M_PRESET = 260 };
     if (!paths.empty()) {
         bool allDirs = true;
@@ -4722,6 +4745,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
         if (paths.size() == 1) items.push_back(I(Tr(L"Visualização Rápida de “") + one + L"”", M_QL, L"", 0xE890));
         items.push_back(sep);
         items.push_back(I(Tr(L"Copiar"), M_COPY, L"", 0xE8C8));
+        items.push_back(I(CopyPathLabel(paths), M_COPYPATH, L"", 0xE71B));
         items.push_back(I(Tr(L"Compartilhar…"), M_SHARE, L"", 0xE72D));
         items.push_back(sep);
         {   // fileira de bolinhas das etiquetas, como no Tahoe; ✓ nas que todos os selecionados já têm
@@ -4749,6 +4773,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
         items.push_back(I(Tr(L"Nova Pasta"), M_NEWFOLDER, L"", 0xE8F4));
         items.push_back(sep);
         items.push_back(I(Tr(L"Obter Informações"), M_INFO, L"", 0xE946));
+        if (!folder.empty()) items.push_back(I(CopyPathLabel({ folder }), M_COPYPATH, L"", 0xE71B));
         items.push_back(sep);
         Item paste = I(Tr(L"Colar Item"), M_PASTE, L"", 0xE77F);
         paste.disabled = !IsClipboardFormatAvailable(CF_HDROP);
@@ -4821,6 +4846,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     case M_ALIAS: MakeAlias(paths); break;
     case M_QL: QlToggle(); break;
     case M_COPY: RunVerb("copy"); break;
+    case M_COPYPATH: CopyPathnames(paths.empty() ? std::vector<std::wstring>{ folder } : paths); break;
     case M_SHARE: RunVerb("windows.modernshare"); break;
     case M_TAGNONE: SetTag(paths, -1, false); break;
     case M_NEWFOLDER: NewFolder(); break;
@@ -5831,6 +5857,12 @@ static bool HandleKey(UINT vk) {
         Invalidate();
         return true;
     }
+    if (ctrl && alt && vk == 'C') {  // Copiar como Nome de Caminho (Option+Cmd+C no Mac); sem seleção, a pasta aberta
+        auto sel = SelectedPaths();
+        if (sel.empty() && !g_folder.empty()) sel = { g_folder };
+        CopyPathnames(sel);
+        return true;
+    }
     if (ctrl && vk == 'C') { RunVerb("copy"); return true; }
     if (ctrl && vk == 'X') { RunVerb("cut"); return true; }
     if (ctrl && vk == 'V') { if (g_folder.empty()) Flash(Tr(L"Abra uma pasta para colar")); else if (FAILED(PasteInto(g_hwnd, g_folder))) Flash(Tr(L"Nada para colar")); return true; }
@@ -5929,12 +5961,38 @@ static void PathMenu() {
         items.push_back(it);
     }
     ctxmenu::Item pc; pc.label = Tr(L"Este Computador"); pc.icon = 0xE7F4; pc.id = 1000; items.push_back(pc);
+    ctxmenu::Item sepT; sepT.separator = true; items.push_back(sepT);
+    ctxmenu::Item cp; cp.label = CopyPathLabel({ g_folder }); cp.icon = 0xE71B; cp.id = 2000; items.push_back(cp);
     float tx = ToolRect(TB_FWD).right + 12;
     POINT pt{ (LONG)std::lround((tx - 6) * g_scale), (LONG)std::lround((Lay::TOOL_CY + 15) * g_scale) };
     ClientToScreen(g_hwnd, &pt);
     int id = ctxmenu::ShowItems(g_hwnd, pt, items);
     if (id == 1000) { NavigateTag(VIEW_COMPUTER); return; }
+    if (id == 2000) { CopyPathnames({ g_folder }); return; }
     if (id >= 1 && id <= (int)chain.size() && id != 1) Navigate(chain[id - 1]);
+}
+
+// Botão direito num trecho da barra de caminho, como no Finder: Abrir, Abrir em Nova Aba, Mostrar na Pasta Superior,
+// Obter Informações e Copiar “X” como Nome de Caminho
+static void PathSegMenu(const std::wstring& path, POINT screen) {
+    std::wstring up = Parent(path);
+    ctxmenu::Item sep; sep.separator = true;
+    auto it = [](const std::wstring& l, int id, wchar_t icon) { ctxmenu::Item x; x.label = l; x.id = id; x.icon = icon; return x; };
+    std::vector<ctxmenu::Item> items = { it(Tr(L"Abrir"), 1, 0xE8E5), it(Tr(L"Abrir em Nova Aba"), 2, 0xE8A7) };
+    ctxmenu::Item enc = it(Tr(L"Mostrar na Pasta Superior"), 3, 0xE8B7); enc.disabled = up.empty() || SamePath(up, path);
+    items.push_back(enc);
+    items.push_back(sep);
+    items.push_back(it(Tr(L"Obter Informações"), 4, 0xE946));
+    items.push_back(sep);
+    items.push_back(it(CopyPathLabel({ path }), 5, 0xE71B));
+    switch (ctxmenu::ShowItems(g_hwnd, screen, items)) {
+    case 1: if (!SamePath(path, g_folder)) Navigate(path); break;
+    case 2: NewTab(path); break;
+    case 3: g_selectAfterReload = path.substr(path.find_last_of(L'\\') + 1); Navigate(up); break;
+    case 4: GetInfo({ path }); break;
+    case 5: CopyPathnames({ path }); break;
+    }
+    Invalidate();
 }
 
 static void ApplyWindowTheme() {
@@ -6345,6 +6403,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             POINT cp = sp; ScreenToClient(h, &cp);
             D2D1_POINT_2F d = ToDip(cp.x, cp.y);
             if (d.y < Lay::TOOLBAR_H && d.x >= Lay::SIDEBAR_W) break;
+            for (auto& seg : g_pathSegs)  // barra de caminho: o menu do trecho
+                if (In(seg.rect, d)) { PathSegMenu(seg.path, sp); return 0; }
         }
         if (g_renameIdx >= 0) EndRename(true);
         ShowContextMenu(sp, kb);

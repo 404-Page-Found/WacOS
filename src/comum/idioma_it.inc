@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Per far tornare le barre del titolo del Mac nelle app, esci da Windows e accedi di nuovo." },
 { L"Mostrar a barra de menus em todos os monitores", L"Mostra la barra dei menu su tutti i monitor" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Se disattivato, la barra dei menu resta solo sul monitor principale e gli altri usano tutto lo schermo." },
+{ L"Caminho copiado", L"Percorso copiato" },
+{ L"Copiar Nomes de Caminho", L"Copia nomi percorso" },
+{ L"Copiar “", L"Copia “" },
+{ L"” como Nome de Caminho", L"” come nome percorso" },
+{ L"Mostrar na Pasta Superior", L"Mostra nella cartella che lo contiene" },

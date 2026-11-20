@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"To bring the Mac title bars back to your apps, sign out of Windows and sign in again." },
 { L"Mostrar a barra de menus em todos os monitores", L"Show menu bar on all displays" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"When off, the menu bar stays only on the main display and the others use the whole screen." },
+{ L"Caminho copiado", L"Path copied" },
+{ L"Copiar Nomes de Caminho", L"Copy Pathnames" },
+{ L"Copiar “", L"Copy “" },
+{ L"” como Nome de Caminho", L"” as Pathname" },
+{ L"Mostrar na Pasta Superior", L"Show in Enclosing Folder" },

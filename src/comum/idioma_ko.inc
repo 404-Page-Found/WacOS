@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"앱에 Mac 제목 막대를 다시 표시하려면 Windows에서 로그아웃한 후 다시 로그인하세요." },
 { L"Mostrar a barra de menus em todos os monitores", L"모든 디스플레이에 메뉴 막대 표시" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"끄면 메뉴 막대가 주 디스플레이에만 표시되고 다른 디스플레이는 화면 전체를 사용합니다." },
+{ L"Caminho copiado", L"경로 복사됨" },
+{ L"Copiar Nomes de Caminho", L"경로 이름 복사" },
+{ L"Copiar “", L"“" },
+{ L"” como Nome de Caminho", L"” 경로 이름 복사" },
+{ L"Mostrar na Pasta Superior", L"상위 폴더에서 보기" },

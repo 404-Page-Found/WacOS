@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Aby paski tytułu Maca wróciły do aplikacji, wyloguj się z systemu Windows i zaloguj ponownie." },
 { L"Mostrar a barra de menus em todos os monitores", L"Pokazuj pasek menu na wszystkich monitorach" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Po wyłączeniu pasek menu jest tylko na głównym monitorze, a pozostałe używają całego ekranu." },
+{ L"Caminho copiado", L"Skopiowano ścieżkę" },
+{ L"Copiar Nomes de Caminho", L"Kopiuj ścieżki" },
+{ L"Copiar “", L"Kopiuj „" },
+{ L"” como Nome de Caminho", L"” jako ścieżkę" },
+{ L"Mostrar na Pasta Superior", L"Pokaż w folderze nadrzędnym" },

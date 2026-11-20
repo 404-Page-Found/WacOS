@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"アプリに Mac のタイトルバーを戻すには、Windows からサインアウトしてもう一度サインインしてください。" },
 { L"Mostrar a barra de menus em todos os monitores", L"すべてのディスプレイにメニューバーを表示" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"オフにすると、メニューバーはメインディスプレイだけに表示され、ほかのディスプレイは画面全体を使います。" },
+{ L"Caminho copiado", L"パスをコピーしました" },
+{ L"Copiar Nomes de Caminho", L"パス名をコピー" },
+{ L"Copiar “", L"“" },
+{ L"” como Nome de Caminho", L"”のパス名をコピー" },
+{ L"Mostrar na Pasta Superior", L"内包しているフォルダに表示" },

@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Чтобы заголовки окон Mac снова появились в приложениях, выйдите из Windows и войдите снова." },
 { L"Mostrar a barra de menus em todos os monitores", L"Показывать строку меню на всех дисплеях" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Если выключено, строка меню остаётся только на основном дисплее, а остальные используют весь экран." },
+{ L"Caminho copiado", L"Путь скопирован" },
+{ L"Copiar Nomes de Caminho", L"Скопировать имена путей" },
+{ L"Copiar “", L"Скопировать «" },
+{ L"” como Nome de Caminho", L"» как имя пути" },
+{ L"Mostrar na Pasta Superior", L"Показать в папке" },

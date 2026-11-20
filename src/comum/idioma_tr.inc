@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Mac başlık çubuklarının uygulamalarda yeniden görünmesi için Windows oturumunu kapatıp yeniden açın." },
 { L"Mostrar a barra de menus em todos os monitores", L"Menü çubuğunu tüm ekranlarda göster" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Kapalıyken menü çubuğu yalnızca ana ekranda kalır, diğerleri tüm ekranı kullanır." },
+{ L"Caminho copiado", L"Yol kopyalandı" },
+{ L"Copiar Nomes de Caminho", L"Yol adlarını kopyala" },
+{ L"Copiar “", L"“" },
+{ L"” como Nome de Caminho", L"” öğesini yol adı olarak kopyala" },
+{ L"Mostrar na Pasta Superior", L"Kapsayan klasörde göster" },

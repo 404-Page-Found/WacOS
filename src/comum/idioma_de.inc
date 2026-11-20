@@ -1557,3 +1557,8 @@
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Damit die Mac-Titelleisten wieder in deinen Apps erscheinen, melde dich bei Windows ab und wieder an." },
 { L"Mostrar a barra de menus em todos os monitores", L"Menüleiste auf allen Displays anzeigen" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Wenn aus, bleibt die Menüleiste nur auf dem Hauptdisplay und die anderen nutzen den ganzen Bildschirm." },
+{ L"Caminho copiado", L"Pfad kopiert" },
+{ L"Copiar Nomes de Caminho", L"Pfadnamen kopieren" },
+{ L"Copiar “", L"„" },
+{ L"” como Nome de Caminho", L"“ als Pfadname kopieren" },
+{ L"Mostrar na Pasta Superior", L"Im umgebenden Ordner anzeigen" },
