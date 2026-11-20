@@ -599,8 +599,18 @@ void Paint(Widget& wd) {
     dc->CreateSolidColorBrush(WHITE, &br);
     ID2D1StrokeStyle* st = RoundCaps(dc);
     std::wstring est = ui::IconStyle();  // Tahoe/Golden Gate: Aparência > Estilo de ícones e widgets (Escuro "Auto" incluído)
-    g_vidroWidgets = est == L"transparente" || est == L"tingido";
+    // Só há vidro de verdade com o backdrop ligado e sem "Reduzir transparência": com ela a tinta vira cor sólida
+    // (AdjustAlpha = 1) e o vidro claro do Transparente saía BRANCO, com o conteúdo branco por cima: só sobravam o
+    // ponteiro laranja dos segundos e o vermelho do calendário (prints do Discord, 19/11/2026). Aí o widget volta
+    // ao desenho normal do tema claro/escuro.
+    g_vidroWidgets = (est == L"transparente" || est == L"tingido") && wd.glass && !backdrop::Current().reduce;
     bool dark = g_dark || g_vidroWidgets;  // vidro: o conteúdo em branco, como no modo escuro
+    if (br && g_vidroWidgets && !g_dark && est == L"transparente") {
+        // vidro claro sobre papel de parede claro (e a tinta do vidro no 0): o branco some. Uma sombra fixa, fora do
+        // ajuste da tinta, mantém o conteúdo legível
+        br->SetColor(C(0, 0, 0, 0.16f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, wd.w, wd.h), WidgetRadius(), WidgetRadius()), br);
+    }
     if (br) {
         switch (wd.kind) {
         case K_WORLD: PaintWorld(dc, br, st, wd.w, wd.h, dark); break;

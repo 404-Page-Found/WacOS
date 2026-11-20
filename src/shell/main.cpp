@@ -683,7 +683,9 @@ static void AutoAppearance() {
     RegSetKeyValueW(HKEY_CURRENT_USER, key, L"AppsUseLightTheme", REG_DWORD, &want, sizeof(want));
     RegSetKeyValueW(HKEY_CURRENT_USER, key, L"SystemUsesLightTheme", REG_DWORD, &want, sizeof(want));
     Log(L"aparência automática: %ls", want ? L"clara" : L"escura");
-    SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet", SMTO_ABORTIFHUNG, 200, nullptr);
+    // numa thread, como na Central (central.cpp): para todas as janelas, o limite de 200 ms vale para CADA uma ocupada,
+    // e a interface do Shell ficava parada esse tempo todo
+    std::thread([] { SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet", SMTO_ABORTIFHUNG, 200, nullptr); }).detach();
 }
 
 static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -1127,7 +1129,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     PreloadApps();
 
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    while (GetMessageW(&msg, nullptr, 0, 0)) { mesa::Pulse(); TranslateMessage(&msg); DispatchMessageW(&msg); }  // pulso: ver mesa::Pulse
     Restore();
     DeregisterShellHookWindow(g_msg);
     // Sai daqui direto (TerminateProcess), com tudo já devolvido ao Windows. Voltar do wWinMain roda o
@@ -1216,7 +1218,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     PreloadApps();
 
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    while (GetMessageW(&msg, nullptr, 0, 0)) { mesa::Pulse(); TranslateMessage(&msg); DispatchMessageW(&msg); }  // pulso: ver mesa::Pulse
     Restore();
     DeregisterShellHookWindow(g_msg);
     Log(L"Shell nativo encerrado");

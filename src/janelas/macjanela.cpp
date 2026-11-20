@@ -94,6 +94,8 @@ struct Info {
     RECT previewFor{};
     HWND corner[1]{};            // moldura: cantos suaves e contorno do Mac (o recorte sozinho fica serrilhado)
     COLORREF bottom[2]{ CLR_INVALID, CLR_INVALID };  // cor do app junto aos cantos de baixo (esq., dir.)
+    // o que a moldura desenhou da última vez (W, H, raio, cor de cima, de baixo esq./dir., escuro): igual, só anda
+    UINT32 cornerKey[7]{};
 };
 
 bool Dark() {
@@ -538,6 +540,7 @@ void UpdateCorners(Info* in, RECT vis) {
     }
     ReleaseDC(nullptr, screen);
     HWND& fw = in->corner[0];
+    if (fw && !IsWindow(fw)) { fw = nullptr; memset(in->cornerKey, 0, sizeof(in->cornerKey)); }  // a moldura se fechou sozinha (CornerProc)
     if (!fw) {
         WNDCLASSW wc{};
         if (!GetClassInfoW(g_mod, L"MacJanelaCanto", &wc)) {
@@ -554,6 +557,16 @@ void UpdateCorners(Info* in, RECT vis) {
     const int M = 1;  // margem para o contorno de fora
     int W = vis.right - vis.left + 2 * M, H = vis.bottom - vis.top + 2 * M;
     if (W <= 2 * S || H <= 2 * S || W > 16384 || H > 16384) { HideCorners(in); return; }
+    // Nada mudou além do lugar: só move. Antes refazia a cada 1,5 s (o timer da faixa) um bitmap do tamanho da
+    // janela inteira (3440×1400 = 19 MB, alocado, zerado e enviado ao DWM) dentro do programa dos outros.
+    POINT pos{ vis.left - M, vis.top - M };
+    COLORREF top = CapColor(in);
+    UINT32 key[7]{ (UINT32)W, (UINT32)H, (UINT32)r, (UINT32)top, (UINT32)in->bottom[0], (UINT32)in->bottom[1], (UINT32)in->dark };
+    if (!memcmp(key, in->cornerKey, sizeof(key)) && IsWindowVisible(fw)) {
+        UpdateLayeredWindow(fw, nullptr, &pos, nullptr, nullptr, nullptr, 0, nullptr, 0);
+        return;
+    }
+    memset(in->cornerKey, 0, sizeof(in->cornerKey));  // só vale depois de desenhar de verdade
     HDC mem = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{};
     bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
@@ -564,7 +577,6 @@ void UpdateCorners(Info* in, RECT vis) {
     bool dark = in->dark;
     float outerA = dark ? 0.55f : 0.22f, innerA = dark ? 0.16f : 0.f;  // contorno escuro / brilho (Mac: claro só no escuro)
     float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
-    COLORREF top = CapColor(in);
     auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };  // fração do pixel com distância <= 0
     auto pixel = [&](int x, int y) {
         float qx = std::fabs(x + 0.5f - cxm) - (hw - r), qy = std::fabs(y + 0.5f - cym) - (hh - r);
@@ -592,10 +604,10 @@ void UpdateCorners(Info* in, RECT vis) {
         }
     }
     HGDIOBJ old = SelectObject(mem, bmp);
-    POINT pos{ vis.left - M, vis.top - M }, zero{ 0, 0 };
+    POINT zero{ 0, 0 };
     SIZE size{ W, H };
     BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-    UpdateLayeredWindow(fw, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA);
+    if (UpdateLayeredWindow(fw, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA)) memcpy(in->cornerKey, key, sizeof(key));
     SelectObject(mem, old);
     DeleteObject(bmp);
     DeleteDC(mem);
@@ -1834,20 +1846,36 @@ extern "C" __declspec(dllexport) BOOL WINAPI WacOSPropria() {
 // abre o rundll32.exe de 32 bits do próprio Windows (SysWOW64) com esta DLL, entrada WacOSHost: ela fica lá
 // esperando os pedidos do Shell ("ponha a barra de título do Mac na thread X") e sai quando o Shell manda.
 namespace {
-std::map<DWORD, HHOOK> g_hostHooks;
+struct HostHook { HHOOK hk; ULONGLONG born; };
+std::map<DWORD, HostHook> g_hostHooks;
 const UINT HOST_HOOK = WM_APP + 1, HOST_QUIT = WM_APP + 2;
+
+// quando a thread nasceu (0 se já não existe): o Windows reaproveita os números de thread
+ULONGLONG ThreadBorn(DWORD tid) {
+    HANDLE th = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, FALSE, tid);
+    if (!th) return 0;
+    FILETIME c{}, e{}, k{}, u{};
+    ULONGLONG r = GetThreadTimes(th, &c, &e, &k, &u) ? ((ULONGLONG)c.dwHighDateTime << 32 | c.dwLowDateTime) : 0;
+    CloseHandle(th);
+    return r;
+}
 
 LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == HOST_HOOK) {
         DWORD tid = (DWORD)w;
+        ULONGLONG born = ThreadBorn(tid);
+        auto it = g_hostHooks.find(tid);
+        // número de uma thread que já morreu, agora de outra (outro programa): o gancho antigo sumiu com ela.
+        // Antes o número ficava marcado como "já tem" e o programa novo nunca ganhava a barra
+        if (it != g_hostHooks.end() && it->second.born != born) { UnhookWindowsHookEx(it->second.hk); g_hostHooks.erase(it); }
         if (!g_hostHooks.count(tid))
-            if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, g_mod, tid)) g_hostHooks[tid] = hk;
+            if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, g_mod, tid)) g_hostHooks[tid] = { hk, born };
         if (l) PostMessageW((HWND)l, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
         return 0;
     }
     if (m == HOST_QUIT) { DestroyWindow(h); return 0; }
     if (m == WM_DESTROY) {
-        for (auto& [t, hk] : g_hostHooks) UnhookWindowsHookEx(hk);
+        for (auto& [t, hh] : g_hostHooks) UnhookWindowsHookEx(hh.hk);
         g_hostHooks.clear();
         PostQuitMessage(0);
         return 0;

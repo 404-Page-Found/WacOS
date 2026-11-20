@@ -677,3 +677,40 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 
 [2026-11-20 16:45 PC] DOCK À ESQUERDA E À DIREITA (pedido do Reddit, "como o MyDockFinder"). Ajustes > Mesa e Dock > Posição na tela: Esquerda / Embaixo / Direita, grava dock_posicao=baixo|esquerda|direita no %APPDATA%\Shell\ajustes.txt (sem a chave = embaixo). O Leopard fica sempre embaixo (a prateleira em perspectiva só existe deitada). src\shell\dock.cpp: o layout continua "ao longo do Dock" (x pelos ícones, y até a borda) e só o mapeamento para a tela muda (Strip/ToWin/ToLocal/Up): dos lados, a coluna da borda abaixo da barra de menus, ícones/números/miniaturas em pé, ponto do app aberto do lado da borda, etiqueta ao lado do ícone com a setinha (título longo ganha "…"), ampliação, pulo, separador (arrasta na horizontal), ocultação pela borda lateral, menus ao lado do ícone, alvo do gênio (dock::MinimizeTarget; genio.cpp não mudou: o funil anda até o lugar do lado). Área de trabalho (shell::WorkAreaFor) reserva a borda do Dock (dock::Posicao + dock::ReservedHeight); limites.cpp empurra as janelas para fora do Dock lateral (deslizando pela thread; a DLL só desliza na vertical); Mission Control tira o espaço do lado certo; Pilhas: com o Dock do lado a Grade abre ao lado do ícone (sem o Leque e sem a setinha) e os menus de Downloads também. Trocar de lado cancela um arrasto em andamento (no teste o separador estava sendo arrastado durante a troca e o tamanho foi gravado como 74; antes 69 — deixado como está). Frases: Esquerda/Embaixo/Direita já existiam nos 12 idiomas (idioma-conferir: 0 faltando). Testado no PC (Shell instalado): esquerda e direita no Tahoe, esquerda no Sequoia, embaixo de novo; área de trabalho 97,30-3440,1440 / 0,30-3343,1440; janela minimizada (Bloco de Notas de teste) com a miniatura entre Downloads e a Lixeira e o gênio rodando. NÃO testado: etiqueta ao passar o mouse, ampliação, arrastar ícones e as Pilhas no Dock lateral (precisa de mouse de verdade); com dois monitores, o lado que encosta em outro monitor não segura o ponteiro para mostrar o Dock oculto. Nada no registro do Windows. DESFAZER: dock_posicao=baixo (ou apagar a chave).
 [2026-11-20 17:25] LICENÇA trocada (pedido do usuário: um dev de outro app disse que ia "roubar o código"). De GPL-3.0 para "WacOS Source-Available License" (LICENSE): todos os direitos reservados; pode ler, compilar, usar no próprio PC e mandar pull request; não pode copiar código para outro projeto, redistribuir (reupload, mirror, repack, build modificada) nem uso comercial sem permissão por escrito. Vale do build-17 em diante (as versões antigas publicadas em MIT/GPL continuam com aquela licença: não dá para revogar). O texto da GPL foi para docs/windhawk/bloqueio-sequoia/LICENSE-GPL-3.0.txt, porque sequoia-lockscreen.wh.cpp é derivado do mod GPL do m417z e continua GPL. README (seção License) reescrito; tools\empacotar.ps1 põe LICENSE.txt no pacote. DESFAZER: voltar o LICENSE e a seção do README do commit anterior.
+[2026-11-20 19:00 PC] ESTABILIDADE (issue #3 "Burn Tokens On Stability"): revisão de src/janelas, src/shell e src/comum, teste de resistência no PC e os prints do Discord. Branch claude/estabilidade-e619bd.
+  1) VIGIA MATAVA O SHELL QUE FUNCIONAVA (o maior achado). O pulso que o vigia lê vinha só de um SetTimer; o WM_TIMER só chega com a fila sem
+     mensagens postadas, e animando sem parar (relógio de quadros no ritmo da tela, gênio, vidro real) ele passava fome por mais de 10 s:
+     "vigia da mesa: o Shell parou (sem pulso há 10 s)" com o log do Shell andando até 2 s antes. No teste (duas cópias de um programa de
+     teste abrindo, minimizando e fechando 3 janelas cada, com Mission Control e Launchpad) foram 4 reinícios em 20 min; o Shell de outra
+     sessão (sem a correção) teve o mesmo às 18:57. Agora o laço principal também dá o pulso (mesa::Pulse, no máximo a cada 500 ms); o timer
+     fica para os laços modais (menus). Com a correção, a mesma carga por 10 min: nenhum reinício (mesmo PID do começo ao fim).
+  2) DLL DAS JANELAS (roda dentro dos programas dos outros):
+     - controles.cpp: o cache de fontes era pelo handle da fonte do app; cada diálogo novo criava uma fonte GDI nossa que nunca era solta
+       (objetos GDI acumulando no programa do usuário) e um handle reaproveitado com outro tamanho devolvia a fonte errada. Agora a chave é a
+       própria fonte (tamanho, peso, estilo); se a criação falhar, não guarda a fonte do app (ele pode apagá-la).
+     - moldura dos cantos e sombra (sombra.h): a cada 1,5 s refaziam/reenviavam ao DWM um bitmap do tamanho da janela (≈20 MB numa janela
+       grande) mesmo sem mudança; agora sem mudança só movem. A sombra do Tahoe também passa a se refazer ao trocar claro/escuro. Moldura
+       destruída sozinha (CornerProc) não fica mais com o handle velho.
+     - hospedeiro de 32 bits e Shell (janelas.cpp): o número de uma thread morta volta em outra (outro programa) e ficava marcado como "já tem
+       o gancho": aquele programa nunca ganhava a barra. Agora confere a hora de criação da thread.
+  3) Dock: o menu do ícone esperava sem limite (join) a consulta de mídia (GSMTC) feita a outro app: um app de mídia travado congelava o
+     Shell inteiro. Agora espera 800 ms; passou disso, o menu abre sem os controles de mídia.
+  4) Aparência automática: o WM_SETTINGCHANGE para todas as janelas saía na thread da interface (200 ms por janela ocupada); agora numa thread.
+  5) PRINTS DO DISCORD (19-20/11):
+     a) Ferramenta de Captura ("Recording stopped / Something happened"): o print mostra a janela dela com a barra do Mac, ou seja, a DLL estava
+        dentro dela (recorte, cloak de abrir/fechar, estilos trocados num app WinUI que grava a tela). snippingtool.exe e screenclippinghost.exe
+        entraram na lista de exclusão da DLL (janelas.cpp). Uma sonda própria gravando o monitor pelo Windows.Graphics.Capture durante 45 min
+        de estresse nunca foi interrompida, então o Shell em si não derruba a captura. NÃO testado com a gravação da Ferramenta de Captura
+        (precisa de clique de verdade).
+     b) Widgets brancos com só o ponteiro laranja: estilo de widget Transparente/Tingido põe o conteúdo em branco sobre vidro claro; com
+        "Reduzir transparência" a tinta vira sólida (branca) e sem vidro real o fundo também era claro: branco no branco. Agora o vidro só vale
+        com o vidro ligado e sem Reduzir transparência (senão o widget volta ao desenho claro/escuro normal), e no tema claro o Transparente
+        ganha uma sombra fixa de 16% (fora do ajuste da tinta). NÃO testado ao vivo.
+     c) Notas com dois conjuntos de semáforos: o Notas estende o "vidro" do DWM pela janela inteira com WS_SYSMENU, então o DWM desenha os
+        botões de legenda do Windows por baixo do conteúdo; com temas/mods que os desenham no estilo Mac à esquerda (OpenGlass, Windhawk... citados
+        no Discord) eles aparecem pela barra lateral transparente, deslocados dos nossos. A janela do Notas nasce sem WS_SYSMENU (SC_CLOSE, os
+        nossos botões e o arrastar não dependem dele; conferido que SC_CLOSE fecha sem ele). Hipótese não reproduzida (sem esses mods aqui).
+  Medidas (Shell, 15 min de estresse): base (build antiga, a DLL nem entrava no teste por causa do erro 126) 531→622 MB privados, 2223→2775
+  handles, GDI 118→249; com a DLL animando, o Shell ficou na mesma faixa (≈580-670 MB, 2500-3200 handles, GDI 119-263, sobe e desce com o Mission
+  Control). Programas de teste com a DLL antiga e a nova, 60+ ciclos de 3 janelas cada: GDI 14, USER 7-8 e handles ≈345 parados nas duas.
+  Nada no registro do Windows. DESFAZER: reverter o commit.
