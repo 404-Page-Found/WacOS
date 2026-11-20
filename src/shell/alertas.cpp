@@ -66,6 +66,17 @@ void SetIcon(const std::wstring& exe) {
     } else if (exe.empty()) {
         std::wstring png = ui::PackIcon(L"trashfull@2x");
         if (png.empty() || !ui::LoadPng(png, g.iw, g.ih, g.px)) ui::ShellImage(L"shell:RecycleBinFolder", 128, g.iw, g.ih, g.px, true);
+    } else if (liquid::Leopard()) {
+        // Leopard: o ícone do app no tema (pacote/aquificado); sem ele, o "Alert Note" do 10.5 (o balão com a exclamação)
+        // em vez do ícone pequeno do .exe ampliado num quadro
+        std::wstring nm = exe.substr(exe.find_last_of(L'\\') + 1);
+        if (nm.size() > 4) nm.resize(nm.size() - 4);
+        std::wstring png = apps::PackIconByName(nm, exe);
+        if (png.empty() || !ui::LoadPng(png, g.iw, g.ih, g.px)) {
+            png = ui::PackIcon(L"Alert Note");
+            if (png.empty() || !ui::LoadPng(png, g.iw, g.ih, g.px))
+                if (ui::ShellImage(exe, 128, g.iw, g.ih, g.px, true)) ui::TrimToSquare(g.iw, g.ih, g.px);
+        }
     } else if (ui::ShellImage(exe, 128, g.iw, g.ih, g.px, true)) ui::TrimToSquare(g.iw, g.ih, g.px);
 }
 
@@ -110,9 +121,15 @@ bool GoldenAlert() { return liquid::Golden(); }
 // janela, o ícone de 32 a 20 / 36, o texto normal de 13 a 62 da borda e, embaixo à direita, três botões cinza de
 // 85,5 × 19,5 lado a lado (8,5 entre eles, 12,5 da borda e 13 de baixo): o terceiro, Cancelar e o de confirmar
 bool GoldenWide() { return GoldenAlert() && g.idThird; }
-float AlertWidth() { return GoldenWide() ? 404.f : AW0; }
-float AlertR() { return GoldenWide() ? 16.f : TahoeAlert() ? 26.f : RADIUS; }
+// Mac OS X Leopard (alerta do 10.5): janela cinza 232 de 420 de largura, cantos quase retos; ícone de 64 em (24, 15);
+// a mensagem em negrito 13 e o texto 11 a 104 da borda; botões em pílula Aqua de 20 embaixo à direita (o padrão em gel
+// azul, à direita; Cancelar à esquerda dele; o terceiro na ponta esquerda do texto)
+bool LeoAlert() { return liquid::Leopard(); }
+const float L_W = 420, L_TX = 104, L_TOP = 15;
+float AlertWidth() { return LeoAlert() ? L_W : GoldenWide() ? 404.f : AW0; }
+float AlertR() { return LeoAlert() ? 6.f : GoldenWide() ? 16.f : TahoeAlert() ? 26.f : RADIUS; }
 float PanelH() {
+    if (LeoAlert()) return std::max(L_TOP + 64.f, L_TOP + 2 + g.titleH + (g.infoH > 0 ? 8 + g.infoH : 0)) + 18 + 20 + 18;
     if (GoldenWide()) return std::max(120.f, 34 + g.titleH + (g.infoH > 0 ? 2 + g.infoH : 0) + 14 + 19.5f + 13);
     if (GoldenAlert()) { int n = Buttons(); int rows = n == 3 ? 3 : 1; return G_IY + G_ICON + 19 + g.titleH + (g.infoH > 0 ? 10 + g.infoH : 0) + 17 + rows * G_BTN + (rows - 1) * G_GAP + G_BM; }
     if (TahoeAlert()) { int n = Buttons(); return T_TOP + T_ICON + 12 + g.titleH + (g.infoH > 0 ? 6 + g.infoH : 0) + 18 + n * T_BTN + (n - 1) * T_GAP + T_BM; }
@@ -170,6 +187,64 @@ void Paint() {
     dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
     float H = PanelH();
     const float R = AlertR();
+    if (LeoAlert()) {  // Leopard: desenho próprio do alerta do 10.5
+        if (!g.icon && !g.px.empty()) g.icon = ui::Bitmap(dc, g.iw, g.ih, g.px);
+        br->SetColor(D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, AW, H), R, R), br);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.40f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, AW - 0.5f, H - 0.5f), R - 0.5f, R - 0.5f), br, 1);
+        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(24, L_TOP, 24 + 64, L_TOP + 64), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        IDWriteTextFormat* tb = ui::FormatFace(L"Lucida Sans Unicode", 13, DWRITE_FONT_WEIGHT_BOLD);
+        IDWriteTextFormat* ti = ui::FormatFace(L"Lucida Sans Unicode", 11, DWRITE_FONT_WEIGHT_NORMAL);
+        for (auto* f : { tb, ti }) if (f) { f->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP); f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR); }
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
+        float y = L_TOP + 2;
+        if (tb) dc->DrawTextW(g.title.c_str(), (UINT32)g.title.size(), tb, D2D1::RectF(L_TX, y, AW - 20, y + g.titleH + 4), br);
+        y += g.titleH + 8;
+        if (ti && g.infoH > 0) dc->DrawTextW(g.info.c_str(), (UINT32)g.info.size(), ti, D2D1::RectF(L_TX, y, AW - 20, y + g.infoH + 4), br);
+        IDWriteTextFormat* tbtn = ui::FormatFace(L"Lucida Sans Unicode", 13, DWRITE_FONT_WEIGHT_NORMAL);
+        if (tbtn) tbtn->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        auto pill = [&](int i, D2D1_RECT_F r, bool blue) {
+            g.btn[i] = r;
+            bool down = g.press == i && g.hover == i;
+            float rad = (r.bottom - r.top) / 2;
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1), rad, rad), br);
+            bool b = blue || down;
+            D2D1_GRADIENT_STOP st[4] = { { 0, b ? D2D1::ColorF(0.66f, 0.80f, 0.98f, 1) : D2D1::ColorF(1, 1, 1, 1) },
+                                         { 0.5f, b ? D2D1::ColorF(0.38f, 0.60f, 0.93f, 1) : D2D1::ColorF(0.95f, 0.95f, 0.95f, 1) },
+                                         { 0.5f, b ? D2D1::ColorF(0.24f, 0.47f, 0.87f, 1) : D2D1::ColorF(0.88f, 0.88f, 0.88f, 1) },
+                                         { 1, b ? D2D1::ColorF(0.58f, 0.82f, 1.0f, 1) : D2D1::ColorF(0.98f, 0.98f, 0.98f, 1) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(dc->CreateGradientStopCollection(st, 4, &gs)) &&
+                SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+                dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            br->SetColor(b ? D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.9f) : D2D1::ColorF(0, 0, 0, 0.42f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), rad - 0.5f, rad - 0.5f), br, 1);
+            const std::wstring& lab = i == 0 ? g.no : i == 1 ? g.yes : g.third;
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
+            if (tbtn) dc->DrawTextW(lab.c_str(), (UINT32)lab.size(), tbtn, r, br);
+        };
+        auto bw = [&](const std::wstring& t) { return std::max(82.f, (tbtn ? ui::TextWidth(tbtn, t) : 60) + 32); };
+        for (int i = 0; i < 3; i++) g.btn[i] = D2D1::RectF(0, 0, 0, 0);
+        float by = H - 18 - 20, x = AW - 20;
+        float w1 = bw(g.yes);
+        pill(1, D2D1::RectF(x - w1, by, x, by + 20), true);  // o padrão (gel azul) na direita
+        x -= w1 + 12;
+        if (!g.single) { float w0 = bw(g.no); pill(0, D2D1::RectF(x - w0, by, x, by + 20), false); }
+        if (g.idThird) { float w2 = bw(g.third); pill(2, D2D1::RectF(L_TX, by, L_TX + w2, by + 20), false); }
+        for (auto* f : { tb, ti, tbtn }) if (f) f->Release();
+        br->Release();
+        ui::GpuEnd(g_s);
+        if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), R * sc } },
+                                         D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1), 0.f);  // opaca
+        anim::Panel mo = anim::PanelIn(anim::Now() - g_openAt);
+        ui::GpuMotion(g_s, mo.scale, wpx / 2.f, hpx / 2.f, mo.fade);
+        if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, wpx / 2.f, hpx / 2.f);
+        return;
+    }
     if (!backdrop::Liquid() || !backdrop::Real()) {  // com o Liquid Glass (vidro real) o próprio vidro desenha o contorno (duas bordas viravam um aro)
         if (liquid::On()) liquid::Rim(dc, D2D1::RectF(0, 0, AW, H), R, dark);
         else {
@@ -624,6 +699,10 @@ void TakeMessage(HWND dlg) {
     size_t br = texto.find(L"\n\n");
     size_t skip = 2;
     if (br == std::wstring::npos) { br = texto.find(L"\r\n\r\n"); skip = 4; }
+    if (br == std::wstring::npos && LeoAlert()) {  // Leopard: a 1ª linha é o texto em negrito, o resto o informativo (10.5)
+        br = texto.find(L'\n'); skip = 1;
+        if (br != std::wstring::npos && br > 0 && texto[br - 1] == L'\r') { br--; skip = 2; }
+    }
     if (br != std::wstring::npos) { g.title = texto.substr(0, br); g.info = texto.substr(br + skip); }
     else if (texto.size() > 140 && cap[0]) { g.title = cap; g.info = texto; }
     else { g.title = texto; g.info = L""; }
@@ -657,7 +736,7 @@ void TakeMessage(HWND dlg) {
 }
 
 void Show(int cx, int cy) {
-    float inner = GoldenWide() ? AW - 62 - 14 : GoldenAlert() ? AW - 2 * G_PAD : TahoeAlert() ? AW - 2 * T_PAD : AW - 2 * APAD;
+    float inner = LeoAlert() ? L_W - L_TX - 20 : GoldenWide() ? AW - 62 - 14 : GoldenAlert() ? AW - 2 * G_PAD : TahoeAlert() ? AW - 2 * T_PAD : AW - 2 * APAD;
     g.titleH = TextH(g.title, 13, GoldenWide() ? DWRITE_FONT_WEIGHT_NORMAL : DWRITE_FONT_WEIGHT_BOLD, inner);
     g.infoH = TextH(g.info, GoldenAlert() ? 13.f : 11.f, DWRITE_FONT_WEIGHT_NORMAL, inner);
     g.hover = g.press = -1;

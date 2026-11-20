@@ -159,31 +159,37 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     PostMessageW(h, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra antes de mostrar
 }
 
-}  // namespace
-
-void janelas::Start() {
-    if (shell::Setting(L"janelas_mac", L"1") != L"1" || g_dll) return;
-    // cópia com nome próprio: os apps que já têm uma versão antiga presa carregam esta como outro módulo
+// Cópia com nome próprio em bin\obj\mj: os apps que já têm uma versão antiga presa carregam esta como outro
+// módulo. O nome vem da data do arquivo: reabrir o Shell reaproveita a mesma cópia (cada nome novo ocupa um
+// dos 32 lugares de DLL de gancho do Windows até os apps fecharem); só uma compilação nova gera outro.
+// Vale para a DLL de 64 bits e para a de 32 (o hospedeiro de 32 bits recebe o caminho pronto).
+std::wstring OwnCopy(const std::wstring& file, const wchar_t* prefix) {
     std::wstring copies = shell::dir + L"\\obj\\mj";
     CreateDirectoryW((shell::dir + L"\\obj").c_str(), nullptr);
     CreateDirectoryW(copies.c_str(), nullptr);
-    // o nome vem da data do arquivo: reabrir o Shell reaproveita a mesma cópia (cada nome novo ocupa um
-    // dos 32 lugares de DLL de gancho do Windows até os apps fecharem); só uma compilação nova gera outro
-    std::wstring src = shell::dir + L"\\" DLL_WINDOW, name;
+    std::wstring src = shell::dir + L"\\" + file, name;
     WIN32_FILE_ATTRIBUTE_DATA fa{};
-    if (GetFileAttributesExW(src.c_str(), GetFileExInfoStandard, &fa)) {
-        wchar_t b[40]; swprintf_s(b, L"WacOSWindow-%08lx%08lx.dll", fa.ftLastWriteTime.dwHighDateTime, fa.ftLastWriteTime.dwLowDateTime);
-        name = b;
-    }
+    if (!GetFileAttributesExW(src.c_str(), GetFileExInfoStandard, &fa)) return L"";
+    wchar_t b[64]; swprintf_s(b, L"%s-%08lx%08lx.dll", prefix, fa.ftLastWriteTime.dwHighDateTime, fa.ftLastWriteTime.dwLowDateTime);
+    name = b;
     WIN32_FIND_DATAW fd;
-    HANDLE f = FindFirstFileW((copies + L"\\WacOSWindow-*.dll").c_str(), &fd);
+    HANDLE f = FindFirstFileW((copies + L"\\" + prefix + L"-*.dll").c_str(), &fd);
     if (f != INVALID_HANDLE_VALUE) {
         do if (_wcsicmp(fd.cFileName, name.c_str())) DeleteFileW((copies + L"\\" + fd.cFileName).c_str()); while (FindNextFileW(f, &fd));  // as em uso ficam
         FindClose(f);
     }
     std::wstring copy = copies + L"\\" + name;
+    if (GetFileAttributesW(copy.c_str()) == INVALID_FILE_ATTRIBUTES && !CopyFileW(src.c_str(), copy.c_str(), TRUE)) return L"";
+    return copy;
+}
+
+}  // namespace
+
+void janelas::Start() {
+    if (shell::Setting(L"janelas_mac", L"1") != L"1" || g_dll) return;
+    std::wstring copy = OwnCopy(DLL_WINDOW, L"WacOSWindow");
     // sem cópia própria, nada de gancho: o mesmo caminho com outra versão trava os programas (ver Consider)
-    if (name.empty() || (GetFileAttributesW(copy.c_str()) == INVALID_FILE_ATTRIBUTES && !CopyFileW(src.c_str(), copy.c_str(), TRUE))) {
+    if (copy.empty()) {
         Log(L"janelas: não deu para copiar " DLL_WINDOW);
         return;
     }
@@ -191,10 +197,14 @@ void janelas::Start() {
     g_proc = g_dll ? (HOOKPROC)GetProcAddress(g_dll, "GetMsgProc") : nullptr;
     if (!g_proc) { Log(L"janelas: " DLL_WINDOW L" não encontrada"); return; }
     LoadExtra();
-    std::wstring host = shell::dir + L"\\" EXE_WINDOW32HOST;
-    if (GetFileAttributesW(host.c_str()) != INVALID_FILE_ATTRIBUTES && !FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr)) {
+    // programas de 32 bits: a DLL de 32 bits fica no rundll32.exe de 32 bits do Windows (entrada WacOSHost, ver
+    // macjanela.cpp), que recebe os pedidos de gancho pela janela "MacJanela32Host"
+    wchar_t wow[MAX_PATH]{};
+    std::wstring copy32;
+    if (GetSystemWow64DirectoryW(wow, MAX_PATH) && !FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr) &&
+        !(copy32 = OwnCopy(DLL_WINDOW32, L"WacOSWindow32")).empty()) {
         STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
-        std::wstring cmd = L"\"" + host + L"\"";
+        std::wstring cmd = L"\"" + std::wstring(wow) + L"\\rundll32.exe\" \"" + copy32 + L"\",WacOSHost";
         if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
             WaitForInputIdle(pi.hProcess, 2000);
             CloseHandle(pi.hProcess); CloseHandle(pi.hThread);

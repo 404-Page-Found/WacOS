@@ -589,6 +589,15 @@ IDWriteTextFormat* ui::Format(float size, DWRITE_FONT_WEIGHT w, bool icons, DWRI
     return tf;
 }
 
+IDWriteTextFormat* ui::FormatFace(const wchar_t* face, float size, DWRITE_FONT_WEIGHT w) {
+    IDWriteTextFormat* tf = nullptr;
+    if (FAILED(dw->CreateTextFormat(face, nullptr, w, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"pt-br", &tf)) || !tf)
+        return Format(size, w);
+    tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    tf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    return tf;
+}
+
 float ui::TextWidth(IDWriteTextFormat* tf, const std::wstring& s) {
     IDWriteTextLayout* tl = nullptr;
     if (FAILED(dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, 10000, 100, &tl))) return 0;
@@ -671,6 +680,10 @@ bool ui::LoadPng(const std::wstring& path, UINT& w, UINT& h, std::vector<BYTE>& 
 // Pasta dos ícones do Sequoia (icones\sequoia, ao lado de bin\): uso pessoal, ver icones\LEIA-ME.txt.
 std::wstring ui::PackIcon(const std::wstring& name) {
     std::wstring root = shell::dir.substr(0, shell::dir.find_last_of(L'\\')) + L"\\icones";
+    if (liquid::Leopard()) {  // Leopard: os ícones do 10.5 (icones\leopard, tools\icones-leopard.py) vencem até o extra
+        std::wstring g = root + L"\\leopard\\" + name + L".png";  // (lá estão as versões Aqua dos ícones do extra)
+        if (GetFileAttributesW(g.c_str()) != INVALID_FILE_ATTRIBUTES) return g;
+    }
     std::wstring extra = root + L"\\extra\\" + name + L".png";  // escolhidos pelo usuário vencem
     if (GetFileAttributesW(extra.c_str()) != INVALID_FILE_ATTRIBUTES) return extra;
     if (liquid::Golden()) {  // Golden Gate: os ícones do macOS 27 (icones\goldengate, tools\icones-goldengate.py)

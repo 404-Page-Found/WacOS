@@ -72,7 +72,8 @@ std::vector<Desk> g_desks;
 int g_cur = 0;
 std::wstring g_appId, g_appName;  // Exposé do app: só as janelas deste app (vazio = Mission Control)
 bool g_appNext;  // ToggleApp pediu: a abertura que vem é o Exposé do app
-bool Bar() { return g_appId.empty(); }  // a faixa de Mesas (no Exposé do app ela não existe)
+// a faixa de Mesas (no Exposé do app ela não existe; no Leopard também não: o Exposé do 10.5 só espalha as janelas)
+bool Bar() { return g_appId.empty() && !liquid::Leopard(); }
 int g_hoverDesk = -1;     // Mesa sob o mouse na barra aberta (mostra o X)
 bool g_hoverX = false;    // mouse em cima do X
 HWND g_xWnd, g_xFor, g_xPending;  // X de fechar a janela sob o mouse (mais abaixo)
@@ -370,7 +371,7 @@ void Paint() {
                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
     } else dc->Clear(D2D1::ColorF(0.08f, 0.12f, 0.28f, 1));
     ID2D1SolidColorBrush* br = nullptr;
-    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 0.22f * dim), &br);
+    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, (liquid::Leopard() ? 0.45f : 0.22f) * dim), &br);  // Leopard: escurece mais (cinza, sem desfoque)
     if (!g_comp) dc->FillRectangle(D2D1::RectF(0, 0, Wd, Hd), br);
 
     if (!Bar()) {  // Exposé do app: o nome do app no alto, no lugar da faixa de Mesas
@@ -378,7 +379,7 @@ void Paint() {
         ID2D1Layer* la = nullptr; dc->CreateLayer(nullptr, &la);
         dc->PushLayer(lpa, la);
         br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
-        dc->DrawTextW(g_appName.c_str(), (UINT32)g_appName.size(), g_tfDesk, D2D1::RectF(0, 18, Wd, 50), br);
+        if (!g_appId.empty()) dc->DrawTextW(g_appName.c_str(), (UINT32)g_appName.size(), g_tfDesk, D2D1::RectF(0, 18, Wd, 50), br);
         dc->PopLayer(); la->Release();
         goto windows;
     }
@@ -461,6 +462,18 @@ windows:
     if (g_hover >= 0 && g_hover < (int)g_wins.size() && !g_closing && !g_compAnim) {
         D2D1_RECT_F c = Current(g_wins[g_hover]);
         D2D1_RECT_F d = { c.left / sc, c.top / sc, c.right / sc, c.bottom / sc };
+        if (liquid::Leopard()) {  // Leopard: a janela clareia um pouco e o título vem numa pílula escura no meio dela
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.10f));
+            dc->FillRectangle(d, br);
+            std::wstring t2 = g_wins[g_hover].title;
+            float tw = std::min(ui::TextWidth(g_tfTitle, t2) + 30, d.right - d.left + 60), cx = (d.left + d.right) / 2, cy = (d.top + d.bottom) / 2;
+            D2D1_RECT_F tr = { cx - tw / 2, cy - 13, cx + tw / 2, cy + 13 };
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.70f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(tr, 13, 13), br);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+            dc->DrawTextW(t2.c_str(), (UINT32)t2.size(), g_tfTitle, D2D1::RectF(tr.left + 15, tr.top, tr.right - 15, tr.bottom), br);
+            goto hoverDone;
+        }
         br->SetColor(D2D1::ColorF(0.04f, 0.52f, 1, 1));
         dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(d.left - 3, d.top - 3, d.right + 3, d.bottom + 3), 10, 10), br, 3.5f);
         std::wstring t2 = g_wins[g_hover].title;
@@ -473,6 +486,7 @@ windows:
         br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
         dc->DrawTextW(t2.c_str(), (UINT32)t2.size(), g_tfTitle, D2D1::RectF(tr.left + 12, tr.top, tr.right - 12, tr.bottom), br);
     }
+hoverDone:
     br->Release();
     ui::GpuEnd(g_s);
     UpdateThumbs();

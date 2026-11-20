@@ -399,7 +399,7 @@ static std::wstring Norm(const std::wstring& s) {
 static std::wstring PackIconFor(const App& a) {
     static std::map<std::wstring, std::wstring> pack;  // nome normalizado -> arquivo
     static int loaded = -1;  // tema com que a lista foi montada (Tahoe usa icones\tahoe antes do Sequoia)
-    int tema = liquid::Golden() ? 2 : liquid::On() ? 1 : 0;  // Golden Gate usa icones\goldengate antes do Tahoe
+    int tema = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On() ? 1 : 0;  // Golden Gate usa icones\goldengate antes do Tahoe; Leopard, icones\leopard antes do Sequoia
     if (loaded != tema) {
         loaded = tema;
         pack.clear();
@@ -407,7 +407,8 @@ static std::wstring PackIconFor(const App& a) {
         // sobre o pacote do Sequoia; o nome do arquivo é o nome do app ("Discord.png", "Steam.png").
         // Tema Tahoe: icones\tahoe (tools\baixar-icones.ps1) vem antes do Sequoia; o que faltar, segue o Sequoia
         std::wstring root = shell::dir.substr(0, shell::dir.find_last_of(L'\\')) + L"\\icones";
-        for (const wchar_t* sub : { L"\\extra", loaded == 2 ? L"\\goldengate" : L"", loaded ? L"\\tahoe" : L"", L"\\sequoia" }) {
+        // Leopard: icones\leopard vem ANTES do extra (o extra tem os ícones modernos; o Leopard tem a versão Aqua deles)
+        for (const wchar_t* sub : { loaded == 3 ? L"\\leopard" : L"", L"\\extra", loaded == 2 ? L"\\goldengate" : L"", loaded == 1 || loaded == 2 ? L"\\tahoe" : L"", L"\\sequoia" }) {
             if (!*sub) continue;
             std::wstring dir = root + sub;
             if (std::wstring custom = shell::Setting(L"icones", L""); !custom.empty() && !wcscmp(sub, L"\\sequoia")) dir = custom;

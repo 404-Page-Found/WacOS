@@ -425,6 +425,7 @@ void ctxmenu::SetGlass(const Glass& g) { g_glass = g; g_glassSet = true; }
 // Tema Tahoe ligado (Ajustes > Aparência: liquid_glass=1 em %APPDATA%\Shell\ajustes.txt). O Shell avisa
 // pelo SetGlass; os outros apps (Finder, Notas...) leem o arquivo, no máximo a cada 2 s.
 static bool g_fileGolden;  // golden_gate=1 lido do arquivo (apps fora do Shell)
+static bool g_fileLeopard;  // leopard=1 lido do arquivo (apps fora do Shell)
 static bool Tahoe() {
     if (g_glassSet) return g_glass.liquid;
     static DWORD last; static bool on;
@@ -442,6 +443,8 @@ static bool Tahoe() {
         if (l == L"liquid_glass=0") on = false;
         if (l == L"golden_gate=1") g_fileGolden = true;
         if (l == L"golden_gate=0") g_fileGolden = false;
+        if (l == L"leopard=1") g_fileLeopard = true;
+        if (l == L"leopard=0") g_fileLeopard = false;
     }
     fclose(f);
     return on;
@@ -449,6 +452,9 @@ static bool Tahoe() {
 // macOS 27 Golden Gate (menu Go do Finder, captura 2x): linhas de 24, separador de 11, 5,5 de folga e de recuo do
 // destaque, destaque com canto 7, menu com canto 11, texto a 16 da borda (41 com símbolo) e símbolo só em Ajustes…
 static bool Golden() { bool t = Tahoe(); return t && (g_glassSet ? g_glass.golden : g_fileGolden); }
+// Mac OS X Leopard (leopard=1 sem o Liquid Glass): menus brancos translúcidos e o item escolhido num degradê azul que
+// vai de uma borda à outra, sem cantos (como no 10.5)
+static bool Leopard() { bool t = Tahoe(); return !t && (g_glassSet ? g_glass.leopard : g_fileLeopard); }
 static bool GoldenIcon(const std::wstring& l) {
     for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })  // macOS 27: o menu da Apple tem símbolo nestes if (l.rfind(k, 0) == 0) return true;
     return false;
@@ -1004,11 +1010,14 @@ static void DrawLevel(Session& s, int li) {
     if (g_glass.alpha) bg.a = g_glass.alpha(bg.a);
     // macOS 27 Golden Gate: o menu de contexto é vidro fosco (leitoso), não o Liquid Glass transparente do Dock
     if (Golden()) { bg = dk ? D2D1::ColorF(0.17f, 0.165f, 0.165f, 0.88f) : D2D1::ColorF(0.95f, 0.945f, 0.94f, 0.84f); }
+    const bool leo = Leopard();
+    if (leo) bg = D2D1::ColorF(1, 1, 1, 0.94f);  // Leopard: sempre claro (o 10.5 não tinha modo escuro)
     ID2D1SolidColorBrush *text, *dim, *sep, *hdr, *accent, *white;
-    rt->CreateSolidColorBrush(dk ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f), &text);
-    rt->CreateSolidColorBrush(dk ? D2D1::ColorF(1, 1, 1, 0.30f) : D2D1::ColorF(0, 0, 0, 0.30f), &dim);
-    rt->CreateSolidColorBrush(dk ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.10f), &sep);
-    rt->CreateSolidColorBrush(dk ? D2D1::ColorF(1, 1, 1, 0.45f) : D2D1::ColorF(0, 0, 0, 0.45f), &hdr);
+    const bool dkT = dk && !leo;  // cores do texto: o Leopard é sempre claro
+    rt->CreateSolidColorBrush(dkT ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, leo ? 1.f : 0.88f), &text);
+    rt->CreateSolidColorBrush(dkT ? D2D1::ColorF(1, 1, 1, 0.30f) : D2D1::ColorF(0, 0, 0, 0.30f), &dim);
+    rt->CreateSolidColorBrush(dkT ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, leo ? 0.14f : 0.10f), &sep);
+    rt->CreateSolidColorBrush(dkT ? D2D1::ColorF(1, 1, 1, 0.45f) : D2D1::ColorF(0, 0, 0, 0.45f), &hdr);
     rt->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.39f, 0.88f, 1.0f), &accent);
     rt->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &white);
 
@@ -1053,6 +1062,18 @@ static void DrawLevel(Session& s, int li) {
             continue;
         }
         bool hot = (int)i == L.hover || ((int)i == L.openChild && L.hover < 0);
+        if (hot && !m.disabled && leo) {  // Leopard: degradê azul de ponta a ponta, com o fio claro em cima
+            D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.39f, 0.56f, 0.96f, 1) }, { 1, D2D1::ColorF(0.13f, 0.35f, 0.88f, 1) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
+                SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+                rt->FillRectangle(D2D1::RectF(0, r.top, W, r.bottom), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            white->SetOpacity(0.35f);
+            rt->FillRectangle(D2D1::RectF(0, r.top, W, r.top + sc), white);
+            white->SetOpacity(1);
+        } else
         if (hot && !m.disabled) {
             D2D1_ROUNDED_RECT rr{ D2D1::RectF(Inset() * sc, r.top, W - Inset() * sc, r.bottom), HotR() * sc, HotR() * sc };
             rt->FillRoundedRectangle(rr, accent);
@@ -1249,7 +1270,7 @@ static LRESULT CALLBACK PopupProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 // Mostra o menu e devolve o item escolhido (ou nullptr). Loop modal próprio, como o TrackPopupMenu.
 static MItem* RunMenu(HWND owner, std::vector<MItem>& items, POINT pt) {
-    Session s; s.owner = owner; s.dark = IsDarkMode();
+    Session s; s.owner = owner; s.dark = IsDarkMode() && !Leopard();  // Leopard: menus sempre claros
     g_plain = g_plainNext; g_plainNext = false;
     g_ses = &s;
     OpenLevel(s, &items, pt, nullptr, 0);

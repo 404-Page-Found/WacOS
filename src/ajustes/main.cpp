@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include "../comum/ampliacao.h"  // botão verde com a animação do ampliar do Shell
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"  // tema Mac OS X Leopard: barra metálica de ponta a ponta
 
 namespace {
 
@@ -24,7 +25,7 @@ namespace {
 // (Ajustes do Sistema do macOS 26 medido com Acessibilidade): janela 801 × 625, barra lateral de 239 com 8 de
 // recuo, linhas de 32, conteúdo com 20 de margem (grupos de 514) e linhas de 42 dentro dos grupos
 float SIDE_W = 215;
-const float TOOL_H = 52;
+float TOOL_H = 52;  // Leopard: 56 (a barra "unified" do 10.5, ApplyWindowTheme)
 float SIDE_ROW = 28;
 const float SIDE_GAP = 12;
 // SEARCH_Y e ACCOUNT_Y mudam no Golden Gate (ApplyWindowTheme): busca com o centro a 75 e a conta 6 mais abaixo (captura)
@@ -45,6 +46,26 @@ bool g_tahoe;  // tema macOS Tahoe (liquid_glass=1): janela de cantos grandes, b
 // barra lateral de 231 pt que vai até a borda (cor cheia 236,235,236; sem painel flutuante), linhas de 32 pt com a
 // seleção na cor de destaque pura, 10 pt de recuo e raio 8; conteúdo branco com caixas (247) a ~20 pt das bordas
 bool Golden() { return g_tahoe && tahoe::Golden(); }
+bool g_leoAll = true;  // Leopard: "Mostrar Todos" (a grade de painéis); um painel aberto põe false
+// Mac OS X Leopard (leopard=1 sem o Liquid Glass): os controles Aqua do 10.5 (caixas de seleção e pop-ups de gel azul,
+// botões em pílula), o fundo cinza 232 das janelas e a seleção azul em degradê na barra lateral
+bool Leo() { return !g_tahoe && tahoe::Leopard(); }
+// degradê vertical com cantos (rad) — usado pelos controles Aqua
+void LeoFill(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, std::initializer_list<D2D1_GRADIENT_STOP> st) {
+    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(st.begin(), (UINT32)st.size(), &gs)) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+    if (lb) lb->Release();
+    if (gs) gs->Release();
+}
+// gel do Aqua: claro em cima, a quebra do brilho no meio e a luz de baixo (azul) ou o branco perolado (pílula comum)
+void LeoGel(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, bool blue) {
+    if (blue) LeoFill(dc, r, rad, { { 0, D2D1::ColorF(0.66f, 0.80f, 0.98f, 1) }, { 0.5f, D2D1::ColorF(0.38f, 0.60f, 0.93f, 1) },
+                                    { 0.5f, D2D1::ColorF(0.24f, 0.47f, 0.87f, 1) }, { 1, D2D1::ColorF(0.58f, 0.82f, 1.0f, 1) } });
+    else LeoFill(dc, r, rad, { { 0, D2D1::ColorF(1, 1, 1, 1) }, { 0.5f, D2D1::ColorF(0.95f, 0.95f, 0.95f, 1) },
+                               { 0.5f, D2D1::ColorF(0.88f, 0.88f, 0.88f, 1) }, { 1, D2D1::ColorF(0.98f, 0.98f, 0.98f, 1) } });
+}
 float GroupR() { return g_tahoe ? 11.f : GROUP_R; }  // caixas mais redondas no Tahoe (guia: group_radius 11)
 // Tahoe: estilo de ícones "transparente" (Aparência > Estilo de ícones): símbolos na cor do texto, sem o
 // quadradinho colorido; na barra lateral, só o símbolo (como nas capturas do Ajustes do macOS 26)
@@ -113,6 +134,7 @@ D2D1_SIZE_F ClientDip() { RECT rc; GetClientRect(g_hwnd, &rc); return { rc.right
 D2D1_COLOR_F Rgb(UINT32 c, float a = 1) { return D2D1::ColorF(((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f, a); }
 
 bool ReadDark() {
+    if (tahoe::Leopard()) return false;  // Leopard: sempre claro (o 10.5 não tinha modo escuro)
     std::wstring t = aj::Setting(L"tema", L"auto");
     if (t == L"claro") return false;
     if (t == L"escuro") return true;
@@ -496,6 +518,14 @@ Pal Colors() {  // Tahoe: o fundo da janela leva 10 % da cor do papel de parede 
         return p;
     }
     if (g_tahoe) p.content = tahoe::Tint(p.content);
+    if (!g_tahoe && tahoe::Leopard()) {  // Leopard: barra lateral azul-acinzentada, janela cinza 232, caixas gravadas
+        p.side = leopard::Sidebar(g_winActive, g_dark);
+        p.content = D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1);
+        p.group = D2D1::ColorF(0, 0, 0, 0.04f);
+        p.groupLine = D2D1::ColorF(0, 0, 0, 0.14f);
+        p.line = D2D1::ColorF(0, 0, 0, 0.10f);
+        p.sideSelText = D2D1::ColorF(1, 1, 1, 1);
+    }
     return p;
 }
 Pal ColorsBase() {
@@ -529,6 +559,7 @@ void ShowPage() {
 void SelectSide(int i) {
     auto& items = SidebarItems();
     if (i < 0 || i >= (int)items.size()) return;
+    if (g_leoAll) { g_leoAll = false; g_search.SetText(L"", false); g_searchFocus = false; Invalidate(); }  // Leopard: abriu um painel
     if (g_histAt >= 0 && g_hist[g_histAt].side == i && g_hist[g_histAt].stack.empty()) return;
     g_hist.resize(g_histAt + 1);
     g_hist.push_back({ i, {} });
@@ -588,6 +619,22 @@ float HeaderHeight(const aj::Group& g, float w) {
 
 // ================= Desenho dos controles
 void DrawToggle(aj::Ctx& c, D2D1_RECT_F r, bool on, float t /*0..1 animação*/, bool enabled) {
+    if (Leo()) {  // Leopard: caixa de seleção Aqua de 14 px (gel azul com o visto branco ligada; perolada desligada)
+        (void)t;
+        float x = r.right - 10 - 14, y = (r.top + r.bottom) / 2 - 7;
+        D2D1_RECT_F b = D2D1::RectF(x, y, x + 14, y + 14);
+        c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left, b.top + 1, b.right, b.bottom + 1), 3, 3), c.br);
+        LeoGel(c.dc, b, 3, on);
+        c.br->SetColor(on ? D2D1::ColorF(0.12f, 0.27f, 0.58f, enabled ? 0.9f : 0.4f) : D2D1::ColorF(0, 0, 0, enabled ? 0.42f : 0.2f));
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left + 0.5f, b.top + 0.5f, b.right - 0.5f, b.bottom - 0.5f), 2.5f, 2.5f), c.br, 1);
+        if (on) {
+            c.br->SetColor(D2D1::ColorF(0.05f, 0.08f, 0.15f, enabled ? 0.95f : 0.4f));  // o visto preto do Aqua
+            Line(c.dc, c.br, x + 3.2f, y + 7.2f, x + 6, y + 10.5f, 2.0f);
+            Line(c.dc, c.br, x + 6, y + 10.5f, x + 11.5f, y + 2.8f, 2.0f);
+        }
+        return;
+    }
     if (g_tahoe) {  // Tahoe (guia macOS26-Theme-Reference, seção 43): switch pequeno de 36 × 16, o pino uma pílula branca
         const float TW = 36, TH = 16;
         float x = r.right - 10 - TW, y = (r.top + r.bottom) / 2 - TH / 2;
@@ -646,6 +693,16 @@ D2D1_RECT_F ButtonRect(const std::wstring& label, float right, float cy) {
 }
 
 void DrawButton(aj::Ctx& c, D2D1_RECT_F b, const std::wstring& label, bool enabled, bool primary = false) {
+    if (Leo()) {  // Leopard: pílula Aqua perolada (o botão padrão em gel azul), contorno cinza e o relevo branco embaixo
+        float rad = (b.bottom - b.top) / 2;
+        c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left, b.top + 1, b.right, b.bottom + 1), rad, rad), c.br);
+        LeoGel(c.dc, b, rad, primary);
+        c.br->SetColor(primary ? D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.9f) : D2D1::ColorF(0, 0, 0, 0.40f));
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left + 0.5f, b.top + 0.5f, b.right - 0.5f, b.bottom - 0.5f), rad - 0.5f, rad - 0.5f), c.br, 1);
+        aj::Text(c, label, b, g_tfCenter, D2D1::ColorF(0, 0, 0, enabled ? 0.9f : 0.35f));
+        return;
+    }
     if (g_tahoe && primary) {  // Tahoe: o botão padrão também é cápsula, na cor de destaque
         float rad = (b.bottom - b.top) / 2;
         c.br->SetColor(c.accent);
@@ -709,6 +766,22 @@ float SliderDefault(const aj::Row& r) { return std::clamp((r.def - r.min) / std:
 void DrawSlider(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F row) {
     D2D1_RECT_F t = SliderTrack(r, row);
     float v = SliderValue(r);
+    if (Leo()) {
+        // Leopard: trilho fino afundado (cinza com sombra por dentro) e o botão redondo de gel perolado do Aqua
+        float cy = (t.top + t.bottom) / 2;
+        D2D1_RECT_F tr = D2D1::RectF(t.left, cy - 2.5f, t.right, cy + 2.5f);
+        LeoFill(c.dc, tr, 2.5f, { { 0, D2D1::ColorF(0.55f, 0.55f, 0.55f, 1) }, { 1, D2D1::ColorF(0.80f, 0.80f, 0.80f, 1) } });
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f));
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(tr, 2.5f, 2.5f), c.br, 0.8f);
+        float kx = t.left + v * (t.right - t.left);
+        D2D1_RECT_F kb = D2D1::RectF(kx - 8, cy - 8, kx + 8, cy + 8);
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.22f));
+        c.dc->FillEllipse(D2D1::Ellipse({ kx, cy + 1.2f }, 8.2f, 8.2f), c.br);
+        LeoGel(c.dc, kb, 8, false);
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.42f));
+        c.dc->DrawEllipse(D2D1::Ellipse({ kx, cy }, 7.5f, 7.5f), c.br, 1);
+        return;
+    }
     if (r.gg) {
         // macOS 27: trilho arredondado (cinza claro / azul), botão em cápsula branca de 20 × 16 com sombra, os dois
         // pontinhos embaixo das pontas e, nas pontas, os ícones de "transparente" (contorno) e "opaco" (cheio)
@@ -825,7 +898,7 @@ void DrawRow(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F rr, int gi, int ri) {
     }
     case aj::Kind::Popup: {
         std::wstring v = r.value ? r.value() : (r.getIdx && r.getIdx() >= 0 && r.getIdx() < (int)r.options.size() ? r.options[r.getIdx()] : L"");
-        if (r.gg) {
+        if (r.gg && !Leo()) {  // (Leopard: o pop-up Aqua, mais abaixo)
             // macOS 27 (Ajustes > Aparência, 2x): botão redondo de 19,5 a 13,5 da borda da caixa, o valor a 13 dele e a
             // bolinha de 16 a 8,5 do texto
             float sx = rr.right - 13.5f - 9.75f;
@@ -849,6 +922,26 @@ void DrawRow(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F rr, int gi, int ri) {
             }
             g_hits.push_back({ H_POPUP, D2D1::RectF(dx - 10, rr.top, rr.right - 8, rr.bottom), gi, ri });
             right = dx - 16;
+            break;
+        }
+        if (Leo()) {
+            float w = std::min(TextWidth(v, g_tfBody), 260.f);
+            D2D1_RECT_F b = D2D1::RectF(right - w - 40, cy - 10, right + 6, cy + 10);
+            c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+            c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left, b.top + 1, b.right, b.bottom + 1), 4, 4), c.br);
+            LeoGel(c.dc, b, 4, false);
+            D2D1_RECT_F cap = D2D1::RectF(b.right - 19, b.top, b.right, b.bottom);
+            c.dc->PushAxisAlignedClip(cap, D2D1_ANTIALIAS_MODE_ALIASED);
+            LeoGel(c.dc, b, 4, true);
+            c.dc->PopAxisAlignedClip();
+            c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.40f));
+            c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left + 0.5f, b.top + 0.5f, b.right - 0.5f, b.bottom - 0.5f), 3.5f, 3.5f), c.br, 1);
+            c.br->SetColor(D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.7f));
+            c.dc->DrawLine({ cap.left + 0.5f, b.top + 1 }, { cap.left + 0.5f, b.bottom - 1 }, c.br, 1);
+            DrawUpDown(c, (cap.left + cap.right) / 2, cy, D2D1::ColorF(1, 1, 1, 1));
+            aj::Text(c, v, D2D1::RectF(b.left + 9, b.top, cap.left - 4, b.bottom), g_tfBody, D2D1::ColorF(0, 0, 0, 0.9f));
+            g_hits.push_back({ H_POPUP, b, gi, ri });
+            right = b.left - 4;
             break;
         }
         if (g_tahoe) {  // Tahoe: ⌃⌄ num círculo cinza
@@ -1023,6 +1116,13 @@ void DrawSidebar(aj::Ctx& c, const Pal& pal, float H) {
         D2D1_RECT_F rr = g_tahoe && !Golden() ? D2D1::RectF(13, y, SIDE_W - 8, y + SIDE_ROW) : D2D1::RectF(10, y, SIDE_W - 10, y + SIDE_ROW);
         bool sel = i == cur;
         float selR = Golden() ? 8.f : g_tahoe ? 9.f : 6.f;
+        if (sel && Leo()) {
+            D2D1_RECT_F full = D2D1::RectF(0, rr.top, SIDE_W, rr.bottom);
+            LeoFill(c.dc, full, 0, { { 0, g_winActive ? D2D1::ColorF(0.43f, 0.60f, 0.85f, 1) : D2D1::ColorF(0.68f, 0.68f, 0.70f, 1) },
+                                     { 1, g_winActive ? D2D1::ColorF(0.24f, 0.44f, 0.76f, 1) : D2D1::ColorF(0.53f, 0.53f, 0.55f, 1) } });
+            c.br->SetColor(g_winActive ? D2D1::ColorF(0.33f, 0.52f, 0.80f, 1) : D2D1::ColorF(0.60f, 0.60f, 0.62f, 1));
+            c.dc->FillRectangle(D2D1::RectF(0, full.top, SIDE_W, full.top + 1), c.br);
+        } else
         if (sel) { c.br->SetColor(pal.sideSel); c.dc->FillRoundedRectangle(D2D1::RoundedRect(rr, selR, selR), c.br); }
 
         g_tileBare = true;
@@ -1095,8 +1195,372 @@ void DrawSheet(aj::Ctx& c, const Pal& pal) {
     g_hits.push_back({ H_SHEET_OK, ok });
 }
 
+// ================= Mac OS X Leopard: as Preferências do Sistema do 10.5
+// Desenho próprio do tema (nada do Sequoia/Tahoe): janela cinza 232 sem barra lateral; barra "unified" de metal com
+// o título na linha de cima e, embaixo, ◀ ▶ segmentados, "Mostrar Todos" e a busca em pílula. "Mostrar Todos" é a
+// grade de painéis em faixas por categoria (Pessoal, Hardware, Internet e Rede, Sistema) com os ícones do 10.5
+// (icones\leopard\pref <id>.png); cada painel é um formulário: rótulo alinhado à direita com dois-pontos, o controle à
+// direita dele (pop-up Aqua, caixa de seleção à esquerda do texto, botão em pílula) e linhas gravadas entre os grupos.
+// Os dados (páginas, linhas, o que cada controle faz) são os mesmos de sempre (paginas.cpp).
+const int H_SHOWALL = 1000;  // acerto do botão "Mostrar Todos" (fora do enum para não mexer nos outros temas)
+struct LeoCat { const wchar_t* name; std::vector<std::wstring> ids; };
+const std::vector<LeoCat>& LeoCats() {
+    static const std::vector<LeoCat> cats = {
+        { L"Pessoal", { L"aparencia", L"fundo", L"protetor", L"dock", L"central", L"geral", L"spotlight" } },
+        { L"Hardware", { L"telas", L"som", L"energia", L"teclado", L"mouse", L"trackpad", L"impressoras", L"bluetooth" } },
+        { L"Internet e Rede", { L"rede", L"wifi", L"contas", L"nuvem", L"jogos" } },
+        { L"Sistema", { L"usuarios", L"privacidade", L"senha", L"bloqueio", L"acessibilidade", L"inteligencia", L"notificacoes", L"foco", L"tempo" } },
+    };
+    return cats;
+}
+IDWriteTextFormat* LeoFmt(float size, bool bold, DWRITE_TEXT_ALIGNMENT a, bool wrap = false) {
+    // Lucida Grande no Mac; no Windows a Lucida Sans Unicode (o mesmo desenho de origem)
+    IDWriteTextFormat* f = Format(L"Lucida Sans Unicode", size, bold ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL, a);
+    if (f && wrap) { f->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP); f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR); }
+    return f;
+}
+IDWriteTextFormat *g_lf, *g_lfR, *g_lfB, *g_lfS, *g_lfSC, *g_lfT;
+void LeoFormats() {
+    if (g_lf) return;
+    g_lf = LeoFmt(13, false, DWRITE_TEXT_ALIGNMENT_LEADING);
+    g_lfR = LeoFmt(13, false, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    g_lfB = LeoFmt(12, true, DWRITE_TEXT_ALIGNMENT_LEADING);
+    g_lfS = LeoFmt(11, false, DWRITE_TEXT_ALIGNMENT_LEADING, true);
+    g_lfSC = LeoFmt(11, false, DWRITE_TEXT_ALIGNMENT_CENTER, true);
+    g_lfT = LeoFmt(13, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+}
+std::wstring LeoIconPath(const std::wstring& id) {
+    static std::wstring dir;
+    if (dir.empty()) {
+        wchar_t exe[MAX_PATH] = {}; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring p = exe; p = p.substr(0, p.find_last_of(L'\\')); p = p.substr(0, p.find_last_of(L'\\'));  // bin\ -> instalação
+        dir = p + L"\\icones\\leopard\\pref ";
+    }
+    std::wstring f = dir + id + L".png";
+    return GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES ? f : dir + L"geral.png";
+}
+// texto com relevo branco 1 px abaixo (os textos sobre o metal e o cinza do 10.5)
+void LeoText(aj::Ctx& c, const std::wstring& s, D2D1_RECT_F r, IDWriteTextFormat* f, D2D1_COLOR_F col, bool emboss = true) {
+    if (emboss) aj::Text(c, s, D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1), f, D2D1::ColorF(1, 1, 1, 0.55f));
+    aj::Text(c, s, r, f, col);
+}
+// pílula Aqua (botão comum perolado; padrão/apertado em gel azul)
+void LeoPill(aj::Ctx& c, D2D1_RECT_F b, const std::wstring& label, bool enabled, bool blue = false) {
+    float rad = (b.bottom - b.top) / 2;
+    c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+    c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left, b.top + 1, b.right, b.bottom + 1), rad, rad), c.br);
+    LeoGel(c.dc, b, rad, blue);
+    c.br->SetColor(blue ? D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.9f) : D2D1::ColorF(0, 0, 0, 0.42f));
+    c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left + 0.5f, b.top + 0.5f, b.right - 0.5f, b.bottom - 0.5f), rad - 0.5f, rad - 0.5f), c.br, 1);
+    g_lfT->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    aj::Text(c, label, b, g_lfT, D2D1::ColorF(0, 0, 0, enabled ? 0.9f : 0.35f));
+}
+float LeoDetailH(const aj::Row& r, float w) { return r.detail.empty() ? 0 : TextHeight(r.detail, g_lfS, w) + 6; }
+float LeoRowH(const aj::Row& r, float colW) {
+    if (r.kind == aj::Kind::Custom) return r.height > 0 ? r.height : 40;
+    float base = r.kind == aj::Kind::Toggle ? 24.f : 30.f;
+    return base + LeoDetailH(r, colW - (r.kind == aj::Kind::Toggle ? 20 : 0));
+}
+void LeoRow(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F rr, float x0, float colX, int gi, int ri) {
+    D2D1_COLOR_F ink = D2D1::ColorF(0, 0, 0, r.enabled ? 0.88f : 0.35f), gray = D2D1::ColorF(0, 0, 0, r.enabled ? 0.55f : 0.30f);
+    if (r.kind == aj::Kind::Custom) { if (r.draw) r.draw(c, rr); g_hits.push_back({ H_CUSTOM, rr, gi, ri }); return; }
+    float cy = rr.top + 13;
+    auto rightLabel = [&] {
+        if (r.label.empty()) return;
+        LeoText(c, Tr(r.label) + L":", D2D1::RectF(x0, cy - 10, colX - 6, cy + 10), g_lfR, ink, false);
+    };
+    auto detail = [&](float dx) {
+        if (r.detail.empty()) return;
+        float h = LeoDetailH(r, rr.right - dx);
+        aj::Text(c, r.detail, D2D1::RectF(dx, rr.top + 25, rr.right, rr.top + 25 + h), g_lfS, gray);
+    };
+    switch (r.kind) {
+    case aj::Kind::Toggle: {
+        bool on = r.get ? r.get() : false;
+        D2D1_RECT_F b = D2D1::RectF(colX, cy - 7, colX + 14, cy + 7);
+        c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left, b.top + 1, b.right, b.bottom + 1), 3, 3), c.br);
+        LeoGel(c.dc, b, 3, on);
+        c.br->SetColor(on ? D2D1::ColorF(0.12f, 0.27f, 0.58f, r.enabled ? 0.9f : 0.4f) : D2D1::ColorF(0, 0, 0, r.enabled ? 0.45f : 0.2f));
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left + 0.5f, b.top + 0.5f, b.right - 0.5f, b.bottom - 0.5f), 2.5f, 2.5f), c.br, 1);
+        if (on) {
+            c.br->SetColor(D2D1::ColorF(0.05f, 0.08f, 0.15f, r.enabled ? 0.95f : 0.4f));
+            Line(c.dc, c.br, colX + 3.2f, cy + 0.2f, colX + 6, cy + 3.5f, 2.0f);
+            Line(c.dc, c.br, colX + 6, cy + 3.5f, colX + 11.5f, cy - 4.2f, 2.0f);
+        }
+        LeoText(c, Tr(r.label), D2D1::RectF(colX + 20, cy - 10, rr.right, cy + 10), g_lf, ink, false);
+        detail(colX + 20);
+        g_hits.push_back({ H_TOGGLE, D2D1::RectF(colX - 4, rr.top, std::min(rr.right, colX + 30 + TextWidth(Tr(r.label), g_lf)), rr.top + 26), gi, ri });
+        return;
+    }
+    case aj::Kind::Popup: {
+        rightLabel();
+        std::wstring v = r.value ? r.value() : (r.getIdx && r.getIdx() >= 0 && r.getIdx() < (int)r.options.size() ? r.options[r.getIdx()] : L"");
+        if (!v.empty() && v[0] == L'!') v = v.substr(1);
+        v = Tr(v);
+        float w = std::max(120.f, std::min(TextWidth(v, g_lf), 300.f) + 46);
+        D2D1_RECT_F b = D2D1::RectF(colX, cy - 10, colX + w, cy + 10);
+        c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+        c.dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left, b.top + 1, b.right, b.bottom + 1), 4, 4), c.br);
+        LeoGel(c.dc, b, 4, false);
+        D2D1_RECT_F cap = D2D1::RectF(b.right - 19, b.top, b.right, b.bottom);
+        c.dc->PushAxisAlignedClip(cap, D2D1_ANTIALIAS_MODE_ALIASED);
+        LeoGel(c.dc, b, 4, true);
+        c.dc->PopAxisAlignedClip();
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.42f));
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(b.left + 0.5f, b.top + 0.5f, b.right - 0.5f, b.bottom - 0.5f), 3.5f, 3.5f), c.br, 1);
+        c.br->SetColor(D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.7f));
+        c.dc->DrawLine({ cap.left + 0.5f, b.top + 1 }, { cap.left + 0.5f, b.bottom - 1 }, c.br, 1);
+        float ax = (cap.left + cap.right) / 2;  // as setinhas brancas ▲▼
+        c.br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        ID2D1Factory* fac = nullptr; c.dc->GetFactory(&fac);
+        for (int k = 0; k < 2 && fac; k++) {
+            ID2D1PathGeometry* g = nullptr;
+            if (FAILED(fac->CreatePathGeometry(&g))) break;
+            ID2D1GeometrySink* sk = nullptr;
+            if (SUCCEEDED(g->Open(&sk))) {
+                float sgn = k ? 1.f : -1.f, ty = cy + sgn * 1.5f;
+                sk->BeginFigure({ ax - 3.5f, ty }, D2D1_FIGURE_BEGIN_FILLED);
+                sk->AddLine({ ax + 3.5f, ty }); sk->AddLine({ ax, ty + sgn * 4 });
+                sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+                c.dc->FillGeometry(g, c.br);
+            }
+            g->Release();
+        }
+        if (fac) fac->Release();
+        aj::Text(c, v, D2D1::RectF(b.left + 9, b.top, cap.left - 4, b.bottom), g_lf, ink);
+        detail(colX);
+        g_hits.push_back({ H_POPUP, b, gi, ri });
+        return;
+    }
+    case aj::Kind::Button: {
+        rightLabel();
+        float w = std::max(80.f, TextWidth(Tr(r.button), g_lfT) + 30);
+        D2D1_RECT_F b = D2D1::RectF(colX, cy - 10, colX + w, cy + 10);
+        LeoPill(c, b, Tr(r.button), r.enabled);
+        detail(colX);
+        g_hits.push_back({ H_BUTTON, b, gi, ri });
+        return;
+    }
+    case aj::Kind::Link: {  // abre um painel/folha: botão "Nome…"
+        std::wstring t = Tr(r.label) + L"…";
+        float w = std::max(80.f, TextWidth(t, g_lfT) + 30);
+        D2D1_RECT_F b = D2D1::RectF(colX, cy - 10, colX + w, cy + 10);
+        LeoPill(c, b, t, r.enabled);
+        std::wstring v = r.value ? r.value() : L"";
+        if (!v.empty()) aj::Text(c, v, D2D1::RectF(b.right + 10, cy - 10, rr.right, cy + 10), g_lf, gray);
+        g_hits.push_back({ H_LINK, b, gi, ri });
+        return;
+    }
+    case aj::Kind::Value: {
+        rightLabel();
+        std::wstring v = r.value ? r.value() : L"";
+        aj::Text(c, v, D2D1::RectF(colX, cy - 10, rr.right, cy + 10), g_lf, ink);
+        detail(colX);
+        if (r.click) g_hits.push_back({ H_ROW, rr, gi, ri });
+        return;
+    }
+    case aj::Kind::Slider: {
+        rightLabel();
+        float v = SliderValue(r);
+        D2D1_RECT_F tr = D2D1::RectF(colX + 8, cy - 2.5f, std::min(rr.right - 20, colX + 268), cy + 2.5f);
+        LeoFill(c.dc, tr, 2.5f, { { 0, D2D1::ColorF(0.55f, 0.55f, 0.55f, 1) }, { 1, D2D1::ColorF(0.82f, 0.82f, 0.82f, 1) } });
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f));
+        c.dc->DrawRoundedRectangle(D2D1::RoundedRect(tr, 2.5f, 2.5f), c.br, 0.8f);
+        float kx = tr.left + v * (tr.right - tr.left);
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.22f));
+        c.dc->FillEllipse(D2D1::Ellipse({ kx, cy + 1.2f }, 8.2f, 8.2f), c.br);
+        LeoGel(c.dc, D2D1::RectF(kx - 8, cy - 8, kx + 8, cy + 8), 8, false);
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.42f));
+        c.dc->DrawEllipse(D2D1::Ellipse({ kx, cy }, 7.5f, 7.5f), c.br, 1);
+        if (!r.minGlyph.empty() && r.minGlyph[0] < 0xE000) aj::Text(c, r.minGlyph, D2D1::RectF(colX - 60, cy + 6, colX + 60, cy + 20), g_lfSC, gray);
+        detail(colX);
+        g_hits.push_back({ H_SLIDER, D2D1::RectF(tr.left - 10, cy - 10, tr.right + 10, cy + 10), gi, ri });  // SliderTo tira 10 de cada lado
+        return;
+    }
+    default:
+        rightLabel();
+        return;
+    }
+}
+
+void LeoShowAll(aj::Ctx& c, D2D1_SIZE_F s, float top) {
+    auto& items = SidebarItems();
+    std::wstring q = g_search.text;
+    float y = top - g_scroll;
+    int band = 0;
+    for (auto& cat : LeoCats()) {
+        std::vector<int> idx;
+        for (auto& id : cat.ids) {
+            int i = SidebarIndexFor(id);
+            if (i < 0) continue;
+            if (!q.empty() && std::find(g_sideVisible.begin(), g_sideVisible.end(), i) == g_sideVisible.end()) continue;
+            idx.push_back(i);
+        }
+        if (idx.empty()) continue;
+        const float PITCH = 84, ROWH = 82;
+        int perRow = std::max(1, (int)((s.width - 24) / PITCH));
+        int rows = ((int)idx.size() + perRow - 1) / perRow;
+        float h = 24 + rows * ROWH + 6;
+        // faixas alternadas (cinza claro / cinza do 10.5) com a linha fina entre elas
+        c.br->SetColor(band % 2 == 0 ? D2D1::ColorF(0.93f, 0.93f, 0.93f, 1) : D2D1::ColorF(0.87f, 0.87f, 0.87f, 1));
+        c.dc->FillRectangle(D2D1::RectF(0, y, s.width, y + h), c.br);
+        c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.12f));
+        c.dc->FillRectangle(D2D1::RectF(0, y + h - 1, s.width, y + h), c.br);
+        LeoText(c, Tr(cat.name), D2D1::RectF(12, y + 4, s.width, y + 22), g_lfB, D2D1::ColorF(0, 0, 0, 0.75f));
+        for (int k = 0; k < (int)idx.size(); k++) {
+            int i = idx[k];
+            float x = 14 + (k % perRow) * PITCH, iy = y + 24 + (k / perRow) * ROWH;
+            if (ID2D1Bitmap* b = aj::BitmapFromFile(LeoIconPath(items[i].id), 64))  // o PNG tem 10 % de margem: 40 para 32 de desenho
+                c.dc->DrawBitmap(b, D2D1::RectF(x + PITCH / 2 - 20, iy, x + PITCH / 2 + 20, iy + 40), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            aj::Text(c, Tr(items[i].name), D2D1::RectF(x + 2, iy + 42, x + PITCH - 2, iy + ROWH), g_lfSC, D2D1::ColorF(0, 0, 0, 0.85f));
+            g_hits.push_back({ H_SIDE, D2D1::RectF(x, iy, x + PITCH, iy + ROWH), i });
+        }
+        y += h;
+        band++;
+    }
+    g_contentH = y + g_scroll - top + 8;
+}
+
+void LeoPage(aj::Ctx& c, D2D1_SIZE_F s, float top) {
+    float x0 = 20, x1 = s.width - 20, w = x1 - x0;
+    float colX = x0 + std::max(170.f, w * 0.38f);
+    float y = top + 18 - g_scroll;
+    for (int gi = 0; gi < (int)g_page.groups.size(); gi++) {
+        auto& g = g_page.groups[gi];
+        if (g.rows.empty() && g.title.empty()) continue;
+        if (gi > 0) {  // a linha gravada entre os grupos (escura e o fio branco embaixo)
+            y += 8;
+            c.br->SetColor(D2D1::ColorF(0, 0, 0, 0.14f));
+            c.dc->FillRectangle(D2D1::RectF(x0, y, x1, y + 1), c.br);
+            c.br->SetColor(D2D1::ColorF(1, 1, 1, 0.7f));
+            c.dc->FillRectangle(D2D1::RectF(x0, y + 1, x1, y + 2), c.br);
+            y += 12;
+        }
+        if (!g.title.empty()) { LeoText(c, Tr(g.title), D2D1::RectF(x0, y, x1, y + 18), g_lfB, D2D1::ColorF(0, 0, 0, 0.8f)); y += 22; }
+        if (!g.subtitle.empty()) {
+            float th = TextHeight(g.subtitle, g_lfS, w);
+            aj::Text(c, g.subtitle, D2D1::RectF(x0, y, x1, y + th + 2), g_lfS, D2D1::ColorF(0, 0, 0, 0.55f));
+            y += th + 8;
+        }
+        for (int ri = 0; ri < (int)g.rows.size(); ri++) {
+            auto& r = g.rows[ri];
+            float rh = LeoRowH(r, x1 - colX);
+            D2D1_RECT_F rr = D2D1::RectF(r.kind == aj::Kind::Custom ? x0 : x0, y, x1, y + rh);
+            if (rr.bottom > top - 60 && rr.top < s.height + 60) LeoRow(c, r, rr, x0, colX, gi, ri);
+            y += rh;
+        }
+    }
+    g_contentH = y + g_scroll - top + 20;
+}
+
+void RenderLeopard() {
+    auto* dc = gfx::Begin(g_dpi);
+    if (!dc) return;
+    if (!g_round) {
+        ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+        f->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND), nullptr, 0, &g_round);
+        f->Release();
+    }
+    LeoFormats();
+    dc->Clear(D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1));
+    Pal pal = Colors();
+    ID2D1SolidColorBrush* br = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+    aj::Ctx c{ dc, br, false, D2D1::ColorF(0, 0, 0, 0.88f), D2D1::ColorF(0, 0, 0, 0.55f), D2D1::ColorF(0, 0, 0, 0.30f), aj::Accent(),
+               D2D1::ColorF(0, 0, 0, 0.12f), D2D1::ColorF(0, 0, 0, 0.04f), D2D1::ColorF(1, 1, 1, 1),
+               g_lf, g_lfS, g_lfB, g_lfB, g_tfGlyph, g_tfGlyphSmall, g_lfT, g_lfSC, g_lfSC };
+    g_hits.clear();
+    auto s = ClientDip();
+    const bool all = g_leoAll || !g_search.text.empty();
+    dc->PushAxisAlignedClip(D2D1::RectF(0, TOOL_H, s.width, s.height), D2D1_ANTIALIAS_MODE_ALIASED);
+    if (all) LeoShowAll(c, s, TOOL_H); else LeoPage(c, s, TOOL_H);
+    dc->PopAxisAlignedClip();
+
+    // barra "unified": metal, título, botões da janela e a linha de ferramentas
+    leopard::Metal(dc, D2D1::RectF(0, 0, s.width, TOOL_H), g_winActive, false, true);
+    std::wstring title = all ? Tr(L"Preferências do Sistema") : Tr(g_page.title);
+    LeoText(c, title, D2D1::RectF(80, 0, s.width - 80, 22), g_lfT, D2D1::ColorF(0, 0, 0, g_winActive ? 0.85f : 0.45f));
+    for (int k = 0; k < 3; k++) {
+        static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) };
+        const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
+        D2D1_POINT_2F p{ 14.5f + k * 21.f, 11 };
+        br->SetColor(g_winActive || g_hoverLights ? on[k] : D2D1::ColorF(0.75f, 0.75f, 0.75f, 1));
+        dc->FillEllipse(D2D1::Ellipse(p, 7, 7), br);
+        semaforo::Gloss(dc, p, 7, br);
+        g_hits.push_back({ H_LIGHT, D2D1::RectF(p.x - 9, p.y - 9, p.x + 9, p.y + 9), k });
+        if (!g_hoverLights) continue;
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.6f));
+        float a = 2.6f;
+        if (k == 0) { Line(dc, br, p.x - a, p.y - a, p.x + a, p.y + a, 1.2f); Line(dc, br, p.x - a, p.y + a, p.x + a, p.y - a, 1.2f); }
+        else if (k == 1) Line(dc, br, p.x - 3.2f, p.y, p.x + 3.2f, p.y, 1.3f);
+        else { Line(dc, br, p.x - 3.2f, p.y, p.x + 3.2f, p.y, 1.3f); Line(dc, br, p.x, p.y - 3.2f, p.x, p.y + 3.2f, 1.3f); }
+    }
+    // ◀ ▶ segmentados (moldura de metal claro)
+    bool canBack = !all || g_histAt > 0, canFwd = g_histAt + 1 < (int)g_hist.size();
+    D2D1_RECT_F seg = D2D1::RectF(10, 30, 62, 52);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.45f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(seg.left, seg.top + 1, seg.right, seg.bottom + 1), 4, 4), br);
+    LeoFill(dc, seg, 4, { { 0, D2D1::ColorF(0.99f, 0.99f, 0.99f, 1) }, { 1, D2D1::ColorF(0.84f, 0.84f, 0.84f, 1) } });
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.42f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(seg.left + 0.5f, seg.top + 0.5f, seg.right - 0.5f, seg.bottom - 0.5f), 3.5f, 3.5f), br, 1);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f));
+    dc->DrawLine({ 36.5f, seg.top + 1 }, { 36.5f, seg.bottom - 1 }, br, 1);
+    ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
+    auto tri = [&](float cx, bool left, bool on) {
+        ID2D1PathGeometry* g = nullptr;
+        if (!fac || FAILED(fac->CreatePathGeometry(&g))) return;
+        ID2D1GeometrySink* sk = nullptr;
+        if (SUCCEEDED(g->Open(&sk))) {
+            float d = left ? -1.f : 1.f, cy = 41;
+            sk->BeginFigure({ cx + d * 3.5f, cy }, D2D1_FIGURE_BEGIN_FILLED);
+            sk->AddLine({ cx - d * 3, cy - 4.5f }); sk->AddLine({ cx - d * 3, cy + 4.5f });
+            sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+            br->SetColor(D2D1::ColorF(0.18f, 0.18f, 0.19f, on ? 0.9f : 0.3f));
+            dc->FillGeometry(g, br);
+        }
+        g->Release();
+    };
+    tri(23, true, canBack); tri(49, false, canFwd);
+    if (fac) fac->Release();
+    g_hits.push_back({ H_BACK, D2D1::RectF(10, 30, 36, 52) });
+    g_hits.push_back({ H_FWD, D2D1::RectF(36, 30, 62, 52) });
+    std::wstring sa = Tr(L"Mostrar Todos");
+    D2D1_RECT_F sb = D2D1::RectF(70, 30, 70 + std::max(84.f, TextWidth(sa, g_lfT) + 26), 52);
+    LeoPill(c, sb, sa, true);
+    g_hits.push_back({ (HitKind)H_SHOWALL, sb });
+    // busca: pílula branca afundada com a lupa; com o foco, o anel azul
+    D2D1_RECT_F sr = D2D1::RectF(s.width - 180, 31, s.width - 12, 51);
+    float srR = (sr.bottom - sr.top) / 2;
+    if (g_searchFocus) {
+        br->SetColor(D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.75f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left - 1.5f, sr.top - 1.5f, sr.right + 1.5f, sr.bottom + 1.5f), srR + 1.5f, srR + 1.5f), br, 3);
+    }
+    br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(sr, srR, srR), br);
+    LeoFill(dc, D2D1::RectF(sr.left + 1, sr.top + 1, sr.right - 1, sr.top + 5), 2, { { 0, D2D1::ColorF(0, 0, 0, 0.14f) }, { 1, D2D1::ColorF(0, 0, 0, 0) } });
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.45f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 0.5f, sr.top + 0.5f, sr.right - 0.5f, sr.bottom - 0.5f), srR - 0.5f, srR - 0.5f), br, 1);
+    br->SetColor(D2D1::ColorF(0.25f, 0.25f, 0.27f, 1));
+    dc->DrawEllipse(D2D1::Ellipse({ sr.left + 13, (sr.top + sr.bottom) / 2 - 1 }, 4, 4), br, 1.5f);
+    Line(dc, br, sr.left + 16, (sr.top + sr.bottom) / 2 + 2, sr.left + 19, (sr.top + sr.bottom) / 2 + 5, 1.8f);
+    D2D1_RECT_F tr = D2D1::RectF(sr.left + 24, sr.top, sr.right - 8, sr.bottom);
+    if (!g_search.text.empty() || g_searchFocus) {
+        ID2D1SolidColorBrush* sel = nullptr; dc->CreateSolidColorBrush(D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.35f), &sel);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
+        bool caret = g_searchFocus && ((GetTickCount() - g_caretAt) / 530) % 2 == 0;
+        g_search.Draw(dc, g_lf, tr, br, sel, br, caret, false);
+        if (sel) sel->Release();
+    }
+    g_hits.push_back({ H_SEARCH, sr });
+    if (g_sheet.open) { g_hits.clear(); DrawSheet(c, pal); }
+    br->Release();
+    gfx::End();
+}
+
 // ================= Quadro
 void Render() {
+    if (Leo()) { RenderLeopard(); return; }  // Mac OS X Leopard: as Preferências do Sistema do 10.5 (desenho próprio)
     auto* dc = gfx::Begin(g_dpi);
     if (!dc) return;
     if (!g_round) {
@@ -1155,6 +1619,8 @@ void Render() {
     br->SetColor(pal.divider);
     dc->FillRectangle(D2D1::RectF(SIDE_W - 0.5f, 0, SIDE_W + 0.5f, s.height), br);
     }
+    // Leopard: a barra de cima é o metal "unified" do 10.5, de ponta a ponta (os três botões e o título por cima)
+    if (!g_tahoe && tahoe::Leopard()) leopard::Metal(dc, D2D1::RectF(0, 0, s.width, TOOL_H), g_winActive, g_dark, true);
 
     // conteúdo
     // Golden Gate (Aparência do macOS 27, 2x): caixas a 21 da barra lateral e 20,5 da direita, a primeira a 64,5 do alto
@@ -1330,6 +1796,11 @@ LRESULT HitTestNC(HWND h, LPARAM l) {
     }
     D2D1_POINT_2F d = ToDip(p.x, p.y);
     if (g_sheet.open) return HTCLIENT;
+    if (Leo()) {  // Leopard: a barra inteira arrasta, menos os botões, a busca e os três botões da janela
+        if (d.y >= TOOL_H) return HTCLIENT;
+        for (auto& hh : g_hits) if (d.x >= hh.r.left && d.x < hh.r.right && d.y >= hh.r.top && d.y < hh.r.bottom) return HTCLIENT;
+        return HTCAPTION;
+    }
     bool lights = d.x >= 10 && d.x < 76 && d.y < 40;
     bool arrows = d.x >= SIDE_W + 10 && d.x < SIDE_W + 84 && d.y < TOOL_H;
     if (!lights && !arrows && (d.y < TOOL_H - 4 && (d.x >= SIDE_W || d.y < SEARCH_Y - 4))) return HTCAPTION;
@@ -1337,7 +1808,9 @@ LRESULT HitTestNC(HWND h, LPARAM l) {
 }
 
 void ApplyWindowTheme() {
-    SIDE_W = g_tahoe ? (Golden() ? 231.f : 247.f) : 215.f;  // Tahoe: 8 de recuo + 239 do painel; Golden Gate: 231 até a borda
+    SIDE_W = g_tahoe ? (Golden() ? 231.f : 247.f) : 215.f;
+    TOOL_H = Leo() ? 56.f : 52.f;
+    if (Leo()) SIDE_W = 0;  // Leopard: as Preferências do Sistema não têm barra lateral (Mostrar Todos)  // Tahoe: 8 de recuo + 239 do painel; Golden Gate: 231 até a borda
     SIDE_ROW = g_tahoe ? 32.f : 28.f;
     ROW_H = g_tahoe ? (Golden() ? 37.5f : 42.f) : 38.f;  // macOS 27: linhas de 37,5 (as com ícone, 49)
     SEARCH_Y = Golden() ? 62.f : 52.f;
@@ -1366,6 +1839,10 @@ void Click(D2D1_POINT_2F p, bool right) {
     if (!hp) { if (g_searchFocus) { g_searchFocus = false; Invalidate(); } return; }
     Hit h = *hp;
     if (h.kind != H_SEARCH && g_searchFocus) { g_searchFocus = false; }
+    if ((int)h.kind == H_SHOWALL) {  // Leopard: "Mostrar Todos" (a grade de painéis)
+        g_leoAll = true; g_search.SetText(L"", false); UpdateSideVisible(); g_scroll = g_scrollTarget = 0; Invalidate(); return;
+    }
+    if (h.kind == H_BACK && Leo() && !g_leoAll && g_histAt <= 0) { g_leoAll = true; g_scroll = g_scrollTarget = 0; Invalidate(); return; }
     switch (h.kind) {
     case H_LIGHT:
         if (h.a == 0) PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
@@ -1516,7 +1993,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         if (w == T_REFRESH) {
-            if (tahoe::Reload()) { g_tahoe = tahoe::On(); ApplyWindowTheme(); shadow::Update(); Invalidate(); }
+            if (tahoe::Reload()) { g_tahoe = tahoe::On(); g_dark = ReadDark(); ApplyWindowTheme(); shadow::Update(); Invalidate(); }
             if (!g_sheet.open && g_drag.g < 0 && !ctxmenu::IsOpen()) {
                 bool d = ReadDark();
                 if (d != g_dark) { g_dark = d; ApplyWindowTheme(); }
@@ -1587,7 +2064,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return TRUE;
     }
     case WM_APP_REBUILD:
-        if (tahoe::Reload()) { g_tahoe = tahoe::On(); ApplyWindowTheme(); shadow::Update(); }  // Tema trocado aqui mesmo
+        if (tahoe::Reload()) { g_tahoe = tahoe::On(); g_dark = ReadDark(); ApplyWindowTheme(); shadow::Update(); }  // Tema trocado aqui mesmo
         if (g_drag.g < 0 && !ctxmenu::IsOpen()) ShowPage();
         Invalidate();
         return 0;
@@ -1719,6 +2196,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     g_hist.push_back({ std::max(start, 0), {} });
     g_histAt = 0;
     ShowPage();
+    g_leoAll = page.empty();  // Leopard: abre no Mostrar Todos, a não ser que tenham pedido um painel
     if (page == L"atualizacao") OpenUpdatePage();
 
     // escondida (cloak) até o primeiro quadro estar pronto: sem isso a janela aparecia com a área da

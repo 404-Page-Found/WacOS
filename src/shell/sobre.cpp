@@ -9,6 +9,8 @@
 #include <cmath>
 #include "../comum/idioma.h"
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"   // tema Mac OS X Leopard: o metal da barra
+#include "../comum/simbolos.h"  // a maçã do Leopard (apple.logo em prata)
 
 namespace {
 
@@ -16,13 +18,16 @@ const float W = 280;
 // macOS 27 Golden Gate (About-This-Mac.png, 2x): 280 × 487, nome a 245,5 sem a linha do ano, dados a partir de 285,5
 // a cada 16, "Mais Informações…" de 24 em 376,5 e o rodapé em 422 / 437 / 451
 #define GG (liquid::Golden())
-#define H (GG ? 487.f : 474.f)
+// Mac OS X Leopard (About This Mac do 10.5): 280 × 384, janela cinza 232 com a barra de 22, maçã prateada, "Mac OS X",
+// a versão, "Atualização de Software…", Processador / Memória / Disco de Inicialização, "Mais Informações…" e o rodapé
+#define LEO (liquid::Leopard())
+#define H (LEO ? 384.f : GG ? 487.f : 474.f)
 const float LIGHT_PITCH = 23, LIGHT_R = 7;  // padrão do projeto (o do Monitor de Atividade)
 // Tahoe (guia macOS26-Theme-Reference, seção 9.1): janela só com título = cantos de 16 e o 1º botão em x 9, y 9
 // (centro 16, 16); Sequoia: cantos de 10, centro em 19, 14
-#define RADIUS (liquid::On() ? 16.f : 10.f)
-#define LIGHT_X0 (liquid::On() ? 16.f : 19.f)
-#define LIGHT_Y (liquid::On() ? 16.f : 14.f)
+#define RADIUS (liquid::On() ? 16.f : LEO ? 6.f : 10.f)
+#define LIGHT_X0 (liquid::On() ? 16.f : LEO ? 14.5f : 19.f)
+#define LIGHT_Y (liquid::On() ? 16.f : LEO ? 11.f : 14.f)
 const float IMG_TOP = 90, IMG_W = 145.5f, IMG_H = 70.7f;
 const float YEAR_CY = 262;
 #define TITLE_CY (GG ? 245.5f : 240.6f)
@@ -45,6 +50,43 @@ ID2D1Bitmap* g_photo;            // icones\sequoia\macstudio.png: o aparelho rec
 UINT g_pw, g_ph; std::vector<BYTE> g_px; bool g_triedPhoto;
 
 float Sc() { return ui::Scale(g_wnd); }
+
+// dados reais da máquina para o Sobre do Leopard (o 10.5 mostrava o processador, a memória e o disco)
+std::wstring Processador() {
+    wchar_t v[128] = {}; DWORD cb = sizeof(v);
+    RegGetValueW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"ProcessorNameString", RRF_RT_REG_SZ, nullptr, v, &cb);
+    std::wstring s = v;
+    while (!s.empty() && s.back() == L' ') s.pop_back();
+    while (!s.empty() && s[0] == L' ') s.erase(0, 1);
+    for (const wchar_t* tira : { L"(R)", L"(TM)", L" CPU", L" Processor" }) for (size_t p; (p = s.find(tira)) != std::wstring::npos;) s.erase(p, wcslen(tira));
+    if (size_t p = s.find(L" @ "); p != std::wstring::npos) s = s.substr(p + 3) + L" " + s.substr(0, p);  // "3,6 GHz Intel Core i7" como no Mac
+    return s.empty() ? L"Intel Core 2 Duo" : s;
+}
+std::wstring Memoria() {
+    MEMORYSTATUSEX m{ sizeof(m) };
+    GlobalMemoryStatusEx(&m);
+    wchar_t b[32]; swprintf_s(b, L"%llu GB", (m.ullTotalPhys + (1ull << 29)) >> 30);
+    return b;
+}
+
+// botão em pílula do Aqua (perolado; com o mouse apertado, azul)
+void AquaPill(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r, bool down) {
+    float rad = (r.bottom - r.top) / 2;
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1), rad, rad), br);
+    D2D1_GRADIENT_STOP st[4] = { { 0, down ? D2D1::ColorF(0.66f, 0.80f, 0.98f, 1) : D2D1::ColorF(1, 1, 1, 1) },
+                                 { 0.5f, down ? D2D1::ColorF(0.38f, 0.60f, 0.93f, 1) : D2D1::ColorF(0.95f, 0.95f, 0.95f, 1) },
+                                 { 0.5f, down ? D2D1::ColorF(0.24f, 0.47f, 0.87f, 1) : D2D1::ColorF(0.88f, 0.88f, 0.88f, 1) },
+                                 { 1, down ? D2D1::ColorF(0.58f, 0.82f, 1.0f, 1) : D2D1::ColorF(0.98f, 0.98f, 0.98f, 1) } };
+    ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(st, 4, &gs)) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+    if (lb) lb->Release();
+    if (gs) gs->Release();
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.40f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), rad - 0.5f, rad - 0.5f), br, 1);
+}
 
 // número de série estável para esta máquina (10 caracteres, como os do Mac)
 std::wstring Serial() {
@@ -146,6 +188,66 @@ void DrawMacStudio(ID2D1DeviceContext* dc, float x, float y) {
 const UINT WM_SB_FRAME = WM_APP + 72;
 double g_openAt;  // a mola comum dos painéis ao aparecer
 
+void PaintLeopard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br) {
+    // fundo cinza 232 do 10.5 com a barra de 22 em metal (cantos de cima redondos, os de baixo quase retos)
+    br->SetColor(D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H), RADIUS, RADIUS), br);
+    leopard::Metal(dc, D2D1::RectF(0, 0, W, 22), g_active, false, true, RADIUS);
+    Text(dc, br, Tr(L"Sobre Este Mac"), 13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(70, 1, W - 70, 22), D2D1::ColorF(1, 1, 1, 0.5f));
+    Text(dc, br, Tr(L"Sobre Este Mac"), 13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(70, 0, W - 70, 21), D2D1::ColorF(0, 0, 0, g_active ? 0.80f : 0.45f));
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.45f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), RADIUS - 0.5f, RADIUS - 0.5f), br, 1);
+    // só o fechar aceso (gel); minimizar e ampliar apagados
+    for (int k = 0; k < 3; k++) {
+        D2D1_POINT_2F c{ LIGHT_X0 + k * 21.f, LIGHT_Y };
+        br->SetColor(k == 0 && g_active ? semaforo::Close() : D2D1::ColorF(0.75f, 0.75f, 0.75f, 1));
+        dc->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
+        semaforo::Gloss(dc, c, 7, br);
+        if (k == 0 && g_hover == 0) {
+            br->SetColor(D2D1::ColorF(0.30f, 0, 0, 0.75f));
+            dc->DrawLine({ c.x - 2.6f, c.y - 2.6f }, { c.x + 2.6f, c.y + 2.6f }, br, 1.2f);
+            dc->DrawLine({ c.x - 2.6f, c.y + 2.6f }, { c.x + 2.6f, c.y - 2.6f }, br, 1.2f);
+        }
+    }
+    // a maçã prateada (degradê do branco para o cinza, com o contorno escuro fino)
+    {
+        D2D1_RECT_F ar = D2D1::RectF(W / 2 - 34, 40, W / 2 + 34, 118);
+        D2D1_GRADIENT_STOP st[3] = { { 0, D2D1::ColorF(0.97f, 0.97f, 0.98f, 1) }, { 0.55f, D2D1::ColorF(0.80f, 0.81f, 0.83f, 1) }, { 1, D2D1::ColorF(0.58f, 0.59f, 0.62f, 1) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(st, 3, &gs)) &&
+            SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, ar.top }, { 0, ar.bottom }), gs, &lb))) {
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.22f));  // sombra
+            simbolo::Draw(dc, L"apple.logo", D2D1::RectF(ar.left, ar.top + 1.5f, ar.right, ar.bottom + 1.5f), br);
+            simbolo::Draw(dc, L"apple.logo", ar, lb);
+        }
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    }
+    auto C = DWRITE_TEXT_ALIGNMENT_CENTER;
+    D2D1_COLOR_F ink = D2D1::ColorF(0, 0, 0, 0.88f), gray = D2D1::ColorF(0, 0, 0, 0.55f);
+    Text(dc, br, L"Mac OS X", 27, DWRITE_FONT_WEIGHT_LIGHT, C, D2D1::RectF(0, 124, W, 158), D2D1::ColorF(0.25f, 0.25f, 0.26f, 1));
+    Text(dc, br, Tr(L"Versão 10.5.8"), 11, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, 158, W, 174), gray);
+    auto pill = [&](const std::wstring& s, float top, D2D1_RECT_F& out, int id) {
+        IDWriteTextFormat* tb = ui::Format(11, DWRITE_FONT_WEIGHT_NORMAL);
+        float tw = tb ? ui::TextWidth(tb, s) : 110;
+        if (tb) tb->Release();
+        float bw = std::ceil(tw + 30);
+        out = D2D1::RectF((W - bw) / 2, top, (W + bw) / 2, top + 19);
+        AquaPill(dc, br, out, g_press == id && g_hover == id);
+        Text(dc, br, s, 11, DWRITE_FONT_WEIGHT_NORMAL, C, out, ink);
+    };
+    pill(Tr(L"Atualização de Software…"), 184, g_reg, 2);
+    const std::wstring rows[3][2] = { { Tr(L"Processador"), Processador() }, { Tr(L"Memória"), Memoria() }, { Tr(L"Disco de Inicialização"), L"Macintosh HD" } };
+    for (int i = 0; i < 3; i++) {
+        float cy = 232 + i * 22.f;
+        Text(dc, br, rows[i][0], 11, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING, D2D1::RectF(0, cy - 8, 112, cy + 8), ink);
+        Text(dc, br, rows[i][1], 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(120, cy - 8, W - 10, cy + 8), ink);
+    }
+    pill(Tr(L"Mais Informações…"), 300, g_btn, 1);
+    Text(dc, br, Tr(L"™ e © 1983-2009 Apple Inc."), 10, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, 344, W, 358), gray);
+    Text(dc, br, Tr(L"Todos os direitos reservados."), 10, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, 358, W, 372), gray);
+}
+
 void Paint() {
     if (!g_wnd || !IsWindowVisible(g_wnd)) return;
     float sc = Sc();
@@ -155,6 +257,17 @@ void Paint() {
     bool dark = ui::Dark();
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+    if (LEO) {  // Leopard: janela opaca (sem o vidro), o desenho do 10.5
+        PaintLeopard(dc, br);
+        br->Release();
+        ui::GpuEnd(g_s);
+        if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), RADIUS * sc } },
+                                         D2D1::ColorF(232 / 255.f, 232 / 255.f, 232 / 255.f, 1), 0.f);
+        anim::Panel mo = anim::PanelIn(anim::Now() - g_openAt);
+        ui::GpuMotion(g_s, mo.scale, wpx / 2.f, hpx / 2.f, mo.fade);
+        if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, wpx / 2.f, hpx / 2.f);
+        return;
+    }
     if (!g_glass) {
         br->SetColor(dark ? D2D1::ColorF(0.145f, 0.145f, 0.15f) : D2D1::ColorF(0.93f, 0.93f, 0.94f));
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H), RADIUS, RADIUS), br);
@@ -263,7 +376,7 @@ int Hit(D2D1_POINT_2F p) {
 void Click(int what) {
     if (what == 0) Close();
     else if (what == 1) shell::OpenSettings(L"geral");
-    else if (what == 2) shell::OpenSettings(L"geral");
+    else if (what == 2) shell::OpenSettings(LEO ? L"atualizacao" : L"geral");  // Leopard: "Atualização de Software…"
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {

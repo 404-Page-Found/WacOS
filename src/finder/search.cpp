@@ -26,6 +26,68 @@ static std::wstring ContainsTerm(const std::wstring& q) {
     return o;
 }
 
+// data local -> texto UTC para o SQL do índice ('AAAA-MM-DD HH:MM:SS')
+static std::wstring UtcText(SYSTEMTIME local) {
+    SYSTEMTIME u{};
+    TzSpecificLocalTimeToSystemTime(nullptr, &local, &u);
+    wchar_t b[32]; swprintf_s(b, L"%04d-%02d-%02d %02d:%02d:%02d", u.wYear, u.wMonth, u.wDay, u.wHour, u.wMinute, u.wSecond);
+    return b;
+}
+static SYSTEMTIME DaysAgo(int d) {  // meia-noite (hora local) de d dias atrás
+    SYSTEMTIME st; GetLocalTime(&st);
+    st.wHour = st.wMinute = st.wSecond = st.wMilliseconds = 0;
+    FILETIME ft; SystemTimeToFileTime(&st, &ft);
+    ULARGE_INTEGER u{ { ft.dwLowDateTime, ft.dwHighDateTime } };
+    u.QuadPart -= (ULONGLONG)d * 24 * 3600 * 10000000ULL;
+    ft.dwLowDateTime = u.LowPart; ft.dwHighDateTime = u.HighPart;
+    FileTimeToSystemTime(&ft, &st);
+    return st;
+}
+
+int Smart(int kind, int max, const std::function<bool(const std::wstring&)>& onPath) {
+    int n = 0;
+    wchar_t prof[MAX_PATH] = {};
+    if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) return -1;
+    std::wstring scope = prof;
+    for (auto& c : scope) if (c == L'\\') c = L'/';
+    if (scope.back() != L'/') scope += L'/';
+    std::wstring cond;
+    switch (kind) {
+    case 0: cond = L"System.DateModified >= '" + UtcText(DaysAgo(0)) + L"'"; break;
+    case 1: cond = L"System.DateModified >= '" + UtcText(DaysAgo(1)) + L"' AND System.DateModified < '" + UtcText(DaysAgo(0)) + L"'"; break;
+    case 2: cond = L"System.DateModified >= '" + UtcText(DaysAgo(7)) + L"'"; break;
+    case 3: cond = L"System.Kind = 'picture'"; break;
+    case 4: cond = L"System.Kind = 'video'"; break;
+    default: cond = L"System.Kind = 'document'"; break;
+    }
+    try {
+        _ConnectionPtr con;
+        if (FAILED(con.CreateInstance(__uuidof(Connection)))) return -1;
+        con->Open(L"Provider=Search.CollatorDSO;Extended Properties='Application=Windows';", L"", L"", adConnectUnspecified);
+        std::wstring sql = L"SELECT TOP " + std::to_wstring(max) + L" System.ItemUrl FROM SystemIndex WHERE SCOPE='file:" + scope + L"' AND " + cond +
+                           L" AND System.ItemType <> 'Directory' AND System.FileAttributes <> 2 ORDER BY System.DateModified DESC";
+        _RecordsetPtr rs;
+        rs.CreateInstance(__uuidof(Recordset));
+        rs->Open(sql.c_str(), _variant_t((IDispatch*)con, true), adOpenForwardOnly, adLockReadOnly, adCmdText);
+        while (!rs->AdoEOF) {
+            _variant_t v = rs->Fields->GetItem(0L)->Value;
+            if (v.vt == VT_BSTR) {
+                std::wstring url = v.bstrVal;
+                if (url.rfind(L"file:", 0) == 0) {
+                    std::wstring p = url.substr(5);
+                    for (auto& c : p) if (c == L'/') c = L'\\';
+                    n++;
+                    if (!onPath(p)) break;
+                }
+            }
+            rs->MoveNext();
+        }
+        rs->Close();
+        con->Close();
+    } catch (...) { return n ? n : -1; }
+    return n;
+}
+
 int Index(const std::wstring& q, const std::wstring& folder, int max, const std::function<bool(const std::wstring&)>& onPath) {
     int n = 0;
     try {

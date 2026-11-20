@@ -16,13 +16,13 @@ namespace semaforo {
 enum Kind { FILL, RING, GLYPH };
 
 // lê destaque= e o tema (golden_gate=1 junto com liquid_glass=1 = macOS Golden Gate) do ajustes.txt
-struct Estado { bool grafite = false, aqua = false, liquid = false; };
-inline const Estado& Ler() {
+struct Estado { bool grafite = false, aqua = false, liquid = false, leopard = false; };
+inline const Estado& Ler(bool force = false) {  // force: relê já (o Shell avisou que os ajustes mudaram)
     static Estado st;
     static DWORD lastCheck = 0;
     static FILETIME lastWrite{};
     DWORD now = GetTickCount();
-    if (lastCheck && now - lastCheck < 500) return st;
+    if (lastCheck && now - lastCheck < 500 && !force) return st;
     lastCheck = now;
     wchar_t ad[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"APPDATA", ad, MAX_PATH);
@@ -34,17 +34,19 @@ inline const Estado& Ler() {
     lastWrite = fa.ftLastWriteTime;
     FILE* f = nullptr;
     if (_wfopen_s(&f, path.c_str(), L"r, ccs=UTF-8") || !f) return st;
-    bool g = false, liquid = false, golden = false;
+    bool g = false, liquid = false, golden = false, leo = false;
     wchar_t line[512];
     while (fgetws(line, 512, f)) {
         if (wcsncmp(line, L"destaque=", 9) == 0) g = wcsncmp(line + 9, L"grafite", 7) == 0;
         if (wcsncmp(line, L"liquid_glass=", 13) == 0) liquid = line[13] == L'1';
         if (wcsncmp(line, L"golden_gate=", 12) == 0) golden = line[12] == L'1';
+        if (wcsncmp(line, L"leopard=", 8) == 0) leo = line[8] == L'1';
     }
     fclose(f);
     st.grafite = g;
     st.aqua = liquid && golden;
     st.liquid = liquid;
+    st.leopard = leo && !liquid;  // Mac OS X Leopard: só sem o Liquid Glass (o Sequoia por baixo)
     return st;
 }
 
@@ -59,6 +61,59 @@ inline bool Grafite() { return Ler().grafite; }
 //   zoom    (96,208,40)   -> (152,218,120); aro (9,85,9)
 inline bool Aqua() { return Ler().aqua; }
 inline bool Liquid() { return Ler().liquid; }  // Tahoe ou Golden Gate (cantos de 16)
+inline bool Leopard() { return Ler().leopard; }  // tema Mac OS X Leopard (leopard=1, sem liquid_glass)
+
+// Mac OS X Leopard (10.5): os botões de gel do Aqua. Cada um é uma bolha de vidro colorido: o miolo mais claro
+// embaixo (a luz que atravessa o gel e sai por baixo), a borda saturada e escura, um aro fino ainda mais escuro e o
+// reflexo branco em meia-lua na metade de cima. Cores medidas no Font Book ativo de uma captura do 10.5 a 1x (botão
+// de 14 px, 21 px entre centros; borda -> miolo; aro):
+//   fechar  (184,43,44)  -> (253,93,93);   aro (140,42,44)
+//   minim.  (207,131,59) -> (252,212,106); aro (165,83,34)
+//   zoom    (99,153,62)  -> (167,217,100); aro (53,88,35)
+//   inativo (190,190,190)-> (209,209,209); aro (163,163,163) (Finder atrás)
+inline void DrawGel(ID2D1RenderTarget* rt, int k, D2D1_POINT_2F c, float r, float dark) {
+    auto C = [](int R, int G, int B, float a = 1) { return D2D1::ColorF(R / 255.f, G / 255.f, B / 255.f, a); };
+    static const int edge[4][3] = { { 184, 43, 44 }, { 207, 131, 59 }, { 99, 153, 62 }, { 190, 190, 190 } };
+    static const int core[4][3] = { { 255, 128, 126 }, { 255, 226, 130 }, { 190, 232, 128 }, { 222, 222, 222 } };
+    static const int ring[4][3] = { { 140, 42, 44 }, { 165, 83, 34 }, { 53, 88, 35 }, { 163, 163, 163 } };
+    k = (std::max)(0, (std::min)(3, k));
+    float d = 1 - (std::max)(0.f, (std::min)(0.6f, dark));  // apertado: o gel inteiro escurece
+    auto M = [&](const int* v, float a = 1) { return C((int)(v[0] * d), (int)(v[1] * d), (int)(v[2] * d), a); };
+    D2D1_ELLIPSE disc = D2D1::Ellipse(c, r, r);
+    {   // o corpo: degradê radial com o centro embaixo (o brilho de dentro do gel)
+        D2D1_GRADIENT_STOP st[3] = { { 0, M(core[k]) }, { 0.55f, M(core[k]) }, { 1, M(edge[k]) } };
+        st[1].color.r = (st[0].color.r + st[2].color.r) / 2; st[1].color.g = (st[0].color.g + st[2].color.g) / 2; st[1].color.b = (st[0].color.b + st[2].color.b) / 2;
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1RadialGradientBrush* rb = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(st, 3, &gs)) &&
+            SUCCEEDED(rt->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties({ c.x, c.y + r * 0.55f }, { 0, 0 }, r * 1.05f, r * 1.15f), gs, &rb)))
+            rt->FillEllipse(disc, rb);
+        if (rb) rb->Release();
+        if (gs) gs->Release();
+    }
+    {   // aro escuro fino em volta
+        ID2D1SolidColorBrush* b = nullptr;
+        if (SUCCEEDED(rt->CreateSolidColorBrush(M(ring[k], 0.95f), &b))) { rt->DrawEllipse(D2D1::Ellipse(c, r - 0.35f, r - 0.35f), b, 0.7f); b->Release(); }
+    }
+    {   // o reflexo em meia-lua: branco forte em cima que some antes do meio
+        D2D1_ELLIPSE hl = D2D1::Ellipse({ c.x, c.y - r * 0.50f }, r * 0.55f, r * 0.36f);  // o brilho é pequeno e bem no alto
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0.95f * d) }, { 1, D2D1::ColorF(1, 1, 1, 0.08f) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ c.x, c.y - r * 0.88f }, { c.x, c.y + r * 0.02f }), gs, &lb)))
+            rt->FillEllipse(hl, lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    }
+    {   // o fio de luz na borda de baixo (a luz saindo do gel)
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0) }, { 1, D2D1::ColorF(1, 1, 1, 0.45f) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ c.x, c.y + r * 0.3f }, { c.x, c.y + r }), gs, &lb)))
+            rt->DrawEllipse(D2D1::Ellipse(c, r - 1.1f, r - 1.1f), lb, 0.8f);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    }
+}
 
 #include "semaforo_mac27.inc"  // os três botões do macOS 27 tirados da captura 2x (tools/semaforo-mac27.py)
 
@@ -92,8 +147,20 @@ inline void DrawMac27(ID2D1RenderTarget* rt, int k, D2D1_POINT_2F c, float r, fl
 // do Golden Gate, escolhidos pela cor que está no pincel (vermelho, amarelo, verde; cinza/apagado fica com um degradê
 // leve da própria cor). Não mexe na cor do pincel. Fora do Golden Gate não faz nada.
 inline void Gloss(ID2D1RenderTarget* rt, D2D1_POINT_2F c, float r, ID2D1SolidColorBrush* fillBrush) {
-    if (!rt || !fillBrush || !Aqua()) return;
+    if (!rt || !fillBrush || !(Aqua() || Leopard())) return;
     D2D1_COLOR_F base = fillBrush->GetColor();
+    if (Leopard()) {  // Leopard: o gel do Aqua, pela cor do pincel (vermelho, amarelo, verde; o resto fica cinza)
+        bool solid = base.a >= 0.9f;
+        float mx = (std::max)(base.r, (std::max)(base.g, base.b));
+        if (solid && mx > 0.5f) {
+            float nr = base.r / mx, ng = base.g / mx, nb = base.b / mx;
+            int k = nr > 0.9f && ng < 0.5f ? 0 : nr > 0.9f && ng >= 0.5f && nb < 0.5f ? 1 : ng > 0.9f && nr < 0.45f ? 2 : -1;
+            static const float ref[3] = { 1.0f, 0.996f, 0.784f };
+            if (k >= 0) { DrawGel(rt, k, c, r, (std::min)(0.6f, (std::max)(0.f, 1 - mx / ref[k]))); return; }
+        }
+        DrawGel(rt, 3, c, r, 0);
+        return;
+    }
     auto C = [](int R, int G, int B, float a = 1) { return D2D1::ColorF(R / 255.f, G / 255.f, B / 255.f, a); };
     D2D1_COLOR_F top, bot, rim;
     bool solid = base.a >= 0.9f;
@@ -179,7 +246,7 @@ inline void Gloss(ID2D1RenderTarget* rt, D2D1_POINT_2F c, float r, ID2D1SolidCol
 inline const D2D1_COLOR_F* Pick(const D2D1_COLOR_F* normal, Kind k) {
     // Golden Gate: o aro é o do Gloss (escuro só dos lados); o contorno claro antigo some
     static const D2D1_COLOR_F none[3] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
-    if (k == RING && Aqua()) return none;
+    if (k == RING && (Aqua() || Leopard())) return none;  // Leopard: o aro é o do gel
     if (!Grafite()) return normal;
     static const D2D1_COLOR_F fill[3] = { { 0.58f, 0.58f, 0.59f, 1 }, { 0.58f, 0.58f, 0.59f, 1 }, { 0.58f, 0.58f, 0.59f, 1 } };
     static const D2D1_COLOR_F ring[3] = { { 0.47f, 0.47f, 0.48f, 1 }, { 0.47f, 0.47f, 0.48f, 1 }, { 0.47f, 0.47f, 0.48f, 1 } };

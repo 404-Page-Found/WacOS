@@ -8,6 +8,7 @@
 
 bool liquid::On() { return backdrop::Current().liquid; }
 bool liquid::Golden() { return backdrop::Current().golden; }
+bool liquid::Leopard() { return backdrop::Current().leopard; }
 
 // Contorno do Liquid Glass: a borda escurecida e o brilho especular (comum/vidro.h, o mesmo dos menus)
 void liquid::Rim(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, bool dark, float strength, float spec, float lx, float ly) {

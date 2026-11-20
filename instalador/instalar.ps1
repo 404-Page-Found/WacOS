@@ -74,6 +74,8 @@ foreach ($pasta in 'bin', 'icones', 'sons', 'tools') {
     }
 }
 Get-ChildItem $dest -Recurse -File | Unblock-File  # veio da internet/zip: sem o aviso de "arquivo baixado"
+# o hospedeiro de 32 bits virou o rundll32 do Windows (build-12): o exe antigo sai
+Remove-Item "$dest\bin\WacOSWindow32Host.exe" -Force -ErrorAction SilentlyContinue
 Write-Host "Programas copiados para $dest"
 
 # 1b. Instalação com o nome antigo (Sequoia Shell): a tarefa do login e o atalho passam para o WacOS e a pasta velha

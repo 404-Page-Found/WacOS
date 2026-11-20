@@ -30,6 +30,7 @@ void WarmupAsync(const std::wstring& folder, const std::wstring& file);  // o me
 struct Glass {
     bool liquid = false;   // Liquid Glass (Tahoe): reflexo e contorno especular
     bool golden = false;   // macOS 27 Golden Gate: medidas do menu do macOS 27 e quase sem símbolos
+    bool leopard = false;  // Mac OS X Leopard: branco translúcido e destaque azul em degradê de ponta a ponta
     float (*alpha)(float) = nullptr;
 };
 void SetGlass(const Glass& g);

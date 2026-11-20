@@ -205,3 +205,78 @@ void ponteiro::Stop() {
     if (DWORD t = g_tid) PostThreadMessageW(t, WM_QUIT, 0, 0);
     SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, 0);  // o cursor volta mesmo se a thread não chegar a tempo
 }
+
+// ---- Cursor do tema Mac OS X Leopard
+// Escolher o Leopard troca o esquema de cursores do usuário (HKCU\Control Panel\Cursors, nada do sistema) pelo do
+// Mac OS X: a seta preta de contorno branco, a mãozinha, o I-beam e o cata-vento colorido ("RainbowSwirl") de espera.
+// Os arquivos ficam em <instalação>\cursor\Leopard (tools\cursor-leopard.py, do pacote que o usuário baixou). O
+// esquema que estava antes é guardado em %APPDATA%\Shell\cursor-antes.txt e volta quando o tema sai do Leopard —
+// só se o cursor ainda for o do Leopard (se o usuário trocou o cursor no meio, o dele fica).
+namespace {
+struct Papel { const wchar_t* reg; const wchar_t* arquivo; };
+const Papel LEO_CURSORES[] = {
+    { L"Arrow", L"Normal Select.cur" }, { L"Help", L"Help Select.cur" }, { L"AppStarting", L"RainbowSwirl-Background.ani" },
+    { L"Wait", L"RainbowSwirl-Busy.ani" }, { L"Crosshair", L"Precision Select.cur" }, { L"IBeam", L"Text Select.cur" },
+    { L"NWPen", L"Handwriting.cur" }, { L"No", L"Unavailable.cur" }, { L"SizeNS", L"Vertical Resize.cur" },
+    { L"SizeWE", L"Horizontal Resize.cur" }, { L"SizeNWSE", L"Diagonal Resize 1.cur" }, { L"SizeNESW", L"Diagonal Resize 2.cur" },
+    { L"SizeAll", L"Move.cur" }, { L"UpArrow", L"Alternate Select.cur" }, { L"Hand", L"Link Select.cur" },
+};
+const wchar_t* CUR_KEY = L"Control Panel\\Cursors";
+std::wstring LeoDir() { return shell::dir.substr(0, shell::dir.find_last_of(L'\\')) + L"\\cursor\\Leopard"; }
+std::wstring AntesPath() {
+    wchar_t ad[MAX_PATH] = {};
+    GetEnvironmentVariableW(L"APPDATA", ad, MAX_PATH);
+    return std::wstring(ad) + L"\\Shell\\cursor-antes.txt";
+}
+std::wstring LerCur(const wchar_t* nome) {
+    wchar_t v[MAX_PATH * 2] = {}; DWORD cb = sizeof(v);
+    if (RegGetValueW(HKEY_CURRENT_USER, CUR_KEY, nome, RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ | RRF_NOEXPAND, nullptr, v, &cb) != ERROR_SUCCESS) return L"";
+    return v;
+}
+void GravarCur(const wchar_t* nome, const std::wstring& v, bool expand = true) {
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, CUR_KEY, 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
+    RegSetValueExW(k, nome, 0, expand ? REG_EXPAND_SZ : REG_SZ, (const BYTE*)v.c_str(), (DWORD)((v.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(k);
+}
+}
+
+void ponteiro::TemaLeopard(bool on) {
+    std::wstring dir = LeoDir();
+    std::wstring arrow = dir + L"\\Normal Select.cur";
+    bool ativo = !_wcsicmp(LerCur(L"Arrow").c_str(), arrow.c_str());  // o cursor do Leopard já está aplicado
+    if (on) {
+        if (ativo) return;
+        if (GetFileAttributesW(arrow.c_str()) == INVALID_FILE_ATTRIBUTES) { Log(L"cursor do Leopard: arquivos não encontrados em %ls", dir.c_str()); return; }
+        // guarda o esquema de agora (só se ainda não houver um guardado: trocar de tema duas vezes não perde o original)
+        if (GetFileAttributesW(AntesPath().c_str()) == INVALID_FILE_ATTRIBUTES) {
+            FILE* f = nullptr;
+            if (_wfopen_s(&f, AntesPath().c_str(), L"w, ccs=UTF-8") || !f) { Log(L"cursor do Leopard: não deu para guardar o anterior"); return; }
+            fwprintf(f, L"(Default)=%ls\n", LerCur(nullptr).c_str());
+            for (auto& p : LEO_CURSORES) fwprintf(f, L"%ls=%ls\n", p.reg, LerCur(p.reg).c_str());
+            fclose(f);
+        }
+        GravarCur(nullptr, L"Mac OS X Leopard", false);
+        for (auto& p : LEO_CURSORES) GravarCur(p.reg, dir + L"\\" + p.arquivo);
+        SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, SPIF_SENDCHANGE);
+        Log(L"cursor do Leopard aplicado (o anterior em %ls)", AntesPath().c_str());
+        return;
+    }
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, AntesPath().c_str(), L"r, ccs=UTF-8") || !f) return;  // nada guardado: nada a devolver
+    std::vector<std::pair<std::wstring, std::wstring>> antes;
+    wchar_t line[MAX_PATH * 2 + 64];
+    while (fgetws(line, (int)std::size(line), f)) {
+        std::wstring s = line;
+        while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r')) s.pop_back();
+        size_t eq = s.find(L'=');
+        if (eq != std::wstring::npos) antes.push_back({ s.substr(0, eq), s.substr(eq + 1) });
+    }
+    fclose(f);
+    if (ativo) {  // só devolve se o cursor ainda for o do Leopard
+        for (auto& [k, v] : antes) GravarCur(k == L"(Default)" ? nullptr : k.c_str(), v, k != L"(Default)");
+        SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, SPIF_SENDCHANGE);
+        Log(L"cursor do Leopard: esquema anterior devolvido");
+    }
+    DeleteFileW(AntesPath().c_str());
+}

@@ -27,7 +27,8 @@ namespace {
 
 const float BAR_PT_SEQUOIA = 26;  // altura da barra (telas sem entalhe; um pouco maior que os 24 pt do Mac, para telas grandes)
 // Tahoe: 30 pt, medido no macOS 26 (guia macOS26-Theme-Reference, seções 13 e 35: frame.maxY − visibleFrame.maxY)
-#define BAR_PT (liquid::On() ? 30.f : BAR_PT_SEQUOIA)
+// Leopard: 22 pt, a barra do Mac OS X 10.5
+#define BAR_PT (liquid::On() ? 30.f : liquid::Leopard() ? 22.f : BAR_PT_SEQUOIA)
 const float PAD_SEQUOIA = 10;     // espaço de cada lado de um ícone de status (Mac: ~10 pt, um item a cada ~38 pt)
 // Tahoe (guia, seção 35): cada item da direita = o ícone + ~8 pt de respiro de cada lado (31–42 pt por item)
 #define PAD (liquid::On() ? 8.f : PAD_SEQUOIA)
@@ -420,6 +421,16 @@ std::wstring ClockText() {
     if (!idioma::En() && !d.empty() && d.back() != L'.') d += L'.';
     if (!idioma::En() && !m.empty() && m.back() != L'.') m += L'.';
     wchar_t buf[64];
+    if (liquid::Leopard()) {
+        // Leopard: só o dia da semana e a hora ("Mon 6:45 PM" na captura do 10.5), no formato de hora do usuário
+        wchar_t tm[32] = {};
+        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &st, nullptr, tm, 32);
+        std::wstring dd = day;
+        if (!dd.empty() && dd.back() == L'.') dd.pop_back();
+        if (!dd.empty()) dd[0] = towupper(dd[0]);
+        swprintf_s(buf, L"%ls %ls", dd.c_str(), tm);
+        return buf;
+    }
     if (shell::Setting(L"relogio_curto", L"0") == L"1") swprintf_s(buf, L"%02d:%02d", st.wHour, st.wMinute);
     else if (idioma::En()) swprintf_s(buf, L"%ls %ls %d  %02d:%02d", d.c_str(), m.c_str(), st.wDay, st.wHour, st.wMinute);  // Tue Nov 10
     else swprintf_s(buf, L"%ls %d de %ls  %02d:%02d", d.c_str(), st.wDay, m.c_str(), st.wHour, st.wMinute);
@@ -499,13 +510,17 @@ void DrawCC(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, float cx, float cy)
 // Ajustes > Transparência e Efeitos > "Mostrar fundo da barra de menus" (desligado: como no Tahoe)
 // No Tahoe (Liquid Glass) a barra de menus não tem fundo nenhum, como no macOS 26: só o papel de parede atrás.
 bool BarBackground() {
-    if (backdrop::Current().reduce) return true;
+    if (backdrop::Current().reduce || liquid::Leopard()) return true;  // Leopard: a barra translúcida clara sempre tem fundo
     if (backdrop::Liquid()) return false;
     return shell::Setting(L"barra_fundo", L"1") != L"0";
 }
 
 void BarGlass(HWND bar) {
     if (!bar) return;
+    if (liquid::Leopard()) {  // Leopard: o degradê branco translúcido vem do Render (opaca: acrílico cheio por baixo)
+        ui::Acrylic(bar, shell::Setting(L"barra_translucida", L"1") == L"1" ? 0x30F2F2F2u : 0xFFE6E6E6u);
+        return;
+    }
     if (BarBackground()) { ui::Acrylic(bar, ui::Dark() ? 0x40141414u : 0x55F4F4F4u); return; }  // vidro bem claro: o papel de parede aparece, como no Mac
     // sem fundo: o DWM só respeita o alfa do que a barra desenha (nada de desfoque)
     struct ACCENT_POLICY { int state, flags; DWORD gradient; int anim; };
@@ -608,6 +623,13 @@ void Render() {
     // a cor do texto e dos ícones segue o papel de parede atrás
     const bool bgOn0 = BarBackground();
     if (!bgOn0 || liquid::On()) dark = WallpaperTopDark(dark);
+    const bool leo = liquid::Leopard();
+    // Leopard: Lucida Grande 14 px no Mac; no Windows, a Lucida Sans Unicode (o mesmo desenho de origem)
+    static IDWriteTextFormat* tfLeo = ui::FormatFace(L"Lucida Sans Unicode", 14, DWRITE_FONT_WEIGHT_NORMAL);
+    static IDWriteTextFormat* tfLeoB = ui::FormatFace(L"Lucida Sans Unicode", 14, DWRITE_FONT_WEIGHT_BOLD);
+    IDWriteTextFormat* tfN = leo ? tfLeo : g_tf;
+    IDWriteTextFormat* tfB = leo ? tfLeoB : g_tfBold;
+    if (leo) dark = false;  // Leopard: a barra é sempre clara, com texto preto (o 10.5 não tinha modo escuro)
     // Menubar Image do macOS 26 (guia, seção 31: catálogos Aqua/DarkAqua): branco 90 % no escuro, preto 85 % no claro
     D2D1_COLOR_F fgc = dark ? D2D1::ColorF(1, 1, 1, liquid::On() ? 0.90f : 0.92f) : D2D1::ColorF(0, 0, 0, 0.85f);
     // Liquid Glass sem fundo: só branco ou preto, mais firmes. Antes puxava a cor do papel de parede saturada 3×
@@ -620,13 +642,44 @@ void Render() {
     if (!bgOn) veil.a = 0;  // sem fundo (Tahoe): só o papel de parede atrás
     rt->CreateSolidColorBrush(veil, &br);
     rt->FillRectangle(D2D1::RectF(0, 0, W, H), br);  // tinta leve por cima do acrílico
+    if (leo) {
+        // Leopard: a barra de menus translúcida do 10.5 — branco leitoso que deixa o papel de parede passar um pouco,
+        // um tom mais cinza embaixo, o fio de luz no alto e a linha escura embaixo (a "sombra" da barra)
+        float px = 1 / sc;
+        // medido numa captura do 10.5 a 1x: 248 no alto -> 204 embaixo, a linha de baixo quase preta
+        // Aparência > "Barra de menus translúcida" desligada (o 10.5.2 trouxe a opção): opaca
+        const float op = shell::Setting(L"barra_translucida", L"1") == L"1" ? 1.f : 1.12f;
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(248 / 255.f, 248 / 255.f, 248 / 255.f, std::min(1.f, 0.90f * op)) }, { 1, D2D1::ColorF(204 / 255.f, 204 / 255.f, 204 / 255.f, std::min(1.f, 0.88f * op)) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, 0 }, { 0, H }), gs, &lb)))
+            rt->FillRectangle(D2D1::RectF(0, 0, W, H), lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.75f));
+        rt->FillRectangle(D2D1::RectF(0, 0, W, px), br);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.62f));
+        rt->FillRectangle(D2D1::RectF(0, H - px, W, H), br);
+    }
     if (liquid && bgOn) {  // Liquid Glass: sem degradê branco; só um fio fraco embaixo, como no Tahoe
         float px = 1 / sc;
         br->SetColor(D2D1::ColorF(1, 1, 1, dark ? 0.08f : 0.18f));
         rt->FillRectangle(D2D1::RectF(0, H - px, W, H), br);
     }
     g_hits.clear();
+    bool litNow = false;  // Leopard: o item aceso fica com o texto branco sobre o azul
     auto highlight = [&](D2D1_RECT_F r) {
+        if (leo) {  // Leopard: o destaque azul do Aqua de ponta a ponta na altura da barra, sem cantos
+            litNow = true;
+            D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.39f, 0.56f, 0.95f, 1) }, { 1, D2D1::ColorF(0.13f, 0.35f, 0.86f, 1) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
+                SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, 0 }, { 0, H }), gs, &lb)))
+                rt->FillRectangle(D2D1::RectF(r.left, 0, r.right, H - 1 / sc), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            return;
+        }
         if (liquid::On()) {  // Tahoe (vídeo do macOS 26): o item aberto ganha uma cápsula de vidro clara
             br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.24f) : D2D1::ColorF(1, 1, 1, 0.55f));
             float rad = (H - 4) / 2;
@@ -639,6 +692,7 @@ void Render() {
         rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, 2, r.right, H - 2), 4, 4), br);
     };
     auto add = [&](D2D1_RECT_F r, Kind k, int i) {
+        litNow = false;
         g_hits.push_back({ r, k, i });
         bool lit = (k == K_SOUND && (som::IsOpen() || som::HudLit()))  // menu Som aberto / aviso de volume do Tahoe
                 || (k == K_CC && central::IsOpen()) || (k == K_CLOCK && (notificacoes::IsOpen() || (liquid::On() && notificacoes::BannerVisible()))) || (k == K_SPOT && spotlight::IsOpen());
@@ -648,15 +702,29 @@ void Render() {
     // esquerda (Tahoe, guia seção 35: o menu Apple fica em x 10, com 34 de largura)
     float x = liquid::On() ? 10.f : 8.f;
     add(D2D1::RectF(x, 0, x + 34, H), K_LOGO, 0);
-    br->SetColor(fgc);
-    if (!simbolo::Draw(rt, L"apple.logo", D2D1::RectF(x + 10, H / 2 - 7.5f, x + 24, H / 2 + 6.5f), br))  // a maçã do SF Symbols
+    br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
+    if (leo && !litNow) {
+        // Leopard: a maçã grafite brilhante do 10.5 (a azul era a do Tiger): cinza claro em cima, quase preto embaixo;
+        // aberta, fica branca
+        D2D1_GRADIENT_STOP st[3] = { { 0, D2D1::ColorF(0.62f, 0.62f, 0.63f, 1) }, { 0.45f, D2D1::ColorF(0.36f, 0.36f, 0.37f, 1) }, { 1, D2D1::ColorF(0.16f, 0.16f, 0.17f, 1) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        bool ok = SUCCEEDED(rt->CreateGradientStopCollection(st, 3, &gs)) &&
+                  SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, H / 2 - 7.5f }, { 0, H / 2 + 6.5f }), gs, &lb));
+        if (!ok || !simbolo::Draw(rt, L"apple.logo", D2D1::RectF(x + 10, H / 2 - 7.5f, x + 24, H / 2 + 6.5f), lb)) {
+            br->SetColor(D2D1::ColorF(0.30f, 0.30f, 0.31f, 1));
+            DrawLogo(rt, br, x + 17, H / 2);
+        }
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    } else
+    if (!simbolo::Draw(rt, L"apple.logo", D2D1::RectF(x + 10, H / 2 - 7.5f, x + 24, H / 2 + 6.5f), (br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc), br)))  // a maçã do SF Symbols
         DrawLogo(rt, br, x + 17, H / 2);
     x += 34;
     {
-        float w = ui::TextWidth(g_tfBold, g_appName) + 20;
+        float w = ui::TextWidth(tfB, g_appName) + 20;
         add(D2D1::RectF(x, 0, x + w, H), K_APP, 0);
-        br->SetColor(fgc);
-        rt->DrawTextW(g_appName.c_str(), (UINT32)g_appName.size(), g_tfBold, D2D1::RectF(x + 10, 0, x + w, H), br);
+        br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
+        rt->DrawTextW(g_appName.c_str(), (UINT32)g_appName.size(), tfB, D2D1::RectF(x + 10, 0, x + w, H), br);
         x += w;
     }
     float leftEnd = x;
@@ -670,22 +738,28 @@ void Render() {
         add(D2D1::RectF(r - w, 0, r, H), k, i);
         D2D1_RECT_F box = D2D1::RectF(r - w + PAD, 0, r - PAD, H);
         r -= w;
-        br->SetColor(fgc);
+        br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
         return box;
     };
     auto sym = [&](const wchar_t* name, D2D1_RECT_F box, float h) {
         return simbolo::Draw(rt, name, D2D1::RectF(box.left, H / 2 - h / 2, box.right, H / 2 + h / 2), br);
     };
+    // Leopard (captura do 10.5): a lupa do Spotlight é o último item, na ponta direita, e o relógio vem antes dela;
+    // (a Central de Controle continua, à esquerda do relógio: o usuário quer o acesso a ela)
+    if (leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {
+        auto bx = slot(15, K_SPOT, 0);
+        if (!sym(L"magnifyingglass", bx, 15)) rt->DrawTextW(L"", 1, g_tfIcon, bx, br);
+    }
     {
         std::wstring t = ClockText();
-        float w = ui::TextWidth(g_tf, t) + 2 * PAD;
+        float w = ui::TextWidth(tfN, t) + 2 * PAD;
         add(D2D1::RectF(r - w, 0, r, H), K_CLOCK, 0);
-        br->SetColor(fgc);
-        rt->DrawTextW(t.c_str(), (UINT32)t.size(), g_tf, D2D1::RectF(r - w + PAD, 0, r, H), br);
+        br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
+        rt->DrawTextW(t.c_str(), (UINT32)t.size(), tfN, D2D1::RectF(r - w + PAD, 0, r, H), br);
         r -= w;
     }
     { auto bx = slot(18, K_CC, 0); if (!sym(L"switch.2", bx, 14)) DrawCC(rt, br, (bx.left + bx.right) / 2, H / 2); }
-    if (shell::Setting(L"barra_spotlight", L"1") == L"1") {
+    if (!leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {
         auto bx = slot(15, K_SPOT, 0);
         if (!sym(L"magnifyingglass", bx, 15)) rt->DrawTextW(L"", 1, g_tfIcon, bx, br);
     }
@@ -731,7 +805,7 @@ void Render() {
                     g->Release();
                 }
             }
-            br->SetColor(fgc);
+            br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
         } else {
         auto bx = slot(27, K_BATT, 0);
         sym(name, bx, 13);
@@ -828,11 +902,11 @@ void Render() {
 
     // menus do app (entre o nome e os ícones)
     for (int i = 0; i < (int)g_titles.size(); i++) {
-        float w = ui::TextWidth(g_tf, g_titles[i]) + 20;
+        float w = ui::TextWidth(tfN, g_titles[i]) + 20;
         if (x + w > r - 8) break;
         add(D2D1::RectF(x, 0, x + w, H), K_MENU, i);
-        br->SetColor(fgc);
-        rt->DrawTextW(g_titles[i].c_str(), (UINT32)g_titles[i].size(), g_tf, D2D1::RectF(x + 10, 0, x + w, H), br);
+        br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
+        rt->DrawTextW(g_titles[i].c_str(), (UINT32)g_titles[i].size(), tfN, D2D1::RectF(x + 10, 0, x + w, H), br);
         x += w;
     }
     br->Release();

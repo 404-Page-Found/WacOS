@@ -365,6 +365,11 @@ void GlassEnd() {
 // ================= cores
 struct Pal { D2D1_COLOR_F tint, tintPill, text, text2, line, close, closeGlyph, chip, header; };
 Pal Colors() {
+    // Leopard: os avisos da época eram os balões do Growl ("Smoke"): cartão preto translúcido, texto branco
+    if (liquid::Leopard())
+        return { D2D1::ColorF(0.04f, 0.04f, 0.05f, 0.80f), D2D1::ColorF(0.10f, 0.10f, 0.11f, 0.80f), D2D1::ColorF(1, 1, 1, 0.97f),
+                 D2D1::ColorF(1, 1, 1, 0.70f), D2D1::ColorF(1, 1, 1, 0.12f), D2D1::ColorF(0.30f, 0.30f, 0.32f, 0.98f),
+                 D2D1::ColorF(1, 1, 1, 0.90f), D2D1::ColorF(1, 1, 1, 0.16f), D2D1::ColorF(1, 1, 1, 0.97f) };
     if (liquid::On()) {  // Tahoe: vidro de verdade, o fundo desfocado aparece (antes a tinta deixava o cartão quase opaco)
         Pal p = Dark()
             ? Pal{ D2D1::ColorF(0.10f, 0.10f, 0.11f, 0.40f), D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.36f), D2D1::ColorF(1, 1, 1, 0.95f),
@@ -750,6 +755,24 @@ void Border(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, D2D1
 }
 
 void DrawCard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& p, const Group& g, const Note& n, D2D1_RECT_F r, const std::wstring& key) {
+    if (liquid::Leopard()) {
+        // Leopard (balão "Smoke" do Growl): preto translúcido de cantos 8 com o fio claro, o ícone à esquerda, o título
+        // em negrito branco e o texto branco embaixo; sem a hora
+        br->SetColor(D2D1::ColorF(0.04f, 0.04f, 0.05f, 0.78f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, 8, 8), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.18f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 7.5f, 7.5f), br, 1);
+        float cy0 = (r.top + r.bottom) / 2;
+        DrawIcon(dc, br, g, D2D1::RectF(r.left + ICON_X, cy0 - ICON / 2, r.left + ICON_X + ICON, cy0 + ICON / 2));
+        float tx0 = r.left + TEXT_X, top0 = r.top + PAD_V;
+        Text(dc, br, n.title, g_tfTitle, D2D1::RectF(tx0, top0, r.right - PAD_R, top0 + TITLE_H), D2D1::ColorF(1, 1, 1, 0.97f));
+        auto& b0 = Body(n);
+        if (b0.first) {
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
+            dc->DrawTextLayout({ tx0, top0 + TITLE_H }, b0.first, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+        return;
+    }
     Border(dc, br, p, r, CardR());
     float cy = (r.top + r.bottom) / 2;
     DrawIcon(dc, br, g, D2D1::RectF(r.left + ICON_X, cy - ICON / 2, r.left + ICON_X + ICON, cy + ICON / 2));
@@ -1341,8 +1364,10 @@ void BannerPaint() {
             dc->FillRoundedRectangle(D2D1::RoundedRect(pr, CardR(), CardR()), br);
         }
     }
+    if (!liquid::Leopard()) {  // Leopard: o balão do Growl é desenhado pelo DrawCard (sem o vidro)
     GlassRect(D2D1::RectF(r.left * sc, r.top * sc, r.right * sc, r.bottom * sc), CardR() * sc, p.tint, 1);
     if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.97f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.97f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+    }
     Group g{ g_bnote.aumid, g_bnote.app, {} };
     std::wstring saved = g_hover;
     g_hover.clear();

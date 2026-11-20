@@ -108,6 +108,7 @@ IDCompositionAnimation* CompCurve(const std::vector<float>& v, float durSec);
 void Acrylic(HWND h, DWORD tintABGR);   // desfoque atrás da janela (SetWindowCompositionAttribute)
 IDWriteTextFormat* Format(float size, DWRITE_FONT_WEIGHT w, bool icons = false,
                           DWRITE_TEXT_ALIGNMENT a = DWRITE_TEXT_ALIGNMENT_LEADING);
+IDWriteTextFormat* FormatFace(const wchar_t* face, float size, DWRITE_FONT_WEIGHT w);  // família escolhida (Leopard: Lucida)
 float TextWidth(IDWriteTextFormat* tf, const std::wstring& s);
 ID2D1Bitmap* Bitmap(ID2D1RenderTarget* rt, UINT w, UINT h, const std::vector<BYTE>& bgra);
 // Tahoe: Aparência > "Estilo de ícones e widgets" (estilo_icones): padrao | escuro | transparente | tingido.
@@ -408,6 +409,7 @@ std::wstring Path();
 }
 namespace pilhas {  // Pilhas do Dock (pilhas.cpp): Downloads em Leque, Grade ou Lista, como no Mac
 void Show(POINT anchorScreen);  // anchor: centro de cima do ícone
+void ShowApps(POINT anchorScreen);  // Leopard: a pasta Aplicativos da Dock como Pilha em Grade
 void Menu(POINT anchorScreen);  // botão direito: ordenar, ver como, exibir como (pasta/pilha), abrir a pasta
 bool IsOpen();
 std::vector<std::wstring> Recentes(int max);  // os primeiros arquivos de Downloads na ordem escolhida (a pilha no Dock)
@@ -472,6 +474,7 @@ HWND Fundo();  // o vidro, a janela mais de baixo do Dock
 int ReservedHeight();   // px reservados embaixo (área de trabalho)
 HMONITOR MonitorHandle();  // o monitor do Dock (ajuste dock_monitor; vazio = o principal)
 void Raise();          // traz o Dock para cima (ex.: por cima do Launchpad)
+void OpenAppsStack();  // Leopard: a pasta Aplicativos como Pilha em Grade
 void ReloadSettings();  // o Ajustes do Sistema mudou tamanho, ampliação...
 void ApplyTheme();      // claro/escuro mudou
 void IconsChanged();    // o pacote de ícones mudou (tema Sequoia/Tahoe): solta os ícones guardados
@@ -499,6 +502,7 @@ void AfterCommit(HWND to, UINT msg);
 struct Style {
     bool liquid = false;     // liquid_glass: vidro líquido do macOS Tahoe
     bool golden = false;     // golden_gate (com liquid_glass): tema macOS 27 Golden Gate
+    bool leopard = false;    // leopard (sem liquid_glass): tema Mac OS X Leopard (o Sequoia com o Aqua de 2007)
     bool tinted = false;     // liquid_estilo: "nitido" ou "tingido"
     float refraction = 0.6f; // liquid_refracao 0..1: força da lente nas bordas
     bool reduce = false;     // reduzir_transparencia
@@ -524,6 +528,7 @@ D2D1_COLOR_F AdjustTint(D2D1_COLOR_F c);
 namespace liquid {  // tema macOS Tahoe nos painéis do Shell (liquid.cpp): detalhes D2D por cima do vidro
 bool On();  // Tema = macOS Tahoe (liquid_glass), mesmo com a transparência reduzida
 bool Golden();  // Tema = macOS Golden Gate (liquid_glass + golden_gate): o Tahoe com o que mudou no macOS 27
+bool Leopard(); // Tema = Mac OS X Leopard (leopard=1, sem liquid_glass): barra de menus clara com a maçã grafite, Dock em prateleira
 // contorno especular; spec = força do brilho dos cantos (0 em repouso, 1 com o ponteiro em cima), lx/ly = de onde vem a
 // luz (0..1 dentro da peça, a posição do ponteiro; < 0 = canto de cima à esquerda)
 void Rim(ID2D1DeviceContext* dc, D2D1_RECT_F r, float rad, bool dark, float strength = 1, float spec = 1, float lx = -1, float ly = -1);
@@ -590,4 +595,6 @@ void Stop(Live* live);
 namespace ponteiro {  // ponteiro.cpp: sacudir o mouse faz o ponteiro crescer (como no Mac)
 void Start();
 void Stop();
+// tema Mac OS X Leopard: liga o cursor do Mac OS X (guardando o esquema de antes) ou devolve o de antes
+void TemaLeopard(bool on);
 }

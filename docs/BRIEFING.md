@@ -111,7 +111,7 @@ início automático (tarefa agendada `SequoiaShell`), abrir agora. `desinstalar.
 | `SequoiaCalculator.exe` | `src/calculadora` | Calculadora (Básica/Científica/Programador) |
 | `SequoiaNotes.exe` | `src/notas` | Notas (texto rico, `%APPDATA%\Shell\Notas`) |
 | `SequoiaScreenshot.exe` | `src/captura` | Captura de Tela (Win+Shift+3/4/5) |
-| `SequoiaWindow.dll` / `SequoiaWindow32.dll` / `SequoiaWindow32Host.exe` | `src/janelas` | barra de título do Mac e controles nas janelas dos outros programas (gancho em 64 e 32 bits) |
+| `WacOSWindow.dll` / `WacOSWindow32.dll` | `src/janelas` | barra de título do Mac e controles nas janelas dos outros programas (gancho em 64 bits pelo Shell; 32 bits pela própria DLL dentro do rundll32 de 32 bits do Windows, entrada WacOSHost) |
 | `DialogoMac.dll` / `DialogoMac32.dll` | `src/dialogo` | troca IFileOpenDialog/IFileSaveDialog pelo Finder (HKCU CLSID, `tools/dialogo-ligar.ps1`) |
 | `ferramentas\MenuTeste.exe` | `src/tools/menu_teste.cpp` | bancada do menu de contexto (`--dump`, `--demo`, `--demo <pasta> --quente`) |
 
@@ -162,6 +162,29 @@ verde), widgets (widgets da mesa).
   borda especular (`vidro::Borda`), metaballs no Spotlight (`vidro::Gosma`). Menus de contexto: vidro
   **tingido e bem menos transparente**. Central de Controle: só desfoque (sem véu escuro), módulos de vidro
   claro.
+- **Tema Mac OS X Leopard** (`leopard=1` sem `liquid_glass`): o Sequoia por baixo e, por cima, o Aqua de 2007 —
+  barra de menus de 22 pt clara e translúcida (Lucida, maçã grafite) e destaque azul; menus brancos com destaque azul de ponta a ponta (`menubar.cpp`), Dock em prateleira de vidro
+  em perspectiva com reflexo e a luz azul do app aberto (`dock.cpp`, sem o vidro de fundo), botões de gel
+  (`semaforo::DrawGel`) e o metal cinza das janelas "unified" (`comum/leopard.h`: DLL das janelas, Finder, Ajustes).
+  Finder e Ajustes ficam sempre claros (o 10.5 não tinha modo escuro). Ícones em `icones\leopard`
+  (`tools/icones-leopard.py`, do pacote "Leopard Icons" do usuário; o que faltar vem do Sequoia). O papel de parede
+  Aurora é só sugestão (botão em Aparência); trocar de tema nunca muda o papel de parede.
+  Cursor: ao entrar no Leopard o Shell aplica o esquema "Mac OS X Leopard" em HKCU (seta clássica e o cata-vento
+  colorido; `cursor\Leopard`, `tools/cursor-leopard.py`) e guarda o anterior em `%APPDATA%\Shell\cursor-antes.txt`,
+  que volta ao sair do tema (`ponteiro::TemaLeopard`). Finder: barra de 55 px (título centralizado na linha de 22,
+  botões com moldura metálica), pastas azuis do pacote, seleção azul em degradê e barra de rolagem Aqua. Ajustes:
+  caixas de seleção, pop-ups e botões em gel Aqua, fundo cinza 232. Medidas tiradas de capturas do 10.5 a 1x.
+  Regra do usuário: o Leopard tem desenho PRÓPRIO (nada reaproveitado do visual dos outros temas). Peças:
+  Ajustes = Preferências do Sistema do 10.5 (`RenderLeopard` em `ajustes/main.cpp`: sem barra lateral, "Mostrar Todos"
+  em faixas por categoria com os ícones `icones\leopard\pref <id>.png`, painéis em formulário com rótulo à direita);
+  Aparência própria (`AparenciaLeopard`: Azul/Grafite, Cor de realce, barra de menus translúcida); Finder = barra de
+  55 px com ◀▶/arrumar/modos/engrenagem/busca, barra lateral FAVORITOS/DISPOSITIVOS/COMPARTILHADO/BUSCAR POR
+  (`search::Smart` no índice), Cover Flow (4ª visão: lista + capas em perspectiva 3D com reflexo, `DrawCoverFlow`),
+  Quick Look em HUD escuro; Shell = Spotlight preso na lupa (`spotlight.cpp PaintLeopard`), Exposé sem a faixa de
+  Mesas, alertas do 10.5 (`alertas.cpp`), Sobre Este Mac do 10.5 (dados reais do PC), Pilha em Grade escura e a pasta
+  Aplicativos à direita da Dock abrindo como pilha (`pilhas::ShowApps`, atalhos do Menu Iniciar), Quick Look da mesa
+  em HUD. Ícones dos apps sem equivalente no pacote: o ícone moderno "aquificado" (`tools/aqua_icone.py`).
+  Teste sem clicar: `ShellAbrirPainel` 2 Exposé, 7 Spotlight, 8 Sobre, 11 Quick Look, 12 pilha Aplicativos.
 - **Vidro real** (`vidro_real=1`): o fundo do vidro é montado das janelas que estão atrás (captura de
   janelas do Windows), então as peças aparecem nas gravações. Desenha só as áreas das peças e só remonta
   quando a **região alterada** de um quadro (Windows 11 24H2, `DirtyRegionMode::ReportOnly`) passa atrás
@@ -190,7 +213,7 @@ Chaves (padrão): `ajustes_pagina=geral` `ampliacao=0` `ampliacao_tamanho=128` `
 `clique_mostra_mesa=1` `destaque=azul` `dialogo_por_fora=1` `dock_clique_oculta=1` `estilo_icones=padrao`
 (padrao/escuro/transparente/tingido) `explorer` (1 / 0 / fundo) `finder_padrao=1` `finder_reserva=1`
 `genio=1` `genio_motor=composicao` `idioma=pt` (pt/en) `indicadores=1` `janelas_mac=1`
-`launchpad_motor=composicao` `launchpad_ocultos` `limitar_janelas=1` `liquid_estilo=nitido`
+`launchpad_motor=composicao` `launchpad_ocultos` `leopard` (tema Mac OS X Leopard; só vale com `liquid_glass=0`) `limitar_janelas=1` `liquid_estilo=nitido`
 `liquid_glass` `liquid_refracao=0.6` `mc_motor=composicao` `menus_do_windows=1` `menus_fade=1` `ocultar=0`
 `pilha_ordem=adicao` `pilha_ver=auto` `pilhas=1` `progresso_mac=1` `pulo_notificacao=1`
 `reduzir_transparencia=0` `relogio_curto=0` `revelar_motor=composicao` `sacudir_ponteiro=1` `sombras_mac=1`

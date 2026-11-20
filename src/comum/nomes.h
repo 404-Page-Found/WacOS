@@ -24,4 +24,4 @@
 #define EXE_FORCEQUIT    L"WacOSForceQuit.exe"        // Forçar Encerrar Aplicativos (Ctrl+Alt+Esc)
 #define DLL_WINDOW       L"WacOSWindow.dll"          // antes MacJanela.dll
 #define DLL_WINDOW32     L"WacOSWindow32.dll"         // antes MacJanela32.dll
-#define EXE_WINDOW32HOST L"WacOSWindow32Host.exe"     // antes MacJanela32Host.exe
+// (WacOSWindow32Host.exe saiu no build-12: o hospedeiro de 32 bits agora é o rundll32 do Windows)

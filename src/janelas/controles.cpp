@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include "../comum/leopard.h"  // tema Mac OS X Leopard: botões em pílula Aqua (o padrão em gel azul), fundo cinza 232
 #include <string>
 #include <vector>
 
@@ -72,6 +73,9 @@ struct Pal {
     COLORREF bg, box, boxBorder, text, text2, field, fieldBorder, button, buttonTop, buttonBorder, accent, track;
 };
 Pal Colors() {
+    // Leopard: o cinza 232 das janelas do 10.5 (sempre claro: o 10.5 não tinha modo escuro), destaque azul do Aqua
+    if (leopard::On()) return { RGB(232, 232, 232), RGB(222, 222, 222), RGB(190, 190, 190), RGB(0, 0, 0), RGB(110, 110, 110),
+                                RGB(255, 255, 255), RGB(150, 150, 150), RGB(255, 255, 255), RGB(255, 255, 255), RGB(140, 140, 140), RGB(56, 117, 215), RGB(200, 200, 200) };
     if (Dark()) return { RGB(36, 36, 38), RGB(48, 48, 50), RGB(62, 62, 64), RGB(223, 223, 225), RGB(150, 150, 155),
                          RGB(30, 30, 31), RGB(70, 70, 72), RGB(88, 88, 90), RGB(100, 100, 102), RGB(28, 28, 30), RGB(10, 132, 255), RGB(70, 70, 72) };
     return { RGB(236, 236, 236), RGB(226, 226, 226), RGB(210, 210, 210), RGB(30, 30, 30), RGB(120, 120, 124),
@@ -278,6 +282,30 @@ void PaintButton(HWND h, HDC dc) {
     }
     // botão de apertar (e caixas "como botão")
     bool def = type == BS_DEFPUSHBUTTON;
+    if (leopard::On()) {  // Leopard: pílula Aqua de 21 (perolada; o padrão e o apertado em gel azul), texto preto
+        bool on2 = (st & BS_PUSHLIKE) && SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        float hh = std::min<float>((float)(rc.bottom - rc.top) - 3 * s, 21 * s), yc = (rc.top + rc.bottom) / 2.f;
+        D2D1_RECT_F r = D2D1::RectF(rc.left + 2 * s, yc - hh / 2, rc.right - 2 * s, yc + hh / 2);
+        float rd = hh / 2;
+        bool blue = def || on2 || pressed;
+        cv.Fill(D2D1::RectF(r.left, r.top + 1 * s, r.right, r.bottom + 1 * s), rd, D2D1::ColorF(1, 1, 1, 0.6f * a));
+        D2D1_GRADIENT_STOP gst[4] = { { 0, blue ? D2D1::ColorF(0.66f, 0.80f, 0.98f, a) : D2D1::ColorF(1, 1, 1, a) },
+                                      { 0.5f, blue ? D2D1::ColorF(0.38f, 0.60f, 0.93f, a) : D2D1::ColorF(0.95f, 0.95f, 0.95f, a) },
+                                      { 0.5f, blue ? D2D1::ColorF(0.24f, 0.47f, 0.87f, a) : D2D1::ColorF(0.88f, 0.88f, 0.88f, a) },
+                                      { 1, blue ? D2D1::ColorF(0.58f, 0.82f, 1.0f, a) : D2D1::ColorF(0.98f, 0.98f, 0.98f, a) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(cv.rt->CreateGradientStopCollection(gst, 4, &gs)) &&
+            SUCCEEDED(cv.rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+            cv.rt->FillRoundedRectangle(D2D1::RoundedRect(r, rd, rd), lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        cv.Stroke(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), rd - 0.5f,
+                  blue ? D2D1::ColorF(0.12f, 0.27f, 0.58f, 0.9f * a) : D2D1::ColorF(0, 0, 0, 0.42f * a));
+        if (focused && !hideFocus && !def)
+            cv.Stroke(D2D1::RectF(r.left - 1.5f * s, r.top - 1.5f * s, r.right + 1.5f * s, r.bottom + 1.5f * s), rd + 1.5f * s, D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.75f), 3 * s);
+        cv.Text(text, D2D1::RectF(r.left + 8 * s, r.top, r.right - 8 * s, r.bottom), fs, D2D1::ColorF(0, 0, 0, 0.9f * a), DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_FONT_WEIGHT_NORMAL, (st & BS_MULTILINE) != 0);
+        return;
+    }
     bool on = (st & BS_PUSHLIKE) && SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED;
     float hgt = std::min<float>((float)(rc.bottom - rc.top) - 2 * s, 22 * s + fs * 0.3f), cy = (rc.top + rc.bottom) / 2.f;
     D2D1_RECT_F r = D2D1::RectF(rc.left + 2 * s, cy - hgt / 2, rc.right - 2 * s, cy + hgt / 2);
@@ -549,6 +577,18 @@ struct Alert {
 std::map<HWND, Alert> g_alerts;
 
 const float AW = 260, APAD = 20, AICON = 64, ABTN = 28, AGAP = 8;
+// Leopard (alerta do 10.5): 420 de largura, ícone de 64 em (24, 15), o texto a 104 da borda (negrito 13 e 11 embaixo),
+// botões em pílula de 21 embaixo à direita, o padrão na ponta direita
+const float LW = 420, LTX = 104, LTOP = 15, LBTN = 21;
+float TextWidthD(const std::wstring& s, float size) {
+    if (s.empty() || !g_dw) return 0;
+    IDWriteTextFormat* tf = nullptr; IDWriteTextLayout* lay = nullptr; float w = 0;
+    if (SUCCEEDED(g_dw->CreateTextFormat(g_face.c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"pt-br", &tf))) {
+        if (SUCCEEDED(g_dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, 4000, 400, &lay))) { DWRITE_TEXT_METRICS m; lay->GetMetrics(&m); w = m.widthIncludingTrailingWhitespace; lay->Release(); }
+        tf->Release();
+    }
+    return w;
+}
 
 // caixa de mensagem: diálogo de cima com o texto (id 0xFFFF), ícone (id 20) e só botões de apertar
 bool IsMessageBox(HWND dlg) {
@@ -609,7 +649,8 @@ void MakeAlert(HWND dlg) {
         ShowWindow(ic, SW_HIDE);
     }
     ShowWindow(text, SW_HIDE);
-    float inner = (AW - 2 * APAD) * s1;
+    const bool leo = leopard::On();
+    float inner = leo ? (LW - LTX - 20) * s1 : (AW - 2 * APAD) * s1;
     a.titleH = TextHeight(a.title, 13 * s1, DWRITE_FONT_WEIGHT_BOLD, inner);
     a.infoH = TextHeight(a.info, 11 * s1, DWRITE_FONT_WEIGHT_NORMAL, inner);
     RECT cr; GetClientRect(dlg, &cr);
@@ -621,6 +662,21 @@ void MakeAlert(HWND dlg) {
     auto isDef = [](HWND b) { return (GetWindowLongW(b, GWL_STYLE) & BS_TYPEMASK) == BS_DEFPUSHBUTTON; };
     float y = APAD * s1 + AICON * s1 + 12 * s1 + a.titleH + (a.infoH > 0 ? 6 * s1 + a.infoH : 0) + 16 * s1;
     int W = (int)std::lround(AW * s1), pad = (int)std::lround(APAD * s1), bh = (int)std::lround(ABTN * s1), gap = (int)std::lround(AGAP * s1);
+    if (leo) {  // Leopard: botões lado a lado embaixo à direita, o padrão por último (na ponta)
+        W = (int)std::lround(LW * s1);
+        y = std::max(LTOP + AICON, LTOP + 2 + a.titleH / s1 + (a.infoH > 0 ? 8 + a.infoH / s1 : 0)) * s1 + 18 * s1;
+        std::stable_partition(btns.begin(), btns.end(), [&](HWND b) { return !isDef(b); });
+        int x = W - (int)std::lround(20 * s1);
+        bh = (int)std::lround(LBTN * s1);
+        for (int k = (int)btns.size() - 1; k >= 0; k--) {
+            wchar_t t[128] = {}; GetWindowTextW(btns[k], t, 128);
+            std::wstring lab = t; lab.erase(std::remove(lab.begin(), lab.end(), L'&'), lab.end());
+            int bw = (int)std::lround(std::max(82.f, TextWidthD(lab, 13) + 32) * s1);
+            SetWindowPos(btns[k], nullptr, x - bw, (int)y, bw, bh + (int)std::lround(4 * s1), SWP_NOZORDER | SWP_NOACTIVATE);
+            x -= bw + (int)std::lround(12 * s1);
+        }
+        y += bh + 4 * s1;
+    } else
     if (btns.size() <= 2) {
         if (btns.size() == 2 && isDef(btns[0])) std::swap(btns[0], btns[1]);
         int bw = (W - 2 * pad - gap * ((int)btns.size() - 1)) / (int)btns.size();
@@ -649,6 +705,21 @@ void PaintAlert(HWND dlg, HDC dc) {
     RECT rc; GetClientRect(dlg, &rc);
     Pal p = Colors();
     float s = Scale(dlg), pad = APAD * s, ic = AICON * s;
+    if (leopard::On()) {  // Leopard: o ícone à esquerda e o texto ao lado, alinhado à esquerda (alerta do 10.5)
+        {
+            Canvas cv(dc, rc);
+            if (!cv.rt) return;
+            cv.Fill(RF(rc), 0, C(p.bg));
+            float y = LTOP * s + 2 * s;
+            cv.Text(a.title, D2D1::RectF(LTX * s, y, rc.right - 20 * s, y + a.titleH), 13 * s, C(p.text), DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_FONT_WEIGHT_BOLD, true);
+            y += a.titleH + 8 * s;
+            if (a.infoH > 0) cv.Text(a.info, D2D1::RectF(LTX * s, y, rc.right - 20 * s, y + a.infoH), 11 * s, C(p.text), DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_FONT_WEIGHT_NORMAL, true);
+        }
+        int n = (int)std::lround(ic), x = (int)std::lround(24 * s), y = (int)std::lround(LTOP * s);
+        if (a.app) DrawIconEx(dc, x, y, a.app, n, n, 0, nullptr, DI_NORMAL);
+        if (a.badge) { int m = n * 45 / 100; DrawIconEx(dc, x + n - m, y + n - m, a.badge, m, m, 0, nullptr, DI_NORMAL); }  // o aviso no canto do ícone do app, como no 10.5
+        return;
+    }
     {
         Canvas cv(dc, rc);
         if (!cv.rt) return;

@@ -1373,6 +1373,7 @@ void backdrop::Reload() {
     s.liquid = shell::Setting(L"liquid_glass", L"0") == L"1";
     s.tinted = shell::Setting(L"liquid_estilo", L"nitido") == L"tingido";
     s.golden = s.liquid && shell::Setting(L"golden_gate", L"0") == L"1";
+    s.leopard = !s.liquid && shell::Setting(L"leopard", L"0") == L"1";
     s.refraction = (float)_wtof(shell::Setting(L"liquid_refracao", L"0.6").c_str());
     s.reduce = shell::Setting(L"reduzir_transparencia", L"0") == L"1";
     s.tintK = (float)_wtof(shell::Setting(L"vidro_tinta", L"0.5").c_str());
@@ -1385,6 +1386,7 @@ void backdrop::Reload() {
     ctxmenu::Glass mg;
     mg.liquid = s.liquid && !s.reduce;
     mg.golden = s.golden;
+    mg.leopard = s.leopard;
     mg.alpha = [](float a) {
         const auto& st = g_style;
         if (st.tintK < 0.5f) a *= 0.25f + 1.5f * st.tintK;  // menus: no mínimo 25 % (texto legível); Golden Gate 60 %

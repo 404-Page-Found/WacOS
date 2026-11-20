@@ -19,6 +19,7 @@
 #include <map>
 #include "../comum/sombra.h"
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"  // tema Mac OS X Leopard: barra de título cinza metálico e botões de gel
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
@@ -27,6 +28,7 @@
 #pragma comment(lib, "dwrite.lib")
 #if defined(_M_IX86)
 #pragma comment(linker, "/EXPORT:GetMsgProc=_GetMsgProc@12")
+#pragma comment(linker, "/EXPORT:WacOSHostW=_WacOSHostW@16")
 #endif
 
 void StopShowHook();
@@ -49,6 +51,7 @@ UINT g_msgUndo, g_msgZoom;  // Zoom: "MacJanelaAmpliar" (o Shell manda no Win+�
 ID2D1Factory* g_d2d;
 IDWriteFactory* g_dw;
 IDWriteTextFormat* g_tf;
+IDWriteTextFormat* g_tfLeo;  // Leopard: o título em Lucida (Grande no Mac; Sans Unicode no Windows) 13 normal
 IDWriteTextFormat* g_tfTool;  // título das janelas de plug-in (menor, normal)
 
 struct Info {
@@ -151,7 +154,8 @@ RECT FrameRect(HWND h) {
     return r;
 }
 
-bool TemaTahoe();  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
+bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
+int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
 bool OwnApp();     // mais abaixo: um dos apps do WacOS
 const float PATCH_L = 80, PATCH_R = 3 * 46 + 6;  // pt: botões do Mac / os três botões do app (46 pt cada no Windows)
 
@@ -220,6 +224,10 @@ void Paint(Info* in) {
             fill(in->leftColor, D2D1::RectF(0, 0, PATCH_L, H), true);
             fill(in->rightColor, D2D1::RectF(W - PATCH_R, 0, W, H), false);
         }
+        // Leopard: a barra de título padrão vira o metal cinza do 10.5 de ponta a ponta (com os cantos de cima da
+        // janela); a barra própria dos apps (Chromium e afins) e as janelas de plug-in ficam como estão
+        const bool leo = leopard::On() && !in->custom && !in->tool && !UnifiedBar(in->owner);
+        if (leo) leopard::Metal(rt, D2D1::RectF(0, 0, W, H), in->active, in->dark, true, IsZoomed(in->owner) ? 0.f : CornerRadius(in->owner) / sc);
         // os três botões no tamanho padrão do projeto (o do Monitor de Atividade): 14 pt, 23 pt entre centros
         static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
         LONG st = in->style;
@@ -229,6 +237,7 @@ void Paint(Info* in) {
         // 23 entre eles; painel utilitário = 10×10 em x 8 (centro 13), 17 entre eles
         if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; lr = in->tool ? 5.f : 7.f; }
         if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; lr = 7; }  // macOS 27: com barra de ferramentas 26, 49, 72; só título 16, 39, 62
+        if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
         for (int k = 0; k < 3; k++) {
             D2D1_POINT_2F c{ lx0 + k * lpitch, H / 2 };
             bool lit = (in->active || in->hoverLights) && can[k];
@@ -268,8 +277,12 @@ void Paint(Info* in) {
             b->SetColor(D2D1::ColorF(1, 1, 1, in->active ? 0.62f : 0.38f));
             rt->DrawTextW(t, (UINT32)wcslen(t), g_tfTool, D2D1::RectF(70, 0, W - 70, H), b);
         } else if (g_tf && t[0] && !in->custom && !(semaforo::Aqua() && OwnApp())) {  // macOS 27: os apps do sistema não mostram o título
+            if (leo && !in->dark) {  // Leopard: o título em relevo (sombra branca 1 pt abaixo)
+                b->SetColor(D2D1::ColorF(1, 1, 1, in->active ? 0.55f : 0.35f));
+                rt->DrawTextW(t, (UINT32)wcslen(t), g_tfLeo ? g_tfLeo : g_tf, D2D1::RectF(80, 1, W - 80, H + 1), b);
+            }
             b->SetColor(in->dark ? D2D1::ColorF(1, 1, 1, in->active ? 0.86f : 0.42f) : D2D1::ColorF(0, 0, 0, in->active ? 0.85f : 0.40f));
-            rt->DrawTextW(t, (UINT32)wcslen(t), g_tf, D2D1::RectF(80, 0, W - 80, H), b);
+            rt->DrawTextW(t, (UINT32)wcslen(t), leo && g_tfLeo ? g_tfLeo : g_tf, D2D1::RectF(80, 0, W - 80, H), b);
         }
         b->Release();
         rt->EndDraw();
@@ -293,6 +306,7 @@ int HitLight(Info* in, POINT clientPt) {
     float lx0 = in->tool ? 14.f : 19.f, lpitch = in->tool ? 20.f : 23.f;
     if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; }  // mesmas posições do desenho
     if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; }
+    if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; }  // mesmas posições do desenho
     for (int k = 0; k < 3; k++) if (std::fabs(x - (lx0 + k * lpitch)) <= 9 && std::fabs(y - H / 2) <= 8) return k;
     return -1;
 }
@@ -410,10 +424,10 @@ bool OwnApp() {
     if (own < 0) { wchar_t p[MAX_PATH] = {}; GetModuleFileNameW(nullptr, p, MAX_PATH); const wchar_t* n = wcsrchr(p, L'\\'); own = n && !_wcsnicmp(n + 1, L"WacOS", 5) ? 1 : 0; }
     return own == 1;
 }
-bool TemaTahoe() {
+bool TemaTahoe(bool force) {
     static DWORD at; static bool on;
     DWORD now = GetTickCount();
-    if (at && now - at < 3000) return on;
+    if (at && now - at < 3000 && !force) return on;
     at = now ? now : 1;
     wchar_t path[MAX_PATH];
     if (!GetEnvironmentVariableW(L"APPDATA", path, MAX_PATH)) return on;
@@ -1055,6 +1069,25 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         SetTimer(h, 0x4D50, 34, UncloakShown);
     }
     if (m == g_msgUndo) { StopShowHook(); Detach(h, in); return 1; }
+    static UINT msgSettings = RegisterWindowMessageW(L"ShellAjustesMudaram");  // tema trocado (Leopard, Tahoe…): redesenha já
+    if (m == msgSettings && msgSettings) {
+        semaforo::Ler(true); TemaTahoe(true); ApplyColors(in);
+        if (!in->custom) { DWORD c2 = leopard::On() ? 3 : 2; DwmSetWindowAttribute(h, 33, &c2, sizeof(c2)); }
+        // o tema pode ter mudado a altura da barra (Leopard: 22): refaz a moldura e reposiciona a faixa
+        SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        Paint(in);
+    }
+    // Leopard: a barra de título do 10.5 tem 22 pt (a do Windows, 31): a área do programa sobe para começar 22 pt
+    // abaixo do topo visível; a faixa da DLL (CaptionRect) acompanha. Só janelas com a barra padrão e no estado normal.
+    if (m == WM_NCCALCSIZE && w && leopard::On() && !in->custom && !in->tool && !IsZoomed(h) && !controles::IsAlert(h) &&
+        (GetWindowLongW(h, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) {
+        auto* p = (NCCALCSIZE_PARAMS*)l;
+        LONG wtop = p->rgrc[0].top;  // o topo da janela proposto
+        LRESULT r = DefSubclassProc(h, m, w, l);
+        LONG want = wtop + (LONG)std::lround(22 * GetDpiForWindow(h) / 96.f);
+        if (p->rgrc[0].top > want) p->rgrc[0].top = want;
+        return r;
+    }
     static UINT msgShow = RegisterWindowMessageW(L"MacJanelaMostrar");  // o Shell terminou a animação do ampliar
     if (m == msgShow && msgShow) { ZoomShow(h); return 1; }
     static UINT msgMove = RegisterWindowMessageW(L"MacJanelaMover");  // o Shell: volta para a área (limites.cpp)
@@ -1271,6 +1304,11 @@ void Attach(HWND h, int mode) {
             }
             if (fc) fc->Release();
             g_dw->CreateTextFormat(fam, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13, L"pt-br", &g_tf);
+            if (g_dw->CreateTextFormat(L"Lucida Sans Unicode", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13, L"pt-br", &g_tfLeo) == S_OK && g_tfLeo) {
+                g_tfLeo->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                g_tfLeo->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                g_tfLeo->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            }
             if (g_tf) {
                 g_tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 g_tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
@@ -1318,7 +1356,7 @@ void Attach(HWND h, int mode) {
     if (!in->custom)
         in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
     if (in->overlay) { SetWindowLongPtrW(in->overlay, GWLP_USERDATA, (LONG_PTR)in); in->fastUntil = GetTickCount() + 900; SetTimer(in->overlay, 1, 16, nullptr); }
-    DWORD corner = 2;  // DWMWCP_ROUND: cantos arredondados mesmo em apps que pedem cantos retos
+    DWORD corner = leopard::On() ? 3 : 2;  // DWMWCP_ROUND (Leopard: ROUNDSMALL, o canto pequeno do 10.5); mesmo em apps que pedem cantos retos
     DwmSetWindowAttribute(h, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, &corner, sizeof(corner));
     // A sombra antiga do Windows (CS_DROPSHADOW, comum em diálogos) é do retângulo inteiro da janela:
     // aparecia como um retângulo escuro de bordas retas em volta do recorte. Fica só a nossa.
@@ -1702,6 +1740,41 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK GetMsgProc(int code, WPARAM w,
         }
     }
     return CallNextHookEx(nullptr, code, w, l);
+}
+
+// Programas de 32 bits: o Shell é de 64 bits e um gancho só carrega DLL da mesma arquitetura. Então o Shell
+// abre o rundll32.exe de 32 bits do próprio Windows (SysWOW64) com esta DLL, entrada WacOSHost: ela fica lá
+// esperando os pedidos do Shell ("ponha a barra de título do Mac na thread X") e sai quando o Shell manda.
+namespace {
+std::map<DWORD, HHOOK> g_hostHooks;
+const UINT HOST_HOOK = WM_APP + 1, HOST_QUIT = WM_APP + 2;
+
+LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == HOST_HOOK) {
+        DWORD tid = (DWORD)w;
+        if (!g_hostHooks.count(tid))
+            if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, GetMsgProc, g_mod, tid)) g_hostHooks[tid] = hk;
+        if (l) PostMessageW((HWND)l, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
+        return 0;
+    }
+    if (m == HOST_QUIT) { DestroyWindow(h); return 0; }
+    if (m == WM_DESTROY) {
+        for (auto& [t, hk] : g_hostHooks) UnhookWindowsHookEx(hk);
+        g_hostHooks.clear();
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+}  // namespace
+
+extern "C" __declspec(dllexport) void CALLBACK WacOSHostW(HWND, HINSTANCE, LPWSTR, int) {
+    if (FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr)) return;  // já tem um
+    WNDCLASSW wc{}; wc.lpfnWndProc = HostProc; wc.hInstance = g_mod; wc.lpszClassName = L"MacJanela32Host";
+    RegisterClassW(&wc);
+    if (!CreateWindowExW(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, g_mod, nullptr)) return;
+    MSG m;
+    while (GetMessageW(&m, nullptr, 0, 0) > 0) DispatchMessageW(&m);
 }
 
 BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {

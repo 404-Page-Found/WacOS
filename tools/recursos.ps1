@@ -29,7 +29,6 @@ $itens = @(
     'WacOSContacts|Contacts|Contacts.png',
     'WacOSPhotos|Photos|Photos.png',
     'WacOSTimeMachine|Time Machine|Time Machine.png',
-    'WacOSWindow32Host|WacOS Window Host (32-bit)|Mission Control.png',
     'WacOSWindow|WacOS Window Frames|',
     'WacOSWindow32|WacOS Window Frames (32-bit)|'
 )
@@ -84,12 +83,14 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "CompanyName", "shell-proprio"
+      VALUE "CompanyName", "WacOS (open source)"
+      VALUE "Comments", "https://github.com/renzyxx/WacOS"
+      VALUE "LegalCopyright", "WacOS contributors"
       VALUE "FileDescription", "$desc"
       VALUE "FileVersion", "1.0.0.0"
       VALUE "InternalName", "$nome"
       VALUE "OriginalFilename", "$nome.$ext"
-      VALUE "ProductName", "Sequoia"
+      VALUE "ProductName", "WacOS"
       VALUE "ProductVersion", "1.0.0.0"
     END
   END

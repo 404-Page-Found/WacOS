@@ -20,7 +20,7 @@ New-Item -ItemType Directory -Force "$pkg\bin" | Out-Null
 # programas: só o que o Shell usa (bin\ferramentas, bin\obj, logs e cópias .run/.old ficam de fora)
 $progs = 'WacOSShell.exe', 'WacOSFinder.exe', 'WacOSSettings.exe', 'WacOSActivityMonitor.exe', 'WacOSTerminal.exe',
          'WacOSCalculator.exe', 'WacOSNotes.exe', 'WacOSScreenshot.exe', 'WacOSPreview.exe', 'WacOSReminders.exe', 'WacOSCalendar.exe', 'WacOSTextEdit.exe', 'WacOSClock.exe', 'WacOSWeather.exe', 'WacOSContacts.exe', 'WacOSPhotos.exe', 'WacOSTimeMachine.exe', 'WacOSMusic.exe', 'WacOSQuickTime.exe', 'WacOSForceQuit.exe', 'WacOSWindow.dll', 'WacOSWindow32.dll',
-         'WacOSWindow32Host.exe', 'DialogoMac.dll', 'DialogoMac32.dll'
+         'DialogoMac.dll', 'DialogoMac32.dll'
 if ($SemSistema) { $progs = $progs | Where-Object { $_ -notlike 'DialogoMac*' } }
 $progs += 'versao.txt'  # a versão (o GitHub Actions grava; o atualizador compara)
 foreach ($p in $progs) {
@@ -39,9 +39,9 @@ if (-not $SemSistema) {
     Copy-Item "$PSScriptRoot\dialogo-ligar.ps1" "$pkg\tools\dialogo-ligar.ps1"
 }
 
-# ícones e sons (a pasta inteira de cada)
+# ícones e sons (a pasta inteira de cada). O tema Leopard ainda não saiu: icones\leopard fica de fora
 foreach ($pasta in 'icones', 'sons') {
-    if (Test-Path "$root\$pasta") { robocopy "$root\$pasta" "$pkg\$pasta" /E /NFL /NDL /NJH /NJS /NP | Out-Null }
+    if (Test-Path "$root\$pasta") { robocopy "$root\$pasta" "$pkg\$pasta" /E /XD leopard /NFL /NDL /NJH /NJS /NP | Out-Null }
 }
 
 # fontes SF instaladas neste PC (por usuário e do sistema)
@@ -62,6 +62,13 @@ foreach ($d in (Join-Path $env:LOCALAPPDATA 'Microsoft\Windows\Fonts'), (Join-Pa
 
 # cursor em uso (se for um esquema de arquivos próprio): a pasta dele e o mapa papel=arquivo
 $creg = Get-ItemProperty 'HKCU:\Control Panel\Cursors'
+# com o tema Leopard ligado neste PC o cursor em uso é o do Leopard (ainda não saiu): vai o que o Shell guardou
+# antes de trocar (%APPDATA%\Shell\cursor-antes.txt, papel=caminho), o cursor do Tahoe
+$antes = Join-Path $env:APPDATA 'Shell\cursor-antes.txt'
+if ((Split-Path (Split-Path $creg.Arrow) -Leaf) -eq 'Leopard' -and (Test-Path $antes)) {
+    $creg = [pscustomobject]@{}
+    foreach ($l in Get-Content $antes -Encoding utf8) { if ($l -match '^([^=]+)=(.*)$') { $creg | Add-Member -NotePropertyName $Matches[1] -NotePropertyValue $Matches[2] -Force } }
+}
 $arrow = $creg.Arrow
 if (-not $Atualizacao -and $arrow -and (Test-Path $arrow)) {
     $cdir = Split-Path $arrow

@@ -587,7 +587,7 @@ static void PreloadApps() {
     std::thread([] {
         SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
         Sleep(3000);
-        static const wchar_t* files[] = { EXE_SETTINGS, EXE_NOTES, EXE_CALCULATOR, EXE_TERMINAL, EXE_MONITOR, EXE_WINDOW32HOST, DLL_WINDOW32 };
+        static const wchar_t* files[] = { EXE_SETTINGS, EXE_NOTES, EXE_CALCULATOR, EXE_TERMINAL, EXE_MONITOR, DLL_WINDOW32 };
         std::vector<char> buf(1 << 20);
         size_t total = 0;
         for (auto* f : files) {
@@ -720,6 +720,9 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else if (w == 8) sobre::Show();  // Sobre Este Mac
         else if (w == 9) central::Toggle();        // Central de Controle (testes)
         else if (w == 10) notificacoes::Toggle();  // Central de Notificações (testes)
+        else if (w == 12) dock::OpenAppsStack();   // Leopard: a pilha Aplicativos (testes)
+        else if (w == 13) seletor::Step(1);        // o seletor de apps sem segurar o Alt (testes; 14 fecha)
+        else if (w == 14) seletor::Key(VK_ESCAPE);
         else if (w == 11) {  // Quick Look de uma foto do macOS 27 (testes)
             wchar_t p[MAX_PATH] = {}; GetEnvironmentVariableW(L"USERPROFILE", p, MAX_PATH);
             quicklook::Toggle(std::wstring(p) + L"\\Pictures\\Wallpapers macOS\\macOS 27\\macos-27-golden-4096x2160-27635.jpg");
@@ -796,7 +799,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == reload && reload) {  // o Ajustes do Sistema gravou ajustes.txt
         g_macKeys = shell::Setting(L"atalhos_mac", L"1") == L"1";
         static int lastLiquid = -1;
-        if (lastLiquid < 0) lastLiquid = liquid::Golden() ? 2 : liquid::On();
+        if (lastLiquid < 0) lastLiquid = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On();
+        static int lastTheme = -1;  // 0 Sequoia, 1 Tahoe, 2 Golden Gate, 3 Leopard
+        auto themeNow = [] { return liquid::Leopard() ? 3 : liquid::Golden() ? 2 : (int)liquid::On(); };
+        if (lastTheme < 0) lastTheme = themeNow();
         LoadSettings();
         static int lastEn = -1;
         if (lastEn < 0) lastEn = idioma::En();
@@ -807,12 +813,23 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             dock::IconsChanged();
             Log(L"idioma: %ls", en ? L"en" : L"pt");
         }
-        if ((liquid::Golden() ? 2 : (int)liquid::On()) != lastLiquid) {  // tema Sequoia/Tahoe/Golden Gate: outro pacote de ícones
-            lastLiquid = liquid::Golden() ? 2 : liquid::On();
+        if ((liquid::Leopard() ? 3 : liquid::Golden() ? 2 : (int)liquid::On()) != lastLiquid) {  // tema Sequoia/Tahoe/Golden Gate/Leopard: outro pacote de ícones
+            lastLiquid = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On();
             for (auto& a : apps::list) { a.icon.clear(); a.iw = a.ih = 0; a.mac = false; }
             dock::IconsChanged();
             seletor::IconsChanged();
             Log(L"tema mudou: ícones do Dock e do seletor recarregados");
+        }
+        if (themeNow() != lastTheme) {
+            // tema trocado: as janelas com a barra do Mac (WacOSWindow.dll) redesenham já (barra metálica e botões de gel
+            // do Leopard, ou de volta) em vez de esperar a próxima ativação
+            lastTheme = themeNow();
+            EnumWindows([](HWND w, LPARAM msg) -> BOOL {
+                if (GetPropW(w, L"MacJanela")) PostMessageW(w, (UINT)msg, 0, 0);
+                return TRUE;
+            }, (LPARAM)reload);
+            Log(L"tema: %d (janelas avisadas)", lastTheme);
+            ponteiro::TemaLeopard(lastTheme == 3);  // Leopard: cursor do Mac OS X; saindo, o cursor de antes
         }
         dock::ReloadSettings();
         dock::ApplyTheme();
@@ -1040,6 +1057,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     indice::Start();  // índice de arquivos do Spotlight (thread de fundo)
     revelar::Start();  // clique no vazio da área de trabalho mostra a mesa
     ponteiro::Start();  // sacudir o mouse: o ponteiro cresce para achar
+    ponteiro::TemaLeopard(liquid::Leopard());  // tema Leopard: o cursor do Mac OS X (ou devolve o de antes)
     genio::Create(hi);  // efeito gênio ao minimizar
     palco::Sync();  // Organizador Visual (Stage Manager), se ligado
     widgets::Create(hi);  // widgets na mesa (abaixo de todas as janelas)
@@ -1130,6 +1148,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     indice::Start();
     revelar::Start();
     ponteiro::Start();
+    ponteiro::TemaLeopard(liquid::Leopard());
     genio::Create(hi);
     widgets::Create(hi);
     notificacoes::Create(hi);

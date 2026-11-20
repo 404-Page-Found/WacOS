@@ -38,17 +38,24 @@ const DWORD ACR_DARK = 0x401E1C1C, ACR_LIGHT = 0x40F6F6F6;  // AABBGGRR
 // (vídeo 1080p do macOS 26, A = 67 px) 0,32 A em cima, 0,31 A embaixo e dos lados, passo 1,35 A,
 // canto de 0,5 A; o ponto de app aberto tem 0,07 A e fica com o centro a 0,11 A da borda de baixo
 #define TAHOE_DOCK (liquid::On())
-#define PAD_TOP (g_tile * (TAHOE_DOCK ? 0.156f : 0.099f))
-#define PAD_BOTTOM (g_tile * (TAHOE_DOCK ? 0.148f : 0.196f))
+// Mac OS X Leopard: a Dock é uma prateleira de vidro em perspectiva encostada no pé da tela; os ícones ficam em pé
+// sobre ela, refletidos no tampo, e o app aberto ganha a luz azul na frente da prateleira (desenho em Paint)
+#define LEO_DOCK (liquid::Leopard())
+#define PAD_TOP (g_tile * (TAHOE_DOCK ? 0.156f : LEO_DOCK ? 0.06f : 0.099f))
+#define PAD_BOTTOM (g_tile * (TAHOE_DOCK ? 0.148f : LEO_DOCK ? 0.48f : 0.196f))
 // Tahoe, guia macOS26-Theme-Reference (seção 36, medido com ícone de 64): cada ícone ocupa 68 × 84 (passo
 // 1,0625), 8 de margem antes do primeiro, separador de 31 (0,484); a altura reservada dá os 90 medidos
-#define PAD_X (g_tile * (TAHOE_DOCK ? 0.125f : 0.041f))
-#define MARGIN (g_tile * 0.10f)
+#define PAD_X (g_tile * (TAHOE_DOCK ? 0.125f : LEO_DOCK ? 0.55f : 0.041f))
+#define MARGIN (g_tile * (LEO_DOCK ? 0.f : 0.10f))  // Leopard: a prateleira encosta no pé da tela
 #define SEP_W (g_tile * (TAHOE_DOCK ? 0.484f : 0.40f))
-#define SLOT (g_tile * (TAHOE_DOCK ? 1.0625f : 1.076f))
+// Leopard (comparado com a Dock do 10.5): os ícones ocupam o espaço inteiro e quase se encostam (passo de 1,06 ícone)
+#define SLOT (g_tile * (TAHOE_DOCK ? 1.0625f : LEO_DOCK ? 1.06f : 1.076f))
 #define DOCK_RADIUS (g_tile * (TAHOE_DOCK ? 0.40f : 0.28f))  // Tahoe: 0,5 A (medido); Sequoia: 0,3 A
-const float ART_PACK = 1.0f;   // PNGs do pacote: já têm a margem do Mac (desenho = 80%)
-const float ART_WIN = 0.80f;   // ícones do Windows (recortados): mesmo corpo visual
+const float ART_PACK_0 = 1.0f;   // PNGs do pacote: já têm a margem do Mac (desenho = 80%)
+const float ART_WIN_0 = 0.80f;   // ícones do Windows (recortados): mesmo corpo visual
+// Leopard: o desenho do ícone ocupa o espaço inteiro (no 10.5 os ícones quase se encostam, sem a margem de hoje)
+#define ART_PACK (LEO_DOCK ? 1.25f : ART_PACK_0)
+#define ART_WIN (LEO_DOCK ? 1.0f : ART_WIN_0)
 
 HWND g_back, g_icons, g_owner;
 // Janelas minimizadas (como no Mac: miniatura da janela entre Downloads e a Lixeira, com o ícone do app
@@ -174,7 +181,7 @@ void BuildItems() {
         auto& a = apps::list[i];
         // sem divisória entre fixos e abertos: uma só, antes de Downloads e Lixeira
         g_items.push_back({ I_APP, i });
-        if (a.finder) g_items.push_back({ I_LAUNCHPAD, -1 });  // como no Mac: Launchpad logo depois do Finder
+        if (a.finder && !LEO_DOCK) g_items.push_back({ I_LAUNCHPAD, -1 });  // como no Mac: Launchpad logo depois do Finder
     }
     {   // quem entrou e quem saiu desde a última vez
         double now0 = anim::Now();
@@ -208,6 +215,9 @@ void BuildItems() {
         }
     }
     g_items.push_back({ I_SEP, -1 });
+    // Leopard: a pasta Aplicativos (que abre o Launchpad) fica à direita, depois da divisória, junto de Downloads e da
+    // Lixeira, como as Pilhas do 10.5
+    if (LEO_DOCK) g_items.push_back({ I_LAUNCHPAD, -1 });
     // Ajustes > Mesa e Dock > "Mostrar a pasta Downloads no Dock" (dock_downloads=0 tira)
     if (shell::Setting(L"dock_downloads", L"1") != L"0") g_items.push_back({ I_DOWNLOADS, -1 });
     // minimizadas: as que continuam minimizadas ficam na ordem; as novas entram no fim
@@ -515,7 +525,7 @@ std::wstring Label(const Item& it) {
     if (it.kind == I_APP) return apps::list[it.app].name;
     if (it.kind == I_MINWIN) { wchar_t t[200] = {}; GetWindowTextW(it.win, t, 200); return t[0] ? t : apps::list[it.app].name; }
     if (it.kind == I_DOWNLOADS) return L"Downloads";
-    if (it.kind == I_LAUNCHPAD) return L"Launchpad";
+    if (it.kind == I_LAUNCHPAD) return LEO_DOCK ? Tr(L"Aplicativos") : L"Launchpad";  // Leopard: a pasta Aplicativos
     if (it.kind == I_TRASH) return Tr(L"Lixeira");
     return L"";
 }
@@ -526,7 +536,7 @@ void PaintBack() {
     RECT mon = Monitor();
     int x = mon.left + (int)std::lround(g_bg.left * sc), y = mon.bottom - (int)std::lround((WinH() - g_bg.top) * sc);
     int w = (int)std::lround((g_bg.right - g_bg.left) * sc), h = (int)std::lround((g_bg.bottom - g_bg.top) * sc);
-    if (g_reveal <= 0.01f) { ShowWindow(g_back, SW_HIDE); g_lastBg = {}; return; }
+    if (g_reveal <= 0.01f || LEO_DOCK) { ShowWindow(g_back, SW_HIDE); g_lastBg = {}; return; }  // Leopard: sem vidro atrás (a prateleira é desenhada com os ícones)
     if (!memcmp(&g_bg, &g_lastBg, sizeof(g_bg)) && IsWindowVisible(g_back)) return;  // nada mudou
     g_lastBg = g_bg;
     float rad = DOCK_RADIUS;
@@ -714,7 +724,67 @@ void Paint() {
     float px = 1 / sc;
     // bordas do vidro (como no Sequoia): 1 px escuro por fora, 1 px claro logo por dentro
     // (com o Liquid Glass quem desenha o contorno especular é o próprio vidro, em backdrop.cpp)
-    if (!(g_glass && backdrop::Liquid())) {
+    // Leopard: a prateleira de vidro em perspectiva. O tampo vai do fundo (mais estreito, acima do pé dos ícones) até a
+    // borda da frente; a frente é uma faixa mais escura. Medidas tiradas das capturas do 10.5 (ícone de 48): tampo de
+    // ~0,43 ícone de fundo, frente de ~0,07, os lados recolhem ~0,9 da profundidade.
+    const bool leo = LEO_DOCK;
+    float leoBack = 0, leoFront = 0, leoIn = 0;
+    ID2D1PathGeometry* shelf = nullptr;
+    auto lin = [&](D2D1_POINT_2F a, D2D1_POINT_2F b, std::initializer_list<D2D1_GRADIENT_STOP> st, auto draw) {
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(st.begin(), (UINT32)st.size(), &gs)) &&
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(a, b), gs, &lb))) draw(lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    };
+    if (leo) {
+        float base = g_bg.top + PAD_TOP + g_tile;
+        leoBack = base - g_tile * 0.42f; leoFront = g_bg.bottom - std::max(2.f, g_tile * 0.04f); leoIn = (leoFront - leoBack) * 0.95f;
+        ID2D1Factory* fac = nullptr; rt->GetFactory(&fac);
+        if (fac && SUCCEEDED(fac->CreatePathGeometry(&shelf))) {
+            ID2D1GeometrySink* sk = nullptr;
+            if (SUCCEEDED(shelf->Open(&sk))) {
+                sk->BeginFigure({ g_bg.left + leoIn, leoBack }, D2D1_FIGURE_BEGIN_FILLED);
+                sk->AddLine({ g_bg.right - leoIn, leoBack }); sk->AddLine({ g_bg.right, leoFront }); sk->AddLine({ g_bg.left, leoFront });
+                sk->EndFigure(D2D1_FIGURE_END_CLOSED);
+                sk->Close(); sk->Release();
+            }
+        }
+        if (fac) fac->Release();
+        // tampo (comparado com a Dock do 10.5): vidro prateado claro e mais opaco — o fundo escuro aparece pouco —, mais
+        // claro atrás, com a faixa de brilho junto da borda de trás
+        if (shelf) lin({ 0, leoBack }, { 0, leoFront }, { { 0, D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.70f) }, { 0.10f, D2D1::ColorF(0.90f, 0.90f, 0.92f, 0.62f) }, { 0.35f, D2D1::ColorF(0.82f, 0.83f, 0.85f, 0.56f) }, { 1, D2D1::ColorF(0.74f, 0.75f, 0.78f, 0.58f) } },
+                       [&](ID2D1Brush* b) { rt->FillGeometry(shelf, b); });
+        // frente: a borda fina do vidro — um fio escuro e, embaixo, o fio claro
+        br->SetColor(D2D1::ColorF(0.55f, 0.56f, 0.58f, 0.95f));  // a borda da frente: um fio médio e o fio claro embaixo
+        rt->FillRectangle(D2D1::RectF(g_bg.left, leoFront, g_bg.right, leoFront + px), br);
+        br->SetColor(D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.98f));
+        rt->FillRectangle(D2D1::RectF(g_bg.left, leoFront + px, g_bg.right, g_bg.bottom), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));  // a borda do fundo e os lados
+        rt->DrawLine({ g_bg.left + leoIn, leoBack }, { g_bg.right - leoIn, leoBack }, br, px);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.35f));
+        rt->DrawLine({ g_bg.left + leoIn, leoBack }, { g_bg.left, leoFront }, br, px);
+        rt->DrawLine({ g_bg.right - leoIn, leoBack }, { g_bg.right, leoFront }, br, px);
+    }
+    // reflexo no tampo da prateleira (Leopard): o desenho do ícone espelhado no pé dele, recortado pelo tampo e sumindo
+    // para a frente
+    auto reflect = [&](float baseY, auto draw) {
+        if (!leo || !shelf) return;
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0.55f) }, { 1, D2D1::ColorF(1, 1, 1, 0) } };  // reflexo forte, como no 10.5
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, baseY }, { 0, baseY + g_tile * 0.60f }), gs, &lb))) {
+            rt->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), shelf, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), 1, lb), nullptr);
+            D2D1_MATRIX_3X2_F old; rt->GetTransform(&old);
+            rt->SetTransform(D2D1::Matrix3x2F::Scale(1, -1, { 0, baseY }) * old);
+            draw();
+            rt->SetTransform(old);
+            rt->PopLayer();
+        }
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    };
+    if (!leo && !(g_glass && backdrop::Liquid())) {
     br->SetColor(dark ? D2D1::ColorF(0, 0, 0, 0.40f) : D2D1::ColorF(0, 0, 0, 0.10f));
     rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(g_bg.left + px / 2, g_bg.top + px / 2, g_bg.right - px / 2, g_bg.bottom - px / 2), rad - px / 2, rad - px / 2), br, px);
     br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(1, 1, 1, 0.55f));
@@ -724,6 +794,17 @@ void Paint() {
     float baseline = g_bg.top + PAD_TOP + g_tile;  // pé dos ícones
     for (int i = 0; i < (int)g_items.size(); i++) {
         auto& it = g_items[i];
+        if (it.kind == I_SEP && leo) {
+            // Leopard: a faixa tracejada branca que atravessa o tampo em perspectiva (do fundo para a frente)
+            float w = g_bg.right - g_bg.left, t = w > 0 ? (it.cx - g_bg.left) / w : 0.5f;
+            float bx = g_bg.left + leoIn + t * (w - 2 * leoIn);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.85f));
+            for (int d = 0; d < 5; d++) {
+                float a = d / 5.f, b2 = (d + 0.55f) / 5.f;
+                rt->DrawLine({ bx + (it.cx - bx) * a, leoBack + (leoFront - leoBack) * a }, { bx + (it.cx - bx) * b2, leoBack + (leoFront - leoBack) * b2 }, br, 1.3f + a);
+            }
+            continue;
+        }
         if (it.kind == I_SEP) {
             br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.22f) : D2D1::ColorF(0, 0, 0, 0.18f));
             float h = g_tile * 0.93f, cy = (g_bg.top + g_bg.bottom) / 2;
@@ -765,6 +846,7 @@ void Paint() {
             RefreshStack((int)std::lround(std::min(256.f, g_large * Sc())));
             float art = s * ART_WIN;
             D2D1_RECT_F sr{ it.cx - art / 2, baseline - (s + art) / 2, it.cx + art / 2, baseline - (s - art) / 2 };
+            reflect(sr.bottom, [&] { DrawStack(rt, sr); });  // Leopard: a pilha também se reflete na prateleira
             if (DrawStack(rt, sr)) continue;
             b = PackBitmap(rt, L"folder downloads"); mac = b != nullptr;
         }
@@ -772,6 +854,8 @@ void Paint() {
         // ícones do pacote do Sequoia já têm a margem do Mac; os do Windows (recortados) ficam com o mesmo corpo visual
         float art = s * (mac ? ART_PACK : ART_WIN);
         D2D1_RECT_F ir{ it.cx - art / 2, baseline - (s + art) / 2 + dy, it.cx + art / 2, baseline - (s - art) / 2 + dy };
+        if (b) reflect(baseline + dy, [&] {  // espelha no pé do desenho (o PNG do pacote tem margem embaixo)
+            rt->DrawBitmap(b, ir, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC); });
         if (b) rt->DrawBitmap(b, ir, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);  // reduz 256 px sem serrilhar
         else if (it.kind == I_APP) { if (apps::list[it.app].finder) ui::DrawFolder(rt, ir, 0xE8B7); }
         else if (it.kind == I_DOWNLOADS) ui::DrawFolder(rt, ir, 0xE896);
@@ -782,11 +866,26 @@ void Paint() {
         }
         // ponto de app aberto; o Finder, como no Mac, está sempre aberto
         if (it.kind == I_APP && (!apps::list[it.app].wins.empty() || apps::list[it.app].finder) && shell::Setting(L"indicadores", L"1") == L"1") {
+            if (leo) {
+                // Leopard: a luz azul do app aberto, acesa no tampo junto da borda da frente (miolo branco e o brilho
+                // azul-ciano espalhado para os lados)
+                // medido: miolo (247,252,255) de ~2 px, halo (141,173,223) de ~6 px, a ~0,13 ícone da borda de baixo
+                D2D1_POINT_2F lc{ it.cx, g_bg.bottom - g_tile * 0.13f };
+                float rx = std::max(3.f, g_tile * 0.14f), ry = std::max(1.5f, g_tile * 0.06f);
+                D2D1_GRADIENT_STOP st[3] = { { 0, D2D1::ColorF(1, 1, 1, 1) }, { 0.32f, D2D1::ColorF(0.72f, 0.87f, 1, 0.95f) }, { 1, D2D1::ColorF(0.40f, 0.58f, 0.92f, 0) } };
+                ID2D1GradientStopCollection* gs = nullptr; ID2D1RadialGradientBrush* rb = nullptr;
+                if (SUCCEEDED(rt->CreateGradientStopCollection(st, 3, &gs)) &&
+                    SUCCEEDED(rt->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(lc, { 0, 0 }, rx, ry), gs, &rb)))
+                    rt->FillEllipse(D2D1::Ellipse(lc, rx, ry), rb);
+                if (rb) rb->Release();
+                if (gs) gs->Release();
+            } else {
             bool tahoe = TAHOE_DOCK;  // Tahoe: ponto pequeno, um pouco acima da borda; escuro no claro, claro no escuro
             if (tahoe) br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.85f) : D2D1::ColorF(0.05f, 0.07f, 0.20f, 0.85f));
             else br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.50f));
             float dr = std::max(1.25f, g_tile * (tahoe ? 0.028f : 0.034f));
             rt->FillEllipse(D2D1::Ellipse({ it.cx, g_bg.bottom - g_tile * (tahoe ? 0.088f : 0.068f) }, dr, dr), br);
+            }
         }
         if ((i == g_press && !g_dragging && GetKeyState(VK_LBUTTON) < 0) || i == g_dropHit) {  // pressionado: escurece
             br->SetColor(D2D1::ColorF(0, 0, 0, i == g_dropHit ? 0.25f : 0.35f));
@@ -818,6 +917,16 @@ void Paint() {
         float tw = ui::TextWidth(g_tfLabel, t) + 22, th = 26;
         float top = baseline - g_items[lab].size - 14 - th;
         D2D1_RECT_F r{ g_items[lab].cx - tw / 2, top, g_items[lab].cx + tw / 2, top + th };
+        if (leo) {  // Leopard: o nome numa pílula preta translúcida com texto branco, sem setinha
+            float rr2 = th / 2 - 2;
+            D2D1_RECT_F q{ r.left, r.top + 2, r.right, r.bottom - 2 };
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.62f));
+            rt->FillRoundedRectangle(D2D1::RoundedRect(q, rr2, rr2), br);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.20f));
+            rt->DrawRoundedRectangle(D2D1::RoundedRect(q, rr2, rr2), br, 0.8f);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.97f));
+            rt->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfLabel, r, br);
+        } else {
         br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.92f) : D2D1::ColorF(0.94f, 0.94f, 0.95f, 0.95f));
         rt->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br);
         float cx = g_items[lab].cx, ab = r.bottom - 0.5f;  // setinha apontando para o ícone, como no Mac
@@ -835,6 +944,7 @@ void Paint() {
         tri->Release(); f->Release();
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.85f));
         rt->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfLabel, r, br);
+        }
     }
     // ícone sendo arrastado
     if (g_dragging && g_press >= 0 && g_items[g_press].kind == I_APP) {
@@ -856,6 +966,7 @@ void Paint() {
         }
     }
     br->Release();
+    if (shelf) shelf->Release();
     ui::GpuEnd(g_gi);
     if (moved) {
         // A janela fica sempre com a faixa inteira e o desenho sem deslocar; só a região (onde ela recebe o
@@ -1096,6 +1207,7 @@ void LeftClick(int i) {
         apps::Activate(a); ui::FrameClock(g_icons, WM_DOCKFRAME, true); return;
     }
     if (it.kind == I_TRASH) { OpenFinder(L"shell:RecycleBinFolder"); return; }  // a Lixeira no Finder, não no Explorador
+    if (it.kind == I_LAUNCHPAD && LEO_DOCK) { dock::OpenAppsStack(); return; }  // Leopard: a pasta Aplicativos como Pilha em Grade (10.5)
     if (it.kind == I_LAUNCHPAD) { launchpad::Toggle(); return; }
     if (it.kind == I_DOWNLOADS && shell::Setting(L"pilhas", L"1") == L"1") {  // Pilha em grade, como no Mac
         float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
@@ -1465,6 +1577,17 @@ void dock::ApplyTheme() {
     if (!g_glass) ui::Acrylic(g_back, ui::Dark() ? ACR_DARK : ACR_LIGHT);
     g_lastBg = {};  // repinta a tinta do fundo
     Paint();
+}
+
+// Leopard: abre a pasta Aplicativos (o item do Launchpad, à direita) como Pilha em Grade, saindo do ícone dela
+void dock::OpenAppsStack() {
+    for (auto& it : g_items) {
+        if (it.kind != I_LAUNCHPAD) continue;
+        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
+        POINT a{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) };
+        pilhas::ShowApps(a);
+        return;
+    }
 }
 
 void dock::Raise() {  // por cima de janelas de tela inteira nossas (Launchpad)

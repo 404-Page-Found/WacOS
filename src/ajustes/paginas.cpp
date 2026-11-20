@@ -648,12 +648,25 @@ Row TemaRow() {
     // Aqua de vidro, um canto só e menor em todas as janelas e o controle de transparência). Golden Gate =
     // liquid_glass=1 + golden_gate=1, então tudo o que só conhece o Tahoe continua funcionando. Detalhes do vidro em
     // Transparência e Efeitos.
-    return Popup(L"Tema", { L"macOS Sequoia", L"macOS Tahoe", L"macOS Golden Gate" },
-                     [] { return Setting(L"liquid_glass", L"0") != L"1" ? 0 : Setting(L"golden_gate", L"0") == L"1" ? 2 : 1; },
+    // Mac OS X Leopard (10.5, 2007) = leopard=1 SEM o liquid_glass: o Sequoia por baixo (tudo o que não conhece o
+    // Leopard continua no visual do Sequoia) e, por cima, o Aqua de 2007: barra de menus clara com a maçã grafite, Dock
+    // em prateleira espelhada, botões de gel e barras cinza metálico. Ligar o Liquid Glass em outro lugar desliga o
+    // Leopard sozinho (leopard só vale com liquid_glass=0).
+    // O Leopard ainda não saiu (fora do build-12): só aparece com leopard_previa=1 no ajustes.txt, ou para quem já
+    // está nele (para conseguir sair). Sem a opção, o pacote também não leva icones\leopard nem cursor\Leopard.
+    bool leopardOn = Setting(L"leopard_previa", L"0") == L"1" || Setting(L"leopard", L"0") == L"1";
+    std::vector<std::wstring> temas = { L"macOS Sequoia", L"macOS Tahoe", L"macOS Golden Gate" };
+    if (leopardOn) temas.push_back(L"Mac OS X Leopard");
+    return Popup(L"Tema", temas,
+                     [] {
+                         if (Setting(L"liquid_glass", L"0") != L"1") return Setting(L"leopard", L"0") == L"1" ? 3 : 0;
+                         return Setting(L"golden_gate", L"0") == L"1" ? 2 : 1;
+                     },
                      [](int i) {
                          if (i == 2) SetSetting(L"liquid_estilo", L"nitido");  // o vidro do Golden Gate é o controle deslizante
+                         SetSetting(L"leopard", i == 3 ? L"1" : L"0");
                          SetSetting(L"golden_gate", i == 2 ? L"1" : L"0");
-                         SetSetting(L"liquid_glass", i >= 1 ? L"1" : L"0");
+                         SetSetting(L"liquid_glass", i == 1 || i == 2 ? L"1" : L"0");
                          // o papel de parede do usuário nunca muda ao trocar de tema (o usuário pediu)
                          Rebuild();
                      });
@@ -695,7 +708,10 @@ Row GlassEstiloRow(bool title = true) {  // title = false: embaixo da foto da p�
 }
 
 Page AparenciaGolden();
+Page AparenciaLeopard();
 Page Aparencia() {
+    // Mac OS X Leopard: o painel Aparência do 10.5 (pop-ups Aqua em vez das miniaturas do macOS moderno)
+    if (Setting(L"leopard", L"0") == L"1" && Setting(L"liquid_glass", L"0") != L"1") return AparenciaLeopard();
     // a página do macOS 27 vale para os três temas (o usuário pediu): no Tahoe a foto ganha a escolha Transparente /
     // Tingido no lugar do controle; no Sequoia (sem Liquid Glass) só Aparência, Tema e o resto. A antiga fica de reserva.
     if (true) return AparenciaGolden();
@@ -1168,7 +1184,54 @@ Page AparenciaGolden() {
     p.groups.push_back(G({ Link(L"Transparência e Efeitos", [] { Push(L"Transparência e Efeitos", TransparenciaEfeitos); }, 0xE790, C_BLUE) }));
     Row tema = TemaRow();
     tema.label = L"Estilo do WacOS";
-    p.groups.push_back(G({ tema }));
+    if (Setting(L"leopard", L"0") == L"1" && Setting(L"liquid_glass", L"0") != L"1") {
+        // Leopard: o Aurora (o papel de parede padrão do 10.5) só como sugestão; trocar de tema nunca muda o papel de
+        // parede do usuário (pedido dele), quem troca é este botão
+        Row aurora = Button(L"Papel de parede do Leopard", L"Usar o Aurora", [] {
+            wchar_t prof[MAX_PATH] = {};
+            if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) return;
+            std::wstring f = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\Leopard\\os-x-leopard-aurora-5120x3200-24048.jpg";
+            if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) sys::SetWallpaper(f);
+            Rebuild();
+        }, L"Aurora, o papel de parede original do Mac OS X Leopard. Trocar de tema não muda o seu papel de parede.");
+        p.groups.push_back(G({ tema, aurora }));
+    } else p.groups.push_back(G({ tema }));
+    return p;
+}
+
+// ================= Aparência no Mac OS X Leopard
+// O painel "Aparência" das Preferências do Sistema do 10.5: Aparência (Azul / Grafite: botões, menus e janelas), Cor
+// de realce (a seleção do texto), barras de rolagem, a barra de menus translúcida (10.5.2) e o tema do WacOS.
+Page AparenciaLeopard() {
+    Page p;
+    p.groups.push_back(G({
+        Popup(L"Aparência", { L"Azul", L"Grafite" }, [] { return Setting(L"destaque", L"azul") == L"grafite" ? 1 : 0; },
+              [](int i) { SetSetting(L"destaque", i == 1 ? L"grafite" : L"azul"); Rebuild(); }),
+        Popup(L"Cor de realce", { L"Automática", L"Azul", L"Roxo", L"Rosa", L"Vermelho", L"Laranja", L"Amarelo", L"Verde", L"Grafite" },
+              [] { return std::clamp(_wtoi(Setting(L"realce_texto", L"0").c_str()), 0, 8); }, [](int i) { GGAplicaRealce(i); Rebuild(); }),
+        Note(L"A aparência vale para os botões, menus e janelas."),
+    }));
+    p.groups.push_back(G({
+        Popup(L"Mostrar barras de rolagem", { L"Ao rolar", L"Sempre" },
+              [] { DWORD v = 1, cb = sizeof(v); RegGetValueW(HKEY_CURRENT_USER, L"Control Panel\\Accessibility", L"DynamicScrollbars", RRF_RT_REG_DWORD, nullptr, &v, &cb); return v ? 0 : 1; },
+              [](int i) {
+                  DWORD v = i == 0 ? 1 : 0;
+                  RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Accessibility", L"DynamicScrollbars", REG_DWORD, &v, sizeof(v));
+                  SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"Accessibility", SMTO_ABORTIFHUNG, 200, nullptr);
+              }),
+        Toggle(L"Barra de menus translúcida", [] { return Setting(L"barra_translucida", L"1") == L"1"; },
+               [](bool v) { SetSetting(L"barra_translucida", v ? L"1" : L"0"); Rebuild(); }),
+    }));
+    Row tema = TemaRow();
+    tema.label = L"Estilo do WacOS";
+    Row aurora = Button(L"Papel de parede do Leopard", L"Usar o Aurora", [] {
+        wchar_t prof[MAX_PATH] = {};
+        if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) return;
+        std::wstring f = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\Leopard\\os-x-leopard-aurora-5120x3200-24048.jpg";
+        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) sys::SetWallpaper(f);
+        Rebuild();
+    }, L"Aurora, o papel de parede original do Mac OS X Leopard. Trocar de tema não muda o seu papel de parede.");
+    p.groups.push_back(G({ tema, aurora }));
     return p;
 }
 
@@ -1243,13 +1306,13 @@ Page TransparenciaEfeitos() {
         float w = 92, gap = 16, x = rr.right - 10 - 3 * w - 2 * gap;
         for (int k = 0; k < 3; k++, x += w + gap) {
             if (pt.x < x - 6 || pt.x > x + w + 6) continue;
-            if (k == 0) { SetSetting(L"liquid_glass", L"0"); SetSetting(L"golden_gate", L"0"); }  // Sequoia: sai do Golden Gate também
+            if (k == 0) { SetSetting(L"liquid_glass", L"0"); SetSetting(L"golden_gate", L"0"); SetSetting(L"leopard", L"0"); }  // Sequoia: sai do Golden Gate e do Leopard também
             else { SetSetting(L"liquid_estilo", k == 1 ? L"nitido" : L"tingido"); SetSetting(L"liquid_glass", L"1"); }
             Rebuild();
         }
     };
     Row lg = Toggle(L"Liquid Glass", [] { return Setting(L"liquid_glass", L"0") == L"1"; },
-                    [](bool v) { SetSetting(L"liquid_glass", v ? L"1" : L"0"); if (!v) SetSetting(L"golden_gate", L"0"); Rebuild(); },
+                    [](bool v) { SetSetting(L"liquid_glass", v ? L"1" : L"0"); if (!v) SetSetting(L"golden_gate", L"0"); else SetSetting(L"leopard", L"0"); Rebuild(); },
                     L"O vidro do macOS Tahoe: pouco fosco e mais vivo, com brilho nas bordas e cantos mais redondos.");
     lg.enabled = !reduce;
     // vidro real: a tela por baixo, com refração de verdade na borda (como o Tahoe); desligado, o vidro

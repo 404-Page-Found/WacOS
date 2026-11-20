@@ -61,8 +61,12 @@ void Metricas() {
         CARD_H = 63.5f;
         GG_GAP = 11;
     }
+    if (liquid::Leopard()) {  // Leopard: o menu do Spotlight do 10.5, preso na barra de menus à direita
+        W = 380; FIELD_H = 34; CARD_H = 20;
+    }
     WIN_H = FIELD_H + 1 + GG_GAP + MAX_LIST_H;
 }
+const float LEO_ROW = 20, LEO_COL = 112;  // Leopard: linhas de 20 e a coluna das categorias
 const UINT WM_SP_FILES = WM_APP + 60, WM_SP_ICON = WM_APP + 61, WM_SP_APPS = WM_APP + 62, WM_SP_FRAME = WM_APP + 63, WM_SP_SUGG = WM_APP + 64;
 const UINT_PTR T_SEARCH = 1, T_CARET = 2, T_ICONS = 3, T_REGRAB = 4;
 
@@ -854,7 +858,7 @@ std::vector<std::wstring> Chips() {
 }
 bool HasChips() { return (ModePanel() && g_mode != 3) || (liquid::Golden() && g_mode == 0 && !g_query.empty()); }
 // macOS 27: com fichas, a lista começa 6 abaixo delas (fichas de 26 com o centro a 33 do alto do painel)
-float ListTop() { return liquid::Golden() && HasChips() ? FIELD_H + GG_GAP + 52 : FIELD_H + 1 + GG_GAP + (HasChips() ? CHIPS_H : 0); }
+float ListTop() { if (liquid::Leopard()) return FIELD_H + 1; return liquid::Golden() && HasChips() ? FIELD_H + GG_GAP + 52 : FIELD_H + 1 + GG_GAP + (HasChips() ? CHIPS_H : 0); }
 bool ChipAllows(Kind k, const std::wstring& name) {
     bool ggAll = liquid::Golden() && g_mode == 0;  // macOS 27: as fichas também no Spotlight comum
     if (!g_chip || (!ModePanel() && !ggAll)) return true;
@@ -1125,6 +1129,18 @@ void Rebuild() {
 
 // posições de tudo no conteúdo (a partir do topo da lista); devolve a altura total
 float Layout() {
+    if (liquid::Leopard()) {  // Leopard: uma lista só; o cabeçalho de cada seção vai na coluna da esquerda da 1ª linha
+        float y = 4;
+        bool first = true;
+        for (auto& row : g_rows) {
+            if (row.type == R_HEAD) { if (!first) y += 5; row.r = D2D1::RectF(0, y, W, y); first = false; continue; }
+            if (row.type == R_APP || row.type == R_MODE) { row.r = D2D1::RectF(0, 0, 0, 0); continue; }
+            row.r = D2D1::RectF(0, y, W, y + LEO_ROW);
+            y += LEO_ROW;
+            first = false;
+        }
+        return y + 4;
+    }
     const bool gg = liquid::Golden();
     float y = gg ? (g_mode == 1 ? 17.5f : HasChips() ? 7.5f : 8.f) : 8, x = PAD;  // (a lista já começa 6 abaixo das fichas)
     bool inTiles = false;
@@ -1334,8 +1350,118 @@ float SpotR(float H) {
     return FIELD_H / 2 + (26.f - FIELD_H / 2) * k;  // cápsula recolhida (28) → 26 com resultados (guia, seção 28.2)
 }
 
+// Mac OS X Leopard: o menu do Spotlight do 10.5 (desenho próprio). Branco, preso na barra de menus (cantos de baixo
+// redondos), "Spotlight" em negrito e o campo em pílula branca com o anel azul; a lista com a coluna cinza das
+// categorias à esquerda, linhas de 20 com ícone de 16 e a escolhida em degradê azul com o texto branco
+void PaintLeopard() {
+    float sc = Sc();
+    int wpx = (int)std::lround(W * sc), hpx = (int)std::lround(WIN_H * sc);
+    if (g_back && IsWindowVisible(g_back)) ShowWindow(g_back, SW_HIDE);
+    auto* dc = ui::GpuBegin(g_s, wpx, hpx, sc);
+    if (!dc) return;
+    Pal p = Colors();
+    ID2D1SolidColorBrush* br = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+    if (!br) { ui::GpuEnd(g_s); return; }
+    float fade, scale;
+    Transition(fade, scale);
+    dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), fade), nullptr);
+    static IDWriteTextFormat* tfB = ui::FormatFace(L"Lucida Sans Unicode", 13, DWRITE_FONT_WEIGHT_BOLD);
+    static IDWriteTextFormat* tfN = ui::FormatFace(L"Lucida Sans Unicode", 12, DWRITE_FONT_WEIGHT_NORMAL);
+    static IDWriteTextFormat* tfH = [] { auto* f = ui::FormatFace(L"Lucida Sans Unicode", 11, DWRITE_FONT_WEIGHT_NORMAL); if (f) f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING); return f; }();
+    float H = std::max(FIELD_H, g_h);
+    const float RR = 5;
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.18f));  // sombra curta
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(1, 2, W - 1, H + 2), RR, RR), br);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.97f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H), RR, RR), br);
+    dc->FillRectangle(D2D1::RectF(0, 0, W, RR), br);  // em cima é reto (sai da barra de menus)
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, -RR, W - 0.5f, H - 0.5f), RR, RR), br, 1);
+    // cabeçalho: "Spotlight" e o campo
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.88f));
+    dc->DrawTextW(L"Spotlight", 9, tfB, D2D1::RectF(12, 0, 100, FIELD_H), br);
+    D2D1_RECT_F f = D2D1::RectF(96, (FIELD_H - 20) / 2, W - 10, (FIELD_H + 20) / 2);
+    float fr = (f.bottom - f.top) / 2;
+    br->SetColor(D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.75f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(f.left - 1.5f, f.top - 1.5f, f.right + 1.5f, f.bottom + 1.5f), fr + 1.5f, fr + 1.5f), br, 3);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(f, fr, fr), br);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.10f));
+    dc->FillRectangle(D2D1::RectF(f.left + fr * 0.6f, f.top + 1, f.right - fr * 0.6f, f.top + 3), br);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.45f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(f.left + 0.5f, f.top + 0.5f, f.right - 0.5f, f.bottom - 0.5f), fr - 0.5f, fr - 0.5f), br, 1);
+    br->SetColor(D2D1::ColorF(0.25f, 0.25f, 0.27f, 1));  // a lupa
+    float my = (f.top + f.bottom) / 2;
+    dc->DrawEllipse(D2D1::Ellipse({ f.left + 12, my - 1 }, 4, 4), br, 1.5f);
+    dc->DrawLine({ f.left + 15, my + 2 }, { f.left + 18, my + 5 }, br, 1.8f);
+    D2D1_RECT_F tr = D2D1::RectF(f.left + 24, f.top, f.right - 8, f.bottom);
+    float tw = ui::TextWidth(tfN, g_query);
+    if (g_selAll && !g_query.empty()) {
+        br->SetColor(D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.35f));
+        dc->FillRectangle(D2D1::RectF(tr.left, f.top + 3, tr.left + tw, f.bottom - 3), br);
+    }
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
+    dc->DrawTextW(g_query.c_str(), (UINT32)g_query.size(), tfN, tr, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if (g_caretOn && !g_selAll) dc->FillRectangle(D2D1::RectF(tr.left + tw + 0.5f, f.top + 4, tr.left + tw + 1.5f, f.bottom - 4), br);
+    // a lista
+    if (H > FIELD_H + 2) {
+        float top = ListTop();
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.14f));
+        dc->FillRectangle(D2D1::RectF(0, top - 1, W, top), br);
+        dc->PushAxisAlignedClip(D2D1::RectF(0, top, W, H - 1), D2D1_ANTIALIAS_MODE_ALIASED);
+        br->SetColor(D2D1::ColorF(0.93f, 0.93f, 0.94f, 1));  // a coluna das categorias
+        dc->FillRectangle(D2D1::RectF(0, top, LEO_COL, H), br);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.10f));
+        dc->FillRectangle(D2D1::RectF(LEO_COL, top, LEO_COL + 1, H), br);
+        std::wstring head;
+        bool firstOfSect = false, firstSect = true;
+        for (int i = 0; i < (int)g_rows.size(); i++) {
+            auto& row = g_rows[i];
+            if (row.type == R_HEAD) {
+                head = row.head; firstOfSect = true;
+                if (!firstSect) {  // linha entre as seções
+                    float ly = top + row.r.top - g_scroll - 2.5f;
+                    br->SetColor(D2D1::ColorF(0, 0, 0, 0.10f));
+                    dc->FillRectangle(D2D1::RectF(0, ly, W, ly + 1), br);
+                }
+                firstSect = false;
+                continue;
+            }
+            if (row.res < 0 || row.res >= (int)g_res.size() || row.r.bottom <= row.r.top) continue;
+            D2D1_RECT_F r = D2D1::RectF(row.r.left, top + row.r.top - g_scroll, row.r.right, top + row.r.bottom - g_scroll);
+            if (r.bottom < top || r.top > H) { firstOfSect = false; continue; }
+            bool sel = i == g_sel;
+            if (sel) {
+                D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.39f, 0.56f, 0.96f, 1) }, { 1, D2D1::ColorF(0.13f, 0.35f, 0.88f, 1) } };
+                ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+                if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                    SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+                    dc->FillRectangle(D2D1::RectF(LEO_COL + 1, r.top, W, r.bottom), lb);
+                if (lb) lb->Release();
+                if (gs) gs->Release();
+            }
+            if (firstOfSect) {
+                std::wstring h = row.type == R_CARD ? std::wstring(Tr(L"Melhor Resultado")) : head;
+                br->SetColor(D2D1::ColorF(0, 0, 0, 0.55f));
+                dc->DrawTextW(h.c_str(), (UINT32)h.size(), tfH, D2D1::RectF(4, r.top, LEO_COL - 8, r.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                firstOfSect = row.type == R_CARD;  // o melhor resultado é sozinho: a seção de baixo também mostra o nome
+            }
+            const Result& res = g_res[row.res];
+            DrawIcon(dc, br, res, D2D1::RectF(LEO_COL + 8, r.top + 2, LEO_COL + 24, r.top + 18), p);
+            br->SetColor(sel ? D2D1::ColorF(1, 1, 1, 1) : D2D1::ColorF(0, 0, 0, 0.9f));
+            dc->DrawTextW(res.name.c_str(), (UINT32)res.name.size(), tfN, D2D1::RectF(LEO_COL + 30, r.top, W - 8, r.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+        dc->PopAxisAlignedClip();
+    }
+    dc->PopLayer();
+    br->Release();
+    ui::GpuEnd(g_s);
+}
+
 void Paint() {
     if (!g_visible) return;
+    if (liquid::Leopard()) { PaintLeopard(); return; }
     double tp0 = anim::Now();
     float sc = Sc();
     int wpx = (int)std::lround(W * sc), hpx = (int)std::lround(WIN_H * sc);
@@ -1764,6 +1890,7 @@ void Place() {
     RECT m = mi.rcMonitor;
     // no Mac (Sequoia) o campo fica a ~22% da altura da tela; no Tahoe a 30 % (guia, seção 39); o painel cresce para baixo
     int x = m.left + (m.right - m.left - wpx) / 2, y = m.top + (int)((m.bottom - m.top) * (liquid::On() ? 0.30f : 0.22f));
+    if (liquid::Leopard()) { x = m.right - wpx - 2; y = m.top + menubar::Height(); }  // Leopard: desce da lupa, na ponta direita
     SetWindowPos(g_wnd, HWND_TOPMOST, x, y, wpx, hpx, SWP_NOACTIVATE);
     SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }

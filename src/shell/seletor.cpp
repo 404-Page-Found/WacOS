@@ -20,6 +20,7 @@ const float RADIUS = 15;
 void Metricas() {
     // o usuário achou grande na tela dele (2026-11-16): o guia em ~78% (quadro de 100 em vez de 128, painel de 138)
     if (liquid::On()) { ICON = 100 * 0.805f; PITCH = 105; TILE = 100; PAD_X = 19; PAD_TOP = 19; PANEL_H = 138; LABEL_CY = 19 + 100 + 10; }
+    else if (liquid::Leopard()) { ICON = 96; PITCH = 118; TILE = 114; PAD_X = 16; PAD_TOP = 14; PANEL_H = 160; LABEL_CY = 14 + 114 + 15; }  // Leopard: ícones grandes
     else { ICON = 78; PITCH = 101.5f; TILE = 103; PAD_X = 13.5f; PAD_TOP = 18.5f; PANEL_H = 141; LABEL_CY = 132.5f; }
 }
 const UINT_PTR T_SHOW = 1, T_SHOWNOW = 2;
@@ -68,8 +69,53 @@ void Collect() {
     }
 }
 
+// Mac OS X Leopard: o seletor de apps do 10.5 — painel preto translúcido de cantos 18 com o fio claro, ícones grandes,
+// o escolhido num quadrado cinza claro translúcido e o nome dele em branco, negrito, embaixo. Desenho próprio.
+void PaintLeopard() {
+    float sc = Sc(), W = PanelW(), H = PANEL_H;
+    int wpx = (int)std::lround(W * g_k * sc), hpx = (int)std::lround(H * g_k * sc);
+    if (g_back && IsWindowVisible(g_back)) ShowWindow(g_back, SW_HIDE);  // sem o vidro desfocado: o 10.5 não desfocava
+    auto* dc = ui::GpuBegin(g_s, wpx, hpx, sc * g_k);
+    if (!dc) return;
+    ID2D1SolidColorBrush* br = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
+    const float R = 18;
+    br->SetColor(D2D1::ColorF(0.06f, 0.06f, 0.07f, 0.66f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H), R, R), br);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.22f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R - 0.5f, R - 0.5f), br, 1);
+    for (int i = 0; i < (int)g_list.size(); i++) {
+        float x = PAD_X + i * PITCH;
+        D2D1_RECT_F tile{ x, PAD_TOP, x + TILE, PAD_TOP + TILE };
+        if (i == g_sel) {
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.20f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(tile, 10, 10), br);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.30f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tile.left + 0.5f, tile.top + 0.5f, tile.right - 0.5f, tile.bottom - 0.5f), 9.5f, 9.5f), br, 1);
+        }
+        auto& e = g_list[i];
+        if (e.bmp) {
+            float s = e.mac ? ICON / 0.8f : ICON;
+            float cx = (tile.left + tile.right) / 2, cy = (tile.top + tile.bottom) / 2;
+            auto sz = e.bmp->GetSize();
+            float k = std::min(s / sz.width, s / sz.height);
+            dc->DrawBitmap(e.bmp, D2D1::RectF(cx - sz.width * k / 2, cy - sz.height * k / 2, cx + sz.width * k / 2, cy + sz.height * k / 2), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        }
+    }
+    if (g_sel >= 0 && g_sel < (int)g_list.size()) {
+        static IDWriteTextFormat* tf = [] { auto* f = ui::FormatFace(L"Lucida Sans Unicode", 13, DWRITE_FONT_WEIGHT_BOLD); if (f) f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); return f; }();
+        float cx = PAD_X + g_sel * PITCH + TILE / 2;
+        const std::wstring& n = g_list[g_sel].name;
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.97f));
+        dc->DrawTextW(n.c_str(), (UINT32)n.size(), tf, D2D1::RectF(cx - 140, LABEL_CY - 10, cx + 140, LABEL_CY + 10), br);
+    }
+    br->Release();
+    ui::GpuEnd(g_s);
+}
+
 void Paint() {
     if (!g_visible) return;
+    if (liquid::Leopard()) { PaintLeopard(); return; }
     float sc = Sc(), W = PanelW(), H = PANEL_H;
     int wpx = (int)std::lround(W * g_k * sc), hpx = (int)std::lround(H * g_k * sc);
     auto* dc = ui::GpuBegin(g_s, wpx, hpx, sc * g_k);
@@ -130,7 +176,7 @@ void Paint() {
 void ShowNow() {
     KillTimer(g_wnd, T_SHOWNOW);
     if (!g_visible || IsWindowVisible(g_wnd)) return;
-    SetWindowPos(g_back, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (!liquid::Leopard()) SetWindowPos(g_back, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);  // Leopard: sem o vidro
     SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
@@ -195,6 +241,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER: if (w == T_SHOW) { KillTimer(h, T_SHOW); Show(); } else if (w == T_SHOWNOW) ShowNow(); return 0;  // segurança: o aviso não veio
     case WM_SHOWNOW: ShowNow(); return 0;
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;  // o app de baixo continua com o teclado
+    case WM_CLOSE: if (g_active) Hide(); return 0;  // nunca destrói (o seletor vive enquanto o Shell vive)
     case WM_MOUSEMOVE: { int i = HitIcon(l); if (i >= 0 && i != g_sel) { g_sel = i; Paint(); } return 0; }
     case WM_LBUTTONUP: { int i = HitIcon(l); if (i >= 0) { g_sel = i; Commit(); } return 0; }
     }

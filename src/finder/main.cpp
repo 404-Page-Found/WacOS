@@ -5,6 +5,8 @@
 //   Arquivos.exe [pasta]
 
 #include "finder.h"
+#include <d2d1effects.h>  // Leopard: a perspectiva 3D do Cover Flow
+#pragma comment(lib, "dxguid.lib")
 #include <windowsx.h>
 #include <shlobj.h>
 #include <shlwapi.h>
@@ -40,6 +42,7 @@
 #include "pastacor.h"  // Personalizar Pasta: cor e símbolo
 #include "../comum/abrircom.h"  // áudio abre no Música
 #include "../comum/semaforo.h"
+#include "../comum/leopard.h"  // tema Mac OS X Leopard: barra metálica unificada
 
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
@@ -59,7 +62,7 @@ inline float SIDEBAR_W = 142;  // padrão do vídeo do Sequoia (166 px); arrasta
 const float SIDEBAR_MIN = 120, SIDEBAR_MAX = 360;
 inline float TOOLBAR_H = 53;  // Tahoe: 52 (ApplyWindowTheme; guia macOS26-Theme-Reference, seção 42)
 const float PATH_H = 26;
-const float TOOL_CY = 26.3f;  // centro dos botões de cima (vídeo do Sequoia: 30 px de 61 na barra de 52 pt)
+inline float TOOL_CY = 26.3f;  // centro dos botões de cima (vídeo do Sequoia: 30 px de 61 na barra de 52 pt); Leopard: 38 (ApplyWindowTheme)
 inline float STATUS_H = 26, FOOTER_H = 26;  // maiores no modo escolher (barra de Abrir/Salvar); + PATH_H com a barra de caminho
 // medidas do Finder no vídeo do Sequoia (1 pt = 1,17 px): grade de 102 × 120,5 com ícones de 64,
 // alinhada à esquerda com 15,5 dos lados; barra lateral com linhas de 28, texto em 40, ícone em 24,7
@@ -67,7 +70,7 @@ const float GRID_PAD = 20, GRID_PAD_X = 15.5f, LABEL_H = 32;
 // linhas e cabeçalhos mudam com o tema (ApplyWindowTheme): Tahoe = guia macOS26-Theme-Reference, seção 42
 // (Finder do macOS 26 medido com Acessibilidade): linhas de 32, cabeçalhos de 19 com 13 de espaço antes
 inline float SIDE_ROW_H = 28.7f, SIDE_HDR_H = 23.5f;
-const float SIDE_TOP = 47;
+inline float SIDE_TOP = 47;  // Leopard: abaixo da barra metálica (ApplyWindowTheme)
 const float SEARCH_W = 190, BTN = 28;
 const float ICON_MIN = 32, ICON_MAX = 160, SLIDER_W = 70;  // só o trilho, como no Finder
 }
@@ -138,7 +141,12 @@ static std::wstring g_folder;  // vazio quando a "pasta" aberta é uma etiqueta
 static int g_tagView = -1;     // etiqueta aberta pela barra lateral (-1 = pasta de verdade)
 const int VIEW_COMPUTER = tags::COUNT;  // g_tagView especial: "Este Computador" (os discos)
 const int VIEW_TRASH = tags::COUNT + 1;  // g_tagView especial: a Lixeira (do Windows), dentro do Finder
-static std::wstring VirtualName(int v) { return v == VIEW_COMPUTER ? Tr(L"Este Computador") : v == VIEW_TRASH ? Tr(L"Lixeira") : Tr(tags::names[v]); }
+const int VIEW_SMART = tags::COUNT + 2;  // Leopard, "Buscar por": VIEW_SMART + 0..5 (search::Smart)
+const wchar_t* SMART_NAMES[6] = { L"Hoje", L"Ontem", L"Semana Passada", L"Todas as Imagens", L"Todos os Filmes", L"Todos os Documentos" };
+static std::wstring VirtualName(int v) {
+    if (v >= VIEW_SMART && v < VIEW_SMART + 6) return Tr(SMART_NAMES[v - VIEW_SMART]);
+    return v == VIEW_COMPUTER ? Tr(L"Este Computador") : v == VIEW_TRASH ? Tr(L"Lixeira") : Tr(tags::names[v]);
+}
 static std::vector<Entry> g_all;    // conteúdo da pasta
 static std::vector<Entry> g_items;  // o que aparece (filtrado pela busca)
 static std::unordered_map<std::wstring, ID2D1Bitmap*> g_images;
@@ -289,6 +297,7 @@ static std::vector<std::wstring> SameFolderAs(const std::vector<std::wstring>& p
 }
 
 static bool IsDarkMode() {
+    if (tahoe::Leopard()) return false;  // Leopard: o 10.5 não tinha modo escuro; o metal e a barra lateral são sempre claros
     DWORD v = 1, sz = sizeof(v);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
                  L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &sz);
@@ -359,7 +368,10 @@ const float TAB_H = 30;
 static float TabBarH() { return g_tabs.size() > 1 ? TAB_H : 0.f; }  // a barra só aparece com 2+ abas
 const float TRASH_BAR_H = 38;
 static float TrashBarH() { return g_tagView == VIEW_TRASH ? TRASH_BAR_H : 0.f; }  // faixa "Lixeira  [Esvaziar]"
-static float TopH() { return Lay::TOOLBAR_H + TabBarH() + ScopeBarH() + TrashBarH(); }  // fim das barras de cima
+// Leopard: o Cover Flow do 10.5 é a lista com um painel de capas em perspectiva em cima (a 4ª visão do Finder)
+static bool g_coverFlow;
+static float CoverFlowH();
+static float TopH() { return Lay::TOOLBAR_H + TabBarH() + ScopeBarH() + TrashBarH() + CoverFlowH(); }  // fim das barras de cima
 
 namespace ListLay {
 const float HEADER_H = 28, GROUP_H = 40, SIZE_W = 90, KIND_W = 160, DATE_W = 190;
@@ -379,8 +391,9 @@ static int g_pickView = -1;  // visão usada na janela de Abrir/Salvar (-1: list
 static bool g_sideWidthSet;
 static bool g_pathBarUser;  // a barra de caminho das janelas normais (o Abrir/Salvar liga a dele sem mexer nesta)  // largura da barra lateral escolhida (arrastando); senão cabe o nome mais longo
 static bool g_pathBar = false;  // barra de caminho embaixo: desligada, como no Finder (Ctrl+Alt+P liga)   // tamanho do texto: ícones / lista e colunas
-static float ListRowH() { return g_listLarge ? 36.f : 24.f; }
-static float ListIcon() { return g_listLarge ? 32.f : 16.f; }
+// Leopard: a lista do 10.5 tem linhas de 19 com o ícone de 16 (sem o tamanho grande do Finder novo)
+static float ListRowH() { return tahoe::Leopard() ? 19.f : g_listLarge ? 36.f : 24.f; }
+static float ListIcon() { return tahoe::Leopard() ? 16.f : g_listLarge ? 32.f : 16.f; }
 
 static std::wstring ExtOf(const Entry& e) {
     if (e.dir) return L"";
@@ -404,6 +417,8 @@ static std::wstring KindName(const Entry& e) {
 }
 
 // Grupo de um item: (ordem, título). Os títulos seguem o Finder em português.
+// Leopard: o Finder do 10.5 não tinha grupos (a preferência do usuário fica guardada para os outros temas)
+#define g_groupBy (tahoe::Leopard() ? GROUP_NONE : g_groupBy)
 static std::pair<int, std::wstring> GroupOf(const Entry& e) {
     if (g_groupBy == GROUP_KIND) {
         if (e.dir) return { 0, Tr(L"Pastas") };
@@ -486,6 +501,7 @@ static void BuildRows() {
         g_rowOfItem[i] = (int)g_rows.size();
         g_rows.push_back({ i, L"", y, ListRowH() });
         y += ListRowH();
+#undef g_groupBy
     }
     g_rowsDirty = false;
 }
@@ -766,7 +782,7 @@ static void ToggleSection(int header) {
 
 // Barra de ferramentas, como no Sequoia:
 // ‹ › [pasta] Título ...... [⊞|☰|▥|▭] [agrupar⌄] [compartilhar] [etiqueta] [⋯⌄]    [busca]
-static bool SearchExpanded() { return g_searchFocus || !g_search.text.empty(); }
+static bool SearchExpanded() { return g_searchFocus || !g_search.text.empty() || (!g_tahoe && tahoe::Leopard()); }  // Leopard: o campo fica sempre aberto
 
 // Tahoe: um botão só para a visão (ícone da atual + ⌃⌄), como no macOS 26
 static bool Golden();
@@ -776,6 +792,24 @@ static bool WideToolbar() { return Golden() ? ClientDip().width - Lay::SIDEBAR_W
 static D2D1_RECT_F ToolRect(int k) {
     auto s = ClientDip();
     float cy = Lay::TOOL_CY, h = Lay::BTN / 2;
+    if (!g_tahoe && tahoe::Leopard()) {
+        // Leopard (Finder do 10.5, foto de referência): ◀ ▶ na ponta esquerda (a barra vai de ponta a ponta), o pop-up
+        // de arrumar ao lado, os quatro modos no meio, a engrenagem ▾ depois deles e o campo de busca na direita.
+        // Compartilhar e Etiquetas não existiam.
+        const float H = 11;
+        if (k == TB_BACK) return { 10, cy - H, 37, cy + H };
+        if (k == TB_FWD) return { 37, cy - H, 64, cy + H };
+        if (k == TB_GROUP) return { 72, cy - H, 114, cy + H };
+        if (k == TB_SEARCH) return { s.width - 12 - std::min(200.f, s.width * 0.22f), cy - 10, s.width - 12, cy + 10 };
+        float vl = std::max(124.f, s.width / 2 - 70);
+        if (k >= TB_V_ICONS && k <= TB_V_GALLERY) {
+            if (!WideToolbar()) return k == TB_V_ICONS ? D2D1_RECT_F{ vl, cy - H, vl + 40, cy + H } : D2D1_RECT_F{ 0, 0, 0, 0 };
+            float x = vl + (k - TB_V_ICONS) * 29.f;
+            return { x, cy - H, x + 29, cy + H };
+        }
+        if (k == TB_ACTION) { float x = vl + (WideToolbar() ? 4 * 29.f : 40.f) + 10; return { x, cy - H, x + 42, cy + H }; }
+        return { 0, 0, 0, 0 };  // Compartilhar, Etiquetas, Lixeira
+    }
     if (Golden()) {
         // macOS 27 (captura 2x do 512 Pixels): tudo a 8 de distância; Voltar/Avançar 73 × 36; os quatro modos numa
         // cápsula de 160 (pílula de 33 × 26 a cada 39,17, a primeira a 4,5 da borda); Agrupar 47; Compartilhar,
@@ -869,7 +903,10 @@ static void SetIconSizeFromSlider(float x);
 // Botões da janela (fechar, minimizar, maximizar), no canto superior esquerdo
 bool g_tahoeLay;  // g_tahoe já aplicado às medidas (ApplyWindowTheme)
 // padrão do projeto: 14 pt, 23 entre centros; Tahoe (guia, seção 42): áreas de 16 × 16 em x 18 / 41 / 64 (centros 26, 49, 72)
-static D2D1_POINT_2F LightCenter(int k) { return { (g_tahoeLay ? 26.f : 23.f) + k * 23.f, Lay::TOOL_CY }; }
+static D2D1_POINT_2F LightCenter(int k) {
+    if (!g_tahoeLay && tahoe::Leopard()) return { 14.5f + k * 21.f, 12.f };  // Leopard: na linha do título (22 px), 21 entre centros
+    return { (g_tahoeLay ? 26.f : 23.f) + k * 23.f, Lay::TOOL_CY };
+}
 
 static int HitLight(D2D1_POINT_2F p) {
     for (int k = 0; k < 3; k++) {
@@ -879,7 +916,7 @@ static int HitLight(D2D1_POINT_2F p) {
     return -1;
 }
 
-static bool OverLightsArea(D2D1_POINT_2F p) { return p.x >= 10 && p.x < LightCenter(2).x + 15 && std::fabs(p.y - Lay::TOOL_CY) <= 10; }
+static bool OverLightsArea(D2D1_POINT_2F p) { return p.x >= 5 && p.x < LightCenter(2).x + 15 && std::fabs(p.y - LightCenter(0).y) <= 10; }
 // borda da barra lateral (abaixo da barra de cima): arrastar muda a largura
 static bool OverSideEdge(D2D1_POINT_2F p) { return p.y >= Lay::TOOLBAR_H && std::fabs(p.x - Lay::SIDEBAR_W) <= 4; }
 static bool g_sideResize;
@@ -1196,6 +1233,15 @@ static void EmptyTrash() {
 static void LoadTagItems() {
     g_all.clear();
     if (g_tagView == VIEW_TRASH) { LoadTrash(); return; }
+    if (g_tagView >= VIEW_SMART && g_tagView < VIEW_SMART + 6) {  // Leopard, "Buscar por": a busca pronta no índice
+        int got = search::Smart(g_tagView - VIEW_SMART, 400, [](const std::wstring& p) {
+            Entry e;
+            if (EntryFromPath(p, e)) g_all.push_back(std::move(e));
+            return true;
+        });
+        Log(L"buscar por %ls: %d itens", SMART_NAMES[g_tagView - VIEW_SMART], got);
+        return;
+    }
     if (g_tagView == VIEW_COMPUTER) {  // discos fixos, removíveis e de rede, na ordem das letras
         DWORD drives = GetLogicalDrives();
         for (int d = 0; d < 26; d++) {
@@ -1720,6 +1766,7 @@ static Palette Colors() {  // Tahoe: o fundo da janela leva 10 % da cor do papel
     if (g_tahoe && tahoe::Golden()) p.content = g_dark ? D2D1::ColorF(30 / 255.f, 30 / 255.f, 30 / 255.f, 1) : D2D1::ColorF(1, 1, 1, 1);  // Golden Gate: branco puro (medido)
     else if (g_tahoe) p.content = tahoe::Tint(p.content);
     p.accent = tahoe::Accent(false);  // Ajustes > Aparência > Cor de destaque (seleção, ícones da barra lateral...)
+    if (!g_tahoe && tahoe::Leopard()) p.side = leopard::Sidebar(g_winActive, g_dark);  // Leopard: barra lateral azul-acinzentada, opaca
     return p;
 }
 static Palette ColorsBase() {
@@ -1824,7 +1871,18 @@ static void DrawToolIcon(ID2D1DeviceContext* dc, int k, D2D1_RECT_F r, ID2D1Brus
         Line(dc, b, cx, cy + 3, cx, cy - 9);
         Line(dc, b, cx - 3.5f, cy - 5.5f, cx, cy - 9); Line(dc, b, cx, cy - 9, cx + 3.5f, cy - 5.5f);
         break;
-    case TB_ACTION: {  // círculo com reticências + seta
+    case TB_ACTION: {  // círculo com reticências + seta (Leopard: a engrenagem ▾)
+        if (!g_tahoe && tahoe::Leopard()) {
+            float gx = cx - 6, gr = 5.2f;
+            for (int i = 0; i < 8; i++) {  // os dentes
+                float a = i * 3.14159265f / 4;
+                Line(dc, b, gx + std::cos(a) * gr, cy + std::sin(a) * gr, gx + std::cos(a) * (gr + 2.6f), cy + std::sin(a) * (gr + 2.6f), 2.2f);
+            }
+            dc->DrawEllipse(D2D1::Ellipse({ gx, cy }, gr - 0.6f, gr - 0.6f), b, 2.0f);
+            float ax = r.right - 10;
+            Line(dc, b, ax - 3, cy - 1.5f, ax, cy + 1.5f, 1.4f); Line(dc, b, ax, cy + 1.5f, ax + 3, cy - 1.5f, 1.4f);
+            break;
+        }
         float ox = cx - 7.5f;
         dc->DrawEllipse(D2D1::Ellipse({ ox, cy }, 8.2f, 8.2f), b, 1.4f);
         for (int i = -1; i <= 1; i++) dc->FillEllipse(D2D1::Ellipse({ ox + i * 4.f, cy }, 1.3f, 1.3f), b);
@@ -1864,14 +1922,67 @@ static bool PngPixels(const std::wstring& file, std::vector<BYTE>& out, UINT& w,
 
 // Tahoe: as pastas são os PNG do tema MacTahoe em icones\tahoe (tools\icones-mactahoe.ps1), um por pasta
 // especial (o mesmo símbolo que o desenho do Sequoia grava na pasta). Sem o arquivo, segue o desenho.
-static bool DrawTahoeFolder(ID2D1DeviceContext* dc, D2D1_RECT_F box, wchar_t emblem) {
-    static std::map<std::wstring, ID2D1Bitmap*> cache;  // nome -> bitmap (nullptr: não existe)
+// Leopard: desenha icones\leopard\<nome>.png (tools\icones-leopard.py) em `box`. Os PNGs têm 10 % de margem de cada
+// lado (o formato do pacote): amplia para o desenho ocupar a caixa. false se o arquivo não existe.
+static bool DrawLeoPng(ID2D1DeviceContext* dc, const std::wstring& name, D2D1_RECT_F box) {
+    static std::map<std::wstring, ID2D1Bitmap*> cache;
     static std::wstring dir;
     if (dir.empty()) {
         wchar_t exe[MAX_PATH]; ExePath(exe, MAX_PATH);
-        PathRemoveFileSpecW(exe); PathRemoveFileSpecW(exe);  // bin\ -> pasta do projeto
-        dir = std::wstring(exe) + L"\\icones\\tahoe\\";
+        PathRemoveFileSpecW(exe); PathRemoveFileSpecW(exe);
+        dir = std::wstring(exe) + L"\\icones\\leopard\\";
     }
+    auto it = cache.find(name);
+    if (it == cache.end()) {
+        std::vector<BYTE> px; UINT w = 0, h = 0;
+        ID2D1Bitmap* b = PngPixels(dir + name + L".png", px, w, h) ? gfx::CreateBitmapBGRA(w, h, px.data(), w * 4) : nullptr;
+        it = cache.emplace(name, b).first;
+    }
+    if (!it->second) return false;
+    float S = box.right - box.left, g = S * 0.125f;
+    dc->DrawBitmap(it->second, D2D1::RectF(box.left - g, box.top - g, box.right + g, box.bottom + g), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+    return true;
+}
+// Leopard: o ícone de documento do 10.5 pela extensão ("" = deixa a miniatura do Windows: fotos, vídeos, apps)
+static std::wstring LeoDocIcon(const std::wstring& name) {
+    const wchar_t* d = wcsrchr(name.c_str(), L'.');
+    std::wstring x = d ? d + 1 : L"";
+    for (auto& c : x) c = towlower(c);
+    static const std::map<std::wstring, const wchar_t*> m = {
+        { L"txt", L"doc texto" }, { L"md", L"doc texto" }, { L"ini", L"doc texto" }, { L"cfg", L"doc texto" }, { L"toml", L"doc texto" },
+        { L"json", L"doc texto" }, { L"yaml", L"doc texto" }, { L"yml", L"doc texto" }, { L"csv", L"doc planilha" }, { L"log", L"doc log" },
+        { L"pdf", L"doc pdf" }, { L"doc", L"doc word" }, { L"docx", L"doc word" }, { L"rtf", L"doc rich" }, { L"odt", L"doc word" },
+        { L"xls", L"doc planilha" }, { L"xlsx", L"doc planilha" }, { L"ods", L"doc planilha" },
+        { L"ppt", L"doc apresentacao" }, { L"pptx", L"doc apresentacao" }, { L"key", L"doc apresentacao" },
+        { L"zip", L"doc zip" }, { L"rar", L"doc zip" }, { L"7z", L"doc zip" }, { L"tar", L"doc zip" }, { L"gz", L"doc zip" },
+        { L"mp3", L"doc audio" }, { L"wav", L"doc audio" }, { L"flac", L"doc audio" }, { L"m4a", L"doc audio" }, { L"ogg", L"doc audio" },
+        { L"aif", L"doc audio" }, { L"aiff", L"doc audio" }, { L"mid", L"doc audio" }, { L"midi", L"doc audio" },
+        { L"html", L"doc html" }, { L"htm", L"doc html" }, { L"xml", L"doc xml" }, { L"js", L"doc script" }, { L"ps1", L"doc script" },
+        { L"sh", L"doc script" }, { L"bat", L"doc script" }, { L"cmd", L"doc script" }, { L"py", L"doc python" }, { L"c", L"doc c" },
+        { L"h", L"doc c" }, { L"cpp", L"doc cpp" }, { L"hpp", L"doc cpp" }, { L"cs", L"doc cpp" }, { L"java", L"doc java" },
+        { L"iso", L"doc disco" }, { L"img", L"doc disco" }, { L"ttf", L"doc fonte" }, { L"otf", L"doc fonte" },
+        { L"dll", L"doc exe" }, { L"sys", L"doc exe" },
+    };
+    auto it = m.find(x);
+    if (it != m.end()) return it->second;
+    static const wchar_t* media[] = { L"png", L"jpg", L"jpeg", L"gif", L"bmp", L"webp", L"heic", L"tif", L"tiff", L"ico", L"svg",
+                                      L"mp4", L"mov", L"mkv", L"avi", L"wmv", L"webm", L"m4v", L"exe", L"msi", L"lnk", L"url", L"appref-ms" };
+    for (auto* mm : media) if (x == mm) return L"";
+    return L"doc generico";
+}
+
+// Leopard (leo = true): as pastas azuis do 10.5 em icones\leopard (tools\icones-leopard.py), com os mesmos nomes.
+static bool DrawTahoeFolder(ID2D1DeviceContext* dc, D2D1_RECT_F box, wchar_t emblem, bool leo = false) {
+    static std::map<std::wstring, ID2D1Bitmap*> cacheT, cacheL;  // nome -> bitmap (nullptr: não existe)
+    auto& cache = leo ? cacheL : cacheT;
+    static std::wstring dirT, dirL;
+    if (dirT.empty()) {
+        wchar_t exe[MAX_PATH]; ExePath(exe, MAX_PATH);
+        PathRemoveFileSpecW(exe); PathRemoveFileSpecW(exe);  // bin\ -> pasta do projeto
+        dirT = std::wstring(exe) + L"\\icones\\tahoe\\";
+        dirL = std::wstring(exe) + L"\\icones\\leopard\\";
+    }
+    const std::wstring& dir = leo ? dirL : dirT;
     const wchar_t* name = L"folder default";
     switch (emblem) {
     case 0xE7F4: name = L"folder desktop"; break;
@@ -1890,19 +2001,21 @@ static bool DrawTahoeFolder(ID2D1DeviceContext* dc, D2D1_RECT_F box, wchar_t emb
         if (!b && wcscmp(name, L"folder default")) {  // pasta especial sem PNG: a padrão
             if (PngPixels(dir + L"folder default.png", px, w, h)) b = gfx::CreateBitmapBGRA(w, h, px.data(), w * 4);
         }
-        if (!b) Log(L"pasta tahoe: sem %ls%ls.png (fica o desenho do Sequoia)", dir.c_str(), name);
+        if (!b) Log(L"pasta do tema: sem %ls%ls.png (fica o desenho do Sequoia)", dir.c_str(), name);
         it = cache.emplace(name, b).first;
 
     }
     if (!it->second) return false;
     // o desenho do tema tem ~6% de margem em volta: amplia um pouco para ocupar o mesmo espaço da pasta do Sequoia
-    float S = box.right - box.left, g = S * 0.05f;
+    // (as do Leopard têm 10 % de margem de cada lado, a margem dos ícones do Mac: amplia mais)
+    float S = box.right - box.left, g = S * (leo ? 0.10f : 0.05f);
     dc->DrawBitmap(it->second, D2D1::RectF(box.left - g, box.top - g, box.right + g, box.bottom + g), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
     return true;
 }
 
 static void DrawFolder(ID2D1DeviceContext* dc, D2D1_RECT_F box, wchar_t emblem, ID2D1SolidColorBrush* br) {
     if (g_tahoe && DrawTahoeFolder(dc, box, emblem)) return;
+    if (!g_tahoe && tahoe::Leopard() && DrawTahoeFolder(dc, box, emblem, true)) return;  // Leopard: as pastas azuis do 10.5
     float S = box.right - box.left, x0 = box.left, y0 = box.top;
 
     auto R = [&](float a, float b, float c, float d) { return D2D1::RectF(x0 + a * S, y0 + b * S, x0 + c * S, y0 + d * S); };
@@ -2149,6 +2262,28 @@ static void DrawSidebar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
         float y = SideRowTop(k);
         if (s.header) {
             br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.32f) : D2D1::ColorF(0, 0, 0, 0.30f));
+            if (!g_tahoe && tahoe::Leopard()) {  // Leopard: "DISPOSITIVOS", "LOCAIS" em maiúsculas, negrito azul-acinzentado
+                std::wstring up = s.label;
+                for (auto& ch : up) ch = towupper(ch);
+                br->SetColor(D2D1::ColorF(96 / 255.f, 110 / 255.f, 128 / 255.f, 1));
+                dc->DrawTextW(up.c_str(), (UINT32)up.size(), g_tfSideHdr, D2D1::RectF(21 + dx, y + 8 + SideHeaderGap(k), Lay::SIDEBAR_W - 30, y + SideRowH(k)), br);
+                float tcx = 13 + dx, tcy = y + 14 + SideHeaderGap(k);
+                ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
+                ID2D1PathGeometry* tri = nullptr;
+                if (fac && SUCCEEDED(fac->CreatePathGeometry(&tri))) {
+                    ID2D1GeometrySink* sk = nullptr;
+                    if (SUCCEEDED(tri->Open(&sk))) {
+                        if (s.collapsed) { sk->BeginFigure({ tcx - 2, tcy - 4 }, D2D1_FIGURE_BEGIN_FILLED); sk->AddLine({ tcx + 3, tcy }); sk->AddLine({ tcx - 2, tcy + 4 }); }
+                        else { sk->BeginFigure({ tcx - 4, tcy - 2 }, D2D1_FIGURE_BEGIN_FILLED); sk->AddLine({ tcx + 4, tcy - 2 }); sk->AddLine({ tcx, tcy + 3 }); }
+                        sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+                        br->SetColor(D2D1::ColorF(0.42f, 0.45f, 0.50f, 1));
+                        dc->FillGeometry(tri, br);
+                    }
+                    tri->Release();
+                }
+                if (fac) fac->Release();
+                continue;  // Leopard: sem a seta da direita (o triângulo é este)
+            } else
             dc->DrawTextW(s.label.c_str(), (UINT32)s.label.size(), g_tfSideHdr, D2D1::RectF(16 + dx, y + 8 + SideHeaderGap(k), Lay::SIDEBAR_W - 30, y + SideRowH(k)), br);
             if (k == g_hoverSide) {  // seta para recolher/expandir, só ao passar o mouse
                 float cx = Lay::SIDEBAR_W - 20, cy = y + 14 + SideHeaderGap(k);
@@ -2161,6 +2296,20 @@ static void DrawSidebar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
                                   : D2D1_RECT_F{ 9.5f, y + 1.2f, Lay::SIDEBAR_W - 11, y + Lay::SIDE_ROW_H - 1.2f };
         const float rowR = g_tahoe ? 8.f : 6.f;
         bool cur = (!s.path.empty() && g_tagView < 0 && SamePath(s.path, g_folder)) || (s.tag >= 0 && s.tag == g_tagView);
+        const bool leoSide = !g_tahoe && tahoe::Leopard();
+        if (leoSide && cur) {
+            D2D1_GRADIENT_STOP st[2] = { { 0, g_winActive ? D2D1::ColorF(0.43f, 0.60f, 0.85f, 1) : D2D1::ColorF(0.68f, 0.68f, 0.70f, 1) },
+                                         { 1, g_winActive ? D2D1::ColorF(0.24f, 0.44f, 0.76f, 1) : D2D1::ColorF(0.53f, 0.53f, 0.55f, 1) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            D2D1_RECT_F full = D2D1::RectF(0, row.top, Lay::SIDEBAR_W, row.bottom);
+            if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, full.top }, { 0, full.bottom }), gs, &lb)))
+                dc->FillRectangle(full, lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            br->SetColor(g_winActive ? D2D1::ColorF(0.33f, 0.52f, 0.80f, 1) : D2D1::ColorF(0.60f, 0.60f, 0.62f, 1));  // o fio de cima
+            dc->FillRectangle(D2D1::RectF(0, full.top, Lay::SIDEBAR_W, full.top + 1), br);
+        } else
         if (cur || k == g_hoverSide) {
             br->SetColor(cur ? (g_tahoe ? (g_dark ? D2D1::ColorF(1, 1, 1, 0.09f) : D2D1::ColorF(0, 0, 0, 0.07f))
                                         : (g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.10f))) : pal.hover);
@@ -2181,20 +2330,87 @@ static void DrawSidebar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
         } else {
             // os ícones da barra lateral na cor de destaque (Ajustes > Aparência), mais clara no escuro, como no Mac
             br->SetColor(tahoe::Accent(g_dark));
-
-            DrawGlyph(dc, s.glyph, D2D1::RectF(15.7f + dx, y, 33.7f + dx, y + Lay::SIDE_ROW_H), br);
+            // Leopard: as pastinhas azuis coloridas do 10.5 (16 px); o resto em cinza-azulado
+            bool pasta = s.glyph == 0xE7F4 || s.glyph == 0xE8A5 || s.glyph == 0xE896 || s.glyph == 0xE91B || s.glyph == 0xE8D6 ||
+                         s.glyph == 0xE714 || s.glyph == 0xE80F || s.glyph == 0xE8B7;
+            float cy = y + Lay::SIDE_ROW_H / 2;
+            const wchar_t* leoIcon = nullptr;  // Leopard: o ícone colorido do item, como na barra lateral do 10.5
+            if (leoSide) {
+                if (s.tag == VIEW_COMPUTER) leoIcon = L"side computador";
+                else if (s.tag >= VIEW_SMART && s.tag < VIEW_SMART + 6) leoIcon = s.tag < VIEW_SMART + 3 ? L"side recentes" : L"side inteligente";
+                else switch (s.glyph) {
+                    case 0xE823: leoIcon = L"side recentes"; break;   case 0xE71D: leoIcon = L"side aplicativos"; break;
+                    case 0xE7F4: leoIcon = L"side mesa"; break;       case 0xE8A5: leoIcon = L"side documentos"; break;
+                    case 0xE896: leoIcon = L"side downloads"; break;  case 0xE91B: leoIcon = L"side imagens"; break;
+                    case 0xE8D6: leoIcon = L"side musica"; break;     case 0xE714: leoIcon = L"side videos"; break;
+                    case 0xE80F: leoIcon = L"side casa"; break;       case 0xE753: leoIcon = L"side rede"; break;
+                    case 0xEDA2: leoIcon = L"side disco"; break;      case 0xE88E: leoIcon = L"side removivel"; break;
+                    default: leoIcon = L"side pasta"; break;
+                }
+            }
+            if (leoIcon && DrawLeoPng(dc, leoIcon, D2D1::RectF(16.7f + dx, cy - 8, 32.7f + dx, cy + 8))) {}
+            else if (leoSide && pasta) DrawFolder(dc, D2D1::RectF(16.7f + dx, cy - 8, 32.7f + dx, cy + 8), s.glyph == 0xE8B7 ? 0 : s.glyph, br);
+            else {
+                if (leoSide) br->SetColor(cur ? D2D1::ColorF(1, 1, 1, 1) : D2D1::ColorF(96 / 255.f, 110 / 255.f, 128 / 255.f, 1));
+                DrawGlyph(dc, s.glyph, D2D1::RectF(15.7f + dx, y, 33.7f + dx, y + Lay::SIDE_ROW_H), br);
+            }
         }
-        br->SetColor(g_tahoe && cur ? tahoe::Accent(g_dark) : pal.text);
+        br->SetColor(g_tahoe && cur ? tahoe::Accent(g_dark) : leoSide && cur ? D2D1::ColorF(1, 1, 1, 1) : pal.text);
         dc->DrawTextW(s.label.c_str(), (UINT32)s.label.size(), g_tfSide, D2D1::RectF(40 + dx
 , y, Lay::SIDEBAR_W - 12, y + Lay::SIDE_ROW_H), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
 
     }
 }
 
+static float TextWidth(const std::wstring& s, IDWriteTextFormat* tf);  // mais abaixo
 static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
     D2D1_COLOR_F dim = g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.18f);
     D2D1_COLOR_F icon = g_dark ? D2D1::ColorF(1, 1, 1, 0.78f) : D2D1::ColorF(0, 0, 0, 0.68f);
     int selCount = SelCount();
+    const bool leo = !g_tahoe && tahoe::Leopard();
+    if (leo) {
+        // Leopard: botões com moldura de metal claro (degradê branco -> cinza, contorno escuro e fio branco embaixo);
+        // Voltar/Avançar e os quatro modos são segmentados (divisórias finas) e o modo atual fica afundado em cinza
+        auto U = [](D2D1_RECT_F a, D2D1_RECT_F b) { return D2D1_RECT_F{ std::min(a.left, b.left), 0, std::max(a.right, b.right), 0 }; };
+        auto bezel = [&](D2D1_RECT_F r) {
+            if (r.right <= r.left) return;
+            r.top = Lay::TOOL_CY - 11; r.bottom = Lay::TOOL_CY + 11;
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.45f));  // o fio branco de baixo (relevo)
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1), 4, 4), br);
+            D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.99f, 0.99f, 0.99f, 1) }, { 1, D2D1::ColorF(0.84f, 0.84f, 0.84f, 1) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+                dc->FillRoundedRectangle(D2D1::RoundedRect(r, 4, 4), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.42f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 3.5f, 3.5f), br, 1);
+        };
+        auto divide = [&](D2D1_RECT_F a) {  // divisória entre dois segmentos (à direita de a)
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f));
+            dc->DrawLine({ std::floor(a.right) + 0.5f, Lay::TOOL_CY - 10.5f }, { std::floor(a.right) + 0.5f, Lay::TOOL_CY + 10.5f }, br, 1);
+        };
+        bezel(U(ToolRect(TB_BACK), ToolRect(TB_FWD))); divide(ToolRect(TB_BACK));
+        if (WideToolbar()) {
+            bezel(U(ToolRect(TB_V_ICONS), ToolRect(TB_V_GALLERY)));
+            int cur = g_view == View::Icons ? 0 : g_view == View::List ? (g_coverFlow ? 3 : 1) : g_view == View::Columns ? 2 : 3;
+            D2D1_RECT_F c = ToolRect(TB_V_ICONS + cur);
+            if (c.right > c.left) {  // o modo atual: afundado (cinza escuro com sombra por dentro)
+                D2D1_RECT_F q{ c.left + 0.5f, Lay::TOOL_CY - 10.5f, c.right - 0.5f, Lay::TOOL_CY + 10.5f };
+                D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.42f, 0.42f, 0.42f, 1) }, { 1, D2D1::ColorF(0.56f, 0.56f, 0.56f, 1) } };
+                ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+                if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                    SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, q.top }, { 0, q.bottom }), gs, &lb)))
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(q, cur == 0 || cur == 3 ? 3.f : 0.f, cur == 0 || cur == 3 ? 3.f : 0.f), lb);
+                if (lb) lb->Release();
+                if (gs) gs->Release();
+            }
+            for (int i = 0; i < 3; i++) divide(ToolRect(TB_V_ICONS + i));
+        } else bezel(ToolRect(TB_V_ICONS));
+        bezel(ToolRect(TB_GROUP));
+        bezel(ToolRect(TB_SHARE)); bezel(ToolRect(TB_TAG)); bezel(ToolRect(TB_ACTION));
+    }
     if (g_tahoe) {
         // Tahoe: os botões ficam em cápsulas de vidro soltas sobre o conteúdo
         auto U = [](D2D1_RECT_F a, D2D1_RECT_F b) { return D2D1_RECT_F{ std::min(a.left, b.left), 0, std::max(a.right, b.right), 0 }; };
@@ -2230,6 +2446,14 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
                      : (k == TB_SHARE || k == TB_TRASH || k == TB_TAG) ? selCount > 0 : true;  // pedem seleção
         bool current = WideToolbar() && ((k == TB_V_ICONS && g_view == View::Icons) || (k == TB_V_LIST && g_view == View::List) ||
                                          (k == TB_V_COLS && g_view == View::Columns) || (k == TB_V_GALLERY && g_view == View::Gallery));  // visão atual destacada
+        if (leo) current = WideToolbar() && ((k == TB_V_ICONS && g_view == View::Icons) || (k == TB_V_LIST && g_view == View::List && !g_coverFlow) ||
+                                             (k == TB_V_COLS && g_view == View::Columns) || (k == TB_V_GALLERY && (g_view == View::Gallery || g_coverFlow)));
+        if (leo) {  // Leopard: a moldura já foi desenhada; o ícone escuro (branco no modo atual), apertado escurece
+            if (enabled && g_pressTool == k) { br->SetColor(D2D1::ColorF(0, 0, 0, 0.18f)); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 1, Lay::TOOL_CY - 10, r.right - 1, Lay::TOOL_CY + 10), 3, 3), br); }
+            br->SetColor(current ? D2D1::ColorF(1, 1, 1, 0.95f) : enabled ? D2D1::ColorF(0.15f, 0.15f, 0.15f, 0.9f) : D2D1::ColorF(0, 0, 0, 0.28f));
+            DrawToolIcon(dc, k, r, br);
+            continue;
+        }
         if (current || (enabled && g_hoverTool == k)) {
             float a = current ? (g_dark ? 0.06f : 0.06f) : pal.hover.a * (g_pressTool == k ? 2 : 1);
             if (g_tahoe && current) a = g_dark ? 0.14f : 0.08f;  // segmento escolhido: pílula dentro da cápsula
@@ -2241,7 +2465,7 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
         br->SetColor(enabled ? icon : dim);
         DrawToolIcon(dc, k, r, br);
     }
-    if (WideToolbar() && (!g_tahoe || Golden())) {  // divisória fina entre dois botões de visão quando nenhum dos dois é o atual
+    if (WideToolbar() && (!g_tahoe || Golden()) && !leo) {  // divisória fina entre dois botões de visão quando nenhum dos dois é o atual
         int cur = g_view == View::Icons ? 0 : g_view == View::List ? 1 : g_view == View::Columns ? 2 : 3;
         br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.07f) : D2D1::ColorF(0, 0, 0, 0.10f));
         for (int i = 0; i < 3; i++) {
@@ -2252,6 +2476,17 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
             dc->DrawLine({ x, Lay::TOOL_CY - 8 }, { x, Lay::TOOL_CY + 8 }, br, 1);
         }
     }
+    if (leo) {  // Leopard: a pastinha e o nome centralizados na linha do título (22 px), com relevo branco
+        std::wstring title = CurrentTitle();
+        auto s = ClientDip();
+        float tw = std::min(s.width - 200, TextWidth(title, g_tfTitle));
+        float x0 = (s.width - tw - 20) / 2;
+        DrawFolder(dc, D2D1::RectF(x0, 3.5f, x0 + 15, 18.5f), 0, br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.5f));
+        dc->DrawTextW(title.c_str(), (UINT32)title.size(), g_tfTitle, D2D1::RectF(x0 + 20, 1, x0 + 20 + tw + 4, 23), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        br->SetColor(D2D1::ColorF(0, 0, 0, g_winActive ? 0.85f : 0.45f));
+        dc->DrawTextW(title.c_str(), (UINT32)title.size(), g_tfTitle, D2D1::RectF(x0 + 20, 0, x0 + 20 + tw + 4, 22), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    } else {
     // título; a pastinha só aparece com o mouse em cima (como no Sequoia) e empurra o nome
     float tx = ToolRect(TB_FWD).right + 12;
     if (g_hoverTitle) DrawFolder(dc, D2D1::RectF(tx, Lay::TOOL_CY - 9, tx + 18, Lay::TOOL_CY + 9), 0, br);
@@ -2259,6 +2494,7 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
     float titleRight = ToolRect(TB_V_ICONS).left - 12;
     br->SetColor(pal.text);
     dc->DrawTextW(title.c_str(), (UINT32)title.size(), g_tfTitle, D2D1::RectF(tx + (g_hoverTitle ? 25 : 0), Lay::TOOL_CY - 13, titleRight, Lay::TOOL_CY + 13), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    }
 
     if (!SearchExpanded()) return;
     auto sr = ToolRect(TB_SEARCH);  // campo de busca aberto
@@ -2270,11 +2506,24 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
             dc->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(cr, 1.5f), 19.5f, 19.5f), br, 3);
         }
         sr.left += 4;
+    } else if (leo) {
+        // Leopard: a pílula branca afundada (sombra por dentro em cima e o contorno cinza), anel azul com o foco
+        float rr = (sr.bottom - sr.top) / 2;
+        if (g_searchFocus) {
+            br->SetColor(D2D1::ColorF(0.36f, 0.60f, 0.95f, 0.75f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(sr, 1.5f), rr + 1.5f, rr + 1.5f), br, 3);
+        }
+        br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(sr, rr, rr), br);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.10f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 2, sr.top + 1, sr.right - 2, sr.top + 3), 1, 1), br);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.45f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 0.5f, sr.top + 0.5f, sr.right - 0.5f, sr.bottom - 0.5f), rr - 0.5f, rr - 0.5f), br, 1);
     } else {
     br->SetColor(pal.field);
     dc->FillRoundedRectangle(D2D1::RoundedRect(sr, 7, 7), br);
     }
-    if (g_searchFocus && !g_tahoe) {
+    if (g_searchFocus && !g_tahoe && !leo) {
 
         br->SetColor(D2D1::ColorF(pal.accent.r, pal.accent.g, pal.accent.b, 0.55f));
         dc->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(sr, 1.5f), 8.5f, 8.5f), br, 3);
@@ -2338,6 +2587,13 @@ static float ThumbAlpha(const std::wstring& key) {
 }
 
 static void DrawEntryIcon(ID2D1DeviceContext* dc, const Entry& e, D2D1_RECT_F ir, ID2D1SolidColorBrush* br) {
+    if (!g_tahoe && tahoe::Leopard()) {  // Leopard: discos e documentos com os ícones do 10.5
+        if (e.dir && e.path.size() == 3 && e.path[1] == L':') {
+            bool rem = GetDriveTypeW(e.path.c_str()) == DRIVE_REMOVABLE;
+            if (DrawLeoPng(dc, rem ? L"side removivel" : L"side disco", ir)) return;
+        }
+        if (!e.dir) { std::wstring n = LeoDocIcon(e.name); if (!n.empty() && DrawLeoPng(dc, n, ir)) return; }
+    }
     if (e.dir && e.path.size() == 3 && e.path[1] == L':') { DrawDrive(dc, ir, br); return; }
     if (e.dir && pastacor::Draw(dc, e.path, ir, g_tahoe)) return;  // cor e símbolo escolhidos (Personalizar Pasta)
     if (e.dir && !e.emblem && g_tahoe && pastacor::DrawColor(dc, tahoe::FolderColor(), ir, g_tahoe)) return;  // Aparência > Cor das pastas
@@ -2505,6 +2761,8 @@ static void DrawListRows(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
     float dy = c.top - g_scroll;
     // linhas alternadas também abaixo do último item, como no Finder
     D2D1_COLOR_F stripe = g_dark ? D2D1::ColorF(1, 1, 1, 0.035f) : D2D1::ColorF(0, 0, 0, 0.03f);
+    const bool leo = tahoe::Leopard();
+    if (leo) stripe = D2D1::ColorF(237 / 255.f, 243 / 255.f, 254 / 255.f);  // Leopard: as listras azul-claras do 10.5
     int n = 0;
     float lastBottom = 0;
     for (auto& row : g_rows) {
@@ -2521,7 +2779,10 @@ static void DrawListRows(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
         const Entry& e = g_items[i];
         D2D1_RECT_F rr{ c.left + 8, top, c.right - 8, bottom };
         bool selActive = e.sel && g_winActive;
-        if (e.sel) {
+        if (e.sel && leo) {  // Leopard: a faixa azul de ponta a ponta (cinza com a janela inativa)
+            br->SetColor(g_winActive ? D2D1::ColorF(56 / 255.f, 117 / 255.f, 215 / 255.f) : D2D1::ColorF(212 / 255.f, 212 / 255.f, 212 / 255.f));
+            dc->FillRectangle(D2D1::RectF(c.left, top, c.right, bottom), br);
+        } else if (e.sel) {
             br->SetColor(g_winActive ? pal.accent : pal.inactiveSel);
             dc->FillRoundedRectangle(D2D1::RoundedRect(rr, 5, 5), br);
         } else if (n % 2 == 1) {
@@ -2652,6 +2913,126 @@ static void DrawColumnsView(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Sol
 
 // ---- Galeria
 
+// ---- Cover Flow (Leopard): fundo preto, a capa escolhida de frente no meio, as outras giradas ~70° para os lados
+// (perspectiva de verdade: efeito 3D do Direct2D sobre o desenho do ícone/miniatura), reflexo no chão que some,
+// o nome e o tipo em branco embaixo e a barra de rolagem escura. Clicar numa capa escolhe o item.
+static IDWriteTextFormat* Format(const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, DWRITE_TEXT_ALIGNMENT align, DWRITE_PARAGRAPH_ALIGNMENT para, bool wrap);  // mais abaixo
+static float CoverFlowH() {
+    if (!g_coverFlow || g_view != View::List || g_tahoe || !tahoe::Leopard()) return 0;
+    auto s = ClientDip();
+    return std::max(170.f, std::floor((s.height - Lay::TOOLBAR_H - Lay::FOOTER_H) * 0.5f));
+}
+static std::vector<std::pair<int, D2D1_RECT_F>> g_cfHits;  // capas na tela (a de cima por último)
+static D2D1_RECT_F CoverFlowRect() { auto s = ClientDip(); float t = TopH() - CoverFlowH(); return { Lay::SIDEBAR_W, t, s.width, t + CoverFlowH() }; }
+static void DrawCoverFlow(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br) {
+    g_cfHits.clear();
+    D2D1_RECT_F pr = CoverFlowRect();
+    if (pr.bottom - pr.top < 10) return;
+    int n = (int)g_items.size();
+    int f = g_focus >= 0 && g_focus < n ? g_focus : (n ? 0 : -1);
+    float ph = pr.bottom - pr.top, cx = (pr.left + pr.right) / 2;
+    float S = std::floor(ph * 0.52f), floorY = pr.top + ph * 0.10f + S;
+    auto coverX = [&](int k) { return k == 0 ? cx : cx + (k > 0 ? 1.f : -1.f) * (S * 0.62f + (std::abs(k) - 1) * S * 0.20f); };
+    std::vector<int> order;
+    if (f >= 0) {
+        int span = (int)((pr.right - pr.left) / 2 / (S * 0.20f)) + 2;
+        for (int d = span; d >= 1; d--) { if (f - d >= 0) order.push_back(f - d); if (f + d < n) order.push_back(f + d); }
+        order.push_back(f);
+    }
+    // 1º as capas (desenho do ícone numa lista de comandos: trocar o alvo só pode sem recorte empilhado)
+    struct Cover { int i, k; float x; ID2D1CommandList* cl; };
+    std::vector<Cover> covers;
+    for (int i : order) {
+        int k = i - f;
+        float x = coverX(k);
+        if (x + S < pr.left || x - S > pr.right) continue;
+        ID2D1CommandList* cl = nullptr;
+        if (FAILED(dc->CreateCommandList(&cl))) continue;
+        ID2D1Image* old = nullptr; dc->GetTarget(&old);
+        D2D1_MATRIX_3X2_F oldT; dc->GetTransform(&oldT);
+        dc->SetTarget(cl);
+        dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        DrawItemIcon(dc, i, D2D1::RectF(0, 0, S, S), br);
+        dc->SetTarget(old); if (old) old->Release();
+        dc->SetTransform(oldT);
+        cl->Close();
+        covers.push_back({ i, k, x, cl });
+    }
+    dc->PushAxisAlignedClip(pr, D2D1_ANTIALIAS_MODE_ALIASED);
+    {   // preto com um véu cinza bem leve embaixo
+        D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0, 0, 0, 1) }, { 1, D2D1::ColorF(0.10f, 0.10f, 0.11f, 1) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) && SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, pr.top }, { 0, pr.bottom }), gs, &lb)))
+            dc->FillRectangle(pr, lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+    }
+    ID2D1Effect* fx = nullptr;
+    dc->CreateEffect(CLSID_D2D13DPerspectiveTransform, &fx);
+    D2D1_MATRIX_3X2_F oldT; dc->GetTransform(&oldT);
+    for (auto& cv : covers) {
+        int i = cv.i, k = cv.k; float x = cv.x; ID2D1CommandList* cl = cv.cl;
+        float ang = k == 0 ? 0.f : (k < 0 ? -70.f : 70.f);  // a borda voltada para o meio fica mais perto
+        ID2D1Image* img = cl;
+        if (fx && k != 0) {
+            fx->SetInput(0, cl);
+            fx->SetValue(D2D1_3DPERSPECTIVETRANSFORM_PROP_ROTATION, D2D1::Vector3F(0, ang, 0));
+            fx->SetValue(D2D1_3DPERSPECTIVETRANSFORM_PROP_ROTATION_ORIGIN, D2D1::Vector3F(S / 2, S / 2, 0));
+            fx->SetValue(D2D1_3DPERSPECTIVETRANSFORM_PROP_PERSPECTIVE_ORIGIN, D2D1::Vector2F(S / 2, S / 2));
+            fx->SetValue(D2D1_3DPERSPECTIVETRANSFORM_PROP_DEPTH, S * 1.6f);
+            fx->GetOutput(&img);
+        } else img->AddRef();
+        D2D1_POINT_2F at{ x - S / 2, floorY - S };
+        dc->DrawImage(img, at, D2D1_INTERPOLATION_MODE_LINEAR);
+        {   // reflexo: espelhado no chão, sumindo para baixo
+            D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(1, 1, 1, 0.38f) }, { 1, D2D1::ColorF(1, 1, 1, 0) } };
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+                SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, floorY }, { 0, floorY + S * 0.45f }), gs, &lb))) {
+                dc->PushLayer(D2D1::LayerParameters(D2D1::RectF(pr.left, floorY, pr.right, pr.bottom), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), 1, lb), nullptr);
+                dc->SetTransform(D2D1::Matrix3x2F::Scale(1, -1, { 0, floorY }) * oldT);
+                dc->DrawImage(img, at, D2D1_INTERPOLATION_MODE_LINEAR);
+                dc->SetTransform(oldT);
+                dc->PopLayer();
+            }
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+        }
+        float w2 = k == 0 ? S : S * 0.34f;
+        g_cfHits.push_back({ i, D2D1::RectF(x - w2 / 2, floorY - S, x + w2 / 2, floorY) });
+        img->Release();
+        cl->Release();
+    }
+    if (fx) fx->Release();
+    if (f >= 0) {  // nome e tipo da capa do meio
+        const Entry& e = g_items[f];
+        static IDWriteTextFormat* tfN = Format(L"Lucida Sans Unicode", 12, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+        static IDWriteTextFormat* tfK = Format(L"Lucida Sans Unicode", 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+        float ty = pr.bottom - 52;
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+        dc->DrawTextW(e.label.c_str(), (UINT32)e.label.size(), tfN, D2D1::RectF(pr.left + 20, ty, pr.right - 20, ty + 16), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        std::wstring kind = KindName(e);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));
+        dc->DrawTextW(kind.c_str(), (UINT32)kind.size(), tfK, D2D1::RectF(pr.left + 20, ty + 15, pr.right - 20, ty + 30), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        // a barra de rolagem escura do Cover Flow (trilho cinza e o polegar claro)
+        float bw = std::min(pr.right - pr.left - 80, 420.f), bl = cx - bw / 2, by = pr.bottom - 14;
+        br->SetColor(D2D1::ColorF(0.22f, 0.22f, 0.24f, 1));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(bl, by - 5, bl + bw, by + 5), 5, 5), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.25f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(bl + 0.5f, by - 4.5f, bl + bw - 0.5f, by + 4.5f), 4.5f, 4.5f), br, 1);
+        float tw = std::max(30.f, bw / std::max(1, n) * 6), tx = bl + (bw - tw) * (n > 1 ? (float)f / (n - 1) : 0);
+        br->SetColor(D2D1::ColorF(0.62f, 0.62f, 0.64f, 1));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tx, by - 4, tx + tw, by + 4), 4, 4), br);
+    }
+    dc->PopAxisAlignedClip();
+}
+static bool CoverFlowClick(D2D1_POINT_2F p) {
+    if (CoverFlowH() <= 0 || !In(CoverFlowRect(), p)) return false;
+    for (int k = (int)g_cfHits.size() - 1; k >= 0; k--)
+        if (In(g_cfHits[k].second, p)) { SelectOnly(g_cfHits[k].first); EnsureVisible(g_cfHits[k].first); Invalidate(); break; }
+    return true;
+}
+
 static void DrawGalleryView(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
     auto c = ContentRect();
     int f = g_focus >= 0 && g_focus < (int)g_items.size() ? g_focus : (g_items.empty() ? -1 : 0);
@@ -2780,6 +3161,33 @@ static void ScrollToThumbY(float top) {  // top: posição desejada do polegar
 }
 
 static void DrawScrollbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
+    if (!g_tahoe && tahoe::Leopard()) {
+        D2D1_RECT_F thumb, track;
+        if (!ScrollThumb(thumb, track)) return;
+        auto lin = [&](D2D1_RECT_F r, std::initializer_list<D2D1_GRADIENT_STOP> st, float rad) {
+            ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+            if (SUCCEEDED(dc->CreateGradientStopCollection(st.begin(), (UINT32)st.size(), &gs)) &&
+                SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ r.left, 0 }, { r.right, 0 }), gs, &lb)))
+                dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), lb);
+            if (lb) lb->Release();
+            if (gs) gs->Release();
+        };
+        D2D1_RECT_F tr = D2D1::RectF(track.right - 15, track.top, track.right, track.bottom);
+        lin(tr, { { 0, D2D1::ColorF(0.80f, 0.80f, 0.80f, 1) }, { 0.35f, D2D1::ColorF(0.95f, 0.95f, 0.95f, 1) }, { 1, D2D1::ColorF(0.99f, 0.99f, 0.99f, 1) } }, 0);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.18f));
+        dc->FillRectangle(D2D1::RectF(tr.left, tr.top, tr.left + 1, tr.bottom), br);
+        D2D1_RECT_F th = D2D1::RectF(tr.left + 1.5f, thumb.top + 1, tr.right - 1.5f, thumb.bottom - 1);
+        bool on = g_winActive;  // atrás: polegar cinza (como no Mac)
+        lin(th, { { 0, on ? D2D1::ColorF(0.30f, 0.50f, 0.84f, 1) : D2D1::ColorF(0.62f, 0.62f, 0.64f, 1) },
+                  { 0.5f, on ? D2D1::ColorF(0.70f, 0.84f, 0.99f, 1) : D2D1::ColorF(0.90f, 0.90f, 0.91f, 1) },
+                  { 1, on ? D2D1::ColorF(0.36f, 0.57f, 0.88f, 1) : D2D1::ColorF(0.66f, 0.66f, 0.68f, 1) } }, (th.right - th.left) / 2);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));  // o brilho de gel do lado esquerdo
+        float w3 = (th.right - th.left) * 0.30f;
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(th.left + 1.5f, th.top + 4, th.left + 1.5f + w3, th.bottom - 4), w3 / 2, w3 / 2), br);
+        br->SetColor(on ? D2D1::ColorF(0.15f, 0.30f, 0.60f, 0.85f) : D2D1::ColorF(0.40f, 0.40f, 0.42f, 0.85f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(th, (th.right - th.left) / 2, (th.right - th.left) / 2), br, 0.8f);
+        return;
+    }
     DWORD since = g_scrollDrag || g_scrollHover ? 0 : GetTickCount() - g_scrollShownAt;
     D2D1_RECT_F thumb, track;
     if (!ScrollThumb(thumb, track) || since >= 1200) return;
@@ -2982,7 +3390,7 @@ static std::wstring DefaultAppName(const Entry& e) {
 // macOS 27 (captura Finder-Quick-Look, 2x): barra de título de 38, moldura clara de 5 em volta da prévia, cantos 16 na
 // janela e 12 na foto; fechar = círculo escuro de 16 a 9 da borda, título em negrito de 15 à esquerda, "Abrir com…"
 // numa cápsula de 26 a 7 da borda
-#define QL_TITLE_H (semaforo::Aqua() ? 38.f : 40.f)
+#define QL_TITLE_H (semaforo::Aqua() ? 38.f : (!g_tahoe && tahoe::Leopard()) ? 24.f : 40.f)  // Leopard: a faixa de 24 do HUD
 static void RunVerb(const char* verb);
 
 static ID2D1Bitmap* QlImage(const Entry& e) {  // miniatura grande, se já chegou (senão a pequena)
@@ -3074,16 +3482,22 @@ static D2D1_RECT_F QlPanel() {
     float cx = s.width / 2, cy = s.height / 2 + 8;
     return { cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2 };
 }
-static D2D1_RECT_F QlCloseRect() { auto r = QlPanel(); if (semaforo::Aqua()) return { r.left + 9, r.top + 11, r.left + 25, r.top + 27 }; return { r.left + 10, r.top + 10, r.left + 30, r.top + 30 }; }
+static D2D1_RECT_F QlCloseRect() {
+    auto r = QlPanel();
+    if (!g_tahoe && tahoe::Leopard()) return { r.left + 5, r.top + 4, r.left + 21, r.top + 20 };  // Leopard: o X redondo do HUD
+    if (semaforo::Aqua()) return { r.left + 9, r.top + 11, r.left + 25, r.top + 27 };
+    return { r.left + 10, r.top + 10, r.left + 30, r.top + 30 };
+}
 static D2D1_RECT_F QlOpenRect() {
     auto r = QlPanel();
+    if (!g_tahoe && tahoe::Leopard()) return { 0, 0, 0, 0 };  // o Quick Look do 10.5 não tinha "Abrir com" nem Compartilhar
     int i = QlItem();
     std::wstring app = i >= 0 ? DefaultAppName(g_items[i]) : L"";
     float w = std::clamp(TextWidth(app.empty() ? Tr(L"Abrir") : Tr(L"Abrir com ") + app, g_tfQlButton) + 22, 60.f, 220.f);
     if (semaforo::Aqua()) return { r.right - 7 - w - 8, r.top + 6, r.right - 7, r.top + 32 };
     return { r.right - 12 - w, r.top + 8, r.right - 12, r.top + 32 };
 }
-static D2D1_RECT_F QlShareRect() { auto o = QlOpenRect(); return { o.left - 36, o.top, o.left - 8, o.bottom }; }
+static D2D1_RECT_F QlShareRect() { auto o = QlOpenRect(); if (o.right <= o.left) return { 0, 0, 0, 0 }; return { o.left - 36, o.top, o.left - 8, o.bottom }; }
 static D2D1_RECT_F QlCtlBar() {
     auto r = QlPanel();
     float w = std::min(r.right - r.left - 32, 560.f), cx = (r.left + r.right) / 2;
@@ -3179,6 +3593,132 @@ static void QlToggle() {
 }
 
 static IDWriteTextFormat* Format(const wchar_t* family, float size, DWRITE_FONT_WEIGHT weight, DWRITE_TEXT_ALIGNMENT align, DWRITE_PARAGRAPH_ALIGNMENT para, bool wrap);
+// Mac OS X Leopard: o Quick Look do 10.5 — um HUD preto translúcido de cantos redondos com o fio claro, o título branco
+// no meio da faixa de cima, o X branco num círculo cinza à esquerda, a prévia no corpo e, nos vídeos, a barra escura com
+// ⏵ e a linha do tempo brancos. Desenho próprio (nada do Quick Look dos outros temas).
+static void DrawQuickLookLeopard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Entry& e, D2D1_RECT_F r) {
+    for (int k = 1; k <= 8; k++) {  // sombra
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.035f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k * 2.f, r.top - k + 8, r.right + k * 2.f, r.bottom + k * 2.5f + 8), 10 + k * 2.f, 10 + k * 2.f), br);
+    }
+    const float RR = 10;
+    br->SetColor(D2D1::ColorF(0.07f, 0.07f, 0.08f, 0.88f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(r, RR, RR), br);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.30f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), RR - 0.5f, RR - 0.5f), br, 1);
+    static IDWriteTextFormat* tfT = Format(L"Lucida Sans Unicode", 12, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+    static IDWriteTextFormat* tfI = Format(L"Lucida Sans Unicode", 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, false);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
+    dc->DrawTextW(e.label.c_str(), (UINT32)e.label.size(), tfT, D2D1::RectF(r.left + 30, r.top, r.right - 30, r.top + QL_TITLE_H), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    auto cr = QlCloseRect();
+    float ccx = (cr.left + cr.right) / 2, ccy = (cr.top + cr.bottom) / 2;
+    br->SetColor(D2D1::ColorF(0.42f, 0.42f, 0.44f, 1));
+    dc->FillEllipse(D2D1::Ellipse({ ccx, ccy }, 6.5f, 6.5f), br);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));
+    dc->DrawEllipse(D2D1::Ellipse({ ccx, ccy }, 6.5f, 6.5f), br, 0.8f);
+    br->SetColor(D2D1::ColorF(0.07f, 0.07f, 0.08f, 1));
+    Line(dc, br, ccx - 2.4f, ccy - 2.4f, ccx + 2.4f, ccy + 2.4f, 1.5f);
+    Line(dc, br, ccx - 2.4f, ccy + 2.4f, ccx + 2.4f, ccy - 2.4f, 1.5f);
+    D2D1_RECT_F body{ r.left + 8, r.top + QL_TITLE_H, r.right - 8, r.bottom - 8 };
+    ID2D1Bitmap* bmp = QlImage(e);
+    bool text = !e.dir && IsTextFile(e);
+    bool video = QlVideoOn(e), audio = !video && QlAudioOn(e);
+    auto fit = [&](float vw, float vh) {
+        float k = std::min((body.right - body.left) / vw, (body.bottom - body.top) / vh);
+        float w = vw * k, h = vh * k, cx = (body.left + body.right) / 2, cy = (body.top + body.bottom) / 2;
+        return D2D1::RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
+    };
+    if (video) {
+        D2D1_RECT_F vr = fit((float)std::max(1, (int)media::VideoW()), (float)std::max(1, (int)media::VideoH()));
+        if (auto* fr = media::Frame()) dc->DrawBitmap(fr, vr, 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        else if (bmp) dc->DrawBitmap(bmp, vr, 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    } else if (bmp && !audio) {
+        auto sz = bmp->GetPixelSize();
+        DrawBigIcon(dc, e, fit((float)sz.width, (float)sz.height), br);
+    } else if (text) {
+        LoadQlText(e.path);
+        D2D1_RECT_F page{ body.left + 6, body.top + 2, body.right - 6, body.bottom - 2 };
+        br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        dc->FillRectangle(page, br);
+        dc->PushAxisAlignedClip(Inflate(page, -8), D2D1_ANTIALIAS_MODE_ALIASED);
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
+        float y = page.top + 10;
+        for (auto& ln : g_qlLines) {
+            if (y > page.bottom) break;
+            dc->DrawTextW(ln.c_str(), (UINT32)ln.size(), g_tfMono, D2D1::RectF(page.left + 12, y, page.right - 10, y + 17), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            y += 17;
+        }
+        dc->PopAxisAlignedClip();
+    } else {  // ícone grande e, embaixo, o nome e as informações em branco
+        float size = std::min(200.f, (body.bottom - body.top) - 110);
+        float cx = (body.left + body.right) / 2, top = body.top + std::max(8.f, ((body.bottom - body.top) - size - 90) / 2);
+        if (bmp && audio) {
+            auto sz = bmp->GetPixelSize();
+            float k = std::min(size / sz.width, size / sz.height), w = sz.width * k, h = sz.height * k;
+            dc->DrawBitmap(bmp, D2D1::RectF(cx - w / 2, top + (size - h) / 2, cx + w / 2, top + (size + h) / 2), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        } else DrawBigIcon(dc, e, D2D1::RectF(cx - size / 2, top, cx + size / 2, top + size), br);
+        float y = top + size + 14;
+        std::wstring name = audio && !g_qlMediaTitle.empty() ? g_qlMediaTitle : e.label;
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+        dc->DrawTextW(name.c_str(), (UINT32)name.size(), tfT, D2D1::RectF(body.left + 10, y, body.right - 10, y + 20), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        std::wstring info = audio ? g_qlMediaArtist : KindName(e);
+        if (!audio) {
+            if (e.dir) { size_t n = ChildItems(e.path).size(); info += L" · " + std::to_wstring(n) + (n == 1 ? Tr(L" item") : Tr(L" itens")); }
+            else info += L" · " + SizeText(e);
+        }
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+        dc->DrawTextW(info.c_str(), (UINT32)info.size(), tfI, D2D1::RectF(body.left, y + 22, body.right, y + 38), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        if (!audio) {
+            std::wstring date = Tr(L"Modificado: ") + DateText(e.mtime);
+            dc->DrawTextW(date.c_str(), (UINT32)date.size(), tfI, D2D1::RectF(body.left, y + 38, body.right, y + 54), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+    }
+    if ((video && QlControlsVisible()) || audio) {  // os controles: barra escura com ⏵/⏸, tempos, linha do tempo e o som
+        auto b = QlCtlBar();
+        br->SetColor(D2D1::ColorF(0, 0, 0, 0.62f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(b, 8, 8), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.25f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(Inflate(b, -0.5f), 7.5f, 7.5f), br, 1);
+        auto pr = QlPlayRect();
+        float pcx = (pr.left + pr.right) / 2, pcy = (pr.top + pr.bottom) / 2;
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+        if (media::Paused()) {
+            ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+            ID2D1PathGeometry* g = nullptr;
+            if (f && SUCCEEDED(f->CreatePathGeometry(&g))) {
+                ID2D1GeometrySink* sk = nullptr;
+                if (SUCCEEDED(g->Open(&sk))) {
+                    sk->BeginFigure({ pcx - 4, pcy - 6 }, D2D1_FIGURE_BEGIN_FILLED); sk->AddLine({ pcx + 6, pcy }); sk->AddLine({ pcx - 4, pcy + 6 });
+                    sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+                    dc->FillGeometry(g, br);
+                }
+                g->Release();
+            }
+            if (f) f->Release();
+        } else {
+            dc->FillRectangle(D2D1::RectF(pcx - 5, pcy - 6, pcx - 1.5f, pcy + 6), br);
+            dc->FillRectangle(D2D1::RectF(pcx + 1.5f, pcy - 6, pcx + 5, pcy + 6), br);
+        }
+        auto mr = QlMuteRect();
+        float mcx = (mr.left + mr.right) / 2, mcy = (mr.top + mr.bottom) / 2;  // alto-falante
+        dc->FillRectangle(D2D1::RectF(mcx - 6, mcy - 2.5f, mcx - 3, mcy + 2.5f), br);
+        Line(dc, br, mcx - 3, mcy - 2.5f, mcx + 1, mcy - 6, 1.6f); Line(dc, br, mcx + 1, mcy - 6, mcx + 1, mcy + 6, 1.6f); Line(dc, br, mcx + 1, mcy + 6, mcx - 3, mcy + 2.5f, 1.6f);
+        if (!media::Muted()) dc->DrawEllipse(D2D1::Ellipse({ mcx + 2, mcy }, 4.5f, 4.5f), br, 1.2f);
+        double d = media::Duration(), t = media::Ended() ? d : media::Time();
+        auto tr = QlTrackRect();
+        float ty = (tr.top + tr.bottom) / 2, f = d > 0 ? (float)std::clamp(t / d, 0.0, 1.0) : 0;
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.28f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tr.left, ty - 2, tr.right, ty + 2), 2, 2), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tr.left, ty - 2, tr.left + (tr.right - tr.left) * f, ty + 2), 2, 2), br);
+        dc->FillEllipse(D2D1::Ellipse({ tr.left + (tr.right - tr.left) * f, ty }, 4.5f, 4.5f), br);
+        auto hms = [](double sec) { int x = (int)std::max(0.0, sec); wchar_t b2[16]; swprintf_s(b2, L"%d:%02d", x / 60, x % 60); return std::wstring(b2); };
+        std::wstring a = hms(t), z = L"-" + hms(d - t);
+        dc->DrawTextW(a.c_str(), (UINT32)a.size(), tfI, D2D1::RectF(pr.right, tr.top, tr.left - 4, tr.bottom), br);
+        dc->DrawTextW(z.c_str(), (UINT32)z.size(), tfI, D2D1::RectF(tr.right + 4, tr.top, mr.left, tr.bottom), br);
+    }
+}
+
 static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
     int i = QlItem();
     if (i < 0) { g_ql = false; return; }
@@ -3215,6 +3755,12 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
         dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), ease), layer);
     }
 
+    if (!g_tahoe && tahoe::Leopard()) {  // Leopard: o HUD do 10.5 (desenho próprio)
+        DrawQuickLookLeopard(dc, br, e, r);
+        if (layer) { dc->PopLayer(); layer->Release(); }
+        dc->SetTransform(old);
+        return;
+    }
     for (int k = 1; k <= 10; k++) {  // sombra grande e suave, como as janelas do Mac
         br->SetColor(D2D1::ColorF(0, 0, 0, 0.03f));
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k * 2.5f, r.top - k * 1.5f + 10, r.right + k * 2.5f, r.bottom + k * 3.f + 10), 12 + k * 2.f, 12 + k * 2.f), br);
@@ -3635,9 +4181,17 @@ static void Render() {
     br->SetColor(pal.bar);  // tema escuro: barra um tom mais clara que a lista
     dc->FillRectangle(top, br);
     }
+    const bool leo = !g_tahoe && tahoe::Leopard();
     br->SetColor(pal.bar);  // status também um tom mais claro; a barra de caminho fica na cor da lista
     dc->FillRectangle(D2D1::RectF(Lay::SIDEBAR_W, s.height - Lay::STATUS_H, s.width, s.height), br);
-    if (Golden()) {
+    if (leo) {
+        // Leopard: a janela "unified" do 10.5 — barra de título e de ferramentas numa peça só de metal, de ponta a
+        // ponta (por cima da barra lateral também), e o rodapé no mesmo metal
+        leopard::Metal(dc, D2D1::RectF(0, 0, s.width, Lay::TOOLBAR_H), g_winActive, g_dark, true);
+        leopard::Metal(dc, D2D1::RectF(Lay::SIDEBAR_W, s.height - Lay::STATUS_H, s.width, s.height), g_winActive, g_dark, false);
+        br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.6f) : D2D1::ColorF(0.55f, 0.58f, 0.62f, 1));  // divisa da barra lateral
+        dc->DrawLine({ Lay::SIDEBAR_W + 0.5f, Lay::TOOLBAR_H }, { Lay::SIDEBAR_W + 0.5f, s.height }, br, 1);
+    } else if (Golden()) {
     } else if (g_tahoe) {
         tahoe::Panel(dc, br, SidePanelRect(), SidePanelR(), g_dark);
     } else {
@@ -3659,6 +4213,7 @@ static void Render() {
     DrawLights(dc, br);
     DrawSidebar(dc, pal, br);
     }
+    if (CoverFlowH() > 0) DrawCoverFlow(dc, br);  // Leopard: o painel de capas em cima da lista
     DrawToolbar(dc, pal, br);
     DrawScrollbar(dc, pal, br);
     DrawRenameField(dc, pal, br);
@@ -3887,34 +4442,24 @@ static IShellItemArray* ItemArray(const std::vector<std::wstring>& paths) {
 // "Projeto" -> "Projeto.zip"); vários itens, "Arquivo.zip"; nome ocupado, "… 2.zip".
 // Antes era a pasta compactada do Windows (zip vazio + IFileOperation): com um .zip entre os itens ela abria o
 // .zip como pasta ("…zip\ is not accessible. The directory name is invalid", 12/11/2026), e travava o Finder
-// durante a cópia. Agora o zip é montado pelo .NET do Windows (System.IO.Compression: nomes com acento em
-// UTF-8, qualquer tipo de arquivo) num PowerShell escondido, numa thread; no fim o Finder seleciona o .zip.
+// durante a cópia. Depois foi um PowerShell escondido com -EncodedCommand, que antivírus leem como "dropper"
+// (Kaspersky Trojan-Dropper.Scrop, 19/11/2026). Agora o zip é montado pelo tar.exe do próprio Windows
+// (System32, libarchive): nomes com acento em UTF-8, pastas inteiras, numa thread; no fim o Finder seleciona o .zip.
 static const UINT WM_APP_ZIPDONE = WM_APP + 30;  // lParam: std::wstring* (o .zip), wParam: 1 = deu certo
 static void CompressItems(const std::vector<std::wstring>& paths) {
     if (paths.empty()) return;
     std::wstring folder = Parent(paths[0]);
     std::wstring base = paths.size() == 1 ? paths[0].substr(paths[0].find_last_of(L'\\') + 1) : Tr(L"Arquivo");
     std::wstring zip = Join(folder, FreeName(folder, base, L".zip"));
-    auto q = [](const std::wstring& s) { std::wstring o = L"'"; for (wchar_t c : s) { o += c; if (c == L'\'') o += L'\''; } return o + L"'"; };
-    std::wstring itens;
-    for (auto& p : paths) itens += (itens.empty() ? L"" : L",") + q(p);
-    // pastas: cada arquivo com o caminho a partir da pasta-mãe (a pasta entra no zip); pastas vazias também
-    std::wstring ps =
-        L"$ErrorActionPreference='Stop';Add-Type -AssemblyName System.IO.Compression,System.IO.Compression.FileSystem;"
-        L"$z=[IO.Compression.ZipFile]::Open(" + q(zip) + L",'Create');try{foreach($p in @(" + itens + L")){"
-        L"$i=Get-Item -LiteralPath $p -Force;$b=$i.Parent;if(-not $b){$b=$i.Directory};$r=$b.FullName.TrimEnd('\\').Length+1;"
-        L"if($i.PSIsContainer){$all=@($i)+@(Get-ChildItem -LiteralPath $p -Recurse -Force);foreach($f in $all){$n=$f.FullName.Substring($r).Replace('\\','/');"
-        L"if($f.PSIsContainer){if(-not(Get-ChildItem -LiteralPath $f.FullName -Force|Select-Object -First 1)){[void]$z.CreateEntry($n+'/')}}"
-        L"else{[void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($z,$f.FullName,$n,'Optimal')}}}"
-        L"else{[void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($z,$i.FullName,$i.Name,'Optimal')}}}finally{$z.Dispose()}";
-    std::wstring cmd = L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ";
-    {   // -EncodedCommand: UTF-16 em base64 (caminhos com aspas e acentos chegam intactos)
-        const BYTE* b = (const BYTE*)ps.data(); DWORD n = (DWORD)(ps.size() * sizeof(wchar_t)), out = 0;
-        CryptBinaryToStringW(b, n, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &out);
-        std::wstring b64(out, L'\0');
-        CryptBinaryToStringW(b, n, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, b64.data(), &out);
-        b64.resize(out);
-        cmd += b64;
+    wchar_t sys[MAX_PATH]{};
+    GetSystemDirectoryW(sys, MAX_PATH);
+    // "C:\" entre aspas viraria \" (aspas escapadas): a pasta-mãe sempre sem a barra no fim ("C:\." na raiz)
+    auto dirArg = [](std::wstring d) { if (!d.empty() && d.back() == L'\\') d += L'.'; return L"\"" + d + L"\""; };
+    std::wstring cmd = L"\"" + std::wstring(sys) + L"\\tar.exe\" -a -c --options hdrcharset=UTF-8 -f \"" + zip + L"\"";
+    for (auto& p : paths) {  // cada item entra com o nome a partir da pasta-mãe dele (a pasta entra inteira)
+        size_t s = p.find_last_of(L'\\');
+        if (s == std::wstring::npos) continue;
+        cmd += L" -C " + dirArg(p.substr(0, s + 1)) + L" \"" + p.substr(s + 1) + L"\"";
     }
     Log(L"comprimir: %zu item(ns) -> %ls", paths.size(), zip.c_str());
     Flash(Tr(L"Comprimindo…"));
@@ -4261,6 +4806,11 @@ static void ResortImpl() {
 static View g_defaultView = View::Icons;  // visão de abertura (a última usada)
 
 static void SetView(View v) {
+    if (!g_tahoe && tahoe::Leopard()) {  // Leopard: a 4ª visão é o Cover Flow (lista + capas em cima)
+        bool cf = v == View::Gallery;
+        if (cf) v = View::List;
+        if (cf != g_coverFlow) { g_coverFlow = cf; g_rowsDirty = true; Invalidate(); }
+    } else g_coverFlow = false;
     if (g_view == v) return;
     if (g_renameIdx >= 0) EndRename(true);
     g_view = v;
@@ -5261,6 +5811,16 @@ static void ApplyWindowTheme() {
         Lay::SIDE_HDR_H = g_tahoe ? 19.f : 23.5f;
         Lay::TOOLBAR_H = g_tahoe ? 52.f : 53.f;
     }
+    // Leopard: a barra "unified" do 10.5 tem 55 px (22 do título + a linha de ferramentas, medido numa captura a 1x);
+    // os botões descem para a segunda linha e a barra lateral começa abaixo dela (a barra vai de ponta a ponta)
+    const bool leoLay = !g_tahoe && tahoe::Leopard();
+    // Leopard: a Galeria vira o Cover Flow (lista + capas); saindo do Leopard, o Cover Flow volta a ser a Galeria
+    if (leoLay) { if (g_view == View::Gallery) { g_view = View::List; g_coverFlow = true; g_rowsDirty = true; } }
+    else if (g_coverFlow) { g_coverFlow = false; g_view = View::Gallery; g_rowsDirty = true; }
+    Lay::TOOLBAR_H = g_tahoe ? 52.f : leoLay ? 56.f : 53.f;
+    Lay::TOOL_CY = leoLay ? 38.5f : 26.3f;
+    Lay::SIDE_TOP = leoLay ? Lay::TOOLBAR_H + 8 : 47.f;
+    g_sideClipTop = Lay::SIDE_TOP;
     BOOL dark = g_dark;
     tags::Tema(g_tahoe, g_dark);
     DwmSetWindowAttribute(g_hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &dark, sizeof(dark));
@@ -5462,6 +6022,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
         if (GoClick(p)) return 0;  // Ir para a Pasta
         if (QlClick(p)) return 0;  // clique no painel do Quick Look
+        if (CoverFlowClick(p)) return 0;  // Leopard: clique numa capa do Cover Flow
         if (ViewOptsClick(p)) return 0;  // clique no painel de Opções de Visualização
         if (PickerClick(p)) return 0;  // barra de Abrir/Salvar
         if (g_renameIdx >= 0) {
@@ -5698,7 +6259,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         switch (w) {
         case T_TAHOE:  // Tema mudou nos Ajustes do Sistema: troca Sequoia/Tahoe sem reabrir
-            if (tahoe::Reload()) { g_tahoe = tahoe::On(); ApplyWindowTheme(); shadow::Update(); Invalidate(); }
+            if (tahoe::Reload()) { g_tahoe = tahoe::On(); g_dark = IsDarkMode(); ApplyWindowTheme(); shadow::Update(); Invalidate(); }
             return 0;
         case T_SLOWRENAME:
             KillTimer(h, T_SLOWRENAME);
@@ -5907,6 +6468,40 @@ static void BuildSidebar() {
                            { &FOLDERID_Music, 0xE8D6 }, { &FOLDERID_Videos, 0xE714 }, { &FOLDERID_Profile, 0xE80F }, { &FOLDERID_SkyDrive, 0xE753 } };
     for (auto& k : special) { std::wstring p = KnownFolder(*k.id); if (!p.empty()) g_emblems.push_back({ p, k.glyph }); }
 
+    const bool leoSide = !g_tahoe && tahoe::Leopard();
+    auto devices = [&](const std::wstring& title) {
+        g_side.push_back({ title, L"", 0, true });
+        { SideEntry pc{ Tr(L"Este Computador"), L"", 0xE7F4, false }; pc.tag = VIEW_COMPUTER; g_side.push_back(pc); }
+        DWORD drives = GetLogicalDrives();
+        for (int d = 0; d < 26; d++) {
+            if (!(drives & (1u << d))) continue;
+            std::wstring root = std::wstring(1, (wchar_t)(L'A' + d)) + L":\\";
+            UINT type = GetDriveTypeW(root.c_str());
+            if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE && type != DRIVE_REMOTE) continue;
+            SHFILEINFOW sfi{};
+            std::wstring label = SHGetFileInfoW(root.c_str(), 0, &sfi, sizeof(sfi), SHGFI_DISPLAYNAME) ? sfi.szDisplayName : root;
+            g_side.push_back({ label, root, (wchar_t)(type == DRIVE_REMOVABLE ? 0xE88E : 0xEDA2), false });
+        }
+    };
+    if (leoSide) {
+        // Leopard (como na foto de referência do usuário): FAVORITOS, DISPOSITIVOS, COMPARTILHADO e BUSCAR POR (o do
+        // Finder do 10.5), sem Etiquetas
+        g_side.push_back({ Tr(L"Favoritos"), L"", 0, true });
+        for (int i = 0; i < (int)g_favs.size(); i++) {
+            SideEntry e{ g_favs[i].label, g_favs[i].path, g_favs[i].glyph, false };
+            e.fav = i;
+            g_side.push_back(e);
+        }
+        devices(Tr(L"Dispositivos"));
+        std::wstring cl = KnownFolder(FOLDERID_SkyDrive);
+        if (!cl.empty() && GetFileAttributesW(cl.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            g_side.push_back({ Tr(L"Compartilhado"), L"", 0, true });
+            g_side.push_back({ L"OneDrive", cl, 0xE753, false });
+        }
+        g_side.push_back({ Tr(L"Buscar Por"), L"", 0, true });
+        const wchar_t smartGlyph[6] = { 0xE823, 0xE823, 0xE823, 0xE91B, 0xE714, 0xE8A5 };  // relógio ×3, imagem, filme, documento
+        for (int k = 0; k < 6; k++) { SideEntry e{ Tr(SMART_NAMES[k]), L"", smartGlyph[k], false }; e.tag = VIEW_SMART + k; g_side.push_back(e); }
+    } else {
     g_side.push_back({ Tr(L"Favoritos"), L"", 0, true });
     for (int i = 0; i < (int)g_favs.size(); i++) {
         SideEntry e{ g_favs[i].label, g_favs[i].path, g_favs[i].glyph, false };
@@ -5941,6 +6536,7 @@ static void BuildSidebar() {
         e.tag = t;
         g_side.push_back(e);
     }
+    }  // (não Leopard)
 
     for (int k = 0; k < (int)g_side.size(); k++)
         if (g_side[k].header && std::find(collapsed.begin(), collapsed.end(), g_side[k].label) != collapsed.end()) ToggleSection(k);

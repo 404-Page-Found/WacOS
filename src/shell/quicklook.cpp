@@ -585,6 +585,53 @@ void Paint() {
     ID2D1SolidColorBrush* br = nullptr;
     rt->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &br);
     if (liquid::Golden()) { br->Release(); PaintGolden(rt, wr, wpx, hpx, sc, dark); return; }
+    if (liquid::Leopard()) {
+        // Leopard: o Quick Look do 10.5 — HUD preto translúcido de cantos redondos com o fio claro, o título branco no
+        // meio da faixa de cima (24), o X branco num círculo cinza à esquerda e a prévia no corpo. Sem "Abrir com".
+        const float LB = 24, LR = 10;
+        br->SetColor(D2D1::ColorF(0.07f, 0.07f, 0.08f, 0.90f));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), LR, LR), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.30f));
+        rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), LR, LR), br, 1);
+        g_openR = D2D1::RectF(0, 0, 0, 0);
+        g_closeR = D2D1::RectF(5, 4, 21, 20);
+        D2D1_POINT_2F cc{ 13, 12 };
+        br->SetColor(g_hoverClose ? D2D1::ColorF(0.55f, 0.55f, 0.57f, 1) : D2D1::ColorF(0.42f, 0.42f, 0.44f, 1));
+        rt->FillEllipse(D2D1::Ellipse(cc, 6.5f, 6.5f), br);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));
+        rt->DrawEllipse(D2D1::Ellipse(cc, 6.5f, 6.5f), br, 0.8f);
+        br->SetColor(D2D1::ColorF(0.07f, 0.07f, 0.08f, 1));
+        rt->DrawLine({ cc.x - 2.4f, cc.y - 2.4f }, { cc.x + 2.4f, cc.y + 2.4f }, br, 1.5f);
+        rt->DrawLine({ cc.x - 2.4f, cc.y + 2.4f }, { cc.x + 2.4f, cc.y - 2.4f }, br, 1.5f);
+        static IDWriteTextFormat* tfT = [] { auto* f = ui::FormatFace(L"Lucida Sans Unicode", 12, DWRITE_FONT_WEIGHT_NORMAL); if (f) f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); return f; }();
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
+        rt->DrawTextW(g_name.c_str(), (UINT32)g_name.size(), tfT, D2D1::RectF(30, 0, W - 30, LB), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        D2D1_RECT_F body = D2D1::RectF(8, LB, W - 8, H - 8);
+        rt->PushAxisAlignedClip(body, D2D1_ANTIALIAS_MODE_ALIASED);
+        if (!g_text.empty()) {  // texto: a folha branca
+            br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+            rt->FillRectangle(body, br);
+            br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
+            rt->DrawTextW(g_text.c_str(), (UINT32)std::min<size_t>(g_text.size(), 20000), g_tfText, D2D1::RectF(body.left + 14, body.top + 10, body.right - 14, body.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        } else {
+            if (g_bmpRt != rt && g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
+            if (!g_bmp && !g_px.empty()) { g_bmp = ui::Bitmap(rt, g_iw, g_ih, g_px); g_bmpRt = rt; }
+            if (g_bmp) {
+                float bwid = body.right - body.left, bh = body.bottom - body.top;
+                float k = std::min(bwid / g_iw, bh / g_ih), w = g_iw * k, h = g_ih * k;
+                float x = body.left + (bwid - w) / 2, y = body.top + (bh - h) / 2;
+                rt->DrawBitmap(g_bmp, D2D1::RectF(x, y, x + w, y + h), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            } else {
+                br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));
+                const wchar_t* t = g_loading ? Tr(L"Carregando…") : Tr(L"Sem prévia");
+                rt->DrawTextW(t, (UINT32)wcslen(t), tfT, D2D1::RectF(body.left, (body.top + body.bottom) / 2 - 10, body.right, (body.top + body.bottom) / 2 + 10), br);
+            }
+        }
+        rt->PopAxisAlignedClip();
+        br->Release();
+        ui::End(g_s, true, POINT{ wr.left, wr.top });
+        return;
+    }
     // corpo e barra
     br->SetColor(dark ? D2D1::ColorF(0.12f, 0.12f, 0.13f, 0.97f) : D2D1::ColorF(0.97f, 0.97f, 0.97f, 0.98f));
     rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R, R), br);

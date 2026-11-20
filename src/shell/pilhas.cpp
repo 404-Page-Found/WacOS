@@ -14,7 +14,9 @@
 namespace {
 
 const UINT WM_PL_ICON = WM_APP + 81, WM_PL_FRAME = WM_APP + 82;
-const int COLS = 6, MAXN = 18;
+const int COLS = 6;
+int MAXN = 18;      // Downloads: 18; a pilha Aplicativos do Leopard mostra mais (g_apps)
+bool g_apps;        // Leopard: a pasta Aplicativos da Dock como Pilha em Grade (os atalhos do Menu Iniciar)
 const float CELL_W = 78, CELL_H = 86, PAD_SEQ = 12, HEAD = 30, FOOT = 30, ICON = 52, R_SEQ = 12, ARROW = 9;
 // a pilha em grade é um popover: no Tahoe raio 20 e 13 de margem (guia macOS26-Theme-Reference, seção 31)
 #define R (liquid::On() ? 20.f : R_SEQ)
@@ -88,9 +90,90 @@ void Motion() {
     else { ui::GpuMotion(g_s, mo.scale, cx, cy, mo.fade); if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy); }
 }
 
+// Mac OS X Leopard: a Pilha em Grade do 10.5 — painel preto translúcido (sem desfoque) de cantos redondos com o fio
+// claro em volta, o nome da pasta em branco no alto, ícones com o nome em branco e o botão escuro "Abrir no Finder ›"
+void PaintLeopard() {
+    float sc = Sc();
+    int wpx = (int)std::lround(PW() * sc), hpx = (int)std::lround(PH() * sc);
+    if (g_back && IsWindowVisible(g_back)) ShowWindow(g_back, SW_HIDE);
+    g_inGlass = false;
+    auto* dc = ui::GpuBegin(g_s, wpx, hpx, sc);
+    if (!dc) return;
+    ID2D1SolidColorBrush* br = nullptr;
+    dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1), &br);
+    if (!br) { ui::GpuEnd(g_s); return; }
+    const float BODY = PH() - ARROW, RR = 12;
+    ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
+    ID2D1PathGeometry* shape = nullptr;  // o corpo e a setinha numa peça só
+    if (fac && SUCCEEDED(fac->CreatePathGeometry(&shape))) {
+        ID2D1GeometrySink* sk = nullptr;
+        if (SUCCEEDED(shape->Open(&sk))) {
+            float ax = std::clamp(g_arrowX, RR + ARROW, PW() - RR - ARROW);
+            sk->BeginFigure({ RR, 0 }, D2D1_FIGURE_BEGIN_FILLED);
+            sk->AddLine({ PW() - RR, 0 }); sk->AddArc(D2D1::ArcSegment({ PW(), RR }, { RR, RR }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            sk->AddLine({ PW(), BODY - RR }); sk->AddArc(D2D1::ArcSegment({ PW() - RR, BODY }, { RR, RR }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            sk->AddLine({ ax + ARROW, BODY }); sk->AddLine({ ax, BODY + ARROW - 1 }); sk->AddLine({ ax - ARROW, BODY });
+            sk->AddLine({ RR, BODY }); sk->AddArc(D2D1::ArcSegment({ 0, BODY - RR }, { RR, RR }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            sk->AddLine({ 0, RR }); sk->AddArc(D2D1::ArcSegment({ RR, 0 }, { RR, RR }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+            sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
+            br->SetColor(D2D1::ColorF(0.11f, 0.11f, 0.12f, 0.92f));  // a grade do 10.5 quase não deixava ver o fundo
+            dc->FillGeometry(shape, br);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.28f));
+            dc->DrawGeometry(shape, br, 1.2f);
+        }
+        shape->Release();
+    }
+    if (fac) fac->Release();
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+    {
+        std::wstring title = g_apps ? std::wstring(Tr(L"Aplicativos")) : std::wstring(L"Downloads");
+        dc->DrawTextW(title.c_str(), (UINT32)title.size(), g_tfTitle, D2D1::RectF(0, 7, PW(), HEAD), br);
+    }
+    {
+        std::lock_guard<std::mutex> l(g_mx);
+        if (g_files.empty()) {
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
+            dc->DrawTextW(Tr(L"Nenhum item"), (UINT32)wcslen(Tr(L"Nenhum item")), g_tfName, D2D1::RectF(0, HEAD + 30, PW(), HEAD + 60), br);
+        }
+        for (int i = 0; i < (int)g_files.size(); i++) {
+            auto& f = g_files[i];
+            D2D1_RECT_F c = CellRect(i);
+            float cx = (c.left + c.right) / 2;
+            D2D1_RECT_F ir{ cx - ICON / 2, c.top + 8, cx + ICON / 2, c.top + 8 + ICON };
+            if (i == g_hover) {  // o item embaixo do ponteiro: quadro claro translúcido
+                br->SetColor(D2D1::ColorF(1, 1, 1, 0.16f));
+                dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(ir.left - 6, ir.top - 6, ir.right + 6, ir.bottom + 6), 6, 6), br);
+            }
+            if (!f.bmp && !f.px.empty()) { f.bmp = ui::Bitmap(dc, f.w, f.h, f.px); f.px.clear(); f.px.shrink_to_fit(); }
+            if (f.bmp) {
+                D2D1_SIZE_F sz = f.bmp->GetSize();
+                float k = std::min(ICON / sz.width, ICON / sz.height);
+                float w = sz.width * k, hh = sz.height * k, iy = (ir.top + ir.bottom) / 2;
+                dc->DrawBitmap(f.bmp, D2D1::RectF(cx - w / 2, iy - hh / 2, cx + w / 2, iy + hh / 2), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            } else ui::DrawFolder(dc, ir, 0);
+            br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+            dc->DrawTextW(f.name.c_str(), (UINT32)f.name.size(), g_tfName, D2D1::RectF(c.left + 4, ir.bottom + 4, c.right - 4, c.bottom - 2), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+    }
+    D2D1_RECT_F b = BtnRect();  // "Abrir no Finder ›" numa pílula escura com fio claro
+    std::wstring btn = std::wstring(Tr(L"Abrir no Finder")) + L"  ›";
+    float tw = ui::TextWidth(g_tfBtn, btn) + 24, bc = (b.left + b.right) / 2;
+    D2D1_RECT_F pill = D2D1::RectF(bc - tw / 2, (b.top + b.bottom) / 2 - 10, bc + tw / 2, (b.top + b.bottom) / 2 + 10);
+    br->SetColor(g_hover == -1 ? D2D1::ColorF(1, 1, 1, 0.22f) : D2D1::ColorF(1, 1, 1, 0.10f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(pill, 10, 10), br);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.35f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(pill, 10, 10), br, 1);
+    br->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+    dc->DrawTextW(btn.c_str(), (UINT32)btn.size(), g_tfBtn, pill, br);
+    br->Release();
+    ui::GpuEnd(g_s);
+    Motion();
+}
+
 void Paint() {
     if (!g_open) return;
     if (g_fan) { PaintFan(); return; }
+    if (liquid::Leopard()) { PaintLeopard(); return; }
     float sc = Sc();
     int wpx = (int)std::lround(PW() * sc), hpx = (int)std::lround(PH() * sc);
     bool dark = ui::Dark();
@@ -259,7 +342,7 @@ int HitAt(LPARAM l) {
 
 void OpenDownloadsInFinder() {
     std::wstring finder = shell::dir + L"\\" EXE_FINDER;
-    ShellExecuteW(nullptr, L"open", finder.c_str(), L"shell:Downloads", nullptr, SW_SHOWNORMAL);
+    ShellExecuteW(nullptr, L"open", finder.c_str(), g_apps ? L"shell:Programs" : L"shell:Downloads", nullptr, SW_SHOWNORMAL);
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -306,6 +389,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     case WM_ACTIVATE: if (LOWORD(w) == WA_INACTIVE) Hide(); return 0;
+    case WM_CLOSE: Hide(true); return 0;  // nunca destruir: a janela é reaproveitada (destruída, os cliques no Dock paravam)
     }
     return DefWindowProcW(h, m, w, l);
 }
@@ -316,7 +400,8 @@ LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 bool Ready() {
-    if (g_wnd) return true;
+    if (g_wnd && IsWindow(g_wnd)) return true;
+    if (g_wnd) { if (g_back && IsWindow(g_back)) DestroyWindow(g_back); g_wnd = g_back = nullptr; g_open = g_closing = false; }  // alguém destruiu: refaz
     HINSTANCE hi = shell::inst;
     WNDCLASSW wc{}; wc.lpfnWndProc = Proc; wc.hInstance = hi; wc.lpszClassName = L"ShellPilha"; wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassW(&wc);
@@ -324,7 +409,7 @@ bool Ready() {
     RegisterClassW(&bc);
     g_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP, wc.lpszClassName, L"Downloads", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     g_back = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, bc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
-    if (!g_wnd || !g_back) return false;
+    if (!g_wnd || !g_back) { Log(L"pilha: janela não criada (%lu)", GetLastError()); return false; }
     g_glass = backdrop::Attach(g_back);
     if (!g_glass) {
         DestroyWindow(g_back);
@@ -349,8 +434,47 @@ std::wstring DownloadsDir() {
     return d;
 }
 
+// Leopard, pilha Aplicativos: os atalhos dos apps do Menu Iniciar (do usuário e de todos), sem desinstaladores e
+// manuais, em ordem alfabética
+std::vector<std::wstring> ListApps(int max) {
+    std::vector<std::pair<std::wstring, std::wstring>> v;  // nome, caminho
+    for (auto* id : { &FOLDERID_Programs, &FOLDERID_CommonPrograms }) {
+        PWSTR p = nullptr;
+        if (FAILED(SHGetKnownFolderPath(*id, 0, nullptr, &p))) continue;
+        std::wstring root = p; CoTaskMemFree(p);
+        std::vector<std::wstring> dirs{ root };
+        for (size_t k = 0; k < dirs.size() && k < 200; k++) {
+            WIN32_FIND_DATAW fd;
+            HANDLE h = FindFirstFileW((dirs[k] + L"\\*").c_str(), &fd);
+            if (h == INVALID_HANDLE_VALUE) continue;
+            do {
+                if (fd.cFileName[0] == L'.') continue;
+                std::wstring full = dirs[k] + L"\\" + fd.cFileName;
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) { if (k == 0) dirs.push_back(full); continue; }  // um nível de pastas
+                const wchar_t* x = wcsrchr(fd.cFileName, L'.');
+                if (!x || _wcsicmp(x, L".lnk")) continue;
+                std::wstring name(fd.cFileName, x - fd.cFileName), low = name;
+                for (auto& c : low) c = towlower(c);
+                bool skip = false;
+                for (const wchar_t* w : { L"uninstall", L"desinstal", L"readme", L"leia-me", L"help", L"ajuda", L"manual", L"website", L"license" })
+                    if (low.find(w) != std::wstring::npos) skip = true;
+                if (skip) continue;
+                bool dup = false;
+                for (auto& e : v) if (!_wcsicmp(e.first.c_str(), name.c_str())) dup = true;
+                if (!dup) v.push_back({ name, full });
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+    }
+    std::sort(v.begin(), v.end(), [](auto& a, auto& b) { return _wcsicmp(a.first.c_str(), b.first.c_str()) < 0; });
+    std::vector<std::wstring> out;
+    for (size_t i = 0; i < v.size() && (int)i < max; i++) out.push_back(v[i].second);
+    return out;
+}
+
 // os arquivos de Downloads na ordem do botão direito (Data de Adição: o mais novo primeiro, como no Mac)
 std::vector<std::wstring> List(int max) {
+    if (g_apps) return ListApps(max);
     std::wstring d = DownloadsDir(), order = shell::Setting(L"pilha_ordem", L"adicao");
     struct E { std::wstring path, name, ext; ULONGLONG made, mod; };
     std::vector<E> v;
@@ -425,15 +549,21 @@ void pilhas::Menu(POINT anchor) {
     else if (id == 400 || id == 401) shell::SetSetting(L"pilha_exibir", id == 400 ? L"pasta" : L"pilha");
 }
 
-std::vector<std::wstring> pilhas::Recentes(int max) { return List(max); }
+std::vector<std::wstring> pilhas::Recentes(int max) { bool a = g_apps; g_apps = false; auto v = List(max); g_apps = a; return v; }
+void ShowStack(POINT anchor, bool apps);
+void pilhas::Show(POINT anchor) { ShowStack(anchor, false); }
+void pilhas::ShowApps(POINT anchor) { ShowStack(anchor, true); }
 
 bool pilhas::IsOpen() { return g_open && !g_closing; }
 
-void pilhas::Show(POINT anchor) {
-    if (g_open && !g_closing) { Hide(true); return; }
+void ShowStack(POINT anchor, bool apps) {
+    Log(L"pilha: abrir %s (aberta=%d fechando=%d janela=%d)", apps ? L"Aplicativos" : L"Downloads", (int)g_open, (int)g_closing, g_wnd && IsWindow(g_wnd) ? 1 : 0);
+    if (g_open && !g_closing) { bool same = g_apps == apps; Hide(true); if (same) return; HideNow(); }
     if (g_closing) HideNow();
     if (!Ready()) return;
-    std::wstring ver = shell::Setting(L"pilha_ver", L"auto");
+    g_apps = apps;
+    MAXN = apps ? 42 : 18;
+    std::wstring ver = apps ? std::wstring(L"grade") : shell::Setting(L"pilha_ver", L"auto");  // Aplicativos: sempre a Grade
     if (ver == L"lista") { ShowList(anchor); return; }
     g_fan = ver != L"grade";  // Automático: o Leque, como o Mac faz com Downloads
     std::vector<std::wstring> files = List(g_fan ? FAN_MAX : MAXN);
@@ -450,6 +580,7 @@ void pilhas::Show(POINT anchor) {
         for (size_t i = 0; i < files.size() && (int)i < MAXN; i++) {
             File f; f.path = files[i];
             f.name = files[i].substr(files[i].find_last_of(L'\\') + 1);
+            if (g_apps && f.name.size() > 4 && !_wcsicmp(f.name.c_str() + f.name.size() - 4, L".lnk")) f.name.resize(f.name.size() - 4);  // Aplicativos: sem o ".lnk"
             g_files.push_back(f);
         }
     }
@@ -457,11 +588,19 @@ void pilhas::Show(POINT anchor) {
     float sc = Sc();
     int px = (int)std::lround(ICON * sc);
     std::vector<std::wstring> paths = files;
-    std::thread([paths, px, gen] {
+    const bool appsIcons = g_apps;
+    std::thread([paths, px, gen, appsIcons] {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         for (size_t i = 0; i < paths.size() && (int)i < MAXN; i++) {
             UINT w = 0, h = 0; std::vector<BYTE> bgra;
-            if (!ui::FileImage(paths[i], px, w, h, bgra)) continue;
+            bool got = false;
+            if (appsIcons) {  // Aplicativos: o ícone do tema (Leopard/aquificado) quando o pacote conhece o app
+                std::wstring nm = paths[i].substr(paths[i].find_last_of(L'\\') + 1);
+                if (nm.size() > 4) nm.resize(nm.size() - 4);
+                std::wstring png = apps::PackIconByName(nm, L"");
+                got = !png.empty() && ui::LoadPng(png, w, h, bgra);
+            }
+            if (!got && !ui::FileImage(paths[i], px, w, h, bgra)) continue;
             {
                 std::lock_guard<std::mutex> l(g_mx);
                 if (gen != g_gen || i >= g_files.size()) break;

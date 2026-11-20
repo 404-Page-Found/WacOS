@@ -99,6 +99,7 @@ namespace tahoe {
 float WindowR();               // cantos das janelas: 26 pt no Tahoe, 16 pt no Golden Gate (um raio só para todas)
 int FolderColor();             // Aparência > Cor das pastas (índice de pastacor::colors; -1 = automática)
 bool Golden();                 // tema macOS Golden Gate (liquid_glass=1 e golden_gate=1): o Tahoe com os ajustes do macOS 27
+bool Leopard();                // tema Mac OS X Leopard (leopard=1 sem liquid_glass): o Sequoia com o metal e o Aqua de 2007
 bool On();                     // tema Tahoe (liquid_glass=1)
 bool Reduced();                // reduzir_transparencia=1: o vidro fica opaco
 D2D1_COLOR_F Tint(D2D1_COLOR_F base);  // 10 % da cor do papel de parede (tingir_janelas), só no Tahoe
@@ -147,6 +148,9 @@ int Index(const std::wstring& q, const std::wstring& folder, int max, const std:
 int Walk(const std::wstring& q, const std::wstring& folder, int max, const std::function<bool(const std::wstring&)>& onPath);
 // o índice do Spotlight do Shell (nomes de tudo, instantâneo); -1 se não houver índice
 int Spotlight(const std::wstring& q, const std::wstring& folder, int max, const std::function<bool(const std::wstring&)>& onPath);
+// "Buscar por" do Finder do Leopard (buscas prontas no índice, dentro da pasta do usuário, as mais novas primeiro):
+// 0 Hoje, 1 Ontem, 2 Semana Passada, 3 Todas as Imagens, 4 Todos os Filmes, 5 Todos os Documentos
+int Smart(int kind, int max, const std::function<bool(const std::wstring&)>& onPath);
 }
 
 // Arquivos como padrão para abrir pastas (HKCU, reversível; ver padrao.cpp).
