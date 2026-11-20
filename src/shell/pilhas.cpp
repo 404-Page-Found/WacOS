@@ -43,6 +43,10 @@ float PH() { return HEAD + Rows() * CELL_H + FOOT + ARROW; }  // com a setinha e
 D2D1_RECT_F CellRect(int i) { float x = PAD + (i % COLS) * CELL_W, y = HEAD + (i / COLS) * CELL_H; return { x, y, x + CELL_W, y + CELL_H }; }
 D2D1_RECT_F BtnRect() { return { PW() / 2 - 70, HEAD + Rows() * CELL_H + 2, PW() / 2 + 70, HEAD + Rows() * CELL_H + 26 }; }
 float g_arrowX;  // DIP, dentro do painel: onde a setinha aponta (o ícone no Dock)
+int g_side;      // Dock à esquerda (1) ou à direita (2): a Grade abre ao lado, sem setinha, crescendo do lado do Dock
+// o ponto (px no painel) de onde o painel cresce e para onde volta: o ícone no Dock
+float GrowX(int wpx, float sc) { return g_side == 1 ? 0.f : g_side == 2 ? (float)wpx : g_arrowX * sc; }
+float GrowY(int hpx) { return g_side ? hpx / 2.f : (float)hpx; }
 // ---- Leque
 bool g_fan;                 // aberta em Leque (sem vidro: cada item com a etiqueta dele)
 const int FAN_MAX = 10;
@@ -86,7 +90,7 @@ void Motion() {
     float sc = Sc();
     int wpx = (int)std::lround(PW() * sc), hpx = (int)std::lround(PH() * sc);
     anim::Panel mo = g_closing ? anim::PanelOut(anim::Now() - g_closeAt) : anim::PanelIn(anim::Now() - g_openAt);
-    float cx = g_arrowX * sc, cy = (float)hpx;  // cresce e volta para o ícone
+    float cx = GrowX(wpx, sc), cy = GrowY(hpx);  // cresce e volta para o ícone
     if (g_inGlass) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy);  // o desenho está dentro do vidro: vão juntos
     else { ui::GpuMotion(g_s, mo.scale, cx, cy, mo.fade); if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy); }
 }
@@ -196,7 +200,7 @@ void Paint() {
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.12f));
         dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, PW() - 0.5f, BODY - 0.5f), R, R), br, 1);
     }
-    {   // setinha apontando para o ícone no Dock (na cor do vidro)
+    if (!g_side) {   // setinha apontando para o ícone no Dock (na cor do vidro); com o Dock do lado não há
         ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
         ID2D1PathGeometry* tri = nullptr; if (fac) fac->CreatePathGeometry(&tri);
         if (tri) {
@@ -503,6 +507,13 @@ std::vector<std::wstring> List(int max) {
     return out;
 }
 
+// Onde abrir um menu que sai do ícone no Dock (anchor: o lado de dentro do ícone): embaixo, para cima dele; com o
+// Dock à esquerda ou à direita, ao lado, centrado na altura do ícone (o menu vira para a esquerda sozinho se não couber)
+POINT MenuPt(POINT anchor, int hpx) {
+    if (dock::Posicao() == 0) return { anchor.x - (LONG)std::lround(60 * Sc()), anchor.y - hpx };
+    return { anchor.x, anchor.y - hpx / 2 };
+}
+
 // Lista: um menu com os nomes, como antes (e como o "Lista" do Mac)
 void ShowList(POINT anchor) {
     auto files = List(14);
@@ -513,7 +524,7 @@ void ShowList(POINT anchor) {
     ctxmenu::Item op; op.label = Tr(L"Abrir no Finder"); op.id = 30; m.push_back(op);
     ctxmenu::PlainNext();
     SetForegroundWindow(g_wnd);
-    POINT pt{ anchor.x - 60, anchor.y - (LONG)std::lround((m.size() * 22 + 14) * Sc()) };
+    POINT pt = MenuPt(anchor, (int)std::lround((m.size() * 22 + 14) * Sc()));
     int id = ctxmenu::ShowItems(g_wnd, pt, m);
     if (id == 30) OpenDownloadsInFinder();
     else if (id >= 5000 && id - 5000 < (int)files.size() && !AbrirNoAppMac(files[id - 5000])) ShellExecuteW(nullptr, L"open", files[id - 5000].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -542,7 +553,7 @@ void pilhas::Menu(POINT anchor) {
     std::vector<ctxmenu::Item> m = { sortBy, show, view, sep, MI(Tr(L"Abrir \u201cDownloads\u201d"), 300) };
     ctxmenu::PlainNext();
     SetForegroundWindow(g_wnd);
-    POINT pt{ anchor.x - 60, anchor.y - (LONG)std::lround(120 * Sc()) };
+    POINT pt = MenuPt(anchor, (int)std::lround(120 * Sc()));
     int id = ctxmenu::ShowItems(g_wnd, pt, m);
     if (id >= 100 && id < 105) shell::SetSetting(L"pilha_ordem", ordK[id - 100]);
     else if (id >= 200 && id < 204) shell::SetSetting(L"pilha_ver", verK[id - 200]);
@@ -567,6 +578,7 @@ void ShowStack(POINT anchor, bool apps) {
     std::wstring ver = apps ? std::wstring(L"grade") : shell::Setting(L"pilha_ver", L"auto");  // Aplicativos: sempre a Grade
     if (ver == L"lista") { ShowList(anchor); return; }
     g_fan = ver != L"grade";  // Automático: o Leque, como o Mac faz com Downloads
+    if (dock::Posicao() != 0) g_fan = false;  // Dock do lado: o Leque só existe embaixo (no Mac também vira Grade)
     std::vector<std::wstring> files = List(g_fan ? FAN_MAX : MAXN);
     {   // quem estava na frente (não o Shell): volta para ela ao fechar sem abrir nada
         HWND fg = GetForegroundWindow(); DWORD pid = 0;
@@ -622,10 +634,17 @@ void ShowStack(POINT anchor, bool apps) {
     MONITORINFO mi{ sizeof(mi) };
     GetMonitorInfoW(MonitorFromPoint(anchor, MONITOR_DEFAULTTOPRIMARY), &mi);
     int x, y;
+    g_side = 0;
     if (g_fan) {  // o arco sai do ícone: o ícone fica embaixo, perto da borda direita da janela
         x = anchor.x - (int)std::lround((FAN_W - 70) * sc);
         y = anchor.y - hpx;
         g_arrowX = FAN_W - 70;
+    } else if (dock::Posicao() != 0) {
+        // Dock à esquerda ou à direita: a Grade abre ao lado do ícone, na altura dele (sem a setinha de baixo)
+        int pos = dock::Posicao();
+        x = pos == 1 ? anchor.x + (int)std::lround(4 * sc) : anchor.x - wpx - (int)std::lround(4 * sc);
+        y = std::clamp((int)anchor.y - hpx / 2, (int)mi.rcWork.top + 8, std::max((int)mi.rcWork.top + 8, (int)mi.rcWork.bottom - hpx - 8));
+        g_arrowX = 0; g_side = pos;
     } else {
         x = std::clamp((int)anchor.x - wpx / 2, (int)mi.rcWork.left + 8, (int)mi.rcWork.right - wpx - 8);
         y = anchor.y - hpx - (int)std::lround(2 * sc);
@@ -635,8 +654,8 @@ void ShowStack(POINT anchor, bool apps) {
     SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE);
     g_open = true; g_hover = -2;
     g_openAt = anim::Now();
-    if (g_glass) backdrop::Fade(g_back, 0, 0.96f, g_arrowX * sc, (float)hpx);  // a última abertura deixou em 100%: piscava
-    ui::GpuMotion(g_s, g_fan ? 1.f : 0.96f, g_arrowX * sc, (float)hpx, g_fan ? 1.f : 0.f);  // o Leque se anima item a item
+    if (g_glass) backdrop::Fade(g_back, 0, 0.96f, GrowX(wpx, sc), GrowY(hpx));  // a última abertura deixou em 100%: piscava
+    ui::GpuMotion(g_s, g_fan ? 1.f : 0.96f, GrowX(wpx, sc), GrowY(hpx), g_fan ? 1.f : 0.f);  // o Leque se anima item a item
     Paint();  // vidro e conteúdo prontos (e invisíveis: a mola começa em 0) antes de mostrar
     if (!g_fan) ShowWindow(g_back, SW_SHOWNOACTIVATE);
     else ShowWindow(g_back, SW_HIDE);

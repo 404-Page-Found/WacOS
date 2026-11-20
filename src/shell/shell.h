@@ -509,7 +509,8 @@ bool Create(HINSTANCE hi);
 void Update();          // apps mudaram
 HWND Hwnd();
 HWND Fundo();  // o vidro, a janela mais de baixo do Dock
-int ReservedHeight();   // px reservados embaixo (área de trabalho)
+int ReservedHeight();   // px reservados na borda do Dock (área de trabalho): embaixo ou do lado (Posicao)
+int Posicao();          // 0 embaixo, 1 esquerda, 2 direita (dock_posicao; o Leopard fica sempre embaixo)
 HMONITOR MonitorHandle();  // o monitor do Dock (ajuste dock_monitor; vazio = o principal)
 void Raise();          // traz o Dock para cima (ex.: por cima do Launchpad)
 void OpenAppsStack();  // Leopard: a pasta Aplicativos como Pilha em Grade

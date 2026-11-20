@@ -1536,7 +1536,11 @@ Page MesaDock() {
     magSize.enabled = Setting(L"ampliacao", L"0") == L"1";
     size.hasDef = true; size.def = 48;
     magSize.hasDef = true; magSize.def = 128;
-    Row pos = Popup(L"Posição na tela", { L"!Esquerda", L"Embaixo", L"!Direita" }, [] { return 1; }, [](int) {});
+    // dock_posicao = baixo | esquerda | direita (o Dock do Leopard, a prateleira em perspectiva, fica sempre embaixo)
+    Row pos = Popup(L"Posição na tela", { L"Esquerda", L"Embaixo", L"Direita" }, [] {
+        std::wstring v = Setting(L"dock_posicao", L"baixo");
+        return v == L"esquerda" ? 0 : v == L"direita" ? 2 : 1;
+    }, [](int i) { SetSetting(L"dock_posicao", i == 0 ? L"esquerda" : i == 2 ? L"direita" : L"baixo"); });
     // Monitor do Dock (dock_monitor = nome do monitor, ex. \\.\DISPLAY2; vazio = o principal). A barra de
     // menus fica em todos; o Dock só neste.
     std::vector<std::wstring> monDev{ L"" }, monName{ L"Tela principal" };

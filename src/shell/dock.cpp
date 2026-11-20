@@ -141,7 +141,15 @@ int g_dropHit = -1;
 
 void LeftClick(int i);
 float Sc() { return ui::Scale(g_icons); }
-float WinH() { return g_large + PAD_TOP + PAD_BOTTOM + MARGIN + 52; }  // espaço para ampliar e para a etiqueta
+// Posição na tela (Ajustes > Mesa e Dock > Posição na tela: dock_posicao=baixo|esquerda|direita). Todo o layout é feito
+// "ao longo do Dock": x corre pelos ícones e y vai de dentro da tela (0) até a borda onde o Dock encosta (WinH). Embaixo
+// isso é a própria janela; dos lados, a mesma conta girada (ToWin/ToLocal). Os ícones, os números e as etiquetas são
+// desenhados sempre em pé (Up). O Leopard fica sempre embaixo (a prateleira em perspectiva só existe deitada).
+int g_pos = 0;               // 0 embaixo, 1 esquerda, 2 direita
+int Pos() { return LEO_DOCK ? 0 : g_pos; }
+bool Vert() { return Pos() != 0; }
+// espaço para ampliar e para a etiqueta (dos lados a etiqueta fica ao lado do ícone: precisa de mais largura)
+float WinH() { return g_large + PAD_TOP + PAD_BOTTOM + MARGIN + (Vert() ? 280 : 52); }
 
 // O monitor do Dock (Ajustes > Mesa e Dock > Monitor do Dock: dock_monitor = nome do monitor, ex. \\.\DISPLAY2;
 // vazio = o principal). Antes era o monitor onde a janela estava, e com dois monitores o Dock passava de um
@@ -174,6 +182,64 @@ RECT Monitor() {
     return mi.rcMonitor;
 }
 
+// A janela dos ícones na tela (px): embaixo, a faixa de baixo do monitor; dos lados, a coluna da borda, da barra de
+// menus para baixo (como no Mac, o Dock lateral fica centralizado no espaço abaixo da barra).
+RECT Strip() {
+    MONITORINFO mi{ sizeof(mi) };
+    HMONITOR hm = DockMon();
+    GetMonitorInfoW(hm, &mi);
+    RECT m = mi.rcMonitor;
+    int H = (int)std::lround(WinH() * Sc());
+    int top = m.top + ((mi.dwFlags & MONITORINFOF_PRIMARY) ? menubar::Height() : menubar::HeightOn(hm));
+    if (Pos() == 1) return { m.left, top, m.left + H, m.bottom };
+    if (Pos() == 2) return { m.right - H, top, m.right, m.bottom };
+    return { m.left, m.bottom - H, m.right, m.bottom };
+}
+// comprimento disponível ao longo do Dock (pt)
+float AxisLen() { RECT s = Strip(); return (Vert() ? s.bottom - s.top : s.right - s.left) / Sc(); }
+// do sistema do Dock (x ao longo, y até a borda) para a janela dos ícones (pt) e de volta
+D2D1_POINT_2F ToWin(float x, float y) {
+    if (Pos() == 1) return { WinH() - y, x };  // esquerda: a borda (y = WinH) fica em X = 0
+    if (Pos() == 2) return { y, x };           // direita: a borda fica em X = WinH
+    return { x, y };
+}
+D2D1_POINT_2F ToLocal(float X, float Y) {
+    if (Pos() == 1) return { Y, WinH() - X };
+    if (Pos() == 2) return { Y, X };
+    return { X, Y };
+}
+D2D1_MATRIX_3X2_F DockMatrix() {  // a mesma conta de ToWin, para o Direct2D
+    if (Pos() == 1) return D2D1::Matrix3x2F(0, 1, -1, 0, WinH(), 0);
+    if (Pos() == 2) return D2D1::Matrix3x2F(0, 1, 1, 0, 0, 0);
+    return D2D1::Matrix3x2F::Identity();
+}
+D2D1_RECT_F RectToWin(D2D1_RECT_F r) {
+    D2D1_POINT_2F a = ToWin(r.left, r.top), b = ToWin(r.right, r.bottom);
+    return { std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y) };
+}
+// um quadrado do sistema do Dock em pé na janela: o mesmo tamanho, centrado no mesmo ponto (ícones não giram)
+D2D1_RECT_F Up(D2D1_RECT_F r) {
+    D2D1_POINT_2F c = ToWin((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+    float w = (r.right - r.left) / 2, h = (r.bottom - r.top) / 2;
+    return { c.x - w, c.y - h, c.x + w, c.y + h };
+}
+POINT ToScreen(float x, float y) {
+    RECT s = Strip(); float sc = Sc();
+    D2D1_POINT_2F p = ToWin(x, y);
+    return { s.left + (LONG)std::lround(p.x * sc), s.top + (LONG)std::lround(p.y * sc) };
+}
+RECT ToScreenRect(D2D1_RECT_F local) {
+    RECT s = Strip(); float sc = Sc();
+    D2D1_RECT_F r = RectToWin(local);
+    return { s.left + (LONG)std::lround(r.left * sc), s.top + (LONG)std::lround(r.top * sc), s.left + (LONG)std::lround(r.right * sc), s.top + (LONG)std::lround(r.bottom * sc) };
+}
+D2D1_POINT_2F ScreenToLocal(POINT p) {
+    RECT s = Strip(); float sc = Sc();
+    return ToLocal((p.x - s.left) / sc, (p.y - s.top) / sc);
+}
+// coordenada de tela que cresce para dentro da tela, perpendicular ao Dock (arrastar o separador muda o tamanho)
+LONG Inward(POINT c) { return Pos() == 1 ? c.x : Pos() == 2 ? -c.x : -c.y; }
+
 // Muitos apps abertos: o Dock encolhe para caber na tela (como no Mac), em vez de passar da borda (e entrar
 // no outro monitor). g_tileWant é o tamanho escolhido; g_tile, o usado agora.
 float g_tileWant = 48;
@@ -181,8 +247,7 @@ void FitTile() {
     g_tile = g_tileWant;
     float sc = ui::Scale(g_icons);
     if (sc <= 0) sc = 1;
-    RECT m = Monitor();
-    float W = (m.right - m.left) / sc - 16;  // um respiro de cada lado
+    float W = AxisLen() - 16;  // um respiro de cada lado
     float units = 0;                          // largura em múltiplos de g_tile
     for (auto& it : g_items) units += it.kind == I_SEP ? SEP_W / g_tile : SLOT / g_tile;
     units += 2 * PAD_X / g_tile;
@@ -272,7 +337,7 @@ void BuildItems() {
 
 // Posições e tamanhos (com ampliação), centralizado na tela.
 void Layout() {
-    float W = (Monitor().right - Monitor().left) / Sc();
+    float W = AxisLen();  // ao longo do Dock (dos lados, a altura abaixo da barra de menus)
     float slot = SLOT;
     // largura base para achar os centros sem ampliação
     float base = PAD_X;
@@ -571,10 +636,7 @@ float BounceOffset(const App& a) {
 // Ocultação inteligente: alguma janela de app (não minimizada, nesta mesa) cobre a área do Dock à mostra?
 // Como a "ocultação inteligente" dos docks do Windows: janela maximizada ou arrastada até embaixo esconde o Dock.
 bool WindowOverDock() {
-    float sc = Sc();
-    RECT mon = Monitor();
-    RECT dk{ mon.left + (LONG)(g_bg.left * sc), mon.bottom - (LONG)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN) * sc),
-             mon.left + (LONG)(g_bg.right * sc), mon.bottom };
+    RECT dk = ToScreenRect({ g_bg.left, WinH() - (g_tile + PAD_TOP + PAD_BOTTOM + MARGIN), g_bg.right, WinH() });
     if (dk.right <= dk.left) return false;
     struct C { RECT dk; bool hit; } c{ dk, false };
     EnumWindows([](HWND h, LPARAM p) -> BOOL {
@@ -597,8 +659,10 @@ bool WantHidden() {
     POINT c; GetCursorPos(&c);
     RECT mon = Monitor();
     float sc = Sc();
-    bool nearEdge = c.x >= mon.left && c.x < mon.right &&
-                    (c.y >= mon.bottom - 2 || (g_reveal > 0.5f && c.y >= mon.bottom - (LONG)((g_bg.bottom - g_bg.top + 30) * sc)));
+    // distância do ponteiro até a borda do Dock (embaixo, a de baixo; dos lados, a esquerda ou a direita)
+    bool along = Vert() ? c.y >= mon.top && c.y < mon.bottom : c.x >= mon.left && c.x < mon.right;
+    LONG dist = Pos() == 1 ? c.x - mon.left : Pos() == 2 ? mon.right - 1 - c.x : mon.bottom - 1 - c.y;
+    bool nearEdge = along && dist >= 0 && (dist <= 1 || (g_reveal > 0.5f && dist < (LONG)((g_bg.bottom - g_bg.top + 30) * sc)));
     if (g_smart && GetTickCount() - g_coverAt >= 100) { g_coverAt = GetTickCount(); g_covered = WindowOverDock(); }
     return (!g_smart || g_covered) && !nearEdge && g_press < 0;
 }
@@ -626,9 +690,8 @@ std::wstring Label(const Item& it) {
 
 void PaintBack() {
     float sc = Sc();
-    RECT mon = Monitor();
-    int x = mon.left + (int)std::lround(g_bg.left * sc), y = mon.bottom - (int)std::lround((WinH() - g_bg.top) * sc);
-    int w = (int)std::lround((g_bg.right - g_bg.left) * sc), h = (int)std::lround((g_bg.bottom - g_bg.top) * sc);
+    RECT bgs = ToScreenRect(g_bg);  // dos lados o fundo fica em pé (mais alto que largo)
+    int x = bgs.left, y = bgs.top, w = bgs.right - bgs.left, h = bgs.bottom - bgs.top;
     if (g_reveal <= 0.01f || LEO_DOCK) { ShowWindow(g_back, SW_HIDE); g_lastBg = {}; return; }  // Leopard: sem vidro atrás (a prateleira é desenhada com os ícones)
     if (!memcmp(&g_bg, &g_lastBg, sizeof(g_bg)) && IsWindowVisible(g_back)) return;  // nada mudou
     g_lastBg = g_bg;
@@ -667,7 +730,7 @@ void PaintBack() {
     ui::End(g_sb, false);
 }
 
-// onde fica a miniatura de uma janela minimizada (pt, coordenadas da janela dos ícones): cabe num
+// onde fica a miniatura de uma janela minimizada (pt, na janela dos ícones, já em pé): cabe num
 // quadrado de 92% do ícone, com a proporção da janela, assentada no pé dos ícones
 D2D1_RECT_F MinThumbRect(const Item& it, float baseline) {
     float box = it.size * 0.92f;
@@ -678,16 +741,15 @@ D2D1_RECT_F MinThumbRect(const Item& it, float baseline) {
     else { RECT r{}; WINDOWPLACEMENT wp{ sizeof(wp) }; if (GetWindowPlacement(it.win, &wp)) r = wp.rcNormalPosition; if (r.right > r.left) { ww = (float)(r.right - r.left); wh = (float)(r.bottom - r.top); } }
     float k = std::min(box / ww, box / wh);
     float w = ww * k, h = wh * k;
-    float cy = baseline - it.size / 2;
-    return { it.cx - w / 2, cy - h / 2, it.cx + w / 2, cy + h / 2 };
+    D2D1_POINT_2F c = ToWin(it.cx, baseline - it.size / 2);
+    return { c.x - w / 2, c.y - h / 2, c.x + w / 2, c.y + h / 2 };
 }
 
 // miniaturas do DWM das minimizadas, na janela própria entre o fundo e a dos ícones
 void UpdateThumbs(float baseline) {
     if (!g_thumbWnd) return;
     float sc = Sc();
-    RECT mon = Monitor();
-    int H = (int)std::lround(WinH() * sc);
+    RECT strip = Strip();
     RECT box{ LONG_MAX, LONG_MAX, LONG_MIN, LONG_MIN };
     std::vector<std::pair<const Item*, RECT>> rects;
     bool show = !g_fullscreen && g_reveal > 0.5f;
@@ -700,7 +762,7 @@ void UpdateThumbs(float baseline) {
         }
         if (!g_thumbs.count(it.win)) { HTHUMBNAIL th = nullptr; if (SUCCEEDED(DwmRegisterThumbnail(g_thumbWnd, it.win, &th))) g_thumbs[it.win] = th; }
         D2D1_RECT_F r = MinThumbRect(it, baseline);
-        RECT px{ mon.left + (LONG)std::lround(r.left * sc), mon.bottom - H + (LONG)std::lround(r.top * sc), mon.left + (LONG)std::lround(r.right * sc), mon.bottom - H + (LONG)std::lround(r.bottom * sc) };
+        RECT px{ strip.left + (LONG)std::lround(r.left * sc), strip.top + (LONG)std::lround(r.top * sc), strip.left + (LONG)std::lround(r.right * sc), strip.top + (LONG)std::lround(r.bottom * sc) };
         rects.push_back({ &it, px });
         box.left = std::min(box.left, px.left); box.top = std::min(box.top, px.top); box.right = std::max(box.right, px.right); box.bottom = std::max(box.bottom, px.bottom);
     }
@@ -799,24 +861,74 @@ void CALLBACK FgEvent(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWORD
     }
 }
 
+// A etiqueta com o nome (pt, na janela dos ícones, sempre em pé): embaixo, acima do ícone com a setinha para baixo;
+// dos lados, ao lado do ícone com a setinha apontando para ele (como no Mac com o Dock à esquerda ou à direita).
+struct LabelBox { D2D1_RECT_F r{}; D2D1_POINT_2F tri[3]{}; D2D1_POINT_2F in{}; std::wstring t; };  // in: da base da setinha para a ponta
+bool LabelGeom(int lab, LabelBox& L) {
+    if (!g_rotulos || lab < 0 || lab >= (int)g_items.size() || g_items[lab].kind == I_SEP || g_reveal <= 0.9f) return false;
+    auto& it = g_items[lab];
+    L.t = Label(it);
+    float tw = ui::TextWidth(g_tfLabel, L.t) + 22, th = 26;
+    float baseline = g_bg.top + PAD_TOP + g_tile;
+    if (!Vert()) {
+        float top = baseline - it.size - 14 - th;
+        L.r = { it.cx - tw / 2, top, it.cx + tw / 2, top + th };
+        float cx = it.cx, ab = L.r.bottom - 0.5f;
+        L.tri[0] = { cx - 7, ab }; L.tri[1] = { cx, ab + 7 }; L.tri[2] = { cx + 7, ab };
+        L.in = { 0, 1 };
+        return true;
+    }
+    const float MAXW = 250;  // a janela lateral tem ~280 pt para a etiqueta: título comprido ganha "…"
+    if (tw > MAXW) {
+        while (L.t.size() > 1 && ui::TextWidth(g_tfLabel, L.t + L"…") + 22 > MAXW) L.t.pop_back();
+        L.t += L"…";
+        tw = ui::TextWidth(g_tfLabel, L.t) + 22;
+    }
+    D2D1_POINT_2F tip = ToWin(it.cx, baseline - it.size - 7.5f);
+    float s = Pos() == 1 ? 1.f : -1.f;  // para dentro da tela
+    float ab = tip.x + s * 7;
+    L.r = s > 0 ? D2D1::RectF(ab - 0.5f, tip.y - th / 2, ab - 0.5f + tw, tip.y + th / 2) : D2D1::RectF(ab + 0.5f - tw, tip.y - th / 2, ab + 0.5f, tip.y + th / 2);
+    L.tri[0] = { ab, tip.y - 7 }; L.tri[1] = tip; L.tri[2] = { ab, tip.y + 7 };
+    L.in = { -s, 0 };
+    return true;
+}
+
 void JumpIds(const App& a, std::wstring& exe, std::wstring& aumid);
 void Paint() {
     if (!g_icons || g_fullscreen) { if (g_thumbWnd) ShowWindow(g_thumbWnd, SW_HIDE); return; }
     Layout();
     float sc = Sc();
-    RECT mon = Monitor();
-    int W = mon.right - mon.left, H = (int)std::lround(WinH() * sc);
+    RECT strip = Strip();
+    int W = strip.right - strip.left, H = strip.bottom - strip.top;
     // Janela justa no Dock; inteira (espaço para a etiqueta e a ampliação) só com o mouse em cima ou
     // animando, assim o resto da faixa de baixo da tela continua clicável.
     bool active = g_mouseX >= 0 || g_dragging || g_resizing || g_press >= 0 || g_dropHit >= 0 || Animating();
-    RECT want = active ? RECT{ 0, 0, W, H }
-                       : RECT{ (LONG)std::floor(g_bg.left * sc) - 2, (LONG)std::floor(g_bg.top * sc) - 2, (LONG)std::ceil(g_bg.right * sc) + 2, (LONG)std::ceil(g_bg.bottom * sc) + 2 };
+    LabelBox lbox;
+    bool hasLabel = LabelGeom(g_dragging ? -1 : g_hover, lbox);
+    D2D1_RECT_F bgw = RectToWin(g_bg);
+    RECT want{ (LONG)std::floor(bgw.left * sc) - 2, (LONG)std::floor(bgw.top * sc) - 2, (LONG)std::ceil(bgw.right * sc) + 2, (LONG)std::ceil(bgw.bottom * sc) + 2 };
+    bool poofing = g_poof.t0 > 0 && anim::Now() - g_poof.t0 < POOF_MS;
+    if (active && (!Vert() || g_dragging || g_resizing || poofing)) want = RECT{ 0, 0, W, H };
+    else if (active) {
+        // dos lados a janela é larga (cabe a etiqueta): só a coluna dos ícones (com a ampliação e o pulo) e a
+        // etiqueta recebem o mouse; o resto continua clicável para as janelas atrás
+        float head = std::max(g_magnify ? g_large - g_tile : 0.f, g_tile * 0.7f) + 8;
+        D2D1_RECT_F a = RectToWin({ 0, g_bg.top - head, AxisLen(), WinH() });
+        if (hasLabel) { a.left = std::min(a.left, lbox.r.left - 2); a.right = std::max(a.right, lbox.r.right + 2); }
+        want = { (LONG)std::floor(a.left * sc), (LONG)std::floor(a.top * sc), (LONG)std::ceil(a.right * sc), (LONG)std::ceil(a.bottom * sc) };
+    }
+    want.left = std::max<LONG>(want.left, 0); want.right = std::min<LONG>(want.right, W);
     want.top = std::max<LONG>(want.top, 0); want.bottom = std::min<LONG>(want.bottom, H);
     if (want.bottom <= want.top) want.bottom = want.top + 1;
+    if (want.right <= want.left) want.right = want.left + 1;
     // A imagem tem sempre o tamanho da faixa inteira (nunca é recriada, então nada pisca); só a
     // janela muda de tamanho e o conteúdo é deslocado para casar.
     auto* rt = ui::GpuBegin(g_gi, W, H, sc);
     if (!rt) return;
+    // desenho do Dock no sistema dele (dockT: dos lados, girado); ícones, números e etiquetas em pé (base)
+    D2D1_MATRIX_3X2_F base; rt->GetTransform(&base);
+    D2D1_MATRIX_3X2_F dockT = DockMatrix() * base;
+    rt->SetTransform(dockT);
     bool moved = !EqualRect(&want, &g_win);
     bool dark = ui::Dark();
     ID2D1SolidColorBrush* br = nullptr;
@@ -941,12 +1053,14 @@ void Paint() {
             App& a = apps::list[it.app];
             float bs = s2 * 0.40f;  // ícone do app, no canto de baixo à direita
             D2D1_RECT_F br2{ tr.right - bs * 0.78f, tr.bottom - bs * 0.78f, tr.right + bs * 0.22f, tr.bottom + bs * 0.22f };
+            rt->SetTransform(base);  // a miniatura e o ícone do app ficam em pé
             if (a.finder) ui::DrawFolder(rt, br2, 0xE8B7);
             else if (ID2D1Bitmap* b = IconBitmap(rt, a)) {
                 float art2 = (br2.right - br2.left) * (a.mac ? ART_PACK : ART_WIN);
                 float cx2 = (br2.left + br2.right) / 2, cy2 = (br2.top + br2.bottom) / 2;
                 rt->DrawBitmap(b, D2D1::RectF(cx2 - art2 / 2, cy2 - art2 / 2, cx2 + art2 / 2, cy2 + art2 / 2), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             }
+            rt->SetTransform(dockT);
             continue;
         }
         float s = it.size * AppFactor(it);
@@ -956,7 +1070,9 @@ void Paint() {
             auto f = g_bmps.find(gh.id);
             float art = s * (gh.mac ? ART_PACK : ART_WIN);
             D2D1_RECT_F ir{ it.cx - art / 2, baseline - (s + art) / 2, it.cx + art / 2, baseline - (s - art) / 2 };
-            if (f != g_bmps.end() && f->second) rt->DrawBitmap(f->second, ir, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            rt->SetTransform(base);
+            if (f != g_bmps.end() && f->second) rt->DrawBitmap(f->second, Up(ir), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            rt->SetTransform(dockT);
             continue;
         }
         float dy = it.kind == I_APP ? BounceOffset(apps::list[it.app]) : 0;
@@ -968,7 +1084,10 @@ void Paint() {
             float art = s * ART_WIN;
             D2D1_RECT_F sr{ it.cx - art / 2, baseline - (s + art) / 2, it.cx + art / 2, baseline - (s - art) / 2 };
             reflect(sr.bottom, [&] { DrawStack(rt, sr); });  // Leopard: a pilha também se reflete na prateleira
-            if (DrawStack(rt, sr)) continue;
+            rt->SetTransform(base);
+            bool drew = DrawStack(rt, Up(sr));
+            rt->SetTransform(dockT);
+            if (drew) continue;
             b = PackBitmap(rt, L"folder downloads"); mac = b != nullptr;
         }
         else { b = PackBitmap(rt, it.kind == I_LAUNCHPAD ? L"Launchpad" : it.kind == I_DOWNLOADS ? L"folder downloads" : g_trashFull ? L"trashfull@2x" : L"trashempty@2x"); mac = b != nullptr; }
@@ -977,13 +1096,22 @@ void Paint() {
         D2D1_RECT_F ir{ it.cx - art / 2, baseline - (s + art) / 2 + dy, it.cx + art / 2, baseline - (s - art) / 2 + dy };
         if (b) reflect(baseline + dy, [&] {  // espelha no pé do desenho (o PNG do pacote tem margem embaixo)
             rt->DrawBitmap(b, ir, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC); });
-        if (b) rt->DrawBitmap(b, ir, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);  // reduz 256 px sem serrilhar
-        else if (it.kind == I_APP) { if (apps::list[it.app].finder) ui::DrawFolder(rt, ir, 0xE8B7); }
-        else if (it.kind == I_DOWNLOADS) ui::DrawFolder(rt, ir, 0xE896);
-        else if (it.kind == I_TRASH) ui::DrawTrash(rt, ir, g_trashFull);
-        if (it.kind == I_APP) if (int n = BadgeCount(apps::list[it.app])) {
-            float m = mac ? (ir.right - ir.left) * 0.10f : 0;  // PNG do pacote: corpo = 80% do desenho
-            DrawBadge(rt, br, D2D1::RectF(ir.left + m, ir.top + m, ir.right - m, ir.bottom - m), n);
+        {   // o ícone, o número e o escurecido do clique em pé (dos lados o Dock gira, os ícones não)
+            D2D1_RECT_F iw = Up(ir);
+            rt->SetTransform(base);
+            if (b) rt->DrawBitmap(b, iw, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);  // reduz 256 px sem serrilhar
+            else if (it.kind == I_APP) { if (apps::list[it.app].finder) ui::DrawFolder(rt, iw, 0xE8B7); }
+            else if (it.kind == I_DOWNLOADS) ui::DrawFolder(rt, iw, 0xE896);
+            else if (it.kind == I_TRASH) ui::DrawTrash(rt, iw, g_trashFull);
+            if (it.kind == I_APP) if (int n = BadgeCount(apps::list[it.app])) {
+                float m = mac ? (iw.right - iw.left) * 0.10f : 0;  // PNG do pacote: corpo = 80% do desenho
+                DrawBadge(rt, br, D2D1::RectF(iw.left + m, iw.top + m, iw.right - m, iw.bottom - m), n);
+            }
+            if ((i == g_press && !g_dragging && GetKeyState(VK_LBUTTON) < 0) || i == g_dropHit) {  // pressionado: escurece
+                br->SetColor(D2D1::ColorF(0, 0, 0, i == g_dropHit ? 0.25f : 0.35f));
+                rt->FillRoundedRectangle(D2D1::RoundedRect(iw, art * 0.22f, art * 0.22f), br);
+            }
+            rt->SetTransform(dockT);
         }
         // ponto de app aberto; o Finder, como no Mac, está sempre aberto
         if (it.kind == I_APP && (!apps::list[it.app].wins.empty() || apps::list[it.app].finder) && shell::Setting(L"indicadores", L"1") == L"1") {
@@ -1012,10 +1140,6 @@ void Paint() {
             } else rt->FillEllipse(D2D1::Ellipse({ it.cx, dy }, dr, dr), br);
             }
         }
-        if ((i == g_press && !g_dragging && GetKeyState(VK_LBUTTON) < 0) || i == g_dropHit) {  // pressionado: escurece
-            br->SetColor(D2D1::ColorF(0, 0, 0, i == g_dropHit ? 0.25f : 0.35f));
-            rt->FillRoundedRectangle(D2D1::RoundedRect(ir, art * 0.22f, art * 0.22f), br);
-        }
     }
 
     if (g_poof.t0 > 0 && anim::Now() - g_poof.t0 < POOF_MS) {  // o "puf": bolinhas de fumaça que se abrem e somem
@@ -1035,13 +1159,12 @@ void Paint() {
         rt->FillEllipse(D2D1::Ellipse({ g_poof.x, g_poof.y }, R * 0.55f, R * 0.5f), br);
     }
 
-    // etiqueta com o nome, acima do ícone
-    int lab = g_dragging ? -1 : g_hover;
-    if (g_rotulos && lab >= 0 && lab < (int)g_items.size() && g_items[lab].kind != I_SEP && g_reveal > 0.9f) {
-        std::wstring t = Label(g_items[lab]);
-        float tw = ui::TextWidth(g_tfLabel, t) + 22, th = 26;
-        float top = baseline - g_items[lab].size - 14 - th;
-        D2D1_RECT_F r{ g_items[lab].cx - tw / 2, top, g_items[lab].cx + tw / 2, top + th };
+    // etiqueta com o nome, acima do ícone (dos lados, ao lado dele); em pé, nas coordenadas da janela
+    rt->SetTransform(base);
+    if (hasLabel) {
+        const std::wstring& t = lbox.t;
+        float th = 26;
+        D2D1_RECT_F r = lbox.r;
         if (leo) {  // Leopard: o nome numa pílula preta translúcida com texto branco, sem setinha
             float rr2 = th / 2 - 2;
             D2D1_RECT_F q{ r.left, r.top + 2, r.right, r.bottom - 2 };
@@ -1054,18 +1177,20 @@ void Paint() {
         } else {
         br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.92f) : D2D1::ColorF(0.94f, 0.94f, 0.95f, 0.95f));
         rt->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br);
-        float cx = g_items[lab].cx, ab = r.bottom - 0.5f;  // setinha apontando para o ícone, como no Mac
+        // setinha apontando para o ícone, como no Mac (embaixo para baixo; dos lados para a borda do Dock)
+        const D2D1_POINT_2F* tp = lbox.tri;
+        D2D1_POINT_2F n{ lbox.in.x * 0.5f, lbox.in.y * 0.5f };
         ID2D1Factory* f = nullptr; rt->GetFactory(&f);
         ID2D1PathGeometry* tri = nullptr; f->CreatePathGeometry(&tri);
         ID2D1GeometrySink* sk = nullptr; tri->Open(&sk);
-        sk->BeginFigure({ cx - 7, ab }, D2D1_FIGURE_BEGIN_FILLED);
-        sk->AddLine({ cx, ab + 7 }); sk->AddLine({ cx + 7, ab });
+        sk->BeginFigure(tp[0], D2D1_FIGURE_BEGIN_FILLED);
+        sk->AddLine(tp[1]); sk->AddLine(tp[2]);
         sk->EndFigure(D2D1_FIGURE_END_CLOSED); sk->Close(); sk->Release();
         rt->FillGeometry(tri, br);
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.10f));
         rt->DrawRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br, 0.8f);
-        rt->DrawLine({ cx - 7, ab + 0.5f }, { cx, ab + 7 }, br, 0.8f);
-        rt->DrawLine({ cx, ab + 7 }, { cx + 7, ab + 0.5f }, br, 0.8f);
+        rt->DrawLine({ tp[0].x + n.x, tp[0].y + n.y }, tp[1], br, 0.8f);
+        rt->DrawLine(tp[1], { tp[2].x + n.x, tp[2].y + n.y }, br, 0.8f);
         tri->Release(); f->Release();
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.85f));
         rt->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfLabel, r, br);
@@ -1075,7 +1200,7 @@ void Paint() {
     if (g_dragging && g_press >= 0 && g_items[g_press].kind == I_APP) {
         App& a = apps::list[g_items[g_press].app];
         POINT c; GetCursorPos(&c);
-        float mx = (c.x - mon.left) / sc, my = (c.y - (mon.bottom - H)) / sc;
+        float mx = (c.x - strip.left) / sc, my = (c.y - strip.top) / sc;  // na janela (em pé)
         float art = g_tile * (a.mac ? ART_PACK : ART_WIN);
         D2D1_RECT_F ir{ mx - art / 2, my - art / 2, mx + art / 2, my + art / 2 };
         if (a.finder) ui::DrawFolder(rt, ir, L'');
@@ -1101,9 +1226,9 @@ void Paint() {
         g_win = want;
         SetWindowRgn(g_icons, CreateRectRgn(want.left, want.top, want.right, want.bottom), TRUE);
         RECT cur; GetWindowRect(g_icons, &cur);
-        if (first || cur.left != mon.left || cur.top != mon.bottom - H || cur.right - cur.left != W || cur.bottom - cur.top != H || !IsWindowVisible(g_icons)) {
+        if (first || !EqualRect(&cur, &strip) || !IsWindowVisible(g_icons)) {
             ui::GpuOffset(g_gi, 0.f, 0.f);
-            SetWindowPos(g_icons, HWND_TOPMOST, mon.left, mon.bottom - H, W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            SetWindowPos(g_icons, HWND_TOPMOST, strip.left, strip.top, W, H, SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
     }
     PaintBack();
@@ -1139,11 +1264,13 @@ ctxmenu::Item MSep() { ctxmenu::Item i; i.separator = true; return i; }
 int ShowMenu(int itemIndex, const std::vector<ctxmenu::Item>& items) {
     ctxmenu::PlainNext();  // o menu do Dock no Mac não tem ícones (nem no Tahoe)
     float sc = Sc();
-    RECT mon = Monitor();
-    int H = (int)std::lround(WinH() * sc);
-    POINT pt{ mon.left + (LONG)std::lround(g_items[itemIndex].cx * sc) - 60, mon.bottom - H + (LONG)std::lround((g_bg.top - 8) * sc) };
-    // o menu abre para cima: ajusta pela altura aproximada
-    pt.y -= (LONG)std::lround(items.size() * 22 * sc + 12 * sc);
+    POINT pt = ToScreen(g_items[itemIndex].cx, g_bg.top - 8);
+    if (!Vert()) {
+        pt.x -= (LONG)std::lround(60 * sc);
+        // o menu abre para cima: ajusta pela altura aproximada
+        pt.y -= (LONG)std::lround(items.size() * 22 * sc + 12 * sc);
+    } else  // dos lados: ao lado do ícone, centrado nele (à direita o menu vira para a esquerda sozinho: não cabe)
+        pt.y -= (LONG)std::lround((items.size() * 22 * sc + 12 * sc) / 2);
     SetForegroundWindow(g_owner);
     return ctxmenu::ShowItems(g_owner, pt, items);
 }
@@ -1191,8 +1318,7 @@ void JumpIds(const App& a, std::wstring& exe, std::wstring& aumid) {
 void ContextMenu(int i) {
     auto& it = g_items[i];
     if (it.kind == I_DOWNLOADS) {  // como no Mac: ordenar, ver como (Leque, Grade, Lista) e abrir a pasta
-        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
-        pilhas::Menu(POINT{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) });
+        pilhas::Menu(ToScreen(it.cx, g_bg.top - 4));
         g_stackAt = 0; g_stackPaths.clear();  // ordem ou "Exibir como" podem ter mudado
         Paint();
         return;
@@ -1290,7 +1416,7 @@ void ContextMenu(int i) {
 void BackgroundMenu() {
     POINT c; GetCursorPos(&c);
     SetForegroundWindow(g_owner);
-    c.y -= 120;
+    if (!Vert()) c.y -= 120;
     std::wstring tema = shell::Setting(L"tema", L"auto");
     int id = ctxmenu::ShowItems(g_owner, c, { MI(Tr(L"Ativar Ocultação"), 1, g_autohide && !g_smart), MI(Tr(L"Ocultação Inteligente"), 7, g_smart),
                                                MI(Tr(L"Ativar Ampliação"), 2, g_magnify), MSep(),
@@ -1318,10 +1444,8 @@ void LeftClick(int i) {
     auto& it = g_items[i];
     if (it.kind == I_MINWIN) {  // volta para a tela pelo funil (gênio ao contrário) e sai do Dock
         HWND h = it.win;
-        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
         float s = it.size, top = g_bg.top + PAD_TOP + g_tile - s;
-        RECT from{ mon.left + (LONG)std::lround((it.cx - s / 2) * sc), mon.bottom - H + (LONG)std::lround(top * sc),
-                   mon.left + (LONG)std::lround((it.cx + s / 2) * sc), mon.bottom - H + (LONG)std::lround((top + s) * sc) };
+        RECT from = ToScreenRect({ it.cx - s / 2, top, it.cx + s / 2, top + s });
         if (genio::Restore(h, from)) { apps::Refresh(); BuildItems(); Paint(); return; }
         shell::Restaurar(h);
         keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
@@ -1341,9 +1465,7 @@ void LeftClick(int i) {
     if (it.kind == I_LAUNCHPAD && LEO_DOCK) { dock::OpenAppsStack(); return; }  // Leopard: a pasta Aplicativos como Pilha em Grade (10.5)
     if (it.kind == I_LAUNCHPAD) { launchpad::Toggle(); return; }
     if (it.kind == I_DOWNLOADS && shell::Setting(L"pilhas", L"1") == L"1") {  // Pilha em grade, como no Mac
-        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
-        POINT a{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) };
-        pilhas::Show(a);
+        pilhas::Show(ToScreen(it.cx, g_bg.top - 4));
         return;
     }
     if (it.kind == I_DOWNLOADS) {
@@ -1369,9 +1491,8 @@ struct DockDrop : IDropTarget {
     STDMETHODIMP_(ULONG) AddRef() override { return ++ref; }
     STDMETHODIMP_(ULONG) Release() override { return --ref; }
     int At(POINTL p) {
-        RECT mon = Monitor(); float sc = Sc();
-        int H = (int)std::lround(WinH() * sc);
-        return HitTest((p.x - mon.left) / sc, (p.y - (mon.bottom - H)) / sc);
+        D2D1_POINT_2F q = ScreenToLocal(POINT{ p.x, p.y });
+        return HitTest(q.x, q.y);
     }
     DWORD Effect(int i) {
         if (i < 0) return DROPEFFECT_NONE;
@@ -1423,13 +1544,14 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_SETCURSOR:
-        if (g_sepHover || g_resizing) { SetCursor(LoadCursorW(nullptr, IDC_SIZENS)); return TRUE; }  // setinha ↕ no separador
+        if (g_sepHover || g_resizing) { SetCursor(LoadCursorW(nullptr, Vert() ? IDC_SIZEWE : IDC_SIZENS)); return TRUE; }  // setinha ↕ no separador (↔ dos lados)
         break;
     case WM_MOUSEMOVE: {
-        float x = (GET_X_LPARAM(l)) / sc, y = (GET_Y_LPARAM(l)) / sc;
+        D2D1_POINT_2F lp = ToLocal(GET_X_LPARAM(l) / sc, GET_Y_LPARAM(l) / sc);  // no sistema do Dock
+        float x = lp.x, y = lp.y;
         if (g_resizing) {  // arrastando o separador: para cima aumenta, para baixo diminui
             POINT c; GetCursorPos(&c);
-            g_tile = g_tileWant = std::clamp(g_resizeTile + (g_resizeY - c.y) / sc, 16.f, 128.f);
+            g_tile = g_tileWant = std::clamp(g_resizeTile + (Inward(c) - g_resizeY) / sc, 16.f, 128.f);
             g_large = std::max(g_large, g_tile);
             Paint();
             return 0;
@@ -1467,13 +1589,14 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (!g_dragging) { g_mouseX = -1; g_hover = -1; if (Animating()) ui::FrameClock(g_icons, WM_DOCKFRAME, true); Paint(); }
         return 0;
     case WM_LBUTTONDOWN: {
-        if (HitSep((GET_X_LPARAM(l)) / sc, (GET_Y_LPARAM(l)) / sc)) {
+        D2D1_POINT_2F lp = ToLocal(GET_X_LPARAM(l) / sc, GET_Y_LPARAM(l) / sc);
+        if (HitSep(lp.x, lp.y)) {
             POINT c; GetCursorPos(&c);
-            g_resizing = true; g_resizeY = c.y; g_resizeTile = g_tile;
+            g_resizing = true; g_resizeY = Inward(c); g_resizeTile = g_tile;
             SetCapture(h);
             return 0;
         }
-        g_press = HitTest((GET_X_LPARAM(l)) / sc, (GET_Y_LPARAM(l)) / sc);
+        g_press = HitTest(lp.x, lp.y);
         GetCursorPos(&g_pressPt);
         SetCapture(h);
         Paint();
@@ -1498,8 +1621,8 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (g_dragOut) {  // o "puf" do Mac
                     if (a.pinned) {
                         POINT c; GetCursorPos(&c);
-                        RECT mon = Monitor(); float sc = Sc(), H = WinH() * sc;
-                        g_poof = { (c.x - mon.left) / sc, (c.y - (mon.bottom - H)) / sc, anim::Now() };
+                        D2D1_POINT_2F q = ScreenToLocal(c);
+                        g_poof = { q.x, q.y, anim::Now() };
                         apps::SetPinned(a, false); shell::Sound(L"poof_item_off_dock");
                         ui::FrameClock(g_icons, WM_DOCKFRAME, true);
                     }
@@ -1512,13 +1635,15 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             Paint();
             return 0;
         }
-        int i = HitTest((GET_X_LPARAM(l)) / sc, (GET_Y_LPARAM(l)) / sc);
+        D2D1_POINT_2F lp = ToLocal(GET_X_LPARAM(l) / sc, GET_Y_LPARAM(l) / sc);
+        int i = HitTest(lp.x, lp.y);
         Paint();
         if (i >= 0 && i == p) LeftClick(i);
         return 0;
     }
     case WM_MBUTTONUP: {  // botão do meio: uma janela nova do app (como na barra do Windows)
-        int i = HitTest((GET_X_LPARAM(l)) / sc, (GET_Y_LPARAM(l)) / sc);
+        D2D1_POINT_2F lp = ToLocal(GET_X_LPARAM(l) / sc, GET_Y_LPARAM(l) / sc);
+        int i = HitTest(lp.x, lp.y);
         if (i < 0) return 0;
         auto& it = g_items[i];
         if (it.kind == I_APP) {
@@ -1536,10 +1661,11 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_RBUTTONUP: {
-        int i = HitTest((GET_X_LPARAM(l)) / sc, (GET_Y_LPARAM(l)) / sc);
+        D2D1_POINT_2F lp = ToLocal(GET_X_LPARAM(l) / sc, GET_Y_LPARAM(l) / sc);
+        int i = HitTest(lp.x, lp.y);
         g_hover = -1;
         if (i >= 0) ContextMenu(i);
-        else if ((GET_Y_LPARAM(l)) / sc >= g_bg.top) BackgroundMenu();
+        else if (lp.y >= g_bg.top) BackgroundMenu();
         Paint();
         return 0;
     }
@@ -1591,7 +1717,9 @@ HWND dock::Hwnd() { return g_icons; }
 HWND dock::Fundo() { return g_back; }
 HMONITOR dock::MonitorHandle() { return DockMon(); }
 
-int dock::ReservedHeight() {
+int dock::Posicao() { return Pos(); }
+
+int dock::ReservedHeight() {  // a espessura do Dock na borda dele (embaixo, à esquerda ou à direita: dock::Posicao)
     if (!g_icons || g_autohide) return 0;
     return (int)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN) * Sc());
 }
@@ -1617,6 +1745,8 @@ static void ReadSettings() {
     g_mostraLaunchpad = shell::Setting(L"dock_launchpad", L"1") != L"0";
     g_indicador = shell::Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0;
     g_rotulos = shell::Setting(L"dock_rotulos", L"1") != L"0";
+    std::wstring pos = shell::Setting(L"dock_posicao", L"baixo");
+    g_pos = pos == L"esquerda" ? 1 : pos == L"direita" ? 2 : 0;
     g_customIcon.clear();  // a pasta de ícones próprios pode ter mudado
     FitTile();
 }
@@ -1641,14 +1771,24 @@ void dock::IconsChanged() {
 
 void dock::ReloadSettings() {
     bool hide = g_autohide, smart = g_smart;
+    int pos = g_pos;
     ReadSettings();
     if (!g_icons) return;
+    if (pos != g_pos) {  // mudou de lado: a área de trabalho reserva a borda nova (e as janelas maximizadas se ajeitam)
+        Log(L"Dock: posição %ls", g_pos == 1 ? L"esquerda" : g_pos == 2 ? L"direita" : L"embaixo");
+        g_mouseX = g_lastMouseX = -1; g_hover = -1; g_magAmt = 0;
+        // arrasto em andamento (ícone ou separador) é cancelado: a referência era do lado antigo (20/11/2026, o
+        // separador arrastado durante a troca levou o tamanho a 128, depois a 16, e gravou um valor qualquer)
+        if (g_resizing || g_dragging || g_press >= 0) { g_resizing = g_dragging = g_dragOut = false; g_press = -1; ReleaseCapture(); }
+        for (auto& it : g_items) it.cx = 0;
+    }
     if (hide != g_autohide || smart != g_smart) { g_hidden = false; g_covered = false; g_coverAt = 0; ui::FrameClock(g_icons, WM_DOCKFRAME, true); }
     g_win = {}; g_lastBg = {};
     for (auto& [k, b] : g_bmps) if (b) b->Release();  // ícones próprios novos ou tirados
     g_bmps.clear();
     BuildItems();  // a pasta Downloads, a divisória ou o Launchpad podem ter entrado ou saído
     Paint();
+    if (pos != g_pos) shell::ApplyWorkArea();
 }
 
 bool dock::Create(HINSTANCE hi) {
@@ -1703,13 +1843,10 @@ bool dock::Create(HINSTANCE hi) {
 }
 
 RECT dock::MinimizeTarget() {
-    float sc = Sc();
-    RECT mon = Monitor();
-    int H = (int)std::lround(WinH() * sc);
     for (auto& it : g_items) if (it.kind == I_TRASH) {
+        // o lugar logo antes da Lixeira (dos lados, o mesmo quadrado girado com o Dock)
         float cx = it.cx - SLOT / 2, s = g_tile, top = g_bg.top + PAD_TOP;
-        return { mon.left + (LONG)std::lround((cx - s / 2) * sc), mon.bottom - H + (LONG)std::lround(top * sc),
-                 mon.left + (LONG)std::lround((cx + s / 2) * sc), mon.bottom - H + (LONG)std::lround((top + s) * sc) };
+        return ToScreenRect({ cx - s / 2, top, cx + s / 2, top + s });
     }
     return { 0, 0, 0, 0 };
 }
@@ -1741,8 +1878,7 @@ void dock::ApplyTheme() {
 void dock::OpenAppsStack() {
     for (auto& it : g_items) {
         if (it.kind != I_LAUNCHPAD) continue;
-        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
-        POINT a{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) };
+        POINT a = ToScreen(it.cx, g_bg.top - 4);
         pilhas::ShowApps(a);
         return;
     }
@@ -1751,8 +1887,7 @@ void dock::OpenAppsStack() {
 void dock::OpenDownloadsStack() {
     for (auto& it : g_items) {
         if (it.kind != I_DOWNLOADS) continue;
-        float sc = Sc(); RECT mon = Monitor(); int H = (int)std::lround(WinH() * sc);
-        POINT a{ mon.left + (LONG)std::lround(it.cx * sc), mon.bottom - H + (LONG)std::lround((g_bg.top - 4) * sc) };
+        POINT a = ToScreen(it.cx, g_bg.top - 4);
         pilhas::Show(a);
         return;
     }

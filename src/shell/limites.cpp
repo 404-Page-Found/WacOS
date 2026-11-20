@@ -79,17 +79,27 @@ void Clamp(HWND h) {
     // de verdade, mas continua redimensionável (Ableton); diálogos de tamanho fixo só mudam de lugar
     bool resizable = (GetWindowLongW(h, GWL_STYLE) & WS_THICKFRAME) || GetPropW(h, L"MacJanela");
     if (vis.top + dy + newH > wa.bottom && resizable) newH = wa.bottom - (vis.top + dy);
-    if (!dy && newH == hh) return;
+    // Dock à esquerda ou à direita (Ajustes > Posição na tela): a mesma conta na horizontal, só do lado dele
+    int dx = 0, newW = w;
+    if (dock::Posicao() != 0 && hm == dock::MonitorHandle()) {
+        if (dock::Posicao() == 1 && vis.left < wa.left) dx = wa.left - vis.left;
+        else if (dock::Posicao() == 2 && vis.right > wa.right) dx = -std::min((int)(vis.right - wa.right), std::max(0, (int)(vis.left - wa.left)));
+        // à direita, mais larga que a área: encolhe até o Dock (à esquerda, empurrar para dentro já basta)
+        if (dock::Posicao() == 2 && vis.left + dx + newW > wa.right && resizable) newW = std::max(120, (int)(wa.right - (vis.left + dx)));
+    }
+    if (!dy && newH == hh && !dx && newW == w) return;
     {
         std::lock_guard<std::mutex> k(g_slideMx);
         if (std::find(g_sliding.begin(), g_sliding.end(), h) != g_sliding.end()) return;  // já deslizando
         g_sliding.push_back(h);
     }
     int bt = vis.top - wr.top, bb = wr.bottom - vis.bottom;  // borda invisível de redimensionar
-    RECT to{ wr.left, wr.top + dy, wr.right, wr.top + dy + newH + bt + bb };
+    int bl = vis.left - wr.left, brr = wr.right - vis.right;
+    RECT to{ wr.left + dx, wr.top + dy, wr.left + dx + newW + bl + brr, wr.top + dy + newH + bt + bb };
     static UINT msgMove = RegisterWindowMessageW(L"MacJanelaMover");
     DWORD_PTR ok = 0;
-    if (GetPropW(h, L"MacJanela") &&
+    // a DLL das janelas só sabe deslizar na vertical: na horizontal (Dock do lado) a janela anda pela thread
+    if (!dx && newW == w && GetPropW(h, L"MacJanela") &&
         SendMessageTimeoutW(h, msgMove, (WPARAM)(INT_PTR)dy, (LPARAM)(to.bottom - to.top), SMTO_ABORTIFHUNG, 300, &ok) && ok) {
         std::lock_guard<std::mutex> k(g_slideMx);
         g_sliding.erase(std::remove(g_sliding.begin(), g_sliding.end(), h), g_sliding.end());
@@ -97,7 +107,7 @@ void Clamp(HWND h) {
         std::thread(SlideThread, h, wr, to).detach();
     }
     wchar_t cls[64] = {}; GetClassNameW(h, cls, 64);
-    Log(L"limites: %ls voltando para a área (dy %d, altura %d -> %d)", cls, dy, hh, newH);
+    Log(L"limites: %ls voltando para a área (dx %d, dy %d, altura %d -> %d, largura %d -> %d)", cls, dx, dy, hh, newH, w, newW);
 }
 
 void CALLBACK OnMoveEnd(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
