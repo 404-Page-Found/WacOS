@@ -4,6 +4,7 @@
 #include <set>
 #include <mutex>
 #include <thread>
+#include <atomic>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shlwapi.h>
@@ -536,6 +537,21 @@ static DWORD RunHidden(std::wstring cmd, DWORD waitMs = 15000) {
     return code;
 }
 static bool ShellAutoStart() { return RunHidden(L"schtasks.exe /Query /TN WacOS", 5000) == 0; }
+// A chave "Abrir ao entrar no Windows" lia o estado rodando o schtasks.exe A CADA DESENHO da linha (13-33 ms por
+// processo, medido em 20/11/2026): rolar a página Geral até o fim, onde ela fica, travava a rolagem (cada quadro
+// esperava um processo). Agora o estado é lido uma vez, numa thread, e guardado; o clique muda o guardado na hora.
+static std::atomic<int> g_autoStart{ -1 };  // -1 não lido, -2 lendo, 0/1
+static bool ShellAutoStartCached() {
+    int v = g_autoStart.load();
+    if (v == -1 && g_autoStart.compare_exchange_strong(v, -2))
+        std::thread([] { g_autoStart = ShellAutoStart() ? 1 : 0; aj::Rebuild(); }).detach();
+    return g_autoStart.load() == 1;
+}
+static void SetShellAutoStart(bool on);
+static void SetShellAutoStartAsync(bool on) {
+    g_autoStart = on ? 1 : 0;
+    std::thread([on] { SetShellAutoStart(on); g_autoStart = ShellAutoStart() ? 1 : 0; aj::Rebuild(); }).detach();
+}
 static void SetShellAutoStart(bool on) {
     if (!on) { RunHidden(L"schtasks.exe /Delete /TN WacOS /F"); return; }
     std::wstring exe = BinDir() + L"\\WacOSShell.exe";
@@ -555,6 +571,7 @@ static void TurnShellOff() {
         Tr(L"Desligar o WacOS?"), MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
     if (r != IDOK) return;
     SetShellAutoStart(false);
+    g_autoStart = 0;
     RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --padrao off --quieto");  // pastas voltam para o Explorador
     SetSetting(L"finder_padrao", L"0");
     SetSetting(L"finder_volta", L"1");  // o Shell, ao abrir de novo, religa o Finder (issue #1: o Win+E ficava no Explorador)
@@ -612,7 +629,7 @@ Page Geral() {
     p.groups.push_back(G({ Uri(L"Compartilhamento", L"ms-settings:sharedexperiences", 0xE72D, C_GRAY),
                            Uri(L"Histórico de Arquivos", L"control.exe /name Microsoft.FileHistory", 0xE81C, C_GREEN),
                            Uri(L"Transferir ou Redefinir", L"ms-settings:recovery", 0xE777, C_GRAY) }));
-    p.groups.push_back(G({ Toggle(L"Abrir ao entrar no Windows", [] { return ShellAutoStart(); }, [](bool on) { SetShellAutoStart(on); }),
+    p.groups.push_back(G({ Toggle(L"Abrir ao entrar no Windows", [] { return ShellAutoStartCached(); }, [](bool on) { SetShellAutoStartAsync(on); }),
                            Toggle(L"Abrir pastas no Finder", [] { return Setting(L"finder_padrao", L"1") == L"1"; },
                                   [](bool on) {
                                       SetSetting(L"finder_padrao", on ? L"1" : L"0");
@@ -886,7 +903,7 @@ static D2D1_COLOR_F GGRgb(UINT32 c, float a = 1) { return D2D1::ColorF(((c >> 16
 
 // Cor do realce do texto: a cor de seleção do Windows (HKCU\Control Panel\Colors\Hilight + SetSysColors, vale na hora
 // para os programas clássicos). A original é guardada em realce_original na 1ª troca e volta com "Automática"
-// (registrado em docsegistro-mudancas.txt).
+// (registrado em docs\registro-mudancas.txt).
 static const UINT32 GG_REALCE[9] = { 0, 0x007AFF, 0x953D96, 0xF74F9E, 0xE0383E, 0xF7821B, 0xFFC726, 0x62BA46, 0x989898 };
 static void GGAplicaRealce(int i) {
     wchar_t cur[64] = {}; DWORD cb = sizeof(cur);
@@ -1429,6 +1446,83 @@ Page CentralControle() {
     return p;
 }
 
+// ================= Personalizar o Dock / a Mesa (pedido de 20/11/2026, na linha do MyDockFinder)
+// O Shell lê cada chave (dock.cpp ReadSettings, mesa.cpp LerMedidas, widgets.cpp SettingsChanged) assim que o
+// ajustes.txt muda. Chave vazia = o padrão medido do Mac em cada tema.
+static float NumSetting(const wchar_t* k, float def) { std::wstring v = Setting(k, L""); return v.empty() ? def : (float)_wtof(v.c_str()); }
+static std::function<void(float)> SetNum(const wchar_t* k) { std::wstring kk = k; return [kk](float v) { SetSetting(kk.c_str(), std::to_wstring((int)std::lround(v))); }; }
+static Row Flag(const std::wstring& label, const wchar_t* k, const wchar_t* def, const std::wstring& detail = L"") {
+    std::wstring kk = k, dd = def;
+    return Toggle(label, [kk, dd] { return Setting(kk.c_str(), dd.c_str()) != L"0"; }, [kk](bool on) { SetSetting(kk.c_str(), on ? L"1" : L"0"); }, detail);
+}
+static std::wstring IconesDockDir() {
+    PWSTR p = nullptr;
+    std::wstring d;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell\\icones-dock"; CoTaskMemFree(p); }
+    return d;
+}
+
+Page PersonalizarDock() {
+    Page p;
+    bool tahoe = Setting(L"liquid_glass", L"0") == L"1";
+    Row esp = Slider(L"Espaço entre os ícones", 0, 32, [] { return NumSetting(L"dock_espaco", 0); }, SetNum(L"dock_espaco"), L"Juntos", L"Separados");
+    esp.hasDef = true; esp.def = 0;
+    Row marg = Slider(L"Distância da borda da tela", 0, 40, [] { return NumSetting(L"dock_margem", 5); }, SetNum(L"dock_margem"), L"Encostado", L"Longe");
+    marg.hasDef = true; marg.def = 5;
+    p.groups.push_back(G({ esp, marg }, L"Tamanho e Espaço"));
+    float raioDef = tahoe ? 61.f : 43.f, opacDef = tahoe ? 39.f : 45.f;
+    Row raio = Slider(L"Arredondamento dos cantos", 0, 100, [raioDef] { return NumSetting(L"dock_raio", raioDef); }, SetNum(L"dock_raio"), L"Reto", L"Pílula");
+    raio.hasDef = true; raio.def = raioDef;
+    static const wchar_t* cores[] = { L"auto", L"clara", L"escura", L"destaque" };
+    Row cor = Popup(L"Cor do vidro", { L"Automática", L"Clara", L"Escura", L"Cor de destaque" },
+                    [] { std::wstring v = Setting(L"dock_cor", L"auto"); for (int i = 0; i < 4; i++) if (v == cores[i]) return i; return 0; },
+                    [](int i) { SetSetting(L"dock_cor", cores[std::clamp(i, 0, 3)]); });
+    Row opac = Slider(L"Opacidade do vidro", 0, 100, [opacDef] { return NumSetting(L"dock_opacidade", opacDef); }, SetNum(L"dock_opacidade"), L"Transparente", L"Sólido");
+    opac.hasDef = true; opac.def = opacDef;
+    p.groups.push_back(G({ raio, cor, opac }, L"Fundo"));
+    Row ind = Popup(L"Indicador de app aberto", { L"Ponto", L"Traço" }, [] { return Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0; },
+                    [](int i) { SetSetting(L"dock_indicador", i == 1 ? L"traco" : L"ponto"); });
+    p.groups.push_back(G({ Flag(L"Mostrar o Launchpad", L"dock_launchpad", L"1"), Flag(L"Mostrar a divisória", L"dock_separador", L"1"),
+                           Flag(L"Mostrar o nome ao passar o ponteiro", L"dock_rotulos", L"1"), ind,
+                           Flag(L"Mostrar indicadores de aplicativos abertos", L"indicadores", L"1"),
+                           Flag(L"Animar aplicativos ao abrir", L"animar_abertura", L"1"),
+                           Flag(L"Pular quando chega uma notificação", L"pulo_notificacao", L"1") }, L"Itens e Animações"));
+    p.groups.push_back(G({ Button(L"Ícones próprios", L"Abrir a Pasta…", [] {
+                               std::wstring d = IconesDockDir();
+                               if (d.empty()) return;
+                               SHCreateDirectoryExW(nullptr, d.c_str(), nullptr);
+                               ShellExecuteW(nullptr, L"open", d.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                           }, L"Ponha um PNG com o nome do .exe (chrome.png, discord.png) ou do app (Google Chrome.png) nesta pasta para trocar o ícone dele no Dock. Imagens de 512 × 512 com a margem do Mac ficam melhores.") }, L"Ícones"));
+    p.groups.push_back(Plain(Buttons({ { L"Restaurar o Padrão", [] {
+        for (auto k : { L"dock_espaco", L"dock_margem", L"dock_raio", L"dock_opacidade" }) SetSetting(k, L"");
+        SetSetting(L"dock_cor", L"auto"); SetSetting(L"dock_indicador", L"ponto");
+        for (auto k : { L"dock_launchpad", L"dock_separador", L"dock_rotulos" }) SetSetting(k, L"1");
+        Rebuild();
+    } } })));
+    return p;
+}
+
+Page PersonalizarMesa() {
+    Page p;
+    Row tam = Slider(L"Tamanho dos ícones", 16, 128, [] { return NumSetting(L"mesa_icone_tamanho", 64); }, SetNum(L"mesa_icone_tamanho"), L"Pequeno", L"Grande");
+    tam.hasDef = true; tam.def = 64;
+    Row esp = Slider(L"Espaço da grade", -20, 80, [] { return NumSetting(L"mesa_espaco", 0); }, SetNum(L"mesa_espaco"), L"Junto", L"Separado");
+    esp.hasDef = true; esp.def = 0;
+    Row txt = Slider(L"Tamanho do texto", 10, 16, [] { return NumSetting(L"mesa_texto", 12); }, SetNum(L"mesa_texto"), L"10", L"16");
+    txt.hasDef = true; txt.def = 12;
+    p.groups.push_back(G({ Flag(L"Mostrar ícones na mesa", L"mesa_icones", L"1"), tam, esp, txt,
+                           Toggle(L"Alinhar à grade", [] { return Setting(L"mesa_grade", L"0") == L"1"; }, [](bool on) { SetSetting(L"mesa_grade", on ? L"1" : L"0"); }),
+                           Toggle(L"Usar Pilhas", [] { return Setting(L"mesa_pilhas", L"0") == L"1"; }, [](bool on) { SetSetting(L"mesa_pilhas", on ? L"1" : L"0"); },
+                                  L"Agrupa os arquivos da mesa por tipo.") }, L"Ícones da Mesa"));
+    p.groups.push_back(G({ Flag(L"Tempo", L"widget.tempo.on", L"1"), Flag(L"Relógio", L"widget.relogio.on", L"1"), Flag(L"Calendário", L"widget.calendario.on", L"1"),
+                           Flag(L"Relógio Mundial", L"widget.mundial.on", L"1"), Flag(L"Nascer do Sol", L"widget.sol.on", L"1") }, L"Widgets na Mesa"));
+    p.groups.push_back(Plain(Buttons({ { L"Restaurar o Padrão", [] {
+        for (auto k : { L"mesa_icone_tamanho", L"mesa_espaco", L"mesa_texto" }) SetSetting(k, L"");
+        Rebuild();
+    } } })));
+    return p;
+}
+
 // ================= Mesa e Dock
 Page MesaDock() {
     Page p;
@@ -1472,11 +1566,13 @@ Page MesaDock() {
     Row anim = Toggle(L"Animar aplicativos ao abrir", flag(L"animar_abertura", L"1"), setFlag(L"animar_abertura"));
     Row ind = Toggle(L"Mostrar indicadores de aplicativos abertos", flag(L"indicadores", L"1"), setFlag(L"indicadores"));
     Row dl = Toggle(L"Mostrar a pasta Downloads no Dock", flag(L"dock_downloads", L"1"), setFlag(L"dock_downloads"));
-    p.groups.push_back(G({ size, mag, magSize, pos, monRow, hide, anim, ind, dl }, L"Dock"));
+    Row pers = Link(L"Personalizar o Dock…", [] { Push(L"Personalizar o Dock", PersonalizarDock); });
+    p.groups.push_back(G({ size, mag, magSize, pos, monRow, hide, anim, ind, dl, pers }, L"Dock"));
     // como no macOS 15/26 (Mesa e Dock > Área de Trabalho e Organizador Visual)
     // macOS 14+: "Mostrar Itens: Na Mesa" (o mesmo que o menu da mesa "Ocultar Ícones da Mesa")
     Row icons = Toggle(L"Mostrar ícones na mesa", [] { return Setting(L"mesa_icones", L"1") != L"0"; }, [](bool v) { SetSetting(L"mesa_icones", v ? L"1" : L"0"); });
-    p.groups.push_back(G({ icons, Popup(L"Clicar no papel de parede para mostrar a mesa", { L"Sempre", L"Só no Organizador Visual", L"Nunca" },
+    Row persMesa = Link(L"Personalizar a Mesa…", [] { Push(L"Personalizar a Mesa", PersonalizarMesa); });
+    p.groups.push_back(G({ icons, persMesa, Popup(L"Clicar no papel de parede para mostrar a mesa", { L"Sempre", L"Só no Organizador Visual", L"Nunca" },
                                  [] { std::wstring v = Setting(L"clique_mostra_mesa", L"palco"); return v == L"1" ? 0 : v == L"0" ? 2 : 1; },
                                  [](int i) { SetSetting(L"clique_mostra_mesa", i == 0 ? L"1" : i == 2 ? L"0" : L"palco"); }) }, L"Área de Trabalho"));
     p.groups.push_back(G({ Toggle(L"Arrastar janelas para as bordas da tela para organizar", [] { return sys::SnapEnabled(); }, [](bool on) { sys::SetSnapEnabled(on); }),
@@ -1883,6 +1979,12 @@ Page Notificacoes() {
                                   [key](bool on) { DWORD v = on; RegSetKeyValueW(HKEY_CURRENT_USER, key, L"ToastEnabled", REG_DWORD, &v, sizeof(v)); },
                                   L"Desligado, os aplicativos não mostram avisos (pode ser preciso reiniciar a sessão).") }));
     p.groups.push_back(G({ Uri(L"Notificações por Aplicativo", L"ms-settings:notifications", 0xEA8F, C_RED) }, L"Notificações dos Aplicativos"));
+    // banners e Central de Notificações do WacOS (notificacoes.cpp)
+    Row dur = Slider(L"Tempo do banner na tela", 2, 30, [] { return NumSetting(L"notif_duracao", 5); }, SetNum(L"notif_duracao"), L"2 s", L"30 s");
+    dur.hasDef = true; dur.def = 5;
+    p.groups.push_back(G({ Flag(L"Banners do Mac", L"banners_mac", L"1", L"Os avisos dos aplicativos aparecem no canto de cima, no visual do Mac."), dur,
+                           Flag(L"Calendário na Central de Notificações", L"central_calendario", L"1"),
+                           Flag(L"Relógio na Central de Notificações", L"central_relogio", L"1") }, L"Central de Notificações"));
     return p;
 }
 

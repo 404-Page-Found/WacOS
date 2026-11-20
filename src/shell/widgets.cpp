@@ -987,6 +987,15 @@ LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 // tela (antes só dava pelo menu de um widget: removidos todos, não havia como trazer de volta)
 void widgets::EditMenu(POINT pt) { if (!g_w.empty()) Menu(nullptr, pt); }
 
+// Ajustes > Mesa e Dock > Personalizar a Mesa liga/desliga cada widget (widget.<id>.on): segue o arquivo
+void widgets::SettingsChanged() {
+    for (auto& wd : g_w) {
+        if (!wd.wnd) continue;
+        bool want = shell::Setting((std::wstring(L"widget.") + wd.id + L".on").c_str(), L"1") != L"0";
+        if (want != wd.on) Show(wd, want);
+    }
+}
+
 void widgets::Create(HINSTANCE hi) {
     WNDCLASSW bc{}; bc.lpfnWndProc = BackProc; bc.hInstance = hi; bc.lpszClassName = L"ShellWidgetFundo";
     RegisterClassW(&bc);

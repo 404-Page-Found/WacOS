@@ -1,8 +1,18 @@
 // Barra de título do Mac nas janelas dos outros programas (ver src\janelas\macjanela.cpp).
 // O gancho é posto só na thread de cada janela elegível de um programa permitido: jogos, launchers
 // e anti-cheat nunca recebem a DLL. Programas de 32 bits passam pelo MacJanela32Host.exe.
-// Desligar: janelas_mac=0 em ajustes.txt. Excluir mais programas: %APPDATA%\Shell\janelas-excluidas.txt.
+// Desligar: janelas_mac=0 em ajustes.txt. Excluir mais programas: %APPDATA%\Shell\janelas-excluidas.txt (os jogos
+// de %APPDATA%\Shell\jogos.txt, a lista do Modo Jogo, também ficam de fora).
+// Quem entra (20/11/2026, regra dura: nada de DLL em jogo ou anti-cheat; detalhes em src\comum\jogos.h):
+//   - janela com a barra de título padrão do Windows, de programa sem NENHUMA marca de jogo (nome, pasta, arquivos de
+//     motor/loja/anti-cheat ao lado do .exe, classe de motor de jogo);
+//   - janela sem a barra do Windows (barra própria) só de app Chromium/Electron reconhecido pelos arquivos;
+//   - nada novo enquanto um app roda em tela cheia exclusiva (Direct3D) ou em modo apresentação/jogo (o Windows
+//     avisa); programa com janela sem borda cobrindo o monitor (jogo em "tela cheia sem borda") fica fora de vez.
+// A decisão é guardada por processo; a DLL confere de novo ao carregar e recusa entrar em jogo.
 #include "shell.h"
+#include "../comum/jogos.h"
+#include <shellapi.h>
 #include <shlobj.h>
 #include <map>
 #include <set>
@@ -14,7 +24,8 @@ HOOKPROC g_proc;
 HWINEVENTHOOK g_ev;
 std::map<DWORD, HHOOK> g_hooks;      // thread -> gancho (64 bits)
 std::set<DWORD> g_hooks32;           // threads entregues ao host de 32 bits
-std::map<DWORD, bool> g_procOk;      // processo -> permitido
+struct Permissao { bool ok = false, chromium = false; ULONGLONG nasc = 0; std::wstring exe; };
+std::map<DWORD, Permissao> g_procOk; // processo -> permitido (chromium: Chromium/Electron, pode a barra própria)
 std::vector<std::wstring> g_extra;   // exclusões do usuário
 const UINT HOST_HOOK = WM_APP + 1, HOST_QUIT = WM_APP + 2;
 
@@ -37,16 +48,11 @@ const wchar_t* EXCLUDED_PATH[] = {
 
 std::wstring Lower(std::wstring s) { for (auto& c : s) c = towlower(c); return s; }
 
-void LoadExtra() {
-    g_extra.clear();
-    PWSTR p = nullptr;
-    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) return;
-    std::wstring f = std::wstring(p) + L"\\Shell\\janelas-excluidas.txt";
-    CoTaskMemFree(p);
+void LoadList(const std::wstring& f, bool criar) {
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") || !fp) {
         // cria o arquivo com a explicação, para o usuário saber onde pôr os jogos dele
-        if (!_wfopen_s(&fp, f.c_str(), L"w, ccs=UTF-8") && fp) {
+        if (criar && !_wfopen_s(&fp, f.c_str(), L"w, ccs=UTF-8") && fp) {
             fwprintf(fp, L"# Um programa por linha (nome do .exe ou parte do caminho). Estes nunca recebem a barra de título do Mac.\n");
             fclose(fp);
         }
@@ -61,14 +67,53 @@ void LoadExtra() {
     fclose(fp);
 }
 
-bool Allowed(DWORD pid, bool* is32) {
-    auto it = g_procOk.find(pid);
+void LoadExtra() {
+    g_extra.clear();
+    PWSTR p = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) return;
+    std::wstring base = std::wstring(p) + L"\\Shell\\";
+    CoTaskMemFree(p);
+    LoadList(base + L"janelas-excluidas.txt", true);
+    LoadList(base + L"jogos.txt", false);  // a lista do Modo Jogo (jogo.cpp): jogo nunca recebe a DLL
+}
+
+// Um app está em tela cheia exclusiva (Direct3D) ou em modo apresentação/jogo: nenhum gancho novo agora.
+bool TelaCheiaExclusiva() {
+    QUERY_USER_NOTIFICATION_STATE q{};
+    return SUCCEEDED(SHQueryUserNotificationState(&q)) && (q == QUNS_RUNNING_D3D_FULL_SCREEN || q == QUNS_BUSY || q == QUNS_PRESENTATION_MODE);
+}
+
+bool CobreMonitor(HWND h) {
+    MONITORINFO mi{ sizeof(mi) };
+    RECT r;
+    if (!GetWindowRect(h, &r) || !GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi)) return false;
+    return r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom;
+}
+
+ULONGLONG Criacao(HANDLE ph) {
+    FILETIME c{}, e{}, k{}, u{};
+    if (!GetProcessTimes(ph, &c, &e, &k, &u)) return 0;
+    return ((ULONGLONG)c.dwHighDateTime << 32) | c.dwLowDateTime;
+}
+
+// Pode pôr o gancho na janela h (processo pid)? O resultado do programa fica guardado (pelo pid + hora de criação,
+// para um jogo aberto depois com o mesmo número não herdar a permissão de outro programa).
+Permissao Allowed(HWND h, DWORD pid, bool* is32) {
     HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    if (!ph) { g_procOk[pid] = false; return false; }  // provavelmente elevado: não dá para pôr o gancho
+    if (!ph) return {};  // provavelmente elevado: não dá para pôr o gancho
     BOOL wow = FALSE;
     IsWow64Process(ph, &wow);
     *is32 = wow != FALSE;
-    if (it != g_procOk.end()) { CloseHandle(ph); return it->second; }
+    ULONGLONG nasc = Criacao(ph);
+    auto it = g_procOk.find(pid);
+    if (it != g_procOk.end() && it->second.nasc == nasc) {
+        CloseHandle(ph);
+        Permissao r = it->second;
+        // janela de motor de jogo aparecendo depois (launcher que vira o jogo): o programa sai de vez
+        wchar_t cls[64] = {}; GetClassNameW(h, cls, 64);
+        if (r.ok && jogos::ClasseDeJogo(cls)) { it->second.ok = false; Log(L"janelas: %ls fora (janela de jogo)", it->second.exe.c_str()); return {}; }
+        return r;
+    }
     wchar_t path[MAX_PATH] = {}; DWORD n = MAX_PATH;
     QueryFullProcessImageNameW(ph, 0, path, &n);
     // apps da Loja: só os de confiança total (Claude, WhatsApp...); os em contêiner (UWP) não carregam a DLL
@@ -81,40 +126,60 @@ bool Allowed(DWORD pid, bool* is32) {
     }
     CloseHandle(ph);
     std::wstring full = Lower(path), exe = full.substr(full.find_last_of(L'\\') + 1);
-    bool ok = !full.empty() && !container;
+    Permissao r;
+    r.nasc = nasc;
+    r.exe = exe;
+    r.ok = !full.empty() && !container;
+    const wchar_t* por = L"";
     // Xbox/jogos da Loja continuam fora (anti-cheat)
-    if (full.find(L"\\windowsapps\\") != std::wstring::npos && (full.find(L"microsoft.gaming") != std::wstring::npos || full.find(L"xbox") != std::wstring::npos)) ok = false;
-    for (auto e : EXCLUDED_EXE) if (exe == e) ok = false;
+    if (full.find(L"\\windowsapps\\") != std::wstring::npos && (full.find(L"microsoft.gaming") != std::wstring::npos || full.find(L"xbox") != std::wstring::npos)) { r.ok = false; por = L"Xbox"; }
+    for (auto e : EXCLUDED_EXE) if (exe == e) r.ok = false;
     // os apps do WacOS: os que usam esta barra carregam a DLL eles mesmos (src\comum\barra_mac.h), com ou sem o
     // Shell; os outros desenham a própria. O gancho aqui punha uma segunda cópia por cima
     // (também as cópias renomeadas na hora de instalar, "inst-...-wacosfinder.exe")
-    if (exe.find(L"wacos") != std::wstring::npos) ok = false;
-    for (auto e : EXCLUDED_PATH) if (full.find(e) != std::wstring::npos) ok = false;
-    for (auto& e : g_extra) if (exe == e || full.find(e) != std::wstring::npos) ok = false;
-    g_procOk[pid] = ok;
-    if (ok) Log(L"janelas: barra do Mac em %ls", exe.c_str());
-    return ok;
+    if (exe.find(L"wacos") != std::wstring::npos) r.ok = false;
+    for (auto e : EXCLUDED_PATH) if (full.find(e) != std::wstring::npos) r.ok = false;
+    for (auto& e : g_extra) if (exe == e || full.find(e) != std::wstring::npos) { r.ok = false; por = L"lista do usuário"; }
+    // jogo, launcher ou anti-cheat (nome, pasta, arquivos ao lado do .exe): nunca
+    if (r.ok && jogos::ProgramaDeJogo(path)) { r.ok = false; por = L"marca de jogo"; }
+    wchar_t cls[64] = {}; GetClassNameW(h, cls, 64);
+    if (r.ok && jogos::ClasseDeJogo(cls)) { r.ok = false; por = L"janela de motor de jogo"; }
+    r.chromium = r.ok && jogos::ProgramaChromium(path);
+    // janela sem borda cobrindo o monitor de um programa que não é navegador: jogo em "tela cheia sem borda"
+    LONG st = GetWindowLongW(h, GWL_STYLE);
+    if (r.ok && !r.chromium && IsWindowVisible(h) && (st & WS_CAPTION) != WS_CAPTION && CobreMonitor(h)) { r.ok = false; por = L"tela cheia sem borda"; }
+    g_procOk[pid] = r;
+    if (r.ok) Log(L"janelas: barra do Mac em %ls%ls", exe.c_str(), r.chromium ? L" (Chromium/Electron)" : L"");
+    else if (*por) Log(L"janelas: %ls fora (%ls)", exe.c_str(), por);
+    return r;
 }
 
-bool Candidate(HWND h) {
-    if (!IsWindow(h) || GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h)) return false;
+// 1: barra de título do Windows; 2: barra própria (só vale para Chromium/Electron); 0: não
+int Candidate(HWND h) {
+    if (!IsWindow(h) || GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h)) return 0;
     LONG st = GetWindowLongW(h, GWL_STYLE), ex = GetWindowLongW(h, GWL_EXSTYLE);
-    if ((st & WS_CHILD) || (ex & WS_EX_TOOLWINDOW)) return false;
+    if ((st & WS_CHILD) || (ex & WS_EX_TOOLWINDOW)) return 0;
     RECT wr; GetWindowRect(h, &wr);
     POINT c{ 0, 0 }; ClientToScreen(h, &c);
-    if ((st & WS_CAPTION) == WS_CAPTION && c.y - wr.top >= 18) return true;  // barra de título do Windows (a DLL confere de novo, com o DPI do programa)
-    // barra própria (Chrome, Discord, Electron): o visual fica o deles; a DLL só anima o maximizar (LeveProc)
-    if ((st & WS_THICKFRAME) && (st & WS_MAXIMIZEBOX) && !(ex & WS_EX_NOACTIVATE) && wr.right - wr.left >= 300 && wr.bottom - wr.top >= 200) return true;
-    return false;
+    if ((st & WS_CAPTION) == WS_CAPTION && c.y - wr.top >= 18) return 1;  // barra de título do Windows (a DLL confere de novo, com o DPI do programa)
+    // barra própria (Chrome, Discord, Electron): a DLL anima o maximizar e acerta cantos e borda (LeveProc).
+    // Só a janela do Chromium (classe Chrome_WidgetWin_1); o programa ainda precisa ser Chromium/Electron (Allowed)
+    wchar_t cls[32] = {}; GetClassNameW(h, cls, 32);
+    if (wcscmp(cls, L"Chrome_WidgetWin_1")) return 0;
+    if ((st & WS_THICKFRAME) && (st & WS_MAXIMIZEBOX) && !(ex & WS_EX_NOACTIVATE) && wr.right - wr.left >= 300 && wr.bottom - wr.top >= 200) return 2;
+    return 0;
 }
 
 void Consider(HWND h) {
-    if (!g_proc || !Candidate(h)) return;
+    int tipo = g_proc ? Candidate(h) : 0;
+    if (!tipo) return;
     DWORD pid = 0, tid = GetWindowThreadProcessId(h, &pid);
     if (!tid || pid == GetCurrentProcessId()) return;
     if (g_hooks.count(tid) || g_hooks32.count(tid)) { PostMessageW(h, WM_NULL, 0, 0); return; }
+    if (TelaCheiaExclusiva()) return;  // jogo/apresentação em tela cheia: nada novo agora (volta na próxima janela)
     bool is32 = false;
-    if (!Allowed(pid, &is32)) return;
+    Permissao pm = Allowed(h, pid, &is32);
+    if (!pm.ok || (tipo == 2 && !pm.chromium)) return;
     if (is32) {
         HWND host = FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr);
         if (!host) return;
@@ -145,8 +210,14 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
     if ((st & WS_CHILD) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) || !((st & WS_CAPTION) == WS_CAPTION || (st & WS_THICKFRAME))) return;
     DWORD pid = 0, tid = GetWindowThreadProcessId(h, &pid);
     if (!tid || pid == GetCurrentProcessId() || g_hooks.count(tid) || g_hooks32.count(tid)) return;
+    if (TelaCheiaExclusiva()) return;
+    // sem a barra do Windows: só a janela do Chromium/Electron
+    wchar_t cls[32] = {}; GetClassNameW(h, cls, 32);
+    bool propria = (st & WS_CAPTION) != WS_CAPTION;
+    if (propria && wcscmp(cls, L"Chrome_WidgetWin_1")) return;
     bool is32 = false;
-    if (!Allowed(pid, &is32)) return;
+    Permissao pm = Allowed(h, pid, &is32);
+    if (!pm.ok || (propria && !pm.chromium)) return;
     if (is32) {
         // 32 bits: pelo hospedeiro, já na criação (só no "mostrar" a primeira janela aparecia antes de a DLL
         // entrar e abria sem a animação). Esperando o hospedeiro pôr o gancho: a janela ainda está escondida

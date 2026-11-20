@@ -627,3 +627,50 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 [2026-11-20 15:10] Gênio (src\shell\genio.cpp), pedido do Reddit ("ainda aparecem pixels e é rápido demais"): DURATION 0,42 s -> 0,58 s. Pixels na entrada do Dock: achatada para caber no ícone, cada faixa (3 a 6 linhas da foto) ficava com menos de 1 px e o compositor pegava uma linha qualquer, não a média. Agora cada nível tem também uma cópia em que as linhas de cada faixa viram a média delas (RowAvg, g_avg); cada faixa que fica baixa ganha uma segunda camada (v2) com essa cópia, por baixo, e a de linhas inteiras some quando a escala vertical passa de 0,5 para 0,3. Testado minimizando o Mapa de Caracteres: roda (700 faixas, 6 níveis, preparo 63 ms); a animação em si não aparece nas fotos por BitBlt, então o efeito visual não foi conferido por mim. DESFAZER: voltar DURATION e tirar g_avg/v2.
 [2026-11-20 15:45] Gênio, parte 2 (o usuário do Reddit e o dono do PC: "ainda tem pixels"). Agora deu para VER a animação: C:\Users\Public\wacos-teste\dup\dup.exe captura a tela composta por Desktop Duplication (o BitBlt não vê o DirectComposition) e grava todos os quadros em PNG (teste.ps1 abre o Mapa de Caracteres e minimiza; folha.py monta uma folha). Causa real dos "pixels": cada faixa era um retângulo (escala + posição) e, onde a borda do funil é bem inclinada, uma faixa ficava 10-20 px deslocada da vizinha: escadinha. Agora cada faixa é um trapézio exato (IDCompositionMatrixTransform3D com perspectiva só na altura, posta direto na faixa via IDCompositionVisual3::SetTransform; pelo grupo de efeitos SetTransform3D a faixa sumia), com as bordas de cima/baixo iguais às das vizinhas: contorno liso, conferido quadro a quadro. Continuam a duração 0,58 s e as cópias de linhas em média (g_avg).
 [2026-11-20 17:08] Reddit (Aware_Patience2662, vídeo do OBS): (1) "Clico embaixo na mesa, ele tenta minimizar tudo, buga e tudo volta": no vídeo ele clica num ícone do Dock; o clique passava pelos vãos transparentes do Dock, chegava à mesa como "clique ao lado do Dock" (revelar.cpp) e as janelas iam para as bordas, voltando quando o app abria. Agora cliques dentro do vidro do Dock (dock::Fundo, +12 pt) não mostram a mesa. (2) "O mouse trava e parece que cai o fps": o gancho global de mouse do revelar.cpp chamava WindowFromPoint dentro do gancho; ele manda WM_NCHITTEST à janela embaixo do cursor, e com o app ocupado (OBS gravando, jogo) o mouse do Windows inteiro esperava. Agora o gancho só posta o ponto para uma thread própria (Worker) que faz a conferência. Os outros ganchos (menus.cpp, teclado) já só postavam. Compilado e instalado; o clique não foi simulado no PC (sem SendInput). (3) Maximizar no OBS: no vídeo o OBS está com a barra do Windows e botões coloridos à direita (tema de terceiros?), sem a nossa barra; pedido mais detalhe ao usuário.
+[2026-11-20 16:20] Pedidos de um usuário do Reddit (Windows 11 25H2), branch claude/electron-personalizacao-47c2bb:
+  1) DLL DAS JANELAS NUNCA EM JOGO OU ANTI-CHEAT (regra dura, risco de banimento). Duas travas:
+     - Shell (src\shell\janelas.cpp, antes de pôr o gancho; a mesma regra vale no WacOSTitleBars.exe): src\comum\jogos.h decide pelo
+       caminho do .exe e pelos arquivos da pasta dele no disco, sem abrir o processo do jogo além do nome. Fora: launchers e anti-cheat
+       pelo nome (Steam, Epic, Riot/Vanguard, EA, Battle.net, Ubisoft, GOG, Xbox, FACEIT, EAC, BattlEye, HoYoPlay...), pastas de jogos
+       (steamapps, Epic Games, Riot Games, XboxGames, \games\, \jogos\...), layout do Unreal (\Binaries\Win64\, -Shipping.exe), arquivos
+       de motor/loja/anti-cheat ao lado do .exe (UnityPlayer.dll, GameAssembly.dll, steam_api64.dll, EOSSDK, BEClient, pasta
+       EasyAntiCheat/BattlEye, galaxy64.dll, DLSS/XeSS...), janela de motor de jogo (UnrealWindow, UnityWndClass, SDL, GLFW, Valve001...),
+       os jogos do %APPDATA%\Shell\jogos.txt (lista do Modo Jogo) e programa com janela sem borda cobrindo o monitor (tela cheia sem
+       borda) que não seja Chromium. Nada novo enquanto um app roda em Direct3D tela cheia / modo apresentação (SHQueryUserNotificationState).
+       A decisão fica guardada por processo (pid + hora de criação: outro programa com o mesmo pid não herda).
+     - DLL (src\janelas\macjanela.cpp DllMain): se carregar mesmo assim num jogo (mesmo critério + módulos já carregados: overlay da
+       Steam, Unity, EOS, BattlEye, EAC, steam_api...), devolve FALSE e o Windows a descarrega na hora. Janela de motor de jogo aparecendo
+       na thread: a DLL para de agir naquele processo.
+     - Modo "barra própria" (janelas sem a barra do Windows) só na janela Chrome_WidgetWin_1 de app Chromium/Electron reconhecido pelos
+       arquivos (chrome.dll/msedge.dll carregado, ou resources.pak/icudtl.dat/v8_context_snapshot.bin ao lado do .exe). Antes qualquer
+       janela redimensionável sem barra (inclusive jogo em janela) recebia o gancho.
+     Testado no PC: uma janela de teste dentro de ...\steamapps\common\x\ recusou a DLL nova (o módulo não ficou no processo) e a mesma
+     janela fora dali recebeu a barra do Mac; classificação conferida nos programas abertos (Chrome/Discord/Claude = Chromium; Epic,
+     Steam e Xbox = jogo).
+  2) Títulos em jogos em modo janela: nada feito de propósito (a DLL não entra em jogo).
+  3) CANTOS DO CHROME/ELECTRON. Testado de novo no Edge 157 (perfil temporário InPrivate, DLL de teste dentro do processo): SetWindowRgn
+     NÃO corta o conteúdo do Chromium (DirectComposition numa janela filha do processo da GPU, "Intermediate D3D Window"), nem recortando
+     também essa janela filha; e tira o arredondamento do DWM (o canto fica quadrado). O único corte que vale é o do DWM. Agora o modo leve
+     pede DWMWCP_ROUND (no Leopard o pequeno) às janelas Chromium/Electron (as sem moldura, como Electron frame:false, não eram
+     arredondadas) e troca a borda de 1 px do Windows (cinza ou cor de destaque) por um contorno no tom do Mac (DWMWA_BORDER_COLOR); o
+     raio fica o do Windows (8 px a 100%), maior que isso o DWM não deixa. O recorte antigo (C:\Users\Public\MacCantos-ligado.txt) saiu.
+     Desfazer: o Shell manda MacJanelaDesfazer ao sair (volta DWMWCP_DEFAULT e a cor padrão da borda).
+  4) AJUSTES > GERAL TRAVANDO AO ROLAR: a chave "Abrir ao entrar no Windows" rodava schtasks.exe /Query A CADA DESENHO da linha (13-33 ms
+     por processo). Agora lê uma vez numa thread e guarda; o clique grava numa thread. A rolagem do Ajustes também passou a andar pelo
+     tempo real (antes 30% por tique de 15 ms) e o log ajustes-app.log ganhou "rolagem: N quadros em X ms (desenho médio/pior)".
+     Medido (janela 1100x650, página Geral até o fim e de volta, 3 vezes): antes 25,2 ms por quadro (~39 quadros/s), depois 5,3 ms
+     (~76 quadros/s).
+  5) PERSONALIZAÇÃO (Ajustes > Mesa e Dock > "Personalizar o Dock…" e "Personalizar a Mesa…"; Notificações > Central de Notificações).
+     Chaves novas no %APPDATA%\Shell\ajustes.txt (vazio = o padrão medido do Mac):
+       dock_espaco (pt a mais entre os ícones, 0-32), dock_margem (distância da borda, 0-40 pt), dock_raio (cantos do fundo, 0 reto a 100
+       pílula), dock_cor (auto/clara/escura/destaque), dock_opacidade (tinta do vidro, 0-100), dock_launchpad, dock_separador, dock_rotulos
+       (1/0), dock_indicador (ponto/traco); ícones próprios do Dock: PNG em %APPDATA%\Shell\icones-dock com o nome do .exe ou do app;
+       mesa_icone_tamanho (16-128, padrão 64), mesa_espaco (-20 a 80), mesa_texto (10-16, padrão 12); os widgets da mesa
+       (widget.<id>.on) agora seguem o arquivo na hora (widgets::SettingsChanged); notif_duracao (segundos do banner, 2-30, padrão 5).
+     A página também junta as chaves que já existiam (indicadores, animar_abertura, pulo_notificacao, mesa_grade, mesa_pilhas,
+     banners_mac, central_calendario, central_relogio). "Restaurar o Padrão" em cada página volta as chaves novas.
+     46 frases novas nos 11 dicionários (tools\idioma-conferir.py: 0 faltando). Posição do Dock à esquerda/direita continua desligada.
+  Nada no registro do Windows. Testado no PC: páginas novas do Ajustes (aberto pelo WMI, fotos). NÃO testado ao vivo: Dock, mesa e
+  banner com as chaves novas e a DLL nova no Shell instalado (a tabela de 32 DLLs de gancho está cheia neste PC, erro 126: a DLL nova só
+  carrega depois de sair e entrar na sessão; e a sessão principal testava o gênio no Shell instalado).
+  DESFAZER: apagar as chaves dock_*/mesa_icone_tamanho/mesa_espaco/mesa_texto/notif_duracao (ou "Restaurar o Padrão").

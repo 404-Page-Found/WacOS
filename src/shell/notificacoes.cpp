@@ -1470,7 +1470,9 @@ bool g_bshow, g_bout, g_bhover, g_bhoverX;
 double g_bAt;
 float g_bslide = 1;
 const UINT_PTR T_BANNER = 2;
-const UINT BANNER_MS = 5000;  // some sozinho depois de 5 s (parado enquanto o mouse estiver em cima)
+// some sozinho depois de 5 s (parado enquanto o mouse estiver em cima); Ajustes > Notificações > "Tempo do banner na
+// tela" muda (notif_duracao, em segundos, 2 a 30)
+UINT BannerMs() { std::wstring v = shell::Setting(L"notif_duracao", L"5"); return (UINT)(std::clamp(_wtof(v.c_str()), 2.0, 30.0) * 1000); }
 
 bool BannersOn() { return shell::Setting(L"banners_mac", L"1") != L"0"; }
 // outra notificação chegando com o banner na tela: a nova cai no lugar numa mola e a anterior fica
@@ -1684,7 +1686,7 @@ void BannerShowNote(const Note& n) {
     BannerPlace();
     BannerPaint();
     ShowWindow(g_bwnd, SW_SHOWNOACTIVATE);
-    SetTimer(g_bwnd, T_BANNER, BANNER_MS, nullptr);
+    SetTimer(g_bwnd, T_BANNER, BannerMs(), nullptr);
     menubar::SoundChanged(false);  // Tahoe: o relógio ganha a pílula de destaque enquanto o banner aparece
     ui::FrameClock(g_bwnd, WM_NC_BFRAME, true);
 }

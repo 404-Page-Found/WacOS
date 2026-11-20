@@ -20,6 +20,17 @@ enum ItemKind { I_APP, I_SEP, I_DOWNLOADS, I_TRASH, I_LAUNCHPAD, I_MINWIN, I_GHO
 struct Item { ItemKind kind; int app; float cx = 0, size = 0; HWND win = nullptr; bool leaving = false; int ghost = -1; };  // ghost: app saindo (índice em g_ghosts)  // win: janela minimizada (I_MINWIN); leaving: saindo do Dock
 
 float g_tile = 48;          // tamanho do ícone (pt)
+// Personalização (Ajustes > Mesa e Dock > Personalizar o Dock, pedido de 20/11/2026, "como o MyDockFinder"). Valor
+// negativo = o padrão medido do Mac (as medidas de cada tema logo abaixo continuam valendo).
+float g_espaco = 0;          // dock_espaco: espaço a mais entre os ícones (pt)
+float g_margemPt = -1;       // dock_margem: distância do Dock até a borda da tela (pt)
+float g_raioPct = -1;        // dock_raio: arredondamento do fundo, 0 (reto) a 1 (pílula)
+float g_vidroOpac = -1;      // dock_opacidade: tinta do vidro, 0 (só o desfoque) a 1 (sólido)
+int g_vidroCor = 0;          // dock_cor: 0 automática, 1 clara, 2 escura, 3 cor de destaque
+bool g_mostraSep = true;     // dock_separador: a divisória antes de Downloads e da Lixeira
+bool g_mostraLaunchpad = true;  // dock_launchpad: o Launchpad logo depois do Finder
+int g_indicador = 0;         // dock_indicador: 0 ponto, 1 traço
+bool g_rotulos = true;       // dock_rotulos: o nome do app ao passar o ponteiro
 bool g_sepHover, g_resizing;  // separador: arrastar para cima/baixo muda o tamanho (como no Mac)
 LONG g_resizeY;
 float g_resizeTile;
@@ -49,11 +60,11 @@ const DWORD ACR_DARK = 0x401E1C1C, ACR_LIGHT = 0x40F6F6F6;  // AABBGGRR
 // Tahoe, guia macOS26-Theme-Reference (seção 36, medido com ícone de 64): cada ícone ocupa 68 × 84 (passo
 // 1,0625), 8 de margem antes do primeiro, separador de 31 (0,484); a altura reservada dá os 90 medidos
 #define PAD_X (g_tile * (TAHOE_DOCK ? 0.125f : LEO_DOCK ? 0.55f : 0.041f))
-#define MARGIN (g_tile * (LEO_DOCK ? 0.f : 0.10f))  // Leopard: a prateleira encosta no pé da tela
+#define MARGIN (g_margemPt >= 0 ? g_margemPt : g_tile * (LEO_DOCK ? 0.f : 0.10f))  // Leopard: a prateleira encosta no pé da tela
 #define SEP_W (g_tile * (TAHOE_DOCK ? 0.484f : LEO_DOCK ? 0.80f : 0.40f))  // Leopard: o vão largo da faixa zebrada (~0,85 ícone na captura)
 // Leopard (comparado com as fotos de referência): passo de ~1,17 ícone entre os desenhos
-#define SLOT (g_tile * (TAHOE_DOCK ? 1.0625f : LEO_DOCK ? 1.17f : 1.076f))  // Leopard: passo de ~1,17 ícone (medido nas fotos de referência do usuário)
-#define DOCK_RADIUS (g_tile * (TAHOE_DOCK ? 0.40f : 0.28f))  // Tahoe: 0,5 A (medido); Sequoia: 0,3 A
+#define SLOT (g_tile * (TAHOE_DOCK ? 1.0625f : LEO_DOCK ? 1.17f : 1.076f) + g_espaco)  // Leopard: passo de ~1,17 ícone (medido nas fotos de referência do usuário)
+#define DOCK_RADIUS (g_raioPct >= 0 ? (g_tile + PAD_TOP + PAD_BOTTOM) * 0.5f * g_raioPct : g_tile * (TAHOE_DOCK ? 0.40f : 0.28f))  // Tahoe: 0,5 A (medido); Sequoia: 0,3 A
 const float ART_PACK_0 = 1.0f;   // PNGs do pacote: já têm a margem do Mac (desenho = 80%)
 const float ART_WIN_0 = 0.80f;   // ícones do Windows (recortados): mesmo corpo visual
 // Leopard: o desenho do ícone ocupa o espaço inteiro (no 10.5 os ícones quase se encostam, sem a margem de hoje)
@@ -185,7 +196,7 @@ void BuildItems() {
         auto& a = apps::list[i];
         // sem divisória entre fixos e abertos: uma só, antes de Downloads e Lixeira
         g_items.push_back({ I_APP, i });
-        if (a.finder && !LEO_DOCK) g_items.push_back({ I_LAUNCHPAD, -1 });  // como no Mac: Launchpad logo depois do Finder
+        if (a.finder && !LEO_DOCK && g_mostraLaunchpad) g_items.push_back({ I_LAUNCHPAD, -1 });  // como no Mac: Launchpad logo depois do Finder
     }
     {   // quem entrou e quem saiu desde a última vez
         double now0 = anim::Now();
@@ -218,7 +229,7 @@ void BuildItems() {
             g_items.insert(g_items.begin() + at, gitem);
         }
     }
-    g_items.push_back({ I_SEP, -1 });
+    if (g_mostraSep || LEO_DOCK) g_items.push_back({ I_SEP, -1 });
     // Leopard: a pasta Aplicativos (que abre o Launchpad) fica à direita, depois da divisória, junto de Downloads e da
     // Lixeira, como as Pilhas do 10.5
     if (LEO_DOCK) g_items.push_back({ I_LAUNCHPAD, -1 });
@@ -485,8 +496,51 @@ std::vector<BYTE> Jail(UINT w, UINT h, const std::vector<BYTE>& src, bool dark) 
     return out;
 }
 
+// Ícone próprio do usuário (Ajustes > Personalizar o Dock > Ícones próprios): um PNG em %APPDATA%\Shell\icones-dock com o
+// nome do .exe (chrome.png, discord.png) ou o nome do app como aparece no Dock (Google Chrome.png). Vale como os do
+// pacote do Mac (o desenho já tem a margem). Vazio = sem ícone próprio.
+std::wstring CustomIconPath(const App& a) {
+    static std::wstring base;
+    if (base.empty()) {
+        PWSTR p = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { base = std::wstring(p) + L"\\Shell\\icones-dock\\"; CoTaskMemFree(p); }
+        else base = L"?";
+    }
+    std::vector<std::wstring> names;
+    std::wstring exe = a.exe.empty() ? a.id : a.exe;
+    size_t sl = exe.find_last_of(L"\\/");
+    if (sl != std::wstring::npos) exe = exe.substr(sl + 1);
+    if (exe.size() > 4 && !_wcsicmp(exe.c_str() + exe.size() - 4, L".exe")) exe.resize(exe.size() - 4);
+    if (!exe.empty() && exe.find(L':') == std::wstring::npos) names.push_back(exe);
+    if (!a.name.empty()) names.push_back(a.name);
+    for (auto& n : names) {
+        std::wstring f = base + n + L".png";
+        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) return f;
+    }
+    return L"";
+}
+std::map<std::wstring, bool> g_customIcon;  // app -> tem ícone próprio (desenhado como os do pacote)
+
 ID2D1Bitmap* IconBitmap(ID2D1RenderTarget* rt, App& a) {
     if (g_bmpRt != rt) { for (auto& [k, b] : g_bmps) if (b) b->Release(); g_bmps.clear(); g_bmpRt = rt; }
+    {
+        auto ck = g_bmps.find(L"proprio:" + a.id);
+        if (ck != g_bmps.end()) return ck->second;
+        auto known = g_customIcon.find(a.id);
+        if (known == g_customIcon.end() || known->second) {
+            std::wstring f = CustomIconPath(a);
+            UINT w = 0, h = 0; std::vector<BYTE> px;
+            bool ok = !f.empty() && ui::LoadPng(f, w, h, px);
+            g_customIcon[a.id] = ok;
+            if (ok) {
+                std::wstring st = ui::IconStyle();
+                if (st != L"padrao") ui::StyleIcon(w, h, px, st);
+                ID2D1Bitmap* b = ui::Bitmap(rt, w, h, px);
+                g_bmps[L"proprio:" + a.id] = b;
+                if (b) return b;
+            }
+        }
+    }
     bool jail = TAHOE_DOCK && !a.mac && !a.finder && shell::Setting(L"dock_icones_cinza", L"1") == L"1";
     std::wstring st = ui::IconStyle(), key = ui::IconStyleKey() + (jail ? L"|j:" : L":") + a.id;  // Tahoe: estilo dos ícones (Escuro, Transparente, Tingido)
     auto it = g_bmps.find(key);
@@ -587,6 +641,11 @@ void PaintBack() {
         // no escuro (39 % de um cinza 0,28 por cima do fundo desfocado); no claro a média sobe ~0,11 (cinza 0,56)
         if (TAHOE_DOCK) tint = dark ? D2D1::ColorF(0.28f, 0.28f, 0.29f, 0.39f) : D2D1::ColorF(0.56f, 0.56f, 0.57f, 0.39f);
         // (16-17/11/2026: a tinta preta do Dock foi desfeita a pedido; o filtro do Transparente é só nos ícones)
+        // Personalizar o Dock: cor (clara, escura ou a de destaque) e quanto a tinta cobre o desfoque
+        if (g_vidroCor == 1) tint = D2D1::ColorF(0.97f, 0.97f, 0.98f, tint.a);
+        else if (g_vidroCor == 2) tint = D2D1::ColorF(0.10f, 0.10f, 0.11f, tint.a);
+        else if (g_vidroCor == 3) { D2D1_COLOR_F ac = ui::Accent(); tint = D2D1::ColorF(ac.r, ac.g, ac.b, tint.a); }
+        if (g_vidroOpac >= 0) tint.a = g_vidroOpac;
         backdrop::Set(g_back, (float)w, (float)h, rad * sc, tint);
         return;
     }
@@ -597,7 +656,12 @@ void PaintBack() {
     auto* rt = ui::Begin(g_sb, w, h, sc);
     if (!rt) return;
     ID2D1SolidColorBrush* br = nullptr;
-    rt->CreateSolidColorBrush(dark ? D2D1::ColorF(0.11f, 0.11f, 0.12f, 0.30f) : D2D1::ColorF(1, 1, 1, 0.20f), &br);
+    D2D1_COLOR_F fill = dark ? D2D1::ColorF(0.11f, 0.11f, 0.12f, 0.30f) : D2D1::ColorF(1, 1, 1, 0.20f);
+    if (g_vidroCor == 1) fill = D2D1::ColorF(1, 1, 1, fill.a);
+    else if (g_vidroCor == 2) fill = D2D1::ColorF(0.10f, 0.10f, 0.11f, fill.a);
+    else if (g_vidroCor == 3) { D2D1_COLOR_F ac = ui::Accent(); fill = D2D1::ColorF(ac.r, ac.g, ac.b, fill.a); }
+    if (g_vidroOpac >= 0) fill.a = g_vidroOpac;
+    rt->CreateSolidColorBrush(fill, &br);
     rt->FillRectangle(D2D1::RectF(0, 0, w / sc, h / sc), br);
     br->Release();
     ui::End(g_sb, false);
@@ -898,7 +962,7 @@ void Paint() {
         float dy = it.kind == I_APP ? BounceOffset(apps::list[it.app]) : 0;
         ID2D1Bitmap* b = nullptr;
         bool mac = false;
-        if (it.kind == I_APP) { b = IconBitmap(rt, apps::list[it.app]); mac = apps::list[it.app].mac; }
+        if (it.kind == I_APP) { b = IconBitmap(rt, apps::list[it.app]); mac = apps::list[it.app].mac || g_customIcon[apps::list[it.app].id]; }
         else if (it.kind == I_DOWNLOADS && StackMode()) {  // Downloads como Pilha: os arquivos mais novos empilhados
             RefreshStack((int)std::lround(std::min(256.f, g_large * Sc())));
             float art = s * ART_WIN;
@@ -941,7 +1005,11 @@ void Paint() {
             if (tahoe) br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.85f) : D2D1::ColorF(0.05f, 0.07f, 0.20f, 0.85f));
             else br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.50f));
             float dr = std::max(1.25f, g_tile * (tahoe ? 0.028f : 0.034f));
-            rt->FillEllipse(D2D1::Ellipse({ it.cx, g_bg.bottom - g_tile * (tahoe ? 0.088f : 0.068f) }, dr, dr), br);
+            float dy = g_bg.bottom - g_tile * (tahoe ? 0.088f : 0.068f);
+            if (g_indicador == 1) {  // traço (Personalizar o Dock): uma barrinha arredondada de ~1/3 do ícone
+                float hw = g_tile * 0.16f;
+                rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(it.cx - hw, dy - dr * 0.8f, it.cx + hw, dy + dr * 0.8f), dr * 0.8f, dr * 0.8f), br);
+            } else rt->FillEllipse(D2D1::Ellipse({ it.cx, dy }, dr, dr), br);
             }
         }
         if ((i == g_press && !g_dragging && GetKeyState(VK_LBUTTON) < 0) || i == g_dropHit) {  // pressionado: escurece
@@ -969,7 +1037,7 @@ void Paint() {
 
     // etiqueta com o nome, acima do ícone
     int lab = g_dragging ? -1 : g_hover;
-    if (lab >= 0 && lab < (int)g_items.size() && g_items[lab].kind != I_SEP && g_reveal > 0.9f) {
+    if (g_rotulos && lab >= 0 && lab < (int)g_items.size() && g_items[lab].kind != I_SEP && g_reveal > 0.9f) {
         std::wstring t = Label(g_items[lab]);
         float tw = ui::TextWidth(g_tfLabel, t) + 22, th = 26;
         float top = baseline - g_items[lab].size - 14 - th;
@@ -1537,6 +1605,19 @@ static void ReadSettings() {
     g_smart = oc == L"inteligente";
     g_tile = g_tileWant = std::clamp(g_tile, 16.f, 128.f);
     g_large = std::clamp(g_large, g_tile, 256.f);
+    // personalização (vazio = o padrão do Mac)
+    auto num = [](const wchar_t* k, float def) { std::wstring v = shell::Setting(k, L""); return v.empty() ? def : (float)_wtof(v.c_str()); };
+    g_espaco = std::clamp(num(L"dock_espaco", 0), 0.f, 48.f);
+    g_margemPt = num(L"dock_margem", -1); if (g_margemPt >= 0) g_margemPt = std::min(g_margemPt, 80.f);
+    g_raioPct = num(L"dock_raio", -1); if (g_raioPct >= 0) g_raioPct = std::min(g_raioPct / 100.f, 1.f);
+    g_vidroOpac = num(L"dock_opacidade", -1); if (g_vidroOpac >= 0) g_vidroOpac = std::min(g_vidroOpac / 100.f, 1.f);
+    std::wstring cor = shell::Setting(L"dock_cor", L"auto");
+    g_vidroCor = cor == L"clara" ? 1 : cor == L"escura" ? 2 : cor == L"destaque" ? 3 : 0;
+    g_mostraSep = shell::Setting(L"dock_separador", L"1") != L"0";
+    g_mostraLaunchpad = shell::Setting(L"dock_launchpad", L"1") != L"0";
+    g_indicador = shell::Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0;
+    g_rotulos = shell::Setting(L"dock_rotulos", L"1") != L"0";
+    g_customIcon.clear();  // a pasta de ícones próprios pode ter mudado
     FitTile();
 }
 
@@ -1564,7 +1645,9 @@ void dock::ReloadSettings() {
     if (!g_icons) return;
     if (hide != g_autohide || smart != g_smart) { g_hidden = false; g_covered = false; g_coverAt = 0; ui::FrameClock(g_icons, WM_DOCKFRAME, true); }
     g_win = {}; g_lastBg = {};
-    BuildItems();  // a pasta Downloads pode ter entrado ou saído
+    for (auto& [k, b] : g_bmps) if (b) b->Release();  // ícones próprios novos ou tirados
+    g_bmps.clear();
+    BuildItems();  // a pasta Downloads, a divisória ou o Launchpad podem ter entrado ou saído
     Paint();
 }
 

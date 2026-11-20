@@ -851,6 +851,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         menubar::Update();
         shell::ApplyWorkArea();
         mesa::SettingsChanged();
+        widgets::SettingsChanged();  // Personalizar a Mesa: widgets ligados/desligados
         jogo::Reload();  // modo_jogo e jogos.txt
         palco::Sync();
         return 0;

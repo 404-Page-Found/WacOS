@@ -19,6 +19,12 @@ Lista viva: o que ainda não funciona como no macOS, ou que é limitação do Wi
 ### Vidro, cantos e sombra (limites do Windows)
 - A barra lateral usa o acrílico do Windows, que põe uma camada fosca por cima: passa menos cor do fundo que o vidro do Mac. O desfoque sem essa camada (SetWindowCompositionAttribute) foi testado: o DWM o desenha por cima do conteúdo e apaga texto e ícones.
 - Cantos da janela: o Windows 11 arredonda com 8 px (no Mac ~10 px). Cantos maiores exigiriam desligar o vidro.
+- Apps Chromium/Electron (Chrome, Edge, Discord, VS Code, Obsidian...): os cantos são os do Windows (8 px, a DLL pede o
+  arredondamento e troca a borda pelo contorno do Mac). Cantos maiores não dá: o conteúdo deles vem da GPU por
+  DirectComposition e o recorte da janela (SetWindowRgn) não o corta (testado no Edge 157, 20/11/2026). Num PC/VM em que o
+  Windows não arredonda nada (sem aceleração de vídeo), essas janelas ficam com cantos retos.
+- A barra de título do Mac nunca entra em jogos nem em programas com anti-cheat (src/comum/jogos.h). Um jogo não reconhecido
+  pode ser posto em %APPDATA%\Shell\jogos.txt ou janelas-excluidas.txt.
 - Sombra: além da sombra curta do Windows, uma janela própria desenha a sombra grande e difusa do Mac (src/finder/shadow.cpp).
 
 ### Etiquetas e barra lateral

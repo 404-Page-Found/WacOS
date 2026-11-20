@@ -128,6 +128,9 @@ std::wstring g_settingsPath;
 std::map<std::wstring, std::wstring> g_settings;
 
 void Invalidate() { if (g_hwnd) InvalidateRect(g_hwnd, nullptr, FALSE); }
+double Qpf() { static LARGE_INTEGER f{}; if (!f.QuadPart) QueryPerformanceFrequency(&f); return (double)f.QuadPart; }
+// medida da rolagem (log "rolagem: ..."): quadros, tempo e quanto custa desenhar um quadro
+struct Rolagem { bool on = false; int n = 0; double soma = 0, pior = 0; LARGE_INTEGER ini{}, ult{}; } g_rol;
 D2D1_POINT_2F ToDip(int x, int y) { return { x / g_scale, y / g_scale }; }
 bool In(const D2D1_RECT_F& r, D2D1_POINT_2F p) { return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
 D2D1_SIZE_F ClientDip() { RECT rc; GetClientRect(g_hwnd, &rc); return { rc.right / g_scale, rc.bottom / g_scale }; }
@@ -1954,7 +1957,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_SETTINGCHANGE:
         if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { g_dark = ReadDark(); ApplyWindowTheme(); Invalidate(); }
         break;
-    case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); Render(); return 0; }
+    case WM_PAINT: {
+        PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps);
+        LARGE_INTEGER a, b; QueryPerformanceCounter(&a);
+        Render();
+        QueryPerformanceCounter(&b);
+        if (g_rol.on) { double ms = (b.QuadPart - a.QuadPart) * 1000.0 / Qpf(); g_rol.n++; g_rol.soma += ms; g_rol.pior = std::max(g_rol.pior, ms); }
+        return 0;
+    }
     case WM_ERASEBKGND: return 1;
     case WM_MOUSEMOVE: {
         D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
@@ -1981,7 +1991,11 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         ScreenToClient(h, &pt);
         float d = -GET_WHEEL_DELTA_WPARAM(w) / 120.f * 48;
         if (pt.x / g_scale < SIDE_W) g_sideScroll = std::clamp(g_sideScroll + d, 0.f, SideMaxScroll());
-        else { g_scrollTarget = std::clamp(g_scrollTarget + d, 0.f, MaxScroll()); SetTimer(h, T_ANIM, 15, nullptr); }
+        else {
+            g_scrollTarget = std::clamp(g_scrollTarget + d, 0.f, MaxScroll());
+            if (!g_rol.on) { g_rol = {}; g_rol.on = true; QueryPerformanceCounter(&g_rol.ini); g_rol.ult = g_rol.ini; }
+            SetTimer(h, T_ANIM, 4, nullptr);
+        }
         Invalidate();
         return 0;
     }
@@ -2002,8 +2016,18 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 Invalidate();
             }
         } else if (w == T_ANIM) {
+            // passo pelo tempo real (antes 30% por tique de 15 ms: o SetTimer anda a ~64 Hz e a rolagem dava trancos)
+            LARGE_INTEGER now; QueryPerformanceCounter(&now);
+            double dt = g_rol.on ? (now.QuadPart - g_rol.ult.QuadPart) * 1000.0 / Qpf() : 15.0;
+            if (g_rol.on) g_rol.ult = now;
             float diff = g_scrollTarget - g_scroll;
-            if (std::fabs(diff) < 0.5f) g_scroll = g_scrollTarget; else g_scroll += diff * 0.3f;
+            if (std::fabs(diff) < 0.5f) g_scroll = g_scrollTarget; else g_scroll += diff * (float)(1.0 - std::pow(0.7, std::clamp(dt, 1.0, 60.0) / 15.0));
+            if (g_scroll == g_scrollTarget && g_rol.on) {
+                double tot = (now.QuadPart - g_rol.ini.QuadPart) * 1000.0 / Qpf();
+                Log(L"rolagem: %d quadros em %.0f ms (%.0f quadros/s; desenho médio %.2f ms, pior %.2f ms)", g_rol.n, tot,
+                    tot > 0 ? g_rol.n * 1000.0 / tot : 0.0, g_rol.n ? g_rol.soma / g_rol.n : 0.0, g_rol.pior);
+                g_rol.on = false;
+            }
             if (g_scroll == g_scrollTarget && g_toggleAnim.empty()) KillTimer(h, T_ANIM);
             Invalidate();
         } else if (w == T_CARET) {

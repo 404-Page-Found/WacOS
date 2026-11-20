@@ -20,6 +20,7 @@
 #include "../comum/sombra.h"
 #include "../comum/semaforo.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra de título cinza metálico e botões de gel
+#include "../comum/jogos.h"    // jogos e anti-cheat (a DLL nunca fica neles) e apps Chromium/Electron
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
@@ -1478,51 +1479,56 @@ void Detach(HWND h, Info* in) {
 // a janela troca de tamanho escondida e o Shell anima a foto nova (como no ampliar dos outros).
 const wchar_t* PROP_LEVE = L"MacJanelaLeve";
 const UINT_PTR LEVE_ID = 0x4C455645;
-// Cantos do Mac nas janelas de barra própria: só o recorte (SetWindowRgn na parte visível, um pouco mais fechado que
-// o arco). O acabamento (arco suavizado, fio da borda) e a sombra são do Shell, por fora (barras.cpp e sombras.cpp),
-// que sabe do recorte pela propriedade "MacJanelaCanto" (o raio em px). Maximizada, minimizada ou em tela cheia:
-// sem recorte. C:\Users\Public\MacCantos-ligado.txt liga.
-// DESLIGADO por padrão: testado no Chrome em 12/11/2026 e não serve. Ele desenha por DirectComposition: o recorte
-// não corta o conteúdo, e o Windows passa a pintar de branco a borda invisível de redimensionar (moldura branca de
-// 8 px em volta da janela, cantos retos, sem sombra).
+// Cantos e borda nas janelas de barra própria (Chromium/Electron). O recorte (SetWindowRgn) NÃO serve nelas:
+// testado de novo em 20/11/2026 no Edge 157 com a DLL de teste dentro do processo: o Chromium desenha por
+// DirectComposition numa janela filha do processo da GPU ("Intermediate D3D Window"); a região não corta esse
+// conteúdo (nem recortando também a janela filha, o que dá certo pelo processo do navegador) e ainda tira o
+// arredondamento do DWM: o canto ficava QUADRADO e a borda invisível aparecia. O único corte que vale para o
+// conteúdo da GPU é o do próprio DWM. Então: pede o canto arredondado ao DWM (DWMWCP_ROUND; no Leopard o pequeno,
+// como as janelas do 10.5) — as janelas sem a moldura do Windows (Electron com frame:false) não eram arredondadas —
+// e troca a borda de 1 px do Windows (cinza ou a cor de destaque) pelo contorno do Mac. O raio é o do Windows
+// (8 px a 100%); maior que isso o DWM não deixa. A sombra do Mac é do Shell (sombras.cpp).
+// Maximizada, minimizada ou em tela cheia: o DWM já não arredonda; nada a fazer.
 const wchar_t* PROP_CANTO = L"MacJanelaCanto";
 void CantoLeve(HWND h) {
     if (IsIconic(h)) return;
-    static DWORD at; static bool off;
-    DWORD now = GetTickCount();
-    if (!at || now - at > 3000) { at = now ? now : 1; off = GetFileAttributesW(L"C:\\Users\\Public\\MacCantos-ligado.txt") == INVALID_FILE_ATTRIBUTES; }
-    if (off || IsZoomed(h) || Fullscreen(h)) {
-        if (GetPropW(h, PROP_CANTO)) { SetWindowRgn(h, nullptr, TRUE); RemovePropW(h, PROP_CANTO); }
-        return;
+    DWORD pref = leopard::On() ? 3 /*DWMWCP_ROUNDSMALL*/ : 2 /*DWMWCP_ROUND*/;
+    DwmSetWindowAttribute(h, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, &pref, sizeof(pref));
+    // contorno do Mac: escuro no tema claro, um cinza um pouco mais claro que a janela no escuro
+    bool dark = Dark();
+    COLORREF border = dark ? RGB(0x4A, 0x4A, 0x4D) : RGB(0xC2, 0xC2, 0xC5);
+    if (GetPropW(h, PROP_CANTO) != (HANDLE)(INT_PTR)(dark ? 2 : 1)) {
+        DwmSetWindowAttribute(h, 34 /*DWMWA_BORDER_COLOR*/, &border, sizeof(border));
+        SetPropW(h, PROP_CANTO, (HANDLE)(INT_PTR)(dark ? 2 : 1));
     }
-    // A parte visível: a janela menos a borda invisível de redimensionar (esquerda, direita e embaixo). Nestes
-    // programas a "área do programa" cobre a borda invisível também (recortar por ela deixava uma moldura branca
-    // em volta). Medida pelo DWM antes do primeiro recorte e guardada (com o recorte a medida do DWM muda).
-    RECT wr; GetWindowRect(h, &wr);
-    int b = (int)(INT_PTR)GetPropW(h, L"MacJanelaCantoB") - 1;
-    if (b < 0) {
-        RECT f;
-        if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &f, sizeof(f)))) return;
-        int l = f.left - wr.left, rr = wr.right - f.right, bb = wr.bottom - f.bottom, t = f.top - wr.top;
-        if (l < 0 || l > 16 || rr != l || bb != l || t < 0 || t > 1) return;  // moldura fora do esperado: não mexe
-        b = l;
-        SetPropW(h, L"MacJanelaCantoB", (HANDLE)(INT_PTR)(b + 1));
+}
+void CantoLeveDesfazer(HWND h) {
+    DWORD def = 0;  // DWMWCP_DEFAULT
+    DwmSetWindowAttribute(h, 33, &def, sizeof(def));
+    COLORREF c = 0xFFFFFFFF;  // DWMWA_COLOR_DEFAULT
+    DwmSetWindowAttribute(h, 34, &c, sizeof(c));
+    RemovePropW(h, PROP_CANTO);
+}
+
+// Este processo é Chromium/Electron? (só eles recebem o modo barra própria). Pelo módulo do navegador carregado ou
+// pelos pacotes do Chromium ao lado do .exe (jogos.h). Calculado uma vez.
+bool ProcessoChromium() {
+    static int r = -1;
+    if (r < 0) {
+        bool ok = GetModuleHandleW(L"chrome.dll") || GetModuleHandleW(L"msedge.dll") || GetModuleHandleW(L"libcef.dll") ||
+                  GetModuleHandleW(L"opera_browser.dll") || GetModuleHandleW(L"vivaldi.dll");
+        if (!ok) { wchar_t p[MAX_PATH] = {}; GetModuleFileNameW(nullptr, p, MAX_PATH); ok = jogos::ProgramaChromium(p); }
+        r = ok ? 1 : 0;
     }
-    int W = wr.right - wr.left, H = wr.bottom - wr.top;
-    if (W - 2 * b < 200 || H - b < 120) return;
-    int r = CornerRadius(h);
-    HRGN g = RoundRgn(b, 0, W - b, H - b, r);
-    if (g && !SetWindowRgn(h, g, TRUE)) DeleteObject(g);
-    SetPropW(h, PROP_CANTO, (HANDLE)(INT_PTR)r);
+    return r == 1;
 }
 
 LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
     static UINT msgShow = RegisterWindowMessageW(L"MacJanelaMostrar");
     if (m == g_msgUndo && g_msgUndo && g_proprio) return DefSubclassProc(h, m, w, l);
-    if (m == g_msgUndo && g_msgUndo && GetPropW(h, PROP_CANTO)) { SetWindowRgn(h, nullptr, TRUE); RemovePropW(h, PROP_CANTO); }
-    if (m == WM_NCDESTROY) { RemovePropW(h, PROP_CANTO); RemovePropW(h, L"MacJanelaCantoB"); }
-    if (m == WM_WINDOWPOSCHANGED && l && !(((WINDOWPOS*)l)->flags & SWP_NOSIZE)) CantoLeve(h);
-    if (m == WM_TIMER && w == 0x4D43) { CantoLeve(h); return 0; }  // tema ou tela cheia mudaram sem mudar o tamanho
+    if (m == g_msgUndo && g_msgUndo) CantoLeveDesfazer(h);
+    if (m == WM_NCDESTROY) RemovePropW(h, PROP_CANTO);
+    if (m == WM_TIMER && w == 0x4D43) { CantoLeve(h); return 0; }  // tema claro/escuro mudou: a cor do contorno
     if (m == g_msgUndo && g_msgUndo) { BOOL on = FALSE; DwmSetWindowAttribute(h, 3, &on, sizeof(on)); ZoomShow(h); RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID); return 1; }
     if (m == msgShow && msgShow) { ZoomShow(h); return 1; }
     if (m == WM_NCDESTROY) { RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID); }
@@ -1570,6 +1576,10 @@ void AttachLeve(HWND h) {
     if (GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h) || GetPropW(h, PROP) || GetPropW(h, PROP_LEVE)) return;
     LONG st = GetWindowLongW(h, GWL_STYLE), ex = GetWindowLongW(h, GWL_EXSTYLE);
     if ((st & WS_CHILD) || !(st & WS_THICKFRAME) || !(st & WS_MAXIMIZEBOX) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))) return;
+    // só a janela principal do Chromium/Electron (regra de 20/11/2026): em qualquer outro programa sem a barra do
+    // Windows (jogos em janela, apps de motor próprio) a DLL não mexe
+    wchar_t cls[32] = {}; GetClassNameW(h, cls, 32);
+    if (wcscmp(cls, L"Chrome_WidgetWin_1") || !ProcessoChromium()) return;
     RECT r; GetWindowRect(h, &r);
     if (r.right - r.left < 300 || r.bottom - r.top < 200) return;
     if (SetWindowSubclass(h, LeveProc, LEVE_ID, 0)) {
@@ -1592,7 +1602,10 @@ void TakeOver(HWND h) {
     if (old && g_msgUndo) SendMessageW(h, g_msgUndo, 0, 0);
 }
 
+bool g_fora = false;  // apareceu janela de jogo neste processo: a DLL não faz mais nada aqui
 BOOL CALLBACK EnumProc(HWND h, LPARAM) {
+    wchar_t cls[64] = {};
+    if (GetClassNameW(h, cls, 64) && jogos::ClasseDeJogo(cls)) { g_fora = true; return FALSE; }
     TakeOver(h);
     if (int mode = Mode(h)) Attach(h, mode);
     else AttachLeve(h);
@@ -1780,7 +1793,7 @@ extern "C" __declspec(dllexport) LRESULT CALLBACK GetMsgProc(int code, WPARAM w,
         auto* msg = (MSG*)l;
         if (msg->message == opened && opened && msg->hwnd) OpenReveal(msg->hwnd);
     }
-    if (code >= 0 && g_tls != TLS_OUT_OF_INDEXES) {
+    if (code >= 0 && g_tls != TLS_OUT_OF_INDEXES && !g_fora) {
         DWORD now = GetTickCount() | 1;  // nunca 0 (0 = ainda não varreu)
         DWORD last = (DWORD)(UINT_PTR)TlsGetValue(g_tls);
         if (!last || now - last > 400) {
@@ -1852,8 +1865,27 @@ extern "C" __declspec(dllexport) void CALLBACK WacOSHostW(HWND, HINSTANCE, LPWST
     while (GetMessageW(&m, nullptr, 0, 0) > 0) DispatchMessageW(&m);
 }
 
+// Segunda trava (a primeira é o Shell, src\shell\janelas.cpp): carregada dentro de um jogo, launcher ou programa com
+// anti-cheat, recusa carregar (DllMain devolve FALSE e o Windows a descarrega na hora). Pelo caminho do .exe, pelos
+// arquivos ao lado dele e pelos módulos de motor/loja/anti-cheat já carregados (overlay da Steam, Unity, EOS, BattlEye...).
+bool DentroDeJogo() {
+    wchar_t p[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, p, MAX_PATH);
+    std::wstring c = jogos::Minusculo(p);
+    // os apps do próprio WacOS (WacOSPropria) e o hospedeiro de 32 bits (rundll32) sempre podem
+    if (c.find(L"wacos") != std::wstring::npos || c.find(L"\\rundll32.exe") != std::wstring::npos) return false;
+    if (jogos::ProgramaDeJogo(p)) return true;
+    for (auto m : { L"GameOverlayRenderer64.dll", L"GameOverlayRenderer.dll", L"UnityPlayer.dll", L"GameAssembly.dll",
+                    L"steam_api64.dll", L"steam_api.dll", L"EOSSDK-Win64-Shipping.dll", L"EOSSDK-Win32-Shipping.dll",
+                    L"BEClient_x64.dll", L"BEClient.dll", L"EasyAntiCheat_EOS.dll", L"EasyAntiCheat_x64.dll", L"EasyAntiCheat.dll",
+                    L"xinput1_3.dll", L"galaxy64.dll", L"discord_game_sdk.dll" })
+        if (GetModuleHandleW(m)) return true;
+    return false;
+}
+
 BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
+        if (DentroDeJogo()) return FALSE;
         g_mod = h;
         g_tls = TlsAlloc();
         g_tlsShow = TlsAlloc();
