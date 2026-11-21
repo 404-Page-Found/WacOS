@@ -68,7 +68,11 @@ struct Item {
     std::vector<Item> sub;
     wchar_t icon = 0;       // ícone à esquerda (glifo da Segoe Fluent Icons), como os símbolos do menu do Tahoe
     std::vector<Dot> dots;  // não vazio: a linha é a fileira de bolinhas (sem texto)
+    // amostra de cor à esquerda do nome (seletor de cor do TextEdit): 0xFFRRGGBB = a cor; SWATCH_AUTO = "Automática"
+    // (metade preta, metade branca); 0 = nenhuma
+    UINT32 swatch = 0;
 };
+const UINT32 SWATCH_AUTO = 0xFE000000;
 int ShowItems(HWND owner, POINT screenPt, const std::vector<Item>& items);
 // O próximo Show ganha estes itens do app (label, id > 0, icon) logo após o primeiro grupo; escolhido um
 // deles, Show devolve chosen = true e extra = id, sem executar nada.

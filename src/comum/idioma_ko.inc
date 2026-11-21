@@ -751,6 +751,7 @@
 { L"Mais ações", L"추가 동작" },
 { L"Mostrar todas as opções", L"모든 옵션 보기" },
 { L"Cinza", L"회색" },
+{ L"Preto", L"검정" },
 { L"Comprimento", L"길이" },
 { L"Metros", L"미터" },
 { L"Quilômetros", L"킬로미터" },

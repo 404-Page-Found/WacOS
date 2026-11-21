@@ -45,14 +45,26 @@ std::vector<int> g_world;  // índices em CITIES (ou CUSTOM0 + índice em g_cust
 const wchar_t* CityTz(int i) { return i >= CUSTOM0 ? g_custom[i - CUSTOM0].tz.c_str() : CITIES[i].tz; }
 std::wstring CityName(int i) { return i >= CUSTOM0 ? g_custom[i - CUSTOM0].name : std::wstring(Tr(CITIES[i].name)); }
 
-bool CityTime(int i, SYSTEMTIME& out) {
+// O fuso de cada cidade é procurado UMA vez e guardado: EnumDynamicTimeZoneInformation lê o registro inteiro dos
+// fusos (~140 chaves) a cada chamada, e a pintura do Relógio Mundial chamava isso 2× por cidade. Medido: ~122 ms por
+// quadro com 4 cidades, e redimensionar a janela pinta dezenas de quadros por segundo (o PC travava, CPU alta).
+// Com o cache a busca some da pintura. WM_TIMECHANGE (mudou o fuso ou as regras) limpa o cache.
+std::vector<std::pair<std::wstring, DYNAMIC_TIME_ZONE_INFORMATION>> g_tzCache;
+std::vector<std::wstring> g_tzMissing;  // nomes que o Windows não tem (não procura de novo)
+const DYNAMIC_TIME_ZONE_INFORMATION* TzInfo(const wchar_t* name) {
+    for (auto& c : g_tzCache) if (c.first == name) return &c.second;
+    for (auto& m : g_tzMissing) if (m == name) return nullptr;
     DYNAMIC_TIME_ZONE_INFORMATION d{};
     for (DWORD k = 0; EnumDynamicTimeZoneInformation(k, &d) == ERROR_SUCCESS; k++)
-        if (!wcscmp(d.TimeZoneKeyName, CityTz(i))) {
-            SYSTEMTIME utc; GetSystemTime(&utc);
-            return SystemTimeToTzSpecificLocalTimeEx(&d, &utc, &out) != FALSE;
-        }
-    return false;
+        if (!wcscmp(d.TimeZoneKeyName, name)) { g_tzCache.push_back({ name, d }); return &g_tzCache.back().second; }
+    g_tzMissing.push_back(name);
+    return nullptr;
+}
+bool CityTime(int i, SYSTEMTIME& out) {
+    const DYNAMIC_TIME_ZONE_INFORMATION* d = TzInfo(CityTz(i));
+    if (!d) return false;
+    SYSTEMTIME utc; GetSystemTime(&utc);
+    return SystemTimeToTzSpecificLocalTimeEx(d, &utc, &out) != FALSE;
 }
 
 // ---- alarmes
@@ -612,6 +624,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_SIZE: OnSize(l); return 0;
     case WM_DPICHANGED: OnDpi(w, l); return 0;
     case WM_SETTINGCHANGE: InvalidateRect(h, nullptr, FALSE); return 0;
+    case WM_TIMECHANGE: g_tzCache.clear(); g_tzMissing.clear(); InvalidateRect(h, nullptr, FALSE); return 0;
     case WM_CTLCOLOREDIT: return FieldColors((HDC)w, Dark() ? RGB(30, 30, 30) : RGB(255, 255, 255));
     case WM_FIELDLOST: if (field.h && GetFocus() != field.h) FieldEnd(0); return 0;
     case WM_TIMER: Tick(); return 0;

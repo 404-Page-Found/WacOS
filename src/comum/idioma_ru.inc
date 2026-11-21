@@ -751,6 +751,7 @@
 { L"Mais ações", L"Другие действия" },
 { L"Mostrar todas as opções", L"Показать все параметры" },
 { L"Cinza", L"Серый" },
+{ L"Preto", L"Чёрный" },
 { L"Comprimento", L"Длина" },
 { L"Metros", L"Метры" },
 { L"Quilômetros", L"Километры" },

@@ -751,6 +751,7 @@
 { L"Mais ações", L"Diğer eylemler" },
 { L"Mostrar todas as opções", L"Tüm seçenekleri göster" },
 { L"Cinza", L"Gri" },
+{ L"Preto", L"Siyah" },
 { L"Comprimento", L"Uzunluk" },
 { L"Metros", L"Metre" },
 { L"Quilômetros", L"Kilometre" },
