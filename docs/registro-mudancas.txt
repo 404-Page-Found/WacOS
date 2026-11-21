@@ -902,3 +902,6 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Nada no registro do Windows. DESFAZER: reverter o commit.
 
 [2026-11-21 14:20] Barra própria: a faixa da esquerda só do tamanho dos botões (PatchL = até 6 pt depois do verde; era 80 pt fixos), cobrindo o mínimo do começo da linha do app. Compilado, instalado, fotos dos cantos do Chrome e do Claude mandadas ao usuário (apagadas daqui).
+
+[2026-11-21 14:35] Teste: botões do Mac sem cobrir nada, só com ajustes dos próprios apps (sem mexer no código deles).
+  Chrome 157 e Edge 158 com ABAS VERTICAIS (perfis de teste próprios, apagados depois): a linha de cima fica vazia à esquerda e a DLL encaixa os três botões ali, centrados; a faixa da direita cobre os botões do Windows na cor da barra. Nada do app escondido. Edge: menu de ações das abas (canto esquerdo) > "Turn on vertical tabs" (preferência edge.vertical_tabs). Chrome: abas verticais (preferência vertical_tabs.enabled; no teste também --enable-features=VerticalTabs). VS Code (barra nativa: "window.titleBarStyle": "native") não testado: não está instalado. Fotos mandadas ao usuário e apagadas. Sem mudança de código.
