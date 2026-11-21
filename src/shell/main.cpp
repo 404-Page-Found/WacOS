@@ -194,14 +194,8 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 PostMessageW(g_msg, WM_APP_SNAP, k->vkCode, 0);
                 return 1;
             } else if (!shell::nativo && g_winDown && down && k->vkCode == 'Q' && GetAsyncKeyState(VK_CONTROL) < 0 && GetAsyncKeyState(VK_MENU) >= 0) {
-                // Ctrl+Win+Q: o atalho do Mac (Control+Command+Q) para a nossa tela de bloqueio
+                // Ctrl+Win+Q: o atalho do Mac (Control+Command+Q) para bloquear (o bloqueio do Windows)
                 if (!g_winCombo) g_winCombo = g_winEaten = true;
-                PostMessageW(g_msg, WM_APP_LOCK, 0, 0);
-                return 1;
-            } else if (!shell::nativo && g_winDown && down && !g_winCombo && k->vkCode == 'L') {
-                // Win+L: a nossa tela de bloqueio (o Win foi engolido pelo gancho, o Windows não vê o atalho);
-                // com `bloqueio=0`, bloqueio::Lock() chama o bloqueio do Windows
-                g_winCombo = g_winEaten = true;
                 PostMessageW(g_msg, WM_APP_LOCK, 0, 0);
                 return 1;
             } else if (g_winDown && (k->vkCode == VK_UP || k->vkCode == VK_DOWN) && GetAsyncKeyState(VK_CONTROL) < 0 &&
@@ -982,9 +976,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_APP_LOCK:
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);  // permite à tela de bloqueio vir para a frente e receber o teclado
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
-        bloqueio::Lock();
+        bloqueio::Lock();  // o bloqueio do Windows (a tela do WacOS saiu)
         return 0;
     case WM_APP_MONITOR:
         if (w == 1) shell::OpenForceQuit(false); else shell::OpenMonitor();
@@ -1105,7 +1097,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     genio::Create(hi);  // efeito gênio ao minimizar
     if (!soDock) palco::Sync();  // Organizador Visual (Stage Manager), se ligado
     if (!soDock) widgets::Create(hi);  // widgets na mesa (abaixo de todas as janelas)
-    if (!soDock) bloqueio::Create(hi);  // tela de bloqueio do Sequoia (Win+L)
+    // a tela de bloqueio do WacOS saiu (21/11/2026): bloquear usa o do Windows (bloqueio::Lock)
     notificacoes::Create(hi);  // Central de Notificações (clique no relógio da barra de menus)
     ilha::Create(hi);  // Ilha Dinâmica (ajuste ilha=1)
     if (!soDock) notarapida::Create(hi);  // canto inferior direito: Nota Rápida

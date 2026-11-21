@@ -891,7 +891,9 @@ void bloqueio::Create(HINSTANCE hi) {
 }
 
 void bloqueio::Lock() {
-    if (!Enabled()) { LockWindows(); return; }
+    // A tela de bloqueio do WacOS saiu (21/11/2026, a pedido do usuário): o menu da maçã > Bloquear Tela, a Central,
+    // os cantos ativos e o Win+L usam o bloqueio do Windows. O Shell não cria mais a tela (main.cpp).
+    if (!g_hi || !Enabled()) { LockWindows(); return; }
     if (g_phase == LOCKED || g_phase == LOCKING) return;
     if (g_phase == UNLOCKING) Finish();
     LoadUser();

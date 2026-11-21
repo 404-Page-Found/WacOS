@@ -965,3 +965,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   2) Achado, sem mudança: neste PC o Shell não consegue gravar DisableLockWorkstation (log "ERRO ao ligar"): a chave HKCU\...\Policies é só leitura para o usuário (padrão do Windows). O Win+L vai para o bloqueio do Windows; o menu da maçã > Bloquear Tela usa o do WacOS. Mudar a permissão da chave é decisão do usuário.
   3) Conferidos: a reserva do Dock termina no topo do vidro (janela maximizada encosta); Tempo com --meu-local abre com a busca aberta; o salvar volta ao caminho inteiro se a original não confirmar a pasta. Travamentos no log do Windows: só de builds de 20/11 (Ajustes e Shell antigos).
   Compilado e instalado o Shell. DESFAZER: reverter o commit.
+
+[2026-11-21 17:25] A tela de bloqueio do WacOS saiu (pedido do usuário).
+  src\shell\main.cpp: o Shell não chama mais bloqueio::Create (sem a tela, sem tentar gravar DisableLockWorkstation e sem o vigia); o gancho não pega mais o Win+L (vai para o Windows); WM_APP_LOCK sem o Alt injetado. src\shell\bloqueio.cpp: bloqueio::Lock() sem a tela criada chama o bloqueio do Windows (LockWindows): menu da maçã > Bloquear Tela, Central, cantos ativos e Ctrl+Win+Q. src\ajustes\paginas.cpp: a imagem/vídeo de fundo da tela de bloqueio saiu da página Tela Bloqueada (ficam o desligar a tela e a senha do protetor de tela, do Windows). O código do bloqueio continua no arquivo (sem uso), para voltar se for preciso.
+  Conferido: Shell reiniciado sem nenhuma linha de bloqueio no log e sem a janela ShellBloqueio. NÃO conferido: o bloquear pelo menu (bloquearia o PC).
+  Nada no registro do Windows. DESFAZER: reverter o commit.

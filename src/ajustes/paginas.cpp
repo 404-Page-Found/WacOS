@@ -2288,45 +2288,7 @@ void Pick(bool video) {
 
 Page TelaBloqueada() {
     Page p;
-    {   // a imagem atual à esquerda; à direita o nome e o tipo; embaixo os botões
-        std::wstring jpg = Setting(L"bloqueio_fundo", L""), mp4 = Setting(L"bloqueio_video", L"");
-        bool custom = lockbg::Exists(jpg);
-        bool video = custom && lockbg::Exists(mp4);
-        std::wstring shown = custom ? jpg : sys::Wallpaper();
-        std::wstring name = custom ? Setting(L"bloqueio_fundo_nome", L"") : Tr(L"Padrão (a imagem de fundo da mesa)");
-        std::wstring kind = !custom ? L"" : video ? Tr(L"Vídeo") : Tr(L"Imagem");
-        Row head; head.kind = Kind::Custom; head.height = 124;
-        head.draw = [shown, name, kind](Ctx& c, D2D1_RECT_F rr) {
-            D2D1_RECT_F t = D2D1::RectF(rr.left, rr.top + 6, rr.left + 190, rr.top + 6 + 112);
-            c.br->SetColor(c.dark ? D2D1::ColorF(1, 1, 1, 0.08f) : D2D1::ColorF(0, 0, 0, 0.06f));
-            c.dc->FillRoundedRectangle(D2D1::RoundedRect(t, 8, 8), c.br);
-            if (ID2D1Bitmap* b = BitmapFromFile(shown, 400)) {
-                auto s2 = b->GetSize();
-                float k = std::max((t.right - t.left) / s2.width, (t.bottom - t.top) / s2.height);
-                float w = s2.width * k, h = s2.height * k, cx = (t.left + t.right) / 2, cy = (t.top + t.bottom) / 2;
-                ID2D1Factory* f = nullptr; c.dc->GetFactory(&f);
-                ID2D1RoundedRectangleGeometry* rg = nullptr; f->CreateRoundedRectangleGeometry(D2D1::RoundedRect(t, 8, 8), &rg);
-                if (rg) {
-                    c.dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), rg), nullptr);
-                    c.dc->DrawBitmap(b, D2D1::RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-                    c.dc->PopLayer();
-                    rg->Release();
-                }
-                if (f) f->Release();
-            }
-            c.br->SetColor(c.dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.86f));
-            c.dc->DrawTextW(name.c_str(), (UINT32)name.size(), c.body, D2D1::RectF(t.right + 16, rr.top + 40, rr.right, rr.top + 60), c.br);
-            if (!kind.empty()) {
-                c.br->SetColor(c.dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.5f));
-                c.dc->DrawTextW(kind.c_str(), (UINT32)kind.size(), c.note, D2D1::RectF(t.right + 16, rr.top + 62, rr.right, rr.top + 80), c.br);
-            }
-        };
-        p.groups.push_back(G({ head }, L"Imagem de Fundo da Tela Bloqueada"));
-        std::vector<std::pair<std::wstring, std::function<void()>>> bs = {
-            { L"Escolher Imagem…", [] { lockbg::Pick(false); } }, { L"Escolher Vídeo…", [] { lockbg::Pick(true); } } };
-        if (custom) bs.insert(bs.begin(), { L"Usar o Padrão", [] { lockbg::Default(); } });
-        p.groups.push_back(Plain(Buttons(bs)));
-    }
+    // a imagem de fundo da tela de bloqueio do WacOS saiu junto com ela (21/11/2026); fica o que é do Windows
     p.groups.push_back(G({
         Popup(L"Desligar a tela quando inativo", MinuteLabels(L"Após "), [] { return MinuteIndex(sys::DisplayOffMinutes()); }, [](int i) { sys::SetDisplayOffMinutes(MINUTES[i]); }),
         Toggle(L"Exigir senha ao sair do protetor de tela",
