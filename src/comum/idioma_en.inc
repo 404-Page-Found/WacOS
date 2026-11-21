@@ -1619,3 +1619,6 @@
 { L"Este PC", L"This PC" },
 { L"Menu da Apple", L"Apple Menu" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"The Apple menu window: this computer's real specs or a decorative Mac Studio." },
+{ L"Captura feita", L"Screenshot taken" },
+{ L"Captura copiada", L"Screenshot copied" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3 full screen, Win+Shift+4 a region, Win+Shift+5 the Screenshot toolbar (same options under Options). Hold Ctrl to copy instead of saving." },

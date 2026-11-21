@@ -60,7 +60,7 @@ const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, T
 enum Style { S_NOTCH, S_ILHA, S_AVISO };
 enum Mode { M_HIDDEN, M_IDLE, M_MEDIA, M_TIMER, M_HUD, M_PEEK, M_OPEN };
 enum Tab { TAB_HOME, TAB_TIMER, TAB_CLIP, TAB_SHELF, TAB_STATS, TAB_N };
-enum HudKind { HUD_VOL, HUD_CAPS, HUD_BAT, HUD_COPY };
+enum HudKind { HUD_VOL, HUD_CAPS, HUD_BAT, HUD_COPY, HUD_SHOT };
 
 // medidas em pt
 const float WMAX = 470, HMAX = 210;   // a janela: o maior tamanho (aberta) com folga para a mola e a sombra
@@ -90,6 +90,7 @@ HWND g_wnd;
 ui::GpuSurface g_s;
 bool g_on, g_notesOn, g_volOn, g_hoverOpen, g_copyOn;
 bool g_copyFiles;            // o aviso "Copiado" é de arquivos (CF_HDROP)
+bool g_shotClip;             // o aviso da Captura de Tela: copiada (true) ou salva
 DWORD g_copyAt;              // última vez que mostrou (apps que regravam a área de transferência em rajada)
 Style g_style = S_NOTCH;
 float g_barPt = 24;          // altura da barra de menus (pt)
@@ -117,6 +118,7 @@ struct Peek {
 bool g_peekOn; Peek g_peek;
 bool g_hudOn; HudKind g_hud; float g_vol; bool g_mute; bool g_caps; int g_batPct; bool g_batAC;
 int g_priv;                  // 1 microfone em uso, 2 câmera em uso
+int g_privReg;               // o que o registro diz (o ícone de privacidade do Windows na bandeja completa)
 bool g_hasBattery;
 
 // ---- timer
@@ -385,9 +387,12 @@ bool InUse(HKEY k) {
         if (RegOpenKeyExW(k, name, 0, KEY_READ, &s) != ERROR_SUCCESS) continue;
         if (!_wcsicmp(name, L"NonPackaged")) use |= InUse(s);
         else {
-            ULONGLONG a = 0, b = 1; DWORD cb = sizeof(a);
+            // em uso: começou e não parou. O app que usa pela primeira vez ainda não tem o LastUsedTimeStop (antes
+            // exigia o valor e a bolinha não aparecia, issue #8); parar depois do começo grava um Stop maior
+            ULONGLONG a = 0, b = 0; DWORD cb = sizeof(a);
             RegQueryValueExW(s, L"LastUsedTimeStart", nullptr, nullptr, (BYTE*)&a, &cb); cb = sizeof(b);
-            if (RegQueryValueExW(s, L"LastUsedTimeStop", nullptr, nullptr, (BYTE*)&b, &cb) == ERROR_SUCCESS && a && !b) use = true;
+            RegQueryValueExW(s, L"LastUsedTimeStop", nullptr, nullptr, (BYTE*)&b, &cb);
+            if (a && (!b || b < a)) use = true;
         }
         RegCloseKey(s);
         if (use) break;
@@ -1328,6 +1333,9 @@ void DrawContent(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, Mode m, doubl
         } else if (g_hud == HUD_CAPS) {
             Glyph(dc, br, 0xE765, g_tfIconS, D2D1::RectF(wingL, cy - 9, wingL + 22, cy + 9), g_caps ? GREEN : GRAY);
             Text(dc, br, g_caps ? L"Caps Lock" : Tr(L"Caps Lock desligado"), g_tfWingR, D2D1::RectF(rr - 130, cy - 8, rr, cy + 8), g_caps ? GREEN : GRAY);
+        } else if (g_hud == HUD_SHOT) {  // "Captura feita" (issue #8): a câmera e o texto, rapidinho
+            Sym(dc, br, L"camera.fill", D2D1::RectF(wingL + 2, cy - 6, wingL + 18, cy + 6), WHITE);
+            Text(dc, br, g_shotClip ? Tr(L"Captura copiada") : Tr(L"Captura feita"), g_tfWingR, D2D1::RectF(rr - 150, cy - 8, rr, cy + 8), WHITE);
         } else if (g_hud == HUD_COPY) {  // "Copiado" (issue #8): o visto verde e o texto, rapidinho
             Sym(dc, br, g_copyFiles ? L"folder.fill" : L"checkmark", D2D1::RectF(wingL + 2, cy - 6, wingL + 16, cy + 6), GREEN);
             Text(dc, br, Tr(L"Copiado"), g_tfWingR, D2D1::RectF(rr - 120, cy - 8, rr, cy + 8), WHITE);
@@ -1706,6 +1714,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_IL_PRIV:
+        // o registro (thread da vigia, w) ou a bandeja (l = 1: só relê o ícone do Windows)
+        if (!l) g_privReg = (int)w;
+        w = g_privReg | tray::PrivacyBits();
         if ((int)w != g_priv) {
             g_priv = (int)w; Log(L"ilha: microfone %d câmera %d", g_priv & 1, (g_priv >> 1) & 1);
             menubar::Update();  // a bolinha da barra de menus (issue #8)
@@ -2036,6 +2047,18 @@ bool ilha::Volume(float level, bool mute) {
 }
 
 void ilha::CapsLock() { if (g_wnd && g_on) PostMessageW(g_wnd, WM_IL_CAPS, 0, 0); }
+
+// O Windows 11 25H2 não grava mais o uso de programas comuns (ffmpeg, navegadores...) no ConsentStore enquanto usam:
+// a bolinha não acendia (issue #8). O ícone de privacidade que ele põe na bandeja é o sinal certo.
+void ilha::PrivacidadeMudou() { if (g_wnd) PostMessageW(g_wnd, WM_IL_PRIV, 0, 1); }
+
+// A Captura de Tela salvou ou copiou: aviso rápido na ilha (o "Copiado" da área de transferência fica de fora)
+void ilha::Captura(bool copiada) {
+    if (!g_wnd || !g_on || g_full || g_peekOn || g_mode == M_OPEN) return;
+    g_shotClip = copiada;
+    g_copyAt = GetTickCount();  // a imagem copiada não mostra o "Copiado" por cima
+    ShowHud(HUD_SHOT, 1600);
+}
 
 bool ilha::On() { return g_on; }
 

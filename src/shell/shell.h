@@ -220,6 +220,10 @@ void Stop();
 void SemAvisoAoSair();  // reinício: o Shell novo avisa ao abrir; avisar também ao sair confundia o Lively
 void Click(int index, UINT button, POINT screenPt);  // WM_LBUTTONUP / WM_RBUTTONUP
 void Keepalive();                                    // mantém o nosso Shell_TrayWnd na frente
+// O ícone "<app> está usando o microfone/a câmera" do próprio Windows (guid 7820AE82-...): não vai para a barra de
+// menus (lá fica a bolinha laranja/verde, como no Mac) e é o sinal de uso; 1 microfone, 2 câmera (pelo texto)
+bool IsPrivacy(const TrayIcon& t);
+int PrivacyBits();
 }
 
 // ---- menubar.cpp / dock.cpp
@@ -442,6 +446,8 @@ bool Notificacao(const std::wstring& app, const std::wstring& title, const std::
                  std::function<void(ID2D1DeviceContext*, ID2D1SolidColorBrush*, D2D1_RECT_F)> icon, std::function<void()> click);
 bool Volume(float level, bool mute);  // teclas de volume: true = a ilha mostrou (sem o aviso de volume)
 void CapsLock();                // a tecla Caps Lock foi apertada (gancho de teclado do main.cpp)
+void PrivacidadeMudou();        // a bandeja mudou: relê o ícone de privacidade do Windows (tray::PrivacyBits)
+void Captura(bool copiada);     // a Captura de Tela terminou: aviso rápido "Captura feita" / "Captura copiada"
 int Privacidade();              // 1 microfone, 2 câmera em uso (bits); a 1ª chamada liga a vigia; mudou = menubar::Update()
 }
 namespace palco {  // Organizador Visual / Stage Manager (palco.cpp): ajuste organizador=1

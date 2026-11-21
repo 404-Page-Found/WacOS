@@ -834,3 +834,17 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Compilado (shell, ajustes, setup), instalado e conferido no PC (foto do Sobre). Nada no registro do Windows. DESFAZER: reverter o commit.
 
 [2026-11-21 02:58] build.cmd roda tools\versao.ps1 em toda compilacao: bin\versao.txt = ultima build publicada no GitHub (gh), commit atual e data (sem gh/rede mantem a versao do arquivo). C:\Users\Public\copiar-inst.ps1 copia o versao.txt para a instalacao. Motivo: instalado era a build-22 e os Ajustes mostravam build-19. DESFAZER: reverter o commit.
+
+[2026-11-21 04:12] Issue #8, segunda rodada (carlosjrrr, 21/11 06:03).
+  1) Abrir/Salvar por fora (src\shell\dialogs.cpp): Salvar reconhecido pela estrutura (a janela de Salvar não tem o campo 1148; o nome fica num Edit 1001 em FloatNotifySink), não só pelo texto do botão: o "Salvar como" do navegador abria o Finder em modo Abrir. Escolher pasta: se a original entrou na pasta em vez de devolvê-la (VS Code "Abrir Pasta" não fazia nada), campo vazio + OK de novo. Depois do OK, pergunta da original vai para o alerta do Mac; outra janela vem para o meio da tela.
+  2) Alerta do Mac (src\shell\alertas.cpp): com a dona fora da tela (-32000) ou o centro fora de qualquer monitor, vai para o meio do monitor do ponteiro (antes ia para o canto/fora da tela e o Firefox ficava travado até o Esc).
+  3) Menu da Apple > Bloquear Tela (src\shell\menubar.cpp): bloqueio::Lock() (o LockWorkStation fica desligado pela política enquanto o Shell roda: não fazia nada).
+  4) Bolinha de microfone/câmera: o ícone de privacidade do próprio Windows na bandeja (guid 7820AE82) é o sinal (o 25H2 não grava mais o ConsentStore dos programas comuns enquanto usam) e não aparece mais na barra de menus; registro: app sem LastUsedTimeStop conta como em uso. tray.cpp loga cada ícone novo (bandeja: +).
+  5) Captura de Tela: destino padrão Imagens > Capturas de Tela (era a Mesa); Ajustes > Teclado > Capturas de Tela > "Salvar em" (grava destino=/outro= no %APPDATA%\Shell\captura.txt). Aviso "Captura feita"/"Captura copiada" na ilha (mensagem ShellCapturaFeita da Captura para o Shell).
+  6) Quick Look: SVG no tamanho do quadro (o width/height do arquivo mandava; ícones de 16 pt abriam minúsculos no canto; agora no mínimo 512 px); volume do vídeo arrastável; arrastando a janela com vídeo, vídeo/barra/vidro andam juntos sem redesenhar (tremia e pesava).
+  7) WacOSWindow.dll: os cantos de cima usam a cor de cada lado quando o app desenha ali (barra unificada); o Tempo com a lateral clara e o céu escuro ganhava um arco escuro no canto.
+  8) Notas: a coluna das notas diminui até 200 pt (260 com a lateral escondida; era presa em 310) e a divisória pega também na altura da barra.
+  9) Fotos: a Pré-Visualização aberta pelo Fotos anda pela galeria inteira na ordem dela (--lista <arquivo>), não só pela pasta da foto.
+  7 frases novas nos 12 idiomas. Compilado tudo (e janelas), instalado. Conferido na tela: Salvar/pasta/substituir com a janela original do Windows (programa de teste), alerta no meio da tela, bolinha do microfone com o ffmpeg, aviso "Captura feita", SVG no Quick Look. NÃO conferidos na tela: Bloquear Tela, Ajustes > Capturas de Tela, canto do Tempo (app aberto por mim sai sem desenho), Notas, Fotos, volume e arrasto do vídeo.
+  Às 03:52 o PC reiniciou sozinho (Kernel-Power 41, BugcheckCode 0, sem dump; igual a 09/11 e 17/11): suspeita de hardware (i9-14900K), não do WacOS.
+  Nada no registro do Windows. DESFAZER: reverter o commit.

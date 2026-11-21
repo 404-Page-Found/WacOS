@@ -1619,3 +1619,6 @@
 { L"Este PC", L"这台电脑" },
 { L"Menu da Apple", L"Apple 菜单" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Apple 菜单中的窗口：这台电脑的真实配置，或作为装饰的 Mac Studio。" },
+{ L"Captura feita", L"已截屏" },
+{ L"Captura copiada", L"已拷贝截屏" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3 截取整个屏幕，Win+Shift+4 截取区域，Win+Shift+5 打开截屏工具栏（“选项”中也有相同设置）。按住 Ctrl 可拷贝而不存储。" },

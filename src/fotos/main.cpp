@@ -647,7 +647,28 @@ void OpenSel() {
     std::wstring x = PathFindExtensionW(p.c_str()); for (auto& c : x) c = towlower(c);
     wchar_t me[MAX_PATH]; GetModuleFileNameW(nullptr, me, MAX_PATH); PathRemoveFileSpecW(me);
     std::wstring pv = std::wstring(me) + L"\\" EXE_PREVIEW;
-    if (IsImg(x) && GetFileAttributesW(pv.c_str()) != INVALID_FILE_ATTRIBUTES) ShellExecuteW(nullptr, L"open", pv.c_str(), (L"\"" + p + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+    if (IsImg(x) && GetFileAttributesW(pv.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        // a Pré-Visualização anda (← / →) pelas fotos na ordem desta galeria, de uma pasta para a outra (issue #8);
+        // a lista vai num arquivo temporário (a linha de comando não cabe uma biblioteca inteira), apagado por ela
+        std::wstring args = L"\"" + p + L"\"";
+        wchar_t tmp[MAX_PATH], lst[MAX_PATH];
+        GetTempPathW(MAX_PATH, tmp);
+        if (GetTempFileNameW(tmp, L"fot", 0, lst)) {
+            FILE* f = nullptr;
+            if (!_wfopen_s(&f, lst, L"w, ccs=UTF-8") && f) {
+                {
+                    std::lock_guard<std::mutex> l(g_mx);
+                    for (int i : g_shown) {
+                        std::wstring e = PathFindExtensionW(g_all[i].path.c_str()); for (auto& c : e) c = towlower(c);
+                        if (IsImg(e)) fwprintf(f, L"%ls\n", g_all[i].path.c_str());
+                    }
+                }
+                fclose(f);
+                args += L" --lista \"" + std::wstring(lst) + L"\"";
+            }
+        }
+        ShellExecuteW(nullptr, L"open", pv.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+    }
     else if (!AbrirNoAppMac(p)) ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);  // vídeo: QuickTime
 }
 void ToggleFav() { std::wstring p = SelPath(); if (p.empty()) return; if (!g_fav.erase(p)) g_fav.insert(p); SaveFav(); if (g_view == 1) Filter(); InvalidateRect(wnd, nullptr, FALSE); }

@@ -80,7 +80,8 @@ template <class T> static void Rel(T*& p) { if (p) { p->Release(); p = nullptr; 
 // ---------------------------------------------------------------- opções (Shell\captura.txt)
 struct Cfg {
     // 0 Mesa, 1 Documentos, 2 Área de Transferência, 3 Imagens › Capturas de Tela, 4 Outro Local (pasta em "outro")
-    int dest = 0;
+    // padrão: Imagens › Capturas de Tela, a pasta do Windows (issue #8: as capturas iam para a Mesa e a pessoa não achava)
+    int dest = 3;
     std::wstring other;
     int timer = 0;     // 0, 5, 10 segundos
     int mode = 2;      // última ferramenta da barra: 0 tela inteira, 1 janela, 2 região
@@ -656,12 +657,19 @@ static void ShowThumb(const Img& im, const std::wstring& path, const Mon& m);
 static void DismissThumb();
 static bool g_thumbOn;
 
+// a ilha do Shell mostra "Captura feita" / "Captura copiada" (issue #8: pedido de um aviso no notch)
+static void AvisaShell(bool clip) {
+    static UINT msg = RegisterWindowMessageW(L"ShellCapturaFeita");
+    if (HWND sh = FindWindowW(L"ShellMensagens", nullptr)) PostMessageW(sh, msg, clip ? 1 : 0, 0);
+}
+
 static void Deliver(std::vector<Img>& ims, const std::vector<float>& dpis, bool clip, const Mon& where) {
     if (ims.empty() || ims[0].w <= 0) { Logf(L"nada para entregar"); return; }
     Shutter();
     if (clip) {
         bool ok = ToClipboard(ims[0], dpis[0]);
         Logf(L"captura %dx%d na área de transferência: %ls", ims[0].w, ims[0].h, ok ? L"ok" : L"FALHOU");
+        if (ok) AvisaShell(true);
         return;
     }
     std::wstring folder = DestFolder();
@@ -680,6 +688,7 @@ static void Deliver(std::vector<Img>& ims, const std::vector<float>& dpis, bool 
         Logf(L"captura %dx%d (%.0f ppp) em %ls: %ls (%.0f ms)", ims[i].w, ims[i].h, dpis[i], path.c_str(), ok ? L"ok" : L"FALHOU", Now() - t0);
         if (ok) { SHChangeNotify(SHCNE_CREATE, SHCNF_PATHW | SHCNF_FLUSHNOWAIT, path.c_str(), nullptr); if (first.empty()) first = path; }
     }
+    if (!first.empty()) AvisaShell(false);
     if (g_cfg.thumb && !first.empty()) ShowThumb(ims[0], first, where);
 }
 

@@ -1619,3 +1619,6 @@
 { L"Este PC", L"Diesen PC" },
 { L"Menu da Apple", L"Apple-Menü" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Das Fenster im Apple-Menü: die echten Daten dieses Computers oder ein Mac Studio als Deko." },
+{ L"Captura feita", L"Bildschirmfoto erstellt" },
+{ L"Captura copiada", L"Bildschirmfoto kopiert" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Umschalt+3 ganzer Bildschirm, Win+Umschalt+4 ein Bereich, Win+Umschalt+5 die Bildschirmfoto-Leiste (dieselben Optionen unter „Optionen“). Strg halten, um zu kopieren statt zu sichern." },

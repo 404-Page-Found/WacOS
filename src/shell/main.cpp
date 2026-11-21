@@ -759,6 +759,8 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == redoGlass && redoGlass) { backdrop::Restart(); return 1; }
     static UINT capVis = RegisterWindowMessageW(L"ShellCapturaVisivel");  // a Captura de Tela vai tirar a foto
     if (m == capVis && capVis) { backdrop::CaptureVisible(w != 0); return 1; }
+    static UINT capDone = RegisterWindowMessageW(L"ShellCapturaFeita");  // a Captura salvou (0) ou copiou (1): aviso na ilha
+    if (m == capDone && capDone) { ilha::Captura(w != 0); return 0; }
     if (m == WM_COPYDATA && l && ((COPYDATASTRUCT*)l)->dwData == 0x4C504150 /*'PAPL'*/) {  // Ajustes: papel de parede escolhido
         auto* cd = (COPYDATASTRUCT*)l;
         if (!cd->lpData || cd->cbData < sizeof(wchar_t) || cd->cbData > 4096) return FALSE;

@@ -1619,3 +1619,6 @@
 { L"Este PC", L"Этот ПК" },
 { L"Menu da Apple", L"Меню Apple" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Окно из меню Apple: реальные характеристики этого компьютера или декоративный Mac Studio." },
+{ L"Captura feita", L"Снимок сделан" },
+{ L"Captura copiada", L"Снимок скопирован" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3 весь экран, Win+Shift+4 область, Win+Shift+5 панель снимков экрана (те же настройки в «Параметрах»). Удерживайте Ctrl, чтобы скопировать вместо сохранения." },

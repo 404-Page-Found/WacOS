@@ -42,6 +42,25 @@ static int Find(const NotifyIconData32& n) {
     return -1;
 }
 
+bool tray::IsPrivacy(const TrayIcon& t) { return t.guid.Data1 == 0x7820AE82; }
+
+// pelo texto do ícone (em qualquer idioma do Windows que conhecemos): câmera, microfone; sem saber, microfone
+int tray::PrivacyBits() {
+    int bits = 0;
+    for (auto& t : icons) {
+        if (!IsPrivacy(t) || t.hidden) continue;
+        std::wstring s = t.tip; for (auto& c : s) c = towlower(c);
+        bool cam = false, mic = false;
+        for (auto w : { L"camera", L"câmera", L"cámara", L"caméra", L"kamera", L"fotocamera", L"камер", L"カメラ", L"카메라", L"摄像", L"相机", L"webcam" })
+            if (s.find(w) != std::wstring::npos) cam = true;
+        for (auto w : { L"micro", L"mikro", L"микрофон", L"マイク", L"마이크", L"麦克风" })
+            if (s.find(w) != std::wstring::npos) mic = true;
+        if (!cam && !mic) mic = true;
+        bits |= (mic ? 1 : 0) | (cam ? 2 : 0);
+    }
+    return bits;
+}
+
 static void Apply(TrayIcon& c, const NotifyIconData32& n) {
     if (n.uFlags & NIF_MESSAGE) c.callback = n.uCallbackMessage;
     if (n.uFlags & NIF_ICON) { if (c.icon) DestroyIcon(c.icon); c.icon = n.hIcon ? CopyIcon((HICON)(ULONG_PTR)n.hIcon) : nullptr; }
@@ -56,7 +75,9 @@ static BOOL OnNotify(DWORD msg, const NotifyIconData32& n) {
     switch (msg) {
     case NIM_ADD:
         if (i >= 0) { Apply(v[i], n); break; }
-        { TrayIcon c; c.hwnd = (HWND)(ULONG_PTR)n.hWnd; c.uid = n.uID; Apply(c, n); v.push_back(c); }
+        { TrayIcon c; c.hwnd = (HWND)(ULONG_PTR)n.hWnd; c.uid = n.uID; Apply(c, n); v.push_back(c);
+          wchar_t cls[64] = {}; GetClassNameW(c.hwnd, cls, 64);
+          Log(L"bandeja: + %ls uid %u guid %08lX tip \"%ls\"", cls, c.uid, c.guid.Data1, c.tip.c_str()); }
         break;
     case NIM_MODIFY: if (i < 0) return FALSE; Apply(v[i], n); break;
     case NIM_DELETE:
@@ -69,6 +90,7 @@ static BOOL OnNotify(DWORD msg, const NotifyIconData32& n) {
     default: return FALSE;
     }
     if (g_changed) g_changed();
+    ilha::PrivacidadeMudou();  // o ícone de privacidade do Windows pode ter entrado, mudado ou saído
     return TRUE;
 }
 

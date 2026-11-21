@@ -95,8 +95,9 @@ struct Info {
     RECT previewFor{};
     HWND corner[1]{};            // moldura: cantos suaves e contorno do Mac (o recorte sozinho fica serrilhado)
     COLORREF bottom[2]{ CLR_INVALID, CLR_INVALID };  // cor do app junto aos cantos de baixo (esq., dir.)
+    COLORREF topc[2]{ CLR_INVALID, CLR_INVALID };    // e junto aos de cima, quando o próprio app desenha ali (barra unificada)
     // o que a moldura desenhou da última vez (W, H, raio, cor de cima, de baixo esq./dir., escuro): igual, só anda
-    UINT32 cornerKey[7]{};
+    UINT32 cornerKey[9]{};
 };
 
 bool Dark() {
@@ -541,6 +542,16 @@ void UpdateCorners(Info* in, RECT vis) {
             if (c != CLR_INVALID) in->bottom[i] = c;
         }
     }
+    // Em cima, cada canto com a cor dele quando é o app que desenha ali (barra unificada dos apps do WacOS). Com uma
+    // cor só (a mais comum na faixa de cima), o Tempo com a lateral clara e o céu escuro ganhava um arco escuro
+    // grosso no canto de cima à esquerda (issue #8, 21/11/2026). A barra do Mac por cima (outra janela) não conta.
+    for (int i = 0; i < 2; i++) {
+        in->topc[i] = CLR_INVALID;
+        if (!UnifiedBar(h)) continue;
+        POINT p{ i ? vis.right - 4 : vis.left + 3, vis.top + S + 2 };
+        HWND at = WindowFromPoint(p);
+        if (at && GetAncestor(at, GA_ROOT) == h) in->topc[i] = GetPixel(screen, p.x, p.y);
+    }
     ReleaseDC(nullptr, screen);
     HWND& fw = in->corner[0];
     if (fw && !IsWindow(fw)) { fw = nullptr; memset(in->cornerKey, 0, sizeof(in->cornerKey)); }  // a moldura se fechou sozinha (CornerProc)
@@ -564,7 +575,7 @@ void UpdateCorners(Info* in, RECT vis) {
     // janela inteira (3440×1400 = 19 MB, alocado, zerado e enviado ao DWM) dentro do programa dos outros.
     POINT pos{ vis.left - M, vis.top - M };
     COLORREF top = CapColor(in);
-    UINT32 key[7]{ (UINT32)W, (UINT32)H, (UINT32)r, (UINT32)top, (UINT32)in->bottom[0], (UINT32)in->bottom[1], (UINT32)in->dark };
+    UINT32 key[9]{ (UINT32)W, (UINT32)H, (UINT32)r, (UINT32)top, (UINT32)in->bottom[0], (UINT32)in->bottom[1], (UINT32)in->dark, (UINT32)in->topc[0], (UINT32)in->topc[1] };
     if (!memcmp(key, in->cornerKey, sizeof(key)) && IsWindowVisible(fw)) {
         UpdateLayeredWindow(fw, nullptr, &pos, nullptr, nullptr, nullptr, 0, nullptr, 0);
         return;
@@ -588,7 +599,7 @@ void UpdateCorners(Info* in, RECT vis) {
         auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); A = a + A * (1 - a); };
         // arco suavizado: só nos cantos, na faixa junto ao arco (o recorte corta um pouco por dentro)
         if (qx > 0 && qy > 0 && d > -2.5f) {
-            COLORREF c = y < H / 2 ? top : in->bottom[x >= W / 2];
+            COLORREF c = y < H / 2 ? (in->topc[x >= W / 2] != CLR_INVALID ? in->topc[x >= W / 2] : top) : in->bottom[x >= W / 2];
             if (c == CLR_INVALID) c = top;
             over(GetRValue(c) / 255.f, GetGValue(c) / 255.f, GetBValue(c) / 255.f, cov(d));
         }

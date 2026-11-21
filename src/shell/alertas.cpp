@@ -744,6 +744,19 @@ void Show(int cx, int cy) {
     if (g.px.empty()) SetIcon(g.iconOf);
     float sc = Sc();
     int wpx = (int)std::lround(AW * sc), hpx = (int)std::lround(PanelH() * sc);
+    // A pergunta original nasce junto da janela dona dela. Se a dona saiu da tela (a janela de Salvar trocada pelo
+    // Finder fica em -32000), o centro dela não vale: o alerta ia para o canto ou para fora da tela, e o programa
+    // (Firefox, issue #8) ficava travado esperando uma resposta invisível. Aí, ou fora de qualquer monitor: no meio
+    // do monitor do ponteiro, a um terço da altura, como o Mac.
+    {
+        HWND own = g.target ? GetWindow(g.target, GW_OWNER) : nullptr;
+        RECT orc{}; if (own) GetWindowRect(GetAncestor(own, GA_ROOT), &orc);
+        if ((own && orc.left <= -30000) || !MonitorFromPoint({ cx, cy }, MONITOR_DEFAULTTONULL)) {
+            MONITORINFO mi{ sizeof(mi) }; POINT c; GetCursorPos(&c);
+            GetMonitorInfoW(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY), &mi);
+            cx = (mi.rcWork.left + mi.rcWork.right) / 2; cy = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top) / 3;
+        }
+    }
     int x = cx - wpx / 2, y = cy - hpx / 2;
     SetWindowPos(g_wnd, HWND_TOPMOST, x, y, wpx, hpx, SWP_NOACTIVATE);
     SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE | SWP_SHOWWINDOW);

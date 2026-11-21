@@ -1619,3 +1619,6 @@
 { L"Este PC", L"このPC" },
 { L"Menu da Apple", L"Appleメニュー" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Appleメニューのウインドウ：このコンピュータの実際の仕様、または飾りのMac Studio。" },
+{ L"Captura feita", L"スクリーンショットを撮りました" },
+{ L"Captura copiada", L"スクリーンショットをコピーしました" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3で画面全体、Win+Shift+4で範囲、Win+Shift+5でスクリーンショットのツールバー（同じ設定は「オプション」にもあります）。保存せずにコピーするにはCtrlを押したままにします。" },

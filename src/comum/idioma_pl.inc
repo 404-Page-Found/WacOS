@@ -1619,3 +1619,6 @@
 { L"Este PC", L"Ten komputer" },
 { L"Menu da Apple", L"Menu Apple" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Okno z menu Apple: prawdziwe dane tego komputera albo ozdobny Mac Studio." },
+{ L"Captura feita", L"Zrzut zrobiony" },
+{ L"Captura copiada", L"Zrzut skopiowany" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3 cały ekran, Win+Shift+4 obszar, Win+Shift+5 pasek zrzutu ekranu (te same ustawienia w Opcjach). Przytrzymaj Ctrl, aby skopiować zamiast zachować." },

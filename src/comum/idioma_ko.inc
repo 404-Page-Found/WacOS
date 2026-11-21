@@ -1619,3 +1619,6 @@
 { L"Este PC", L"이 PC" },
 { L"Menu da Apple", L"Apple 메뉴" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Apple 메뉴 창: 이 컴퓨터의 실제 사양 또는 장식용 Mac Studio." },
+{ L"Captura feita", L"스크린샷 찍음" },
+{ L"Captura copiada", L"스크린샷 복사됨" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3 전체 화면, Win+Shift+4 영역, Win+Shift+5 스크린샷 막대(같은 설정은 옵션에도 있음). 저장 대신 복사하려면 Ctrl을 누르고 있으십시오." },

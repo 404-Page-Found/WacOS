@@ -230,9 +230,33 @@ void Open(const std::wstring& path) {
     InvalidateRect(g_wnd, nullptr, FALSE);
 }
 
-// imagens da mesma pasta, em ordem de nome (← / →)
+// Aberta pelo Fotos (--lista <arquivo>): ← / → andam pela biblioteca na ordem da galeria, passando de uma pasta para
+// a outra (issue #8, 21/11/2026: só andava pelas fotos da pasta da foto aberta). Um caminho por linha.
+std::vector<std::wstring> g_list;
+void LoadList(const std::wstring& file) {
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, file.c_str(), L"r, ccs=UTF-8") || !f) return;
+    wchar_t line[2048];
+    while (fgetws(line, 2048, f)) {
+        std::wstring l = line;
+        while (!l.empty() && (l.back() == L'\n' || l.back() == L'\r')) l.pop_back();
+        if (!l.empty() && l[0] == 0xFEFF) l.erase(0, 1);
+        if (!l.empty()) g_list.push_back(l);
+    }
+    fclose(f);
+}
+
+// imagens da mesma pasta, em ordem de nome (← / →); ou a lista do Fotos
 void Neighbor(int dir) {
     if (g_pdf || g_path.empty()) return;
+    if (!g_list.empty()) {
+        auto it = std::find_if(g_list.begin(), g_list.end(), [](auto& x) { return !_wcsicmp(x.c_str(), g_path.c_str()); });
+        if (it != g_list.end() && g_list.size() > 1) {
+            int i = ((int)(it - g_list.begin()) + dir + (int)g_list.size()) % (int)g_list.size();
+            Open(g_list[i]);
+            return;
+        }
+    }
     std::wstring folder = g_path.substr(0, g_path.find_last_of(L"\\/"));
     std::vector<std::wstring> files;
     WIN32_FIND_DATAW fd;
@@ -1077,6 +1101,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     for (int i = 1; i + 1 < argc; i++) if (!wcscmp(argv[i], L"--foto")) g_fotoPath = argv[i + 1];
+    for (int i = 1; i + 1 < argc; i++) if (!wcscmp(argv[i], L"--lista")) { LoadList(argv[i + 1]); DeleteFileW(argv[i + 1]); }
     if (!g_fotoPath.empty()) {  // teste: salva a foto da janela daqui a pouco e fecha
         if (g_rt) { g_rt->Release(); g_rt = nullptr; g_hrt = nullptr; }
         if (g_br) { g_br->Release(); g_br = nullptr; }

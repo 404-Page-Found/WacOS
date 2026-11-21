@@ -848,7 +848,7 @@ void Render() {
     UINT px = (UINT)std::lround(17 * sc);
     for (int i = (int)tray::icons.size() - 1; i >= 0; i--) {
         auto& t = tray::icons[i];
-        if (t.hidden || !t.icon || !IsShown(t)) continue;
+        if (t.hidden || !t.icon || !IsShown(t) || tray::IsPrivacy(t)) continue;  // o do Windows: vira a bolinha
         if (r - 37 < leftEnd + 60) { g_overflow = true; break; }  // sem espaço: some, como no Mac (macOS 27: aparece a »)
         auto bx = slot(17, K_TRAY, i);
         std::vector<BYTE> mono = IconPixels(t.icon, px);
@@ -887,7 +887,7 @@ void Render() {
         }
     }
     bool anyHidden = false;
-    for (auto& t : tray::icons) if (!t.hidden && t.icon && !IsShown(t)) anyHidden = true;
+    for (auto& t : tray::icons) if (!t.hidden && t.icon && !IsShown(t) && !tray::IsPrivacy(t)) anyHidden = true;
     if (liquid::Golden() && (g_overflow || anyHidden)) {
         // macOS 27 (vídeo, 2:16): quando os ícones não cabem, uma seta dupla » mostra os escondidos
         auto bx = slot(14, K_MORE, 0);
@@ -1129,7 +1129,7 @@ void Run(int id, App* app) {
     // como no Mac: alerta com o ícone do computador, Cancelar | Reiniciar/Desligar (antes era a caixa do Windows)
     case 105: alertas::Confirm(Tr(L"Tem certeza de que deseja reiniciar o computador agora?"), L"", Tr(L"Reiniciar"), [] { Shutdown(EWX_REBOOT); }, L"pack:macstudio"); break;
     case 106: alertas::Confirm(Tr(L"Tem certeza de que deseja desligar o computador agora?"), L"", Tr(L"Desligar"), [] { Shutdown(EWX_POWEROFF); }, L"pack:macstudio"); break;
-    case 107: LockWorkStation(); break;
+    case 107: bloqueio::Lock(); break;  // a nossa tela de bloqueio (o LockWorkStation fica desligado pela política enquanto o Shell roda: não fazia nada, issue #8)
     case 108: alertas::Confirm(Tr(L"Tem certeza de que deseja encerrar todos os aplicativos e sair agora?"), L"", Tr(L"Encerrar Sessão"), [] { ExitWindowsEx(EWX_LOGOFF, 0); }, L"pack:macstudio"); break;
     case 109: shell::Quit(L"menu do logo"); break;
     case 200: if (app && !app->exe.empty()) ShellExecuteW(nullptr, L"properties", app->exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
@@ -1218,7 +1218,7 @@ void Click(D2D1_POINT_2F p, bool right) {
         std::vector<int> idx;
         for (int i = 0; i < (int)tray::icons.size(); i++) {
             auto& t = tray::icons[i];
-            if (t.hidden || !t.icon) continue;
+            if (t.hidden || !t.icon || tray::IsPrivacy(t)) continue;
             std::wstring name = TrayKey(t);
             if (name.empty()) name = Tr(L"(sem nome)");
             ctxmenu::Item it = I(name, 0);

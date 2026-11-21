@@ -77,6 +77,7 @@ IMFPMediaPlayer* g_mp;
 HWND g_vid, g_ctl, g_ctlBack;
 bool g_media, g_hasVideo, g_scrub, g_ended, g_mpVideo;
 float g_vol = 1;
+bool g_volDrag;  // arrastando o volume da barra do vídeo
 DWORD g_ctlMoveAt;
 std::vector<barravideo::Hit> g_vhits;
 const float CTL_DOWN = 20;  // a barra fica a 20 do fundo da moldura
@@ -306,12 +307,28 @@ bool LoadSvg(const std::wstring& path, UINT maxSide, UINT& w, UINT& h, std::vect
     if (ok) {
         ok = false;
         LARGE_INTEGER z{}; st->Seek(z, STREAM_SEEK_SET, nullptr);
-        float k = maxSide / std::max(vw, vh);
+        // ícones (16, 24 pt...) num tamanho bom de ver, como no Mac; desenhos grandes até o maxSide (issue #8: o SVG
+        // abria minúsculo no canto)
+        float side = std::min((float)maxSide, std::max(512.f, std::max(vw, vh) * 2));
+        float k = side / std::max(vw, vh);
         w = std::max(1u, (UINT)std::lround(vw * k)); h = std::max(1u, (UINT)std::lround(vh * k));
         IWICBitmap* b = nullptr; ID2D1RenderTarget* rt = nullptr; ID2D1DeviceContext5* dc = nullptr; ID2D1SvgDocument* doc = nullptr;
         if (SUCCEEDED(wic->CreateBitmap(w, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &b)) &&
             SUCCEEDED(fac->CreateWicBitmapRenderTarget(b, D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &rt)) &&
             SUCCEEDED(rt->QueryInterface(IID_PPV_ARGS(&dc))) && SUCCEEDED(dc->CreateSvgDocument(st, D2D1::SizeF((float)w, (float)h), &doc))) {
+            // o width/height do próprio arquivo mandava no tamanho do desenho (o viewport pedido era ignorado): com
+            // viewBox (o tamanho original, se o arquivo não tem) e width/height = o bitmap, o desenho ocupa tudo
+            if (ID2D1SvgElement* root = nullptr; (doc->GetRoot(&root), root)) {
+                D2D1_SVG_VIEWBOX vb{};
+                if (FAILED(root->GetAttributeValue(L"viewBox", D2D1_SVG_ATTRIBUTE_POD_TYPE_VIEWBOX, &vb, sizeof(vb))) || vb.width <= 0 || vb.height <= 0) {
+                    vb = { 0, 0, vw, vh };
+                    root->SetAttributeValue(L"viewBox", D2D1_SVG_ATTRIBUTE_POD_TYPE_VIEWBOX, &vb, sizeof(vb));
+                }
+                D2D1_SVG_LENGTH lw{ (float)w, D2D1_SVG_LENGTH_UNITS_NUMBER }, lh{ (float)h, D2D1_SVG_LENGTH_UNITS_NUMBER };
+                root->SetAttributeValue(L"width", D2D1_SVG_ATTRIBUTE_POD_TYPE_LENGTH, &lw, sizeof(lw));
+                root->SetAttributeValue(L"height", D2D1_SVG_ATTRIBUTE_POD_TYPE_LENGTH, &lh, sizeof(lh));
+                root->Release();
+            }
             dc->BeginDraw();
             dc->Clear(D2D1::ColorF(0, 0, 0, 0));
             dc->DrawSvgDocument(doc);
@@ -688,9 +705,26 @@ void PlaceHandler() {  // a folha do Word/PowerPoint por cima do corpo do painel
 void PlaceMedia() {
     PlaceHandler();
     if (!g_media || !g_wnd || !IsWindowVisible(g_wnd)) return;
+    RECT wr; GetWindowRect(g_wnd, &wr);
+    // Arrastando (só mudou o lugar): o vídeo, a barra e o vidro dela andam juntos, numa só troca de posição, sem refazer
+    // o recorte nem redesenhar a barra (issue #8: com o vídeo aberto, a barra tremia e o arrasto pesava)
+    static RECT last{};
+    bool sameSize = last.right - last.left == wr.right - wr.left && last.bottom - last.top == wr.bottom - wr.top;
+    if (sameSize && (last.left != wr.left || last.top != wr.top) && last.right > last.left) {
+        int dx = wr.left - last.left, dy = wr.top - last.top;
+        last = wr;
+        HDWP dw = BeginDeferWindowPos(3);
+        for (HWND x : { g_vid, g_ctlBack, g_ctl }) {
+            if (!dw || !x || !IsWindowVisible(x)) continue;
+            RECT r; GetWindowRect(x, &r);
+            dw = DeferWindowPos(dw, x, nullptr, r.left + dx, r.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        if (dw) EndDeferWindowPos(dw);
+        return;
+    }
+    last = wr;
     g_ctlRestack = true;
     float sc = Sc();
-    RECT wr; GetWindowRect(g_wnd, &wr);
     int m = (int)std::lround(5 * sc), top = (int)std::lround(BAR * sc);
     if (g_hasVideo && g_vid) {
         int w = wr.right - wr.left - 2 * m, h = wr.bottom - wr.top - top - m;
@@ -1016,6 +1050,8 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEMOVE: {
         g_ctlMoveAt = GetTickCount();
         if (g_scrub) { float x = GET_X_LPARAM(l) / sc; for (auto& ht : g_vhits) if (ht.id == barravideo::SCRUB) MSeek(barravideo::PosicaoEm(ht.r, x) * MLen()); PaintCtl(); return 0; }
+        // volume arrastado (issue #8: só dava para clicar)
+        if (g_volDrag) { float x = GET_X_LPARAM(l) / sc; for (auto& ht : g_vhits) if (ht.id == barravideo::VOL) { g_vol = barravideo::VolumeEm(ht.r, x); if (g_mp) g_mp->SetVolume(g_vol); } PaintCtl(); return 0; }
         float x = GET_X_LPARAM(l) / sc, y = GET_Y_LPARAM(l) / sc;
         std::wstring tip;
         for (auto& ht : g_vhits) {
@@ -1040,7 +1076,7 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         for (auto& ht : g_vhits) {
             if (x < ht.r.left || x >= ht.r.right || y < ht.r.top || y >= ht.r.bottom) continue;
             switch (ht.id) {
-            case barravideo::VOL: g_vol = barravideo::VolumeEm(ht.r, x); if (g_mp) g_mp->SetVolume(g_vol); break;
+            case barravideo::VOL: g_vol = barravideo::VolumeEm(ht.r, x); if (g_mp) g_mp->SetVolume(g_vol); g_volDrag = true; SetCapture(h); break;
             case barravideo::BACK: MSeek(MPos() - 15); break;
             case barravideo::FWD: MSeek(MPos() + 15); break;
             case barravideo::PLAY: MToggle(); break;
@@ -1052,8 +1088,8 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         PaintCtl();
         return 0;
     }
-    case WM_LBUTTONUP: if (g_scrub) { g_scrub = false; ReleaseCapture(); PaintCtl(); } return 0;
-    case WM_CAPTURECHANGED: g_scrub = false; return 0;
+    case WM_LBUTTONUP: if (g_scrub || g_volDrag) { g_scrub = g_volDrag = false; ReleaseCapture(); PaintCtl(); } return 0;
+    case WM_CAPTURECHANGED: g_scrub = g_volDrag = false; return 0;
     }
     return DefWindowProcW(h, m, w, l);
 }

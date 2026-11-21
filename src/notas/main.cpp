@@ -44,7 +44,7 @@ namespace {
 // ---------------------------------------------------------------------------
 // medidas (pt), da referência do Notas no Sequoia
 const float TOOLBAR_H = 52, TOOL_CY = 26, SIDE_ROW_H = 28, SIDE_HDR_H = 30;
-const float SIDE_MIN = 160, SIDE_MAX = 340, LIST_MIN = 220, LIST_MAX = 480, EDITOR_MIN = 300;
+const float SIDE_MIN = 160, SIDE_MAX = 340, LIST_MIN = 200, LIST_MAX = 480, EDITOR_MIN = 300;  // lista: 200 (era 220, issue #8)
 const UINT_PTR T_BLINK = 1, T_SAVE = 2, T_FRONT = 3;
 const UINT WM_APP_TRAZER = WM_APP + 7;  // segunda cópia aberta (Launchpad, Spotlight, Dock): vem para a frente
 
@@ -109,8 +109,9 @@ bool Mac26() { return semaforo::Liquid(); }
 float SideW() { return g_sideHidden ? 0.f : g_sideW; }
 float ListL() { return SideW(); }
 // macOS 27 com a lateral escondida: a coluna das notas carrega os três botões, o da lateral, o nome da pasta e o
-// "⋯" na barra; com menos de 310 pt ficava tudo apertado ("Not…")
-float ListW() { return g_sideHidden && Mac26() ? std::max(g_listW, 310.f) : g_listW; }
+// "⋯" na barra; com menos de 260 pt fica tudo apertado ("Not…"). Era 310 e a coluna não diminuía de jeito nenhum
+// com a lateral escondida (issue #8: "a lista das notas está muito grande")
+float ListW() { return g_sideHidden && Mac26() ? std::max(g_listW, 260.f) : g_listW; }
 float ListR() { return g_gallery ? ClientDip().width : SideW() + ListW(); }
 float EdL() { return g_gallery ? SideW() : ListR(); }
 bool EditorShown() { return !g_gallery || g_galleryOpen; }
@@ -1741,7 +1742,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (hb != g_hoverBtn || hl != g_hoverLights) { g_hoverBtn = hb; g_hoverLights = hl; Invalidate(); }
         if (EditorShown() && p.x >= EdL()) editor::OnMouseMove(p, false);
         // cursor: texto no editor, setas nas divisórias
-        bool onDiv = p.y >= TOOLBAR_H && ((!g_sideHidden && std::fabs(p.x - SideW()) <= 4) || (!g_gallery && std::fabs(p.x - ListR()) <= 4));
+        bool onDiv = (p.y >= TOOLBAR_H && !g_sideHidden && std::fabs(p.x - SideW()) <= 4) || ((p.y >= TOOLBAR_H || hb < 0) && !g_gallery && std::fabs(p.x - ListR()) <= 4);
         if (onDiv) SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
         else if (EditorShown() && editor::Current() && p.x >= EdL() + 4 && p.y >= TOOLBAR_H && !g_sheet.on && !(g_fmtOpen && In(g_fmtRect, p)) && !editor::OverChevronArea(p)) SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
         else SetCursor(LoadCursorW(nullptr, IDC_ARROW));
@@ -1790,6 +1791,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (p.y < TOOLBAR_H) {
             int b = HitBtn(p);
             if (b >= 0 && g_btn[b].enabled) { g_pressBtn = b; SetCapture(h); Invalidate(); }
+            // a divisória da lista também pega na altura da barra (como no Mac), fora dos botões
+            else if (b < 0 && !g_gallery && std::fabs(p.x - ListR()) <= 4) { g_divDrag = 2; SetCapture(h); }
             return 0;
         }
         // divisórias

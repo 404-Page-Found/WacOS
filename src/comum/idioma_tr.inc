@@ -1619,3 +1619,6 @@
 { L"Este PC", L"Bu bilgisayar" },
 { L"Menu da Apple", L"Apple Menüsü" },
 { L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Apple menüsündeki pencere: bu bilgisayarın gerçek özellikleri ya da süs olarak bir Mac Studio." },
+{ L"Captura feita", L"Ekran resmi alındı" },
+{ L"Captura copiada", L"Ekran resmi kopyalandı" },
+{ L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.", L"Win+Shift+3 tüm ekran, Win+Shift+4 bir bölge, Win+Shift+5 Ekran Resmi araç çubuğu (aynı ayarlar Seçenekler’de). Kaydetmek yerine kopyalamak için Ctrl’yi basılı tutun." },

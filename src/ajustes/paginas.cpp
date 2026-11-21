@@ -2374,8 +2374,88 @@ Page Nuvem() {
 }
 
 // ================= Teclado, Mouse, Trackpad, Impressoras
+// Captura de Tela: onde as capturas vão (issue #8, 21/11/2026: "não encontrei a opção na configuração"). O app de
+// captura guarda as opções em %APPDATA%\Shell\captura.txt (destino=0 Mesa, 1 Documentos, 2 Área de Transferência,
+// 3 Imagens › Capturas de Tela (o padrão), 4 Outro Local com outro=<pasta>); aqui lê e grava só essas duas linhas.
+static std::wstring CapturaTxt() {
+    PWSTR p = nullptr; std::wstring d;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell\\captura.txt"; CoTaskMemFree(p); }
+    return d;
+}
+static std::vector<std::wstring> CapturaLinhas() {
+    std::vector<std::wstring> v;
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, CapturaTxt().c_str(), L"r, ccs=UTF-8") || !f) return v;
+    wchar_t line[1024];
+    while (fgetws(line, 1024, f)) {
+        std::wstring l = line;
+        while (!l.empty() && (l.back() == L'\n' || l.back() == L'\r')) l.pop_back();
+        if (!l.empty() && l[0] == 0xFEFF) l.erase(0, 1);
+        if (!l.empty()) v.push_back(l);
+    }
+    fclose(f);
+    return v;
+}
+static std::wstring CapturaValor(const wchar_t* key, const wchar_t* def) {
+    std::wstring k = std::wstring(key) + L"=";
+    for (auto& l : CapturaLinhas()) if (l.rfind(k, 0) == 0) return l.substr(k.size());
+    return def;
+}
+static void CapturaGravar(int dest, const std::wstring* outro) {
+    auto v = CapturaLinhas();
+    v.erase(std::remove_if(v.begin(), v.end(), [&](const std::wstring& l) { return l.rfind(L"destino=", 0) == 0 || (outro && l.rfind(L"outro=", 0) == 0); }), v.end());
+    v.push_back(L"destino=" + std::to_wstring(dest));
+    if (outro) v.push_back(L"outro=" + *outro);
+    std::wstring path = CapturaTxt();
+    SHCreateDirectoryExW(nullptr, path.substr(0, path.find_last_of(L'\\')).c_str(), nullptr);
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8") || !f) return;
+    for (auto& l : v) fwprintf(f, L"%ls\n", l.c_str());
+    fclose(f);
+}
+static bool EscolherPastaCaptura(std::wstring& out) {
+    IFileOpenDialog* d = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d)))) return false;
+    DWORD o = 0; d->GetOptions(&o); d->SetOptions(o | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    d->SetTitle(Tr(L"Salvar Capturas de Tela em"));
+    bool ok = false;
+    if (SUCCEEDED(d->Show(Window()))) {
+        IShellItem* it = nullptr;
+        if (SUCCEEDED(d->GetResult(&it))) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &p))) { out = p; CoTaskMemFree(p); ok = true; }
+            it->Release();
+        }
+    }
+    d->Release();
+    return ok;
+}
+
 Page Teclado() {
     Page p;
+    {
+        // ordem do menu: Mesa, Documentos, Imagens › Capturas de Tela, Área de Transferência, Outro Local
+        static const int kDest[5] = { 0, 1, 3, 2, 4 };
+        std::wstring outro = CapturaValor(L"outro", L"");
+        std::wstring outroNome = outro.empty() ? std::wstring(Tr(L"Outro Local…")) : std::wstring(PathFindFileNameW(outro.c_str()));
+        p.groups.push_back(G({ Popup(L"Salvar em", { L"Mesa", L"Documentos", L"Imagens › Capturas de Tela", L"Área de Transferência", outroNome },
+                                     [] {
+                                         int d = _wtoi(CapturaValor(L"destino", L"3").c_str());
+                                         for (int i = 0; i < 5; i++) if (kDest[i] == d) return i;
+                                         return 2;
+                                     },
+                                     [](int i) {
+                                         int d = kDest[std::clamp(i, 0, 4)];
+                                         if (d == 4) {
+                                             std::wstring pasta;
+                                             if (!EscolherPastaCaptura(pasta)) { Rebuild(); return; }
+                                             CapturaGravar(4, &pasta);
+                                         } else CapturaGravar(d, nullptr);
+                                         Rebuild();
+                                     }),
+                               Note(L"Win+Shift+3 tela inteira, Win+Shift+4 região, Win+Shift+5 a barra de Captura de Tela (com as mesmas opções em Opções). Segure Ctrl para copiar em vez de salvar.") },
+                             L"Capturas de Tela"));
+    }
     p.groups.push_back(G({
         Slider(L"Repetição de tecla", 0, 31, [] { return (float)sys::KeyRepeat(); }, [](float v) { sys::SetKeyRepeat((int)std::lround(v)); }, L"Lenta", L"Rápida"),
         Slider(L"Atraso até repetir", 0, 3, [] { return (float)(3 - sys::KeyDelay()); }, [](float v) { sys::SetKeyDelay(3 - (int)std::lround(v)); }, L"Longo", L"Curto"),

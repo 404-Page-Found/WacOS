@@ -203,6 +203,11 @@ Request Read(HWND dlg) {
         }
         r.type = std::max(0, (int)SendMessageW(combo, CB_GETCURSEL, 0, 0));
     }
+    // Salvar pela estrutura, não só pelo texto do botão: a janela de Abrir do Windows sempre tem o campo do nome 1148
+    // (ComboBoxEx32); a de Salvar não tem, o nome fica num Edit 1001 dentro de FloatNotifySink. O botão nasce com o
+    // texto do modelo ("Abrir") e o programa troca depois; lido cedo, um "Salvar como" do navegador abria o Finder
+    // em modo Abrir (issue #8, 21/11/2026), e em outros idiomas ("Guardar", "Speichern") a palavra não batia.
+    if (r.mode == 0 && !Item(dlg, 1148) && !Item(dlg, 1152)) { HWND e, t; FloatCombos(dlg, e, t); if (e) r.mode = 1; }
     if (!NameEdit(dlg) && FolderEdit(dlg)) r.mode = 2;
     r.name = NameEdit(dlg) ? Text(NameEdit(dlg)) : L"";
     r.folder = CurrentFolder(dlg);
@@ -233,6 +238,38 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
     }
     SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)value.c_str(), SMTO_ABORTIFHUNG, 300, nullptr);
     PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
+    // A original (fora da tela) pode abrir uma pergunta depois do OK: "já existe, substituir?" ou um aviso de nome
+    // inválido, que nascia fora da tela junto: o programa ficava travado até alguém apertar Esc (Firefox, issue #8,
+    // 21/11/2026). Caixas de mensagem (#32770) viram o alerta do Mac no meio da tela (alertas.cpp, que agora não usa
+    // mais o lugar da original quando ela está fora da tela); qualquer outra vem para o meio da tela, à frente.
+    bool reenviou = false;
+    for (int i = 0; i < 40 && IsWindow(r.dlg); i++) {
+        Sleep(50);
+        HWND pop = GetWindow(r.dlg, GW_ENABLEDPOPUP);
+        if (!pop || pop == r.dlg) {
+            // escolher pasta (VS Code "Abrir Pasta", issue #8): com o caminho de uma pasta no campo, o OK da original
+            // entra nela em vez de devolvê-la e a janela continuava aberta fora da tela (o programa não fazia nada).
+            // Já dentro da pasta, o campo vazio + OK escolhe a pasta atual.
+            if (r.mode == 2 && !reenviou && i >= 8) {
+                reenviou = true;
+                Log(L"  a original entrou na pasta: confirma a pasta atual");
+                if (edit) SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)L"", SMTO_ABORTIFHUNG, 300, nullptr);
+                PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
+            }
+            continue;
+        }
+        wchar_t pcls[16] = {}; GetClassNameW(pop, pcls, 16);
+        if (!wcscmp(pcls, L"#32770") && shell::Setting(L"alertas_mac", L"1") != L"0") { Log(L"  a original perguntou algo: vai para o alerta do Mac"); break; }
+        RECT pr; GetWindowRect(pop, &pr);
+        HMONITOR mon = MonitorFromWindow(r.owner ? r.owner : GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(mon, &mi);
+        int w = pr.right - pr.left, h = pr.bottom - pr.top;
+        SetWindowPos(pop, HWND_TOP, (mi.rcWork.left + mi.rcWork.right - w) / 2, (mi.rcWork.top + mi.rcWork.bottom - h) / 3, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+        SetLayeredWindowAttributes(pop, 0, 255, LWA_ALPHA);
+        SetForegroundWindow(pop);
+        Log(L"  aviso da original trazido para a tela");
+        break;
+    }
 }
 
 // O programa aceita vários arquivos? A lista de itens da janela original diz (SelectionPattern).
@@ -344,7 +381,7 @@ void Serve(Request r) {
     std::wstring start = r.folder;
     if (start.empty()) { PWSTR d = nullptr; if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &d))) { start = d; CoTaskMemFree(d); } }
     std::wstring cmd = q(finder) + L" " + q(start) + L" --lista --escolher " + (r.mode == 1 ? L"salvar" : r.mode == 2 ? L"pasta" : L"abrir");
-    if (r.mode == 1) cmd += L" --sem-confirmar";  // quem confirma a substituição é a janela original
+    if (r.mode == 1) cmd += L" --sem-confirmar";  // quem confirma a substituição é a janela original (vira o alerta do Mac, alertas.cpp)
     if (r.mode == 0 && AllowsMultiple(r.dlg)) cmd += L" --multi";  // vários arquivos de uma vez (upload do navegador etc.)
     if (!r.types.empty() && r.mode != 2) {
         std::wstring t;
