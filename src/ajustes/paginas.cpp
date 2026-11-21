@@ -956,6 +956,24 @@ static void GGAplicaRealce(int i) {
     SetSetting(L"realce_texto", std::to_wstring(i));
 }
 
+// "Usar o Aurora": o da coleção de papéis de parede do usuário (Imagens\Wallpapers macOS\Leopard) ou, sem ela, o que
+// vem com o WacOS (icones\leopard\aurora.jpg). Antes só procurava na pasta Imagens do perfil: em quem não tinha a
+// coleção o botão não fazia nada (21/11/2026).
+static void UsarAurora() {
+    const wchar_t* nome = L"\\Wallpapers macOS\\Leopard\\os-x-leopard-aurora-5120x3200-24048.jpg";
+    std::vector<std::wstring> cands;
+    wchar_t prof[MAX_PATH] = {};
+    if (GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) cands.push_back(std::wstring(prof) + L"\\Pictures" + nome);
+    PWSTR pics = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pics))) { cands.push_back(std::wstring(pics) + nome); CoTaskMemFree(pics); }
+    wchar_t exe[MAX_PATH] = {}; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring inst = exe; inst = inst.substr(0, inst.find_last_of(L'\\')); inst = inst.substr(0, inst.find_last_of(L'\\'));  // bin\ -> instalação
+    cands.push_back(inst + L"\\icones\\leopard\\aurora.jpg");
+    for (auto& f : cands)
+        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) { sys::SetWallpaper(f); break; }
+    Rebuild();
+}
+
 Page AparenciaGolden() {
     Page p;
     // ---- Aparência: Claro, Escuro, Automático
@@ -1246,13 +1264,7 @@ Page AparenciaGolden() {
     if (Setting(L"leopard", L"0") == L"1" && Setting(L"liquid_glass", L"0") != L"1") {
         // Leopard: o Aurora (o papel de parede padrão do 10.5) só como sugestão; trocar de tema nunca muda o papel de
         // parede do usuário (pedido dele), quem troca é este botão
-        Row aurora = Button(L"Papel de parede do Leopard", L"Usar o Aurora", [] {
-            wchar_t prof[MAX_PATH] = {};
-            if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) return;
-            std::wstring f = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\Leopard\\os-x-leopard-aurora-5120x3200-24048.jpg";
-            if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) sys::SetWallpaper(f);
-            Rebuild();
-        }, L"Aurora, o papel de parede original do Mac OS X Leopard. Trocar de tema não muda o seu papel de parede.");
+        Row aurora = Button(L"Papel de parede do Leopard", L"Usar o Aurora", UsarAurora, L"Aurora, o papel de parede original do Mac OS X Leopard. Trocar de tema não muda o seu papel de parede.");
         p.groups.push_back(G({ tema, aurora }));
     } else p.groups.push_back(G({ tema }));
     return p;
@@ -1283,13 +1295,7 @@ Page AparenciaLeopard() {
     }));
     Row tema = TemaRow();
     tema.label = L"Estilo do WacOS";
-    Row aurora = Button(L"Papel de parede do Leopard", L"Usar o Aurora", [] {
-        wchar_t prof[MAX_PATH] = {};
-        if (!GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) return;
-        std::wstring f = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\Leopard\\os-x-leopard-aurora-5120x3200-24048.jpg";
-        if (GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES) sys::SetWallpaper(f);
-        Rebuild();
-    }, L"Aurora, o papel de parede original do Mac OS X Leopard. Trocar de tema não muda o seu papel de parede.");
+    Row aurora = Button(L"Papel de parede do Leopard", L"Usar o Aurora", UsarAurora, L"Aurora, o papel de parede original do Mac OS X Leopard. Trocar de tema não muda o seu papel de parede.");
     p.groups.push_back(G({ tema, aurora }));
     return p;
 }
@@ -1516,7 +1522,10 @@ Page PersonalizarDock() {
     esp.hasDef = true; esp.def = 0;
     Row marg = Slider(L"Distância da borda da tela", 0, 40, [] { return NumSetting(L"dock_margem", 5); }, SetNum(L"dock_margem"), L"Encostado", L"Longe");
     marg.hasDef = true; marg.def = 5;
-    p.groups.push_back(G({ esp, marg }, L"Tamanho e Espaço"));
+    // no Mac a janela maximizada encosta no Dock; quem quiser um respiro entre os dois escolhe aqui (issue #8)
+    Row folga = Slider(L"Espaço acima das janelas maximizadas", 0, 24, [] { return NumSetting(L"dock_folga", 0); }, SetNum(L"dock_folga"), L"Encostado", L"Longe");
+    folga.hasDef = true; folga.def = 0;
+    p.groups.push_back(G({ esp, marg, folga }, L"Tamanho e Espaço"));
     float raioDef = tahoe ? 61.f : 43.f, opacDef = tahoe ? 39.f : 45.f;
     Row raio = Slider(L"Arredondamento dos cantos", 0, 100, [raioDef] { return NumSetting(L"dock_raio", raioDef); }, SetNum(L"dock_raio"), L"Reto", L"Pílula");
     raio.hasDef = true; raio.def = raioDef;
@@ -1541,7 +1550,7 @@ Page PersonalizarDock() {
                                ShellExecuteW(nullptr, L"open", d.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
                            }, L"Ponha um PNG com o nome do .exe (chrome.png, discord.png) ou do app (Google Chrome.png) nesta pasta para trocar o ícone dele no Dock. Imagens de 512 × 512 com a margem do Mac ficam melhores.") }, L"Ícones"));
     p.groups.push_back(Plain(Buttons({ { L"Restaurar o Padrão", [] {
-        for (auto k : { L"dock_espaco", L"dock_margem", L"dock_raio", L"dock_opacidade" }) SetSetting(k, L"");
+        for (auto k : { L"dock_espaco", L"dock_margem", L"dock_folga", L"dock_raio", L"dock_opacidade" }) SetSetting(k, L"");
         SetSetting(L"dock_cor", L"auto"); SetSetting(L"dock_indicador", L"ponto");
         for (auto k : { L"dock_launchpad", L"dock_separador", L"dock_rotulos" }) SetSetting(k, L"1");
         Rebuild();
@@ -1633,6 +1642,10 @@ Page MesaDock() {
                            // issue #4: como no Mac, o Finder fica no Alt+Tab mesmo sem janela; desligado, só com janela aberta
                            Toggle(L"Mostrar o Finder no Alt+Tab mesmo sem janelas", [] { return Setting(L"seletor_finder", L"1") != L"0"; },
                                   [](bool v) { SetSetting(L"seletor_finder", v ? L"1" : L"0"); }),
+                           // Edge, Chrome, Figma, Discord, VS Code...: os três botões do Mac por cima da barra deles (WacOSWindow.dll)
+                           Toggle(L"Botões do Mac nos apps com barra própria", [] { return Setting(L"barra_mac_propria", L"1") != L"0"; },
+                                  [](bool v) { SetSetting(L"barra_mac_propria", v ? L"1" : L"0"); },
+                                  L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar."),
                            Uri(L"Navegador padrão", L"ms-settings:defaultapps") }, L"Janelas"));
     // Organizador Visual (Stage Manager): só o app da frente na tela, os outros numa faixa à esquerda
     p.groups.push_back(G({ Toggle(L"Organizador Visual", flag(L"organizador", L"0"), setFlag(L"organizador")) }, L"",

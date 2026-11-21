@@ -97,7 +97,7 @@ struct Info {
     COLORREF bottom[2]{ CLR_INVALID, CLR_INVALID };  // cor do app junto aos cantos de baixo (esq., dir.)
     COLORREF topc[2]{ CLR_INVALID, CLR_INVALID };    // e junto aos de cima, quando o próprio app desenha ali (barra unificada)
     // o que a moldura desenhou da última vez (W, H, raio, cor de cima, de baixo esq./dir., escuro): igual, só anda
-    UINT32 cornerKey[9]{};
+    UINT32 cornerKey[10]{};
 };
 
 bool Dark() {
@@ -123,6 +123,9 @@ RECT CaptionRect(HWND h) {
 // com os cantos, a sombra, o ampliar e os três botões, desenhados por cima no meio dessa faixa, a 26 pt da borda.
 int UnifiedBar(HWND h) { return (int)(INT_PTR)GetPropW(h, L"WacOSBarraUnificada"); }
 
+bool BarraPropria();       // mais abaixo: barra_mac_propria (padrão ligado) no ajustes.txt do Shell
+bool ProcessoChromium();   // mais abaixo
+bool Fullscreen(HWND h);   // mais abaixo
 // 0: não mexe; 1: barra padrão do Windows; 2: barra desenhada pelo próprio app (Chromium/Electron e afins)
 int Mode(HWND h, bool showing = false) {  // showing: chamada no WM_SHOWWINDOW, antes de ficar visível
     if (GetAncestor(h, GA_ROOT) != h || (!showing && !IsWindowVisible(h)) || GetPropW(h, PROP)) return 0;
@@ -145,7 +148,16 @@ int Mode(HWND h, bool showing = false) {  // showing: chamada no WM_SHOWWINDOW, 
     // Apps com barra própria (Chrome, Discord, Electron): desligado. Converter o maximizar quebrava o F11
     // (tela cheia passa pelo maximizado), o recorte errava as bordas deles e o ganho era pequeno
     // (já têm cantos do Windows 11 e a sombra vem do Shell). Fica o modo 2 no código para outra tentativa.
+    // Volta (21/11/2026, "a barra do Mac em todos os apps"; Reddit: botões do Mac não apareciam no Edge e no Figma):
+    // os três botões do Mac à esquerda e a faixa da cor da barra por cima dos botões do Windows, SEM converter o
+    // maximizar (o app maximiza e entra em tela cheia sozinho: o F11 continua o dele) e sem recorte. O modo leve
+    // (cantos do DWM, contorno e a animação de ampliar) continua junto. Desliga com barra_mac_propria=0.
     (void)cr;
+    if (cap < 20 * sc && BarraPropria() &&  /* o Chromium mantém WS_CAPTION; a barra do Windows é que não existe */ (st & WS_THICKFRAME) && (st & WS_MAXIMIZEBOX) &&
+        !(ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)) && !Fullscreen(h)) {
+        wchar_t cls[32] = {}; GetClassNameW(h, cls, 32);
+        if (!wcscmp(cls, L"Chrome_WidgetWin_1") && ProcessoChromium() && wr.right - wr.left >= 300 && wr.bottom - wr.top >= 200) return 2;
+    }
     return 0;
 }
 
@@ -163,6 +175,7 @@ RECT FrameRect(HWND h) {
 }
 
 bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
+bool TemaGolden();                   // mais abaixo: macOS 27 Golden Gate (liquid_glass=1 + golden_gate=1)
 int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
 
 // Recorte arredondado [x0, x1) × [y0, y1) com raio r (px), simétrico e sempre por dentro do arco que a moldura
@@ -484,6 +497,10 @@ bool OwnApp() {
     if (own < 0) { wchar_t p[MAX_PATH] = {}; GetModuleFileNameW(nullptr, p, MAX_PATH); const wchar_t* n = wcsrchr(p, L'\\'); own = n && !_wcsnicmp(n + 1, L"WacOS", 5) ? 1 : 0; }
     return own == 1;
 }
+static bool g_golden;  // lido junto com o Tahoe (TemaTahoe)
+static bool g_propria = true;  // barra_mac_propria (TemaTahoe)
+bool BarraPropria() { TemaTahoe(); return g_propria; }
+bool TemaGolden() { return TemaTahoe() && g_golden; }
 bool TemaTahoe(bool force) {
     static DWORD at; static bool on;
     DWORD now = GetTickCount();
@@ -499,6 +516,8 @@ bool TemaTahoe(bool force) {
     CloseHandle(f);
     buf[n] = 0;
     on = strstr(buf, "liquid_glass=1") != nullptr;
+    g_golden = strstr(buf, "golden_gate=1") != nullptr;
+    g_propria = strstr(buf, "barra_mac_propria=0") == nullptr;
     return on;
 }
 int CornerRadius(HWND h) { return (int)std::lround((TemaTahoe() ? 16 : 12)  /* Golden Gate: também 16 pt (medido) */ * Scale(h)); }
@@ -518,6 +537,18 @@ LRESULT CALLBACK CornerProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     return DefWindowProcW(h, m, w, l);
+}
+
+// O contorno da janela, de cada tema (em px da tela; larguras fracionárias viram meio-tom na borda):
+//  - Sequoia e Tahoe: 1 px escuro por fora (55% no escuro, 22% no claro) e, no escuro, o brilho de 1 px por dentro (16%);
+//  - macOS 27 Golden Gate (capturas 2x do 512 Pixels: Contatos, Calculadora, Relógio): por fora meio ponto quase preto
+//    no escuro (95%) e fraco no claro (20%); por dentro, só no escuro, 1 pt claro (10%);
+//  - Leopard (10.5): só o fio escuro de 1 px, sem brilho por dentro (o metal já tem o próprio realce).
+struct Borda { float outW, outA, inW, inA; int id; };
+Borda BordaDoTema(bool dark, float sc) {
+    if (leopard::On()) return { 1.f, dark ? 0.60f : 0.38f, 0.f, 0.f, 3 };
+    if (TemaGolden()) return { std::clamp(0.5f * sc, 0.75f, 1.f), dark ? 0.95f : 0.20f, dark ? 1.f * sc : 0.f, dark ? 0.10f : 0.f, 2 };
+    return { 1.f, dark ? 0.55f : 0.22f, 1.f, dark ? 0.16f : 0.f, TemaTahoe() ? 1 : 0 };
 }
 
 void HideCorners(Info* in) { for (HWND c : in->corner) if (c) ShowWindow(c, SW_HIDE); }
@@ -575,7 +606,8 @@ void UpdateCorners(Info* in, RECT vis) {
     // janela inteira (3440×1400 = 19 MB, alocado, zerado e enviado ao DWM) dentro do programa dos outros.
     POINT pos{ vis.left - M, vis.top - M };
     COLORREF top = CapColor(in);
-    UINT32 key[9]{ (UINT32)W, (UINT32)H, (UINT32)r, (UINT32)top, (UINT32)in->bottom[0], (UINT32)in->bottom[1], (UINT32)in->dark, (UINT32)in->topc[0], (UINT32)in->topc[1] };
+    Borda bd = BordaDoTema(in->dark, Scale(h));
+    UINT32 key[10]{ (UINT32)W, (UINT32)H, (UINT32)r, (UINT32)top, (UINT32)in->bottom[0], (UINT32)in->bottom[1], (UINT32)in->dark, (UINT32)in->topc[0], (UINT32)in->topc[1], (UINT32)bd.id };
     if (!memcmp(key, in->cornerKey, sizeof(key)) && IsWindowVisible(fw)) {
         UpdateLayeredWindow(fw, nullptr, &pos, nullptr, nullptr, nullptr, 0, nullptr, 0);
         return;
@@ -589,7 +621,8 @@ void UpdateCorners(Info* in, RECT vis) {
     if (!bmp) { DeleteDC(mem); return; }
     auto* px = (UINT32*)bits;
     bool dark = in->dark;
-    float outerA = dark ? 0.55f : 0.22f, innerA = dark ? 0.16f : 0.f;  // contorno escuro / brilho (Mac: claro só no escuro)
+    (void)dark;
+    float outerA = bd.outA, innerA = bd.inA, outW = bd.outW, inW = bd.inW;  // contorno escuro / brilho, do tema (BordaDoTema)
     float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
     auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };  // fração do pixel com distância <= 0
     auto pixel = [&](int x, int y) {
@@ -603,8 +636,8 @@ void UpdateCorners(Info* in, RECT vis) {
             if (c == CLR_INVALID) c = top;
             over(GetRValue(c) / 255.f, GetGValue(c) / 255.f, GetBValue(c) / 255.f, cov(d));
         }
-        if (innerA > 0) over(1, 1, 1, innerA * (cov(d) - cov(d + 1)));   // brilho: 1 px por dentro da borda
-        over(0, 0, 0, outerA * (cov(d - 1) - cov(d)));                     // contorno: 1 px por fora
+        if (innerA > 0) over(1, 1, 1, innerA * (cov(d) - cov(d + inW)));   // brilho: por dentro da borda
+        over(0, 0, 0, outerA * (cov(d - outW) - cov(d)));                     // contorno: por fora
         if (A <= 0) return;
         px[y * W + x] = (UINT32)std::lround(A * 255) << 24 | (UINT32)std::lround(R * 255) << 16 | (UINT32)std::lround(G * 255) << 8 | (UINT32)std::lround(B * 255);
     };
@@ -965,6 +998,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (k >= 0 && k == in->press) {
             if (k == 0) PostMessageW(in->owner, WM_SYSCOMMAND, SC_CLOSE, 0);
             else if (k == 1 && (in->style & WS_MINIMIZEBOX)) ShowWindow(in->owner, SW_MINIMIZE);
+            else if (k == 2 && (in->style & WS_MAXIMIZEBOX) && in->custom) PostMessageW(in->owner, WM_SYSCOMMAND, IsZoomed(in->owner) ? SC_RESTORE : SC_MAXIMIZE, 0);
             else if (k == 2 && (in->style & WS_MAXIMIZEBOX)) ToggleZoom(in);
         }
         in->press = -1;
@@ -1197,6 +1231,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         RECT s = in->lastStart;  // do arrasto que acabou agora (Win+←/→ não arrasta: o retângulo de agora)
         if (s.right <= s.left || GetTickCount() - in->lastStartAt > 3000) GetWindowRect(h, &s);
         if (!w && !l) {
+            if (in->custom) { if (!IsZoomed(h)) PostMessageW(h, WM_SYSCOMMAND, SC_MAXIMIZE, 0); in->tiled = false; return 1; }
             if (!in->zoomed) { in->before = s; ToggleZoom(in); in->before = s; }
             in->tiled = false;
             return 1;
@@ -1221,9 +1256,13 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     // Pedido de maximizar pelo menu do sistema (Alt+Espaço, Win+↑ do Windows, atalho do app): vira o "ampliar" ANTES
     // de o Windows maximizar. Pelo caminho de baixo (WM_SIZE maximizado) a janela aparecia um quadro maximizada,
     // voltava ao tamanho de antes e só então animava: o "salto" do OBS no vídeo do Reddit (20/11/2026).
-    if (m == WM_SYSCOMMAND && (w & 0xFFF0) == SC_MAXIMIZE && !IsZoomed(h) && !IsIconic(h) && (in->style & WS_MAXIMIZEBOX) && !in->zoomed && g_msgZoom) {
+    if (m == WM_SYSCOMMAND && (w & 0xFFF0) == SC_MAXIMIZE && !in->custom && !IsZoomed(h) && !IsIconic(h) && (in->style & WS_MAXIMIZEBOX) && !in->zoomed && g_msgZoom) {
         ToggleZoom(in);
         return 0;
+    }
+    if (m == g_msgZoom && g_msgZoom && in->custom) {  // barra própria: Win+↑/↓ do Shell maximiza de verdade (w = 0)
+        if (w == 0) PostMessageW(h, WM_SYSCOMMAND, IsZoomed(h) ? SC_RESTORE : SC_MAXIMIZE, 0);
+        return 1;
     }
     if (m == g_msgZoom && g_msgZoom) {
         // w = 1: o app (ou o Windows) maximizou; vira o "ampliar" com cantos. w = 0: alternar (Win+↑/↓ do Shell)
@@ -1364,7 +1403,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         return r;
     }
     case WM_NCLBUTTONDBLCLK:  // sem o botão de maximizar do Windows: o duplo clique na barra continua maximizando
-        if (w == HTCAPTION && (in->style & WS_MAXIMIZEBOX)) { ToggleZoom(in); return 0; }  // (barra própria: o app maximiza; vira ampliar)
+        if (w == HTCAPTION && (in->style & WS_MAXIMIZEBOX) && !in->custom) { ToggleZoom(in); return 0; }  // (barra própria: o app maximiza; vira ampliar)
         break;
     case WM_NCRBUTTONUP:  // o menu do sistema (sem WS_SYSMENU) não abre mais no clique direito da barra
         break;
@@ -1451,10 +1490,10 @@ void Attach(HWND h, int mode) {
         ApplyColors(in);
         SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     } else {
-        in->dark = Dark();  // barra própria: sem botões nem faixas por cima do app; só cantos, sombra e o "ampliar"
+        in->dark = Dark();  // barra própria: os botões do Mac e a faixa por cima dos botões do app (BarRect/Paint)
+        SetPropW(h, L"MacJanelaPropria", (HANDLE)1);
     }
-    if (!in->custom)
-        in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
+    in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
     if (in->overlay) { SetWindowLongPtrW(in->overlay, GWLP_USERDATA, (LONG_PTR)in); in->fastUntil = GetTickCount() + 900; SetTimer(in->overlay, 1, 16, nullptr); }
     DWORD corner = leopard::On() ? 3 : 2;  // DWMWCP_ROUND (Leopard: ROUNDSMALL, o canto pequeno do 10.5); mesmo em apps que pedem cantos retos
     DwmSetWindowAttribute(h, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, &corner, sizeof(corner));
@@ -1502,7 +1541,7 @@ void Detach(HWND h, Info* in) {
         DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &on, sizeof(on));
     }
     if (in->custom) {
-        RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, PROP);
+        RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaPropria");
         RemoveWindowSubclass(h, OwnerProc, SUBCLASS_ID);
         delete in;
         return;
@@ -1642,7 +1681,7 @@ LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PT
         // Chromium/Electron chegava só depois de já ter maximizado: a foto saía grande, um "snap").
         HANDLE zNow = (HANDLE)(INT_PTR)(IsZoomed(h) ? 2 : 1);
         if (GetPropW(h, PROP_LEVE) != zNow && !(wp->flags & (SWP_NOSIZE | SWP_HIDEWINDOW)) && wp->x > -30000 &&
-            IsWindowVisible(h) && !IsIconic(h) && !GetPropW(h, PROP) && (SetPropW(h, PROP_LEVE, zNow), true) &&
+            IsWindowVisible(h) && !IsIconic(h) && (!GetPropW(h, PROP) || GetPropW(h, L"MacJanelaPropria")) && (SetPropW(h, PROP_LEVE, zNow), true) &&
             !(SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked)) {
             MONITORINFO mi{ sizeof(mi) };
             GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi);
@@ -1671,7 +1710,7 @@ LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PT
 
 // janela principal com barra própria: redimensionável, com maximizar, sem a barra do Windows
 void AttachLeve(HWND h) {
-    if (GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h) || GetPropW(h, PROP) || GetPropW(h, PROP_LEVE)) return;
+    if (GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h) || (GetPropW(h, PROP) && !GetPropW(h, L"MacJanelaPropria")) || GetPropW(h, PROP_LEVE)) return;
     LONG st = GetWindowLongW(h, GWL_STYLE), ex = GetWindowLongW(h, GWL_EXSTYLE);
     if ((st & WS_CHILD) || !(st & WS_THICKFRAME) || !(st & WS_MAXIMIZEBOX) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE))) return;
     // só a janela principal do Chromium/Electron (regra de 20/11/2026): em qualquer outro programa sem a barra do
@@ -1706,7 +1745,7 @@ BOOL CALLBACK EnumProc(HWND h, LPARAM) {
     if (GetClassNameW(h, cls, 64) && jogos::ClasseDeJogo(cls)) { g_fora = true; return FALSE; }
     TakeOver(h);
     if (int mode = Mode(h)) Attach(h, mode);
-    else AttachLeve(h);
+    AttachLeve(h);  // barra própria: o modo leve também (cantos, contorno, animação); nas outras não faz nada
     return TRUE;
 }
 

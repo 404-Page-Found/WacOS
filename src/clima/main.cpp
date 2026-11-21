@@ -29,6 +29,7 @@ int g_sel = 0;
 std::mutex g_mx;
 std::wstring g_file;
 std::wstring g_status;
+bool g_meuLocal = wcsstr(GetCommandLineW(), L"--meu-local") != nullptr;  // aberto pelo "Editar Local…" do widget da mesa
 IDWriteTextFormat *g_tfSmallC, *g_tfCity, *g_tfTemp, *g_tfCond, *g_tfSmall, *g_tfCard, *g_tfCardBig, *g_tfEmoji, *g_tfEmojiSmall, *g_tfSide, *g_tfSideTemp, *g_tfIcon, *g_tfRowR;
 IDWriteTextFormat *g_tfHdrC, *g_tfCardG;  // macOS 27
 
@@ -588,7 +589,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int i = (int)w;
         if (i == -1) {  // cidade procurada
             auto* p = (Place*)l;
-            if (!p->name.empty()) { g_places.push_back(*p); g_sel = (int)g_places.size() - 1; Save(); Fetch(g_sel); g_status.clear(); }
+            if (!p->name.empty() && g_meuLocal) {  // aberto pelo "Editar Local…" do widget: a cidade vira o Meu Local
+                g_meuLocal = false;
+                g_places.push_back(*p);
+                { std::lock_guard<std::mutex> lk(g_mx); std::swap(g_places[0], g_places.back()); }
+                SetMyPlace(g_places[0]); g_sel = 0; Save(); Fetch(0); Fetch((int)g_places.size() - 1); g_status.clear();
+            } else if (!p->name.empty()) { g_places.push_back(*p); g_sel = (int)g_places.size() - 1; Save(); Fetch(g_sel); g_status.clear(); }
             else g_status = Tr(L"Cidade não encontrada.");
             delete p;
         } else {
@@ -684,5 +690,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     for (int i = 0; i < (int)g_places.size(); i++) Fetch(i);
     SetTimer(wnd, 1, 15 * 60 * 1000, nullptr);
     ShowWindow(wnd, show);
+    if (g_meuLocal) {  // "Editar Local…" do widget da mesa: a busca já aberta; a cidade achada vira o Meu Local
+        g_side = true; Paint();
+        D2D1_RECT_F fr = BAR > 0 ? D2D1::RectF(40, 71, 252, 89) : D2D1::RectF(12, 12, SB_W - 46, 36);
+        FieldOpen(fr, L"", BAR > 0 ? 14.f : 13.f, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) Search(t); else if (key == VK_ESCAPE) g_meuLocal = false; });
+        g_status = Tr(L"Digite a cidade do Meu Local");
+        InvalidateRect(wnd, nullptr, FALSE);
+    }
     return Run();
 }

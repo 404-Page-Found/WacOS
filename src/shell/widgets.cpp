@@ -834,6 +834,8 @@ void Click(Widget& wd) {
     std::wstring url;
     switch (wd.kind) {
     case K_WEATHER: case K_SUN: {
+        std::wstring app = shell::dir + L"\\" EXE_WEATHER;  // como no Mac: o widget abre o app Tempo
+        if (GetFileAttributesW(app.c_str()) != INVALID_FILE_ATTRIBUTES) { ShellExecuteW(nullptr, L"open", app.c_str(), nullptr, shell::dir.c_str(), SW_SHOWNORMAL); return; }
         url = L"https://www.google.com/search?q=tempo+" + City();
         for (auto& c : url) if (c == L' ') c = L'+';
         target = url.c_str(); break;
@@ -850,6 +852,10 @@ void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só 
         ctxmenu::Item it; it.label = Tr(g_w[i].name); it.id = 10 + (int)i; it.checked = g_w[i].on; items.push_back(it);
     }
     ctxmenu::Item sep; sep.separator = true; items.push_back(sep);
+    // Tempo e Nascer do Sol: o local é o "Meu Local" do app Tempo; daqui abre o Tempo já na busca (Reddit, 21/11/2026:
+    // "só dá para ver em Campinas")
+    bool local = wd && (wd->kind == K_WEATHER || wd->kind == K_SUN);
+    if (local) { ctxmenu::Item ed; ed.label = Tr(L"Editar Local…"); ed.id = 3; items.push_back(ed); }
     if (wd) { ctxmenu::Item rm; rm.label = Tr(L"Remover Widget"); rm.id = 1; items.push_back(rm); }
     ctxmenu::Item reset; reset.label = Tr(L"Organizar Widgets"); reset.id = 2; items.push_back(reset);
     HWND fg = GetForegroundWindow();
@@ -858,7 +864,10 @@ void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só 
     SetForegroundWindow(g_menuOwner);
     if (att) AttachThreadInput(me, ft, FALSE);
     int id = ctxmenu::ShowItems(g_menuOwner, pt, items);
-    if (id == 1 && wd) { Show(*wd, false); shell::SetSetting((std::wstring(L"widget.") + wd->id + L".on").c_str(), L"0"); }
+    if (id == 3) {
+        std::wstring exe = shell::dir + L"\\" EXE_WEATHER;
+        ShellExecuteW(nullptr, L"open", exe.c_str(), L"--meu-local", shell::dir.c_str(), SW_SHOWNORMAL);
+    } else if (id == 1 && wd) { Show(*wd, false); shell::SetSetting((std::wstring(L"widget.") + wd->id + L".on").c_str(), L"0"); }
     else if (id == 2) {
         for (auto& w : g_w) w.rc = -1;
         for (auto& w : g_w) { shell::SetSetting((std::wstring(L"widget.") + w.id).c_str(), L""); if (w.on) Position(w, true, true); }
@@ -999,6 +1008,11 @@ void widgets::EditMenu(POINT pt) { if (!g_w.empty()) Menu(nullptr, pt); }
 
 // Ajustes > Mesa e Dock > Personalizar a Mesa liga/desliga cada widget (widget.<id>.on): segue o arquivo
 void widgets::SettingsChanged() {
+    // a cidade do tempo mudou (Tempo > Usar como Meu Local, ou "Editar Local…" do widget): busca já, sem esperar 15 min
+    static cidade::Padrao def;
+    static std::wstring lastPlace = shell::Setting(L"tempoLat", def.lat.c_str()) + L"," + shell::Setting(L"tempoLon", def.lon.c_str());
+    std::wstring place = shell::Setting(L"tempoLat", def.lat.c_str()) + L"," + shell::Setting(L"tempoLon", def.lon.c_str());
+    if (place != lastPlace) { lastPlace = place; Fetch(); }
     for (auto& wd : g_w) {
         if (!wd.wnd) continue;
         bool want = shell::Setting((std::wstring(L"widget.") + wd.id + L".on").c_str(), L"1") != L"0";

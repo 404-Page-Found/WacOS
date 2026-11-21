@@ -23,6 +23,7 @@ float g_tile = 48;          // tamanho do ícone (pt)
 // Personalização (Ajustes > Mesa e Dock > Personalizar o Dock, pedido de 20/11/2026, "como o MyDockFinder"). Valor
 // negativo = o padrão medido do Mac (as medidas de cada tema logo abaixo continuam valendo).
 float g_espaco = 0;          // dock_espaco: espaço a mais entre os ícones (pt)
+float g_folgaPt = 0;         // dock_folga: espaço entre o Dock e as janelas maximizadas (pt; o Mac não tem)
 float g_margemPt = -1;       // dock_margem: distância do Dock até a borda da tela (pt)
 float g_raioPct = -1;        // dock_raio: arredondamento do fundo, 0 (reto) a 1 (pílula)
 float g_vidroOpac = -1;      // dock_opacidade: tinta do vidro, 0 (só o desfoque) a 1 (sólido)
@@ -1801,9 +1802,10 @@ int dock::Posicao() { return Pos(); }
 
 int dock::ReservedHeight() {  // a espessura do Dock na borda dele (embaixo, à esquerda ou à direita: dock::Posicao)
     if (!g_icons || g_autohide) return 0;
-    // + 4 pt de folga (issue #8, todos os temas): a janela maximizada não encosta no vidro do Dock. Na escala da tela;
-    // com o Dock oculto (automático ou inteligente) não há reserva nem folga
-    return (int)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN + 4) * Sc());
+    // + a folga (dock_folga): no Mac a janela maximizada encosta no Dock. A folga fixa de 4 pt (issue #8) deixava o
+    // Dock "descolado" da janela (21/11/2026); agora é opcional, 0 por padrão. Na escala da tela; com o Dock oculto
+    // (automático ou inteligente) não há reserva nem folga
+    return (int)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN + g_folgaPt) * Sc());
 }
 
 static void ReadSettings() {
@@ -1818,6 +1820,7 @@ static void ReadSettings() {
     // personalização (vazio = o padrão do Mac)
     auto num = [](const wchar_t* k, float def) { std::wstring v = shell::Setting(k, L""); return v.empty() ? def : (float)_wtof(v.c_str()); };
     g_espaco = std::clamp(num(L"dock_espaco", 0), 0.f, 48.f);
+    g_folgaPt = std::clamp(num(L"dock_folga", 0), 0.f, 24.f);
     g_margemPt = num(L"dock_margem", -1); if (g_margemPt >= 0) g_margemPt = std::min(g_margemPt, 80.f);
     g_raioPct = num(L"dock_raio", -1); if (g_raioPct >= 0) g_raioPct = std::min(g_raioPct / 100.f, 1.f);
     g_vidroOpac = num(L"dock_opacidade", -1); if (g_vidroOpac >= 0) g_vidroOpac = std::min(g_vidroOpac / 100.f, 1.f);
@@ -1855,7 +1858,7 @@ void dock::IconsChanged() {
 
 void dock::ReloadSettings() {
     bool hide = g_autohide, smart = g_smart;
-    int pos = g_pos;
+    int pos = g_pos, reserva = dock::ReservedHeight();
     ReadSettings();
     if (!g_icons) return;
     if (pos != g_pos) {  // mudou de lado: a área de trabalho reserva a borda nova (e as janelas maximizadas se ajeitam)
@@ -1872,7 +1875,7 @@ void dock::ReloadSettings() {
     g_bmps.clear();
     BuildItems();  // a pasta Downloads, a divisória ou o Launchpad podem ter entrado ou saído
     Paint();
-    if (pos != g_pos) shell::ApplyWorkArea();
+    if (pos != g_pos || reserva != dock::ReservedHeight()) shell::ApplyWorkArea();  // lado, tamanho, margem ou folga
 }
 
 bool dock::Create(HINSTANCE hi) {

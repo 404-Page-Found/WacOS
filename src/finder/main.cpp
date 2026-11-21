@@ -6009,6 +6009,29 @@ static bool HandleKey(UINT vk) {
     }
     if (ctrl && vk == 'C') { RunVerb("copy"); return true; }
     if (ctrl && vk == 'X') { RunVerb("cut"); return true; }
+    // Colar um caminho copiado como texto ("C:\Users\...\Pastas", com ou sem aspas, %VAR% ou ~) vai direto para ele,
+    // como colar na barra de endereço do Windows; um arquivo abre a pasta dele com ele selecionado. Vale também na
+    // janela de escolher (trocar ícones do Dock pasta por pasta: Reddit, 21/11/2026). Arquivos copiados continuam
+    // sendo colados na pasta.
+    if (ctrl && !shift && vk == 'V' && !IsClipboardFormatAvailable(CF_HDROP) && IsClipboardFormatAvailable(CF_UNICODETEXT) && OpenClipboard(g_hwnd)) {
+        std::wstring t;
+        if (HANDLE hd = GetClipboardData(CF_UNICODETEXT)) { if (auto* s = (const wchar_t*)GlobalLock(hd)) { t = s; GlobalUnlock(hd); } }
+        CloseClipboard();
+        while (!t.empty() && iswspace(t.back())) t.pop_back();
+        while (!t.empty() && iswspace(t.front())) t.erase(0, 1);
+        if (t.size() >= 2 && t.front() == L'"' && t.back() == L'"') t = t.substr(1, t.size() - 2);
+        if (!t.empty() && t.size() < 1024 && t.find(L'\n') == std::wstring::npos) {
+            t = GoExpand(t);
+            while (t.size() > 3 && t.back() == L'\\') t.pop_back();
+            DWORD a = GetFileAttributesW(t.c_str());
+            if (a != INVALID_FILE_ATTRIBUTES) {
+                if (a & FILE_ATTRIBUTE_DIRECTORY) Navigate(t.size() == 2 ? t + L"\\" : t);
+                else { std::wstring dir = t.substr(0, t.find_last_of(L'\\')); if (dir.size() == 2) dir += L'\\'; Navigate(dir, true, PathFindFileNameW(t.c_str())); }
+                return true;
+            }
+        }
+    }
+    if (ctrl && !shift && vk == 'L') { GoOpen(true); return true; }  // a barra de endereço do Windows (Ctrl+L): Ir para a Pasta
     if (ctrl && vk == 'V') { if (g_folder.empty()) Flash(Tr(L"Abra uma pasta para colar")); else if (FAILED(PasteInto(g_hwnd, g_folder))) Flash(Tr(L"Nada para colar")); return true; }
     if (ctrl && shift && vk == 'N') { NewFolder(); return true; }
     if (ctrl && !shift && vk == 'N') {

@@ -988,6 +988,16 @@ void EndEdit(bool commit) {
     g_editEnding = false;
     while (!text.empty() && text.back() == L' ') text.pop_back();
     if (commit && idx >= 0 && idx < (int)g_items.size() && !text.empty() && text != g_items[idx].name) {
+        // A mesa mostra o nome do Windows (SHGFI_DISPLAYNAME), que esconde a extensão quando "ocultar extensões" está
+        // ligado: "foto.png" aparece "foto" e, renomeada para "praia", virava "praia" sem extensão (o arquivo ficava
+        // inutilizável; Reddit, 21/11/2026). Extensão escondida continua no arquivo, como no Mac.
+        if (!g_items[idx].dir) {
+            const wchar_t* real = PathFindFileNameW(g_items[idx].path.c_str());
+            std::wstring ext = PathFindExtensionW(real);
+            bool escondida = !ext.empty() && _wcsicmp(g_items[idx].name.c_str(), real) != 0 &&
+                             g_items[idx].name.size() + ext.size() == wcslen(real);
+            if (escondida && (text.size() < ext.size() || _wcsicmp(text.c_str() + text.size() - ext.size(), ext.c_str()))) text += ext;
+        }
         IFileOperation* op = nullptr; IShellItem* si = nullptr;
         if (SUCCEEDED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&op))) &&
             SUCCEEDED(SHCreateItemFromParsingName(g_items[idx].path.c_str(), nullptr, IID_PPV_ARGS(&si)))) {
