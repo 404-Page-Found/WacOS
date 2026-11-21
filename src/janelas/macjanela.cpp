@@ -82,6 +82,12 @@ struct Info {
     // modo "barra própria" (Chrome, Discord, VS Code...): o app desenha a barra e os botões dele;
     // por cima vão os botões do Mac à esquerda e uma faixa da cor da barra sobre os botões do app
     bool custom = false;
+    // Barra própria: o canto de cima à esquerda quase sempre tem coisa do app (grupos de abas do Chrome, setas do
+    // Discord, menu do Claude e do VS Code). Os botões do Mac só ficam lá com o canto vazio; senão vão para o lugar
+    // dos botões do app, numa faixa da largura medida deles (MedirBarra), sem esconder nada.
+    bool lightsRight = false;
+    float patchR = 0;            // largura dos botões do app (pt); 0 = ainda não medida (PATCH_R)
+    DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
     // janela de ferramenta com barra (plug-ins VST do Ableton e afins): barra escura compacta, como as janelas de
     // plug-in no Mac (botões menores, título cinza no meio), sem pegar a cor do app
     bool tool = false;
@@ -162,16 +168,17 @@ int Mode(HWND h, bool showing = false) {  // showing: chamada no WM_SHOWWINDOW, 
 }
 
 // modo barra própria: a faixa cobre o topo visível da janela (sem a borda invisível)
+// O Chromium/Electron deixa a área do app do tamanho da parte visível (a borda invisível de 11 px fica de fora dos
+// lados e embaixo). O DWM nem sempre sabe disso: com o quadro dele desligado, o "retângulo visível" vinha igual ao da
+// janela inteira e a faixa saía 11 px para fora (o vermelho cortado no Discord, 21/11/2026). Vale a interseção dos dois.
 RECT FrameRect(HWND h) {
-    RECT r;
+    POINT c{ 0, 0 }; ClientToScreen(h, &c);
+    RECT cr; GetClientRect(h, &cr);
+    RECT cli{ c.x, c.y, c.x + cr.right, c.y + cr.bottom }, r;
     bool aware = GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(h)) != DPI_AWARENESS_UNAWARE;
-    if (!aware || FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) {
-        GetWindowRect(h, &r);
-        POINT c{ 0, 0 }; ClientToScreen(h, &c);
-        RECT cr; GetClientRect(h, &cr);
-        r = { c.x, c.y, c.x + cr.right, c.y + cr.bottom };
-    }
-    return r;
+    if (!aware || FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) return cli;
+    RECT x;
+    return IntersectRect(&x, &r, &cli) ? x : cli;
 }
 
 bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
@@ -208,6 +215,8 @@ HRGN RoundRgn(int x0, int y0, int x1, int y1, int r) {
 }
 bool OwnApp();     // mais abaixo: um dos apps do WacOS
 const float PATCH_L = 80, PATCH_R = 3 * 46 + 6;  // pt: botões do Mac / os três botões do app (46 pt cada no Windows)
+float PatchR(Info* in) { return in->patchR > 0 ? in->patchR : PATCH_R; }  // a medida do app, quando já se sabe
+RECT BarRect(Info* in);
 
 // Apps do Windows (barra de título padrão, mais alta que a do Mac): os botões 4 pt mais para dentro; na medida do
 // Mac eles pareciam colados na borda (Reddit, 20/11/2026). Os apps do WacOS, barras próprias e o Leopard ficam como estão.
@@ -224,6 +233,11 @@ void LightsLayout(Info* in, float& lx0, float& lpitch, float& lr) {
     if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; lr = 7; }  // macOS 27: com barra de ferramentas 26, 49, 72; só título 16, 39, 62
     if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
     lx0 += WinAppInset(in);
+    if (in->custom && in->lightsRight) {  // no lugar dos botões do app: centrados na faixa deles
+        RECT r = BarRect(in);
+        float W = (r.right - r.left) / Scale(in->owner);
+        lx0 = W - PatchR(in) / 2 - lpitch;
+    }
 }
 
 void Insets(Info* in, int& l, int& t, int& rr, int& b);
@@ -300,8 +314,8 @@ void Paint(Info* in) {
                 rt->FillGeometry(g, b);
                 g->Release();
             };
-            fill(in->leftColor, D2D1::RectF(0, 0, PATCH_L, H), true);
-            fill(in->rightColor, D2D1::RectF(W - PATCH_R, 0, W, H), false);
+            if (!in->lightsRight) fill(in->leftColor, D2D1::RectF(0, 0, PATCH_L, H), true);
+            fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
         }
         // Leopard: a barra de título padrão vira o metal cinza do 10.5 de ponta a ponta (com os cantos de cima da
         // janela); a barra própria dos apps (Chromium e afins) e as janelas de plug-in ficam como estão
@@ -671,6 +685,7 @@ void UpdateShadow(Info* in) {
     if (GetPropW(in->owner, L"MacJanelaPintando")) return;  // aparecendo: a sombra espera a janela pintar
     if (TakenByShell(in->owner)) { if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); return; }
     in->shadow.tahoe = TemaTahoe(); in->shadow.dark = Dark();  // Tahoe: sombra medida no macOS 26
+    if (in->custom) { RECT f = FrameRect(in->owner); in->shadow.Update(in->active, &f); HideCorners(in); return; }  // rente à parte visível
     if (!in->rgn.cx) { in->shadow.Update(in->active); HideCorners(in); return; }
     int l, t, rr, b;
     Insets(in, l, t, rr, b);
@@ -685,6 +700,18 @@ void UpdateShadow(Info* in) {
 
 void ApplyRegion(Info* in) {
     HWND h = in->owner;
+    // Barra própria (Chromium/Electron): nunca recorta. A região não corta o conteúdo da GPU e desligava o quadro do
+    // DWM: sobrava a borda invisível escura em volta do Discord, o canto ficava quadrado e o DWM passava a informar
+    // a janela inteira como visível (a faixa dos botões ia junto para fora). Os cantos são os do DWM (modo leve).
+    if (in->custom) {
+        if (in->rgn.cx) {
+            in->rgn = {};
+            SetWindowRgn(h, nullptr, TRUE);
+            DWMNCRENDERINGPOLICY on = DWMNCRP_USEWINDOWSTYLE;
+            DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &on, sizeof(on));
+        }
+        return;
+    }
     if (IsZoomed(h) || IsIconic(h) || Fullscreen(h)) {  // maximizada de verdade ou tela cheia: sem cantos
         if (in->rgn.cx) {
             in->rgn = {};
@@ -941,6 +968,7 @@ void ToggleZoom(Info* in) {
 
 void SampleCaption(Info* in);
 void SampleBar(Info* in);
+void MedirBarra(Info* in);
 
 LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Info* in = (Info*)GetWindowLongPtrW(h, GWLP_USERDATA);
@@ -951,8 +979,12 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         RECT r = BarRect(in);
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
-        if (p.x / sc < (in->custom ? PATCH_L : (UnifiedBar(in->owner) > 40 ? 84 : 72) + WinAppInset(in))) return HTCLIENT;
-        if (in->custom && p.x / sc > (r.right - r.left) / sc - PATCH_R) return HTCLIENT;  // os três botões; o resto deixa o clique passar para a barra (arrastar)
+        if (in->custom) {  // só as duas faixas pintadas; o resto deixa o clique passar para a barra do app (abas, arrastar)
+            if (!in->lightsRight && p.x / sc < PATCH_L) return HTCLIENT;
+            if (p.x / sc > (r.right - r.left) / sc - PatchR(in)) return HTCLIENT;
+            return HTTRANSPARENT;
+        }
+        if (p.x / sc < (UnifiedBar(in->owner) > 40 ? 84 : 72) + WinAppInset(in)) return HTCLIENT;
         return HTTRANSPARENT;
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
@@ -968,7 +1000,12 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         if (in) {
-            if (in->custom) SampleBar(in); else SampleCaption(in);
+            if (in->custom) {
+                SampleBar(in);
+                // onde ficam os botões: logo ao pegar a janela, depois de mudar de tamanho/ativar, e a cada 8 s ativa
+                // (um grupo de abas novo no Chrome). A foto da faixa de cima custa alguns ms; não mais que isso.
+                if (!in->layoutAt || (in->active && GetTickCount() - in->layoutAt > 8000)) MedirBarra(in);
+            } else SampleCaption(in);
             UpdateShadow(in);
             // logo depois de aparecer ou ativar: relê a cada quadro até a cor firmar; depois, devagar
             bool fast = !in->custom && in->needColor && GetTickCount() < in->fastUntil;
@@ -998,7 +1035,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (k >= 0 && k == in->press) {
             if (k == 0) PostMessageW(in->owner, WM_SYSCOMMAND, SC_CLOSE, 0);
             else if (k == 1 && (in->style & WS_MINIMIZEBOX)) ShowWindow(in->owner, SW_MINIMIZE);
-            else if (k == 2 && (in->style & WS_MAXIMIZEBOX) && in->custom) PostMessageW(in->owner, WM_SYSCOMMAND, IsZoomed(in->owner) ? SC_RESTORE : SC_MAXIMIZE, 0);
+            else if (k == 2 && (in->style & WS_MAXIMIZEBOX) && in->custom) ShowWindow(in->owner, IsZoomed(in->owner) ? SW_RESTORE : SW_MAXIMIZE);  // (o Chromium ignora o SC_MAXIMIZE postado)
             else if (k == 2 && (in->style & WS_MAXIMIZEBOX)) ToggleZoom(in);
         }
         in->press = -1;
@@ -1043,6 +1080,7 @@ void PlaceOverlay(Info* in) {
 // Barra com a cor do próprio app (como no Mac, onde a barra de título faz parte da janela do app);
 // antes da primeira leitura, a cor da barra do Mac no tema do Windows.
 void ApplyColors(Info* in) {
+    if (in->custom) return;  // barra própria: a cor, a borda e o escuro são do app (o contorno é do modo leve, CantoLeve)
     COLORREF cap = in->cap;
     if (cap == CLR_INVALID) { in->dark = Dark(); cap = in->dark ? RGB(0x2D, 0x2D, 0x2F) : RGB(0xE9, 0xE9, 0xEA); }
     else in->dark = (GetRValue(cap) * 299 + GetGValue(cap) * 587 + GetBValue(cap) * 114) / 1000 < 128;
@@ -1127,9 +1165,18 @@ void SampleCaption(Info* in) {
 // Modo barra própria: lê a cor da barra do app ao lado dos botões dele e na esquerda, e a altura da
 // barra (até onde a cor ao lado dos botões continua igual). Só com a janela na frente.
 void SampleBar(Info* in) {
-    if (GetForegroundWindow() != in->owner || IsIconic(in->owner)) return;
+    if (IsIconic(in->owner) || !IsWindowVisible(in->owner) || in->transit) return;
     RECT f = FrameRect(in->owner);
     float sc = Scale(in->owner);
+    // Inativa também: o Chrome clareia a barra ao perder o foco e a faixa ficava na cor de ativa. Só lê se os pontos
+    // lidos estão à mostra (nenhuma outra janela por cima deles).
+    if (GetForegroundWindow() != in->owner) {
+        POINT pts[2] = { { f.right - (int)((PatchR(in) + 12) * sc), f.top + (int)(5 * sc) }, { f.left + (int)((PATCH_L + 12) * sc), f.top + (int)(5 * sc) } };
+        for (POINT p : pts) {
+            HWND at = WindowFromPoint(p), root = at ? GetAncestor(at, GA_ROOT) : nullptr;
+            if (root != in->owner && root != in->overlay) return;
+        }
+    }
     int w = f.right - f.left, h = std::min<int>((int)(64 * sc), f.bottom - f.top);
     if (w < 300 || h < 20) return;
     HDC screen = GetDC(nullptr);
@@ -1146,8 +1193,19 @@ void SampleBar(Info* in) {
         int d = std::abs((int)(a & 255) - (int)(b & 255)) + std::abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + std::abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
         return d <= 12;
     };
-    int xr = w - (int)((PATCH_R + 4) * sc), y0 = (int)(5 * sc);
+    int xr = w - (int)((PatchR(in) + 4) * sc), y0 = (int)(5 * sc);
+    // a cor mais comum num trecho de 30 pt logo antes dos botões (um ponto só às vezes caía num ícone ou numa aba)
     UINT32 right = at(xr, y0);
+    {
+        std::vector<std::pair<UINT32, int>> cnt;
+        for (int x = std::max(0, xr - (int)(30 * sc)); x <= xr; x++) {
+            UINT32 v = at(x, y0);
+            auto it = std::find_if(cnt.begin(), cnt.end(), [&](auto& p) { return p.first == v; });
+            if (it == cnt.end()) cnt.push_back({ v, 1 }); else it->second++;
+        }
+        if (!cnt.empty()) right = std::max_element(cnt.begin(), cnt.end(), [](auto& a, auto& b) { return a.second < b.second; })->first;
+        for (int x = xr; x >= std::max(0, xr - (int)(30 * sc)); x--) if (at(x, y0) == right) { xr = x; break; }  // a altura é medida numa coluna dessa cor
+    }
     // altura da barra: desce ao lado dos botões enquanto a cor é a mesma
     int barH = h;
     for (int y = y0; y < h; y++) if (!near_(at(xr, y), right) && !near_(at(xr, y + 1), right)) { barH = y; break; }
@@ -1163,9 +1221,89 @@ void SampleBar(Info* in) {
     barH = std::clamp(barH, (int)(20 * sc), (int)(48 * sc));
     COLORREF L = col(left), R = col(right);
     if (L == in->leftColor && R == in->rightColor && barH == in->barH) return;
+    if (barH != in->barH) in->layoutAt = 0;  // outra altura de barra: mede de novo onde ficam os botões
     in->leftColor = L; in->rightColor = R; in->barH = barH;
-    in->dark = (GetRValue(L) * 299 + GetGValue(L) * 587 + GetBValue(L) * 114) / 1000 < 128;
+    COLORREF D = in->lightsRight ? R : L;  // o fundo de onde estão os botões do Mac
+    in->dark = (GetRValue(D) * 299 + GetGValue(D) * 587 + GetBValue(D) * 114) / 1000 < 128;
     PlaceOverlay(in);
+}
+
+// Foto da faixa de cima da janela (PrintWindow com o conteúdo da GPU; a tela teria a nossa faixa por cima) para
+// decidir: (1) o canto esquerdo, onde iriam os botões do Mac, está vazio (só a cor da barra)? (2) qual a largura dos
+// três botões do app à direita (Chrome/Edge/Claude 46 pt cada, Discord ~36 pt)? A faixa da direita cobria 144 pt fixos
+// e escondia o "?" do Discord e o "Compartilhar" do Claude; a da esquerda escondia os grupos de abas do Chrome.
+static int g_ultimoLado = -1;    // a última medição neste processo (a próxima janela do Chrome já nasce com ela)
+static float g_ultimoPatch = 0;
+void MedirBarra(Info* in) {
+    HWND h = in->owner;
+    if (!IsWindowVisible(h) || IsIconic(h) || Fullscreen(h) || in->moving || in->transit) return;
+    RECT wr; GetWindowRect(h, &wr);
+    RECT f = FrameRect(h);
+    float sc = Scale(h);
+    int bh = in->barH ? in->barH : (int)(32 * sc);
+    int W = wr.right - wr.left, H = (f.top - wr.top) + bh;
+    if (W < 200 || W > 16384 || H < 16 || H > 1024) return;
+    HDC mdc = CreateCompatibleDC(nullptr);
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(mdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp) { DeleteDC(mdc); return; }
+    HGDIOBJ old = SelectObject(mdc, bmp);
+    BOOL ok = PrintWindow(h, mdc, 2 /*PW_RENDERFULLCONTENT*/);
+    auto* px = (UINT32*)bits;
+    auto at = [&](int x, int y) { return px[y * W + x] & 0xFFFFFF; };
+    auto dist = [](UINT32 a, UINT32 b) {
+        return std::abs((int)(a & 255) - (int)(b & 255)) + std::abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + std::abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
+    };
+    int x0 = std::max(0, (int)(f.left - wr.left)), x1 = std::min(W, (int)(f.right - wr.left)), y0 = f.top - wr.top;
+    int ya = y0 + (int)(3 * sc), yb = std::min(H, y0 + bh - (int)(3 * sc));
+    bool done = false;
+    if (ok && yb > ya && x1 - x0 > 200) {
+        // fundo da barra: a cor mais comum
+        std::vector<std::pair<UINT32, int>> cnt;
+        for (int y = ya; y < yb; y += 3)
+            for (int x = x0; x < x1; x += 4) {
+                UINT32 v = at(x, y);
+                auto it = std::find_if(cnt.begin(), cnt.end(), [&](auto& p) { return p.first == v; });
+                if (it == cnt.end()) { if (cnt.size() < 256) cnt.push_back({ v, 1 }); } else it->second++;
+            }
+        UINT32 bg = cnt.empty() ? 0 : std::max_element(cnt.begin(), cnt.end(), [](auto& a, auto& b) { return a.second < b.second; })->first;
+        if (bg != 0) {  // preto puro: o app ainda não desenhou (tenta de novo na próxima volta)
+            done = true;
+            // (1) canto esquerdo, onde ficam os botões do Mac: alguns pixels soltos ainda contam como vazio
+            int busy = 0, lw = std::min(x1 - x0, (int)(PATCH_L * sc));
+            for (int y = ya; y < yb; y++) for (int x = x0 + 1; x < x0 + lw; x++) if (dist(at(x, y), bg) > 40) busy++;
+            bool right = busy > 3;
+            // (2) os três botões do app: os três grupos de colunas com desenho mais à direita (×, □ e —), com o mesmo
+            // passo entre eles; a faixa vai até meio passo antes do centro do "—"
+            std::vector<std::pair<int, int>> gr;  // [começo, fim] de cada grupo, da direita para a esquerda
+            bool ink = false; int end = 0;
+            int lim = std::max(x0, x1 - (int)(240 * sc));
+            for (int x = x1 - 2; x >= lim; x--) {
+                bool any = false;
+                for (int y = ya; y < yb && !any; y++) any = dist(at(x, y), bg) > 40;
+                if (any && !ink) { ink = true; end = x; }
+                else if (!any && ink) { ink = false; gr.push_back({ x + 1, end }); if (gr.size() == 3) break; }
+            }
+            float pr = 0;
+            if (gr.size() == 3) {
+                float c0 = (gr[0].first + gr[0].second) / 2.f, c1 = (gr[1].first + gr[1].second) / 2.f, c2 = (gr[2].first + gr[2].second) / 2.f;
+                float p1 = c0 - c1, p2 = c1 - c2;
+                if (std::fabs(p1 - p2) <= 4 * sc && p1 >= 24 * sc && p1 <= 64 * sc) pr = ((x1 - c2) + p1 / 2) / sc + 2;
+            }
+            bool changed = right != in->lightsRight || (pr > 0 && std::fabs(pr - in->patchR) >= 1);
+            in->lightsRight = right;
+            if (pr > 0) in->patchR = pr;
+            g_ultimoLado = right ? 1 : 0; g_ultimoPatch = in->patchR;
+            if (changed) {
+                COLORREF D = right ? in->rightColor : in->leftColor;
+                in->dark = (GetRValue(D) * 299 + GetGValue(D) * 587 + GetBValue(D) * 114) / 1000 < 128;
+                PlaceOverlay(in);
+            }
+        }
+    }
+    SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
+    if (done) in->layoutAt = GetTickCount() | 1;
 }
 
 void Detach(HWND h, Info* in);
@@ -1231,7 +1369,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         RECT s = in->lastStart;  // do arrasto que acabou agora (Win+←/→ não arrasta: o retângulo de agora)
         if (s.right <= s.left || GetTickCount() - in->lastStartAt > 3000) GetWindowRect(h, &s);
         if (!w && !l) {
-            if (in->custom) { if (!IsZoomed(h)) PostMessageW(h, WM_SYSCOMMAND, SC_MAXIMIZE, 0); in->tiled = false; return 1; }
+            if (in->custom) { if (!IsZoomed(h)) ShowWindow(h, SW_MAXIMIZE); in->tiled = false; return 1; }
             if (!in->zoomed) { in->before = s; ToggleZoom(in); in->before = s; }
             in->tiled = false;
             return 1;
@@ -1261,7 +1399,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         return 0;
     }
     if (m == g_msgZoom && g_msgZoom && in->custom) {  // barra própria: Win+↑/↓ do Shell maximiza de verdade (w = 0)
-        if (w == 0) PostMessageW(h, WM_SYSCOMMAND, IsZoomed(h) ? SC_RESTORE : SC_MAXIMIZE, 0);
+        if (w == 0) ShowWindow(h, IsZoomed(h) ? SW_RESTORE : SW_MAXIMIZE);  // o Edge ignorava o WM_SYSCOMMAND postado (testado 21/11/2026)
         return 1;
     }
     if (m == g_msgZoom && g_msgZoom) {
@@ -1315,6 +1453,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_SIZE: {
         LRESULT r = DefSubclassProc(h, m, w, l);
         if (w == SIZE_MAXIMIZED && g_msgZoom) PostMessageW(h, g_msgZoom, 1, 0);  // depois desta mensagem: vira "ampliar"
+        if (in->custom) in->layoutAt = 0;  // a barra do app se rearruma no tamanho novo: mede de novo
         ApplyRegion(in);
         PlaceOverlay(in);
         UpdateShadow(in);
@@ -1379,6 +1518,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         Paint(in);
         UpdateShadow(in);
         if (in->active && in->overlay) { in->needColor = true; in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 16, nullptr); }  // relê a cor do app logo depois de ativar
+        else if (in->custom && in->overlay) SetTimer(in->overlay, 1, 200, nullptr);  // barra própria: a cor de inativa, depois de o app repintar
         break;
     case WM_SETTEXT: { LRESULT r = DefSubclassProc(h, m, w, l); PaintNC(in); Paint(in); return r; }
     case WM_DPICHANGED: { LRESULT r = DefSubclassProc(h, m, w, l); PlaceOverlay(in); return r; }
@@ -1492,6 +1632,7 @@ void Attach(HWND h, int mode) {
     } else {
         in->dark = Dark();  // barra própria: os botões do Mac e a faixa por cima dos botões do app (BarRect/Paint)
         SetPropW(h, L"MacJanelaPropria", (HANDLE)1);
+        if (g_ultimoLado >= 0) { in->lightsRight = g_ultimoLado == 1; in->patchR = g_ultimoPatch; }
     }
     in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
     if (in->overlay) { SetWindowLongPtrW(in->overlay, GWLP_USERDATA, (LONG_PTR)in); in->fastUntil = GetTickCount() + 900; SetTimer(in->overlay, 1, 16, nullptr); }
@@ -1666,7 +1807,13 @@ LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PT
         CantoLeve(h);
         return 0;
     }  // tema claro/escuro mudou: a cor do contorno
-    if (m == g_msgUndo && g_msgUndo) { BOOL on = FALSE; DwmSetWindowAttribute(h, 3, &on, sizeof(on)); ZoomShow(h); RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID); return 1; }
+    // Desfazer: solta e PASSA ADIANTE. Na barra própria o modo leve fica por cima do OwnerProc (instalado depois); com
+    // "return 1" o pedido parava aqui, a barra (OwnerProc) nunca se soltava e a DLL nova não conseguia assumir a janela:
+    // o Discord ficava com a faixa da versão antiga e a nova reenviava o pedido a cada 400 ms (21/11/2026)
+    if (m == g_msgUndo && g_msgUndo) {
+        BOOL on = FALSE; DwmSetWindowAttribute(h, 3, &on, sizeof(on)); ZoomShow(h); RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID);
+        return GetPropW(h, PROP) ? DefSubclassProc(h, m, w, l) : 1;
+    }
     if (m == msgShow && msgShow) { ZoomShow(h); return 1; }
     if (m == WM_NCDESTROY) { RemovePropW(h, PROP_LEVE); RemoveWindowSubclass(h, LeveProc, LEVE_ID); }
     if (m == WM_MOVING && l && ClampTopDrag(h, (RECT*)l)) return TRUE;  // não passa por cima da barra de menus
@@ -1736,7 +1883,11 @@ void TakeOver(HWND h) {
     DWORD_PTR ref = 0;
     bool old = (GetPropW(h, PROP) && !GetWindowSubclass(h, OwnerProc, SUBCLASS_ID, &ref)) ||
                (GetPropW(h, PROP_LEVE) && !GetWindowSubclass(h, LeveProc, LEVE_ID, &ref));
-    if (old && g_msgUndo) SendMessageW(h, g_msgUndo, 0, 0);
+    // algumas vezes: o modo leve das versões até 21/11/2026 engolia o pedido (cada vez solta uma camada, até a barra)
+    for (int i = 0; old && g_msgUndo && i < 4; i++) {
+        SendMessageW(h, g_msgUndo, 0, 0);
+        old = (GetPropW(h, PROP) && !GetWindowSubclass(h, OwnerProc, SUBCLASS_ID, &ref)) || (GetPropW(h, PROP_LEVE) && !GetWindowSubclass(h, LeveProc, LEVE_ID, &ref));
+    }
 }
 
 bool g_fora = false;  // apareceu janela de jogo neste processo: a DLL não faz mais nada aqui
