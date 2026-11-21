@@ -104,7 +104,19 @@ float ToolStart() { return g_sideHidden ? 128.f : SideW(); }  // onde começam o
 
 // ---- cores
 struct Pal { D2D1_COLOR_F side, list, editor, text, text2, text3, line, sel, selFocus, icon, iconOff, hover, field; };
+Pal ColorsNormal();
 Pal Colors() {
+    // issue #8 (macOS 26/27): o acrílico do Windows sozinho deixava a lateral num cinza turvo (e chapado com a janela
+    // inativa). Por cima dele vai um véu na cor medida na foto (claro 236,236,240; escuro 32,34,38) a 72 %: o papel de
+    // parede ainda tinge a lateral, como no Mac, mas o vidro fica discreto. O resto da paleta vem do tema normal.
+    if (Mac26() && !semaforo::Leopard()) {
+        Pal p = ColorsNormal();
+        p.side = g_dark ? D2D1::ColorF(32 / 255.f, 34 / 255.f, 38 / 255.f, 0.72f) : D2D1::ColorF(236 / 255.f, 236 / 255.f, 240 / 255.f, 0.72f);
+        return p;
+    }
+    return ColorsNormal();
+}
+Pal ColorsNormal() {
     // Leopard (as Notas do Mail do 10.5): barra lateral azul-acinzentada, lista branca com a seleção azul do Aqua; o papel
     // amarelo pautado é desenhado pelo editor (editor.cpp)
     if (semaforo::Leopard())
@@ -366,7 +378,15 @@ void LayoutButtons() {
     put(B_GALLERY, L0 + 69, L"square.grid.2x2", 36, 14, 14);
     if (gg) { g_btn[B_LIST].shown = g_btn[B_GALLERY].shown = false; }
     float e0;
-    if (g_gallery) {
+    if (g_gallery && gg) {
+        // issue #8: na galeria, o título da pasta e o "⋯" (Ver como Lista) ficam onde estariam na coluna das notas;
+        // com uma nota aberta, a seta de voltar vem logo depois, num círculo de vidro
+        auto roundB = [&](int id, float cx, const wchar_t* glyph, float gw, float gh) { put(id, cx, glyph, 36, gw, gh); g_btn[id].r.top = TOOL_CY - 18; g_btn[id].r.bottom = TOOL_CY + 18; };
+        float colR = L0 + std::max(ListW(), 250.f);
+        roundB(B_MORE, colR - 28, L"", 16, 4);
+        if (g_galleryOpen) { roundB(B_BACK, colR + 26, L"chevron.left", 8, 14); e0 = colR + 44; }
+        else e0 = colR;
+    } else if (g_gallery) {
         put(B_TRASH, L0 + 110, L"trash", 32, 14, 16);
         if (g_galleryOpen) put(B_BACK, L0 + 148, L"chevron.left", 30, 8, 14);
         e0 = L0 + (g_galleryOpen ? 166 : 130);
@@ -584,11 +604,25 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
         capIds({ B_FORMAT, B_CHECK, B_TABLE, B_ATTACH, B_MARKUP, B_WRITING }, 20);
         capIds({ B_SHARE, B_EDMORE }, 18.5f);
         cap(B_SEARCH, B_SEARCH);
-        cap(B_SIDEBAR, B_SIDEBAR);
-        cap(B_FOLDER, B_FOLDER);
         cap(B_MORE, B_MORE);
+        cap(B_BACK, B_BACK);
+        // issue #8: na barra lateral os dois botões eram brancos chapados sobre o vidro; no macOS 26 (foto) são vidro
+        // discreto: um véu claro de ~35 % com o fio da borda, sem sombra (o vidro da lateral aparece por trás)
+        for (int id : { B_SIDEBAR, B_FOLDER }) {
+            if (!g_btn[id].shown) continue;
+            float cx = (g_btn[id].r.left + g_btn[id].r.right) / 2;
+            D2D1_RECT_F r = D2D1::RectF(cx - 18, TOOL_CY - 18, cx + 18, TOOL_CY + 18);
+            bool overSide = !g_sideHidden && cx < SideW();
+            if (!overSide) { cap(id, id); continue; }
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(1, 1, 1, 0.38f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(r, 18, 18), br);
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(1, 1, 1, 0.65f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 17.5f, 17.5f), br, 1);
+            br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.20f) : D2D1::ColorF(0, 0, 0, 0.05f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 0.5f, r.top - 0.5f, r.right + 0.5f, r.bottom + 0.5f), 18.5f, 18.5f), br, 1);
+        }
         // nome da pasta e quantas notas, à esquerda da coluna das notas (no lugar do seletor lista/galeria)
-        if (!g_gallery && !g_quick) {
+        if (!g_quick) {  // issue #8: também na galeria
             float L = ToolStart() + 18, R = g_btn[B_MORE].shown ? g_btn[B_MORE].r.left - 6 : ListR() - 10;
             int n = 0; for (auto& r : g_rows) if (!r.header) n++;
             std::wstring name = Searching() ? std::wstring(Tr(L"Resultados")) : store::FolderName(g_folder);
@@ -607,7 +641,7 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
         if (b.enabled && (g_hoverBtn == i || g_pressBtn == i || (i == B_FORMAT && g_fmtOpen)) && i != B_LIST && i != B_GALLERY) {
             br->SetColor(g_pressBtn == i || (i == B_FORMAT && g_fmtOpen) ? (g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.09f)) : pal.hover);
             float rr = Mac26() ? (b.r.bottom - b.r.top) / 2 : 7.f;  // macOS 27: o realce segue o vidro redondo
-            if (Mac26() && (i == B_COMPOSE || i == B_SIDEBAR || i == B_FOLDER || i == B_MORE || i == B_SEARCH)) {
+            if (Mac26() && (i == B_COMPOSE || i == B_SIDEBAR || i == B_FOLDER || i == B_MORE || i == B_SEARCH || i == B_BACK)) {
                 float cx2 = (b.r.left + b.r.right) / 2, cy2 = (b.r.top + b.r.bottom) / 2, rad = 16.f;
                 if (rad > 0) dc->FillEllipse(D2D1::Ellipse({ cx2, cy2 }, rad, rad), br); else dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, 18, 18), br);
             } else dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, rr, rr), br);
@@ -1297,6 +1331,7 @@ void FormatClick(D2D1_POINT_2F p) {
         else if (it.kind == 2) editor::ToggleList(it.v);
         else editor::SetHighlight(it.v);
         editor::Focus(true); g_focus = F_EDITOR;
+        g_fmtOpen = false;  // issue #8: escolheu, o painel fecha (antes ficava aberto até clicar fora)
         Invalidate();
         return;
     }
