@@ -813,55 +813,12 @@ bool TakenByShell(HWND h) { return GetPropW(h, L"ShellDialogoPorFora") != nullpt
 
 // ---- Cantos do Finder nos apps de barra própria (Chrome, Discord, Electron)
 // O DWM arredonda essas janelas em 8 px e não deixa mais; o recorte não corta o que o Chromium desenha pela GPU. Então,
-// em vez de cortar, a DLL COBRE a sobra entre o arco de 8 px e o do Finder com o que está atrás da janela naquele
-// ponto: uma foto da janela de trás (PrintWindow, com o conteúdo da GPU; a área de trabalho do Shell ou outro app)
-// escurecida pela nossa sombra, e por cima o contorno do Mac no arco grande. A foto é refeita quando a janela muda
-// de lugar/tamanho e a cada 10 s; arrastando, as capas somem (voltam os 8 px) e reaparecem ao soltar.
-bool JanelaNossa(HWND w) {
-    wchar_t c[40] = {};
-    GetClassNameW(w, c, 40);
-    return !wcsncmp(c, L"MacJanela", 9);
-}
-// a primeira janela abaixo de h (ordem Z) que cobre o ponto p, fora as camadas transparentes (sombras, molduras)
-HWND JanelaAtras(HWND h, POINT p) {
-    for (HWND w = GetWindow(h, GW_HWNDNEXT); w; w = GetWindow(w, GW_HWNDNEXT)) {
-        if (!IsWindowVisible(w) || IsIconic(w) || JanelaNossa(w)) continue;
-        LONG ex = GetWindowLongW(w, GWL_EXSTYLE);
-        if ((ex & WS_EX_LAYERED) && (ex & WS_EX_TRANSPARENT)) continue;
-        BOOL cloaked = FALSE;
-        if (SUCCEEDED(DwmGetWindowAttribute(w, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) continue;
-        RECT r;
-        if (FAILED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) GetWindowRect(w, &r);
-        if (PtInRect(&r, p)) return w;
-    }
-    return nullptr;
-}
-// foto de um retângulo da tela tirada só da janela w (PrintWindow): BGRA, sem alfa útil
-bool FotoDe(HWND w, RECT box, std::vector<UINT32>& out) {
-    RECT wr; GetWindowRect(w, &wr);
-    int W = wr.right - wr.left, H = wr.bottom - wr.top;
-    if (W <= 0 || H <= 0 || W > 16384 || H > 16384) return false;
-    HDC mdc = CreateCompatibleDC(nullptr);
-    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
-    void* bits = nullptr;
-    HBITMAP bmp = CreateDIBSection(mdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (!bmp) { DeleteDC(mdc); return false; }
-    HGDIOBJ old = SelectObject(mdc, bmp);
-    bool ok = PrintWindow(w, mdc, 2 /*PW_RENDERFULLCONTENT*/) != FALSE;
-    int bw = box.right - box.left, bh = box.bottom - box.top;
-    out.assign((size_t)bw * bh, 0);
-    if (ok) {
-        auto* px = (UINT32*)bits;
-        for (int y = 0; y < bh; y++)
-            for (int x = 0; x < bw; x++) {
-                int sx = box.left + x - wr.left, sy = box.top + y - wr.top;
-                if (sx >= 0 && sy >= 0 && sx < W && sy < H) out[(size_t)y * bw + x] = px[(size_t)sy * W + sx] & 0xFFFFFF;
-            }
-    }
-    SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
-    return ok;
-}
-
+// em vez de cortar, a DLL COBRE a sobra entre o arco de 8 px e o canto contínuo com a cor da tela logo em volta da
+// janela (1 px por fora: a linha de cima/baixo e a coluna do lado, misturadas pela distância), e por cima o fio da
+// borda no canto contínuo. A sobra tem no máximo uns 3 px de espessura: a cor de fora (papel de parede, sombras, outra
+// janela) emenda sem costura. Antes era uma foto da janela de trás (PrintWindow), que vinha PRETA quando ela estava
+// tapada (o Chrome não desenha o que não aparece): sobrava uma cunha preta em cada canto (21/11/2026).
+// Refeita quando a janela muda de lugar/tamanho e a cada 10 s; arrastando, as capas somem (8 px) e voltam ao soltar.
 void CapasCantos(Info* in, RECT vis) {
     HWND h = in->owner;
     // (era só no Chrome de teste; desde a build-25 a barra própria inteira só liga com barra_mac_propria=1)
@@ -902,25 +859,15 @@ void CapasCantos(Info* in, RECT vis) {
         SetPropW(h, L"MacJanelaMoldura", fw);
         SetTimer(fw, 1, 500, nullptr);
     }
-    // Fundo de cada canto: a foto da janela de trás, com 1 px a mais em volta (fora da janela). Em volta da janela a
-    // tela tem as sombras (a nossa e a do próprio DWM, que o Chromium tem): a foto de trás não, e o cantinho coberto
-    // saía mais claro que a tela ao lado. Então a capa compara, nesse 1 px de fora (a linha de cima/baixo e a coluna do
-    // lado), a foto com a tela de verdade e escurece cada ponto na mesma proporção (média da linha e da coluna).
-    std::vector<UINT32> bg[4], tela[4];
+    // a tela em volta de cada canto (com 1 px a mais por fora da janela): de onde sai a cor da sobra
+    std::vector<UINT32> tela[4];
     RECT box[4];
     bool have[4]{};
-    std::map<HWND, int> fotos;  // uma foto por janela de trás (a mesma janela costuma estar atrás de vários cantos)
     HDC sdc = GetDC(nullptr);
     for (int i = 0; i < 4; i++) {
         bool right = i & 1, bottom = (i & 2) != 0;
         int x0 = right ? vis.right - S : vis.left, y0 = bottom ? vis.bottom - S : vis.top;
         box[i] = { x0 - 1, y0 - 1, x0 + S + 1, y0 + S + 1 };
-        POINT p{ right ? vis.right - 2 : vis.left + 1, bottom ? vis.bottom - 2 : vis.top + 1 };  // o pixel do canto
-        HWND w = JanelaAtras(h, p);
-        if (!w || (fotos.count(w) && fotos[w] > 3)) continue;
-        fotos[w]++;
-        have[i] = FotoDe(w, box[i], bg[i]);
-        if (!have[i]) continue;
         int bw = box[i].right - box[i].left, bh = box[i].bottom - box[i].top;
         tela[i].assign((size_t)bw * bh, 0);
         HDC m2 = CreateCompatibleDC(sdc);
@@ -929,7 +876,7 @@ void CapasCantos(Info* in, RECT vis) {
         HBITMAP tbm = CreateDIBSection(m2, &b2, DIB_RGB_COLORS, &tb, nullptr, 0);
         if (tbm) {
             HGDIOBJ o2 = SelectObject(m2, tbm);
-            if (BitBlt(m2, 0, 0, bw, bh, sdc, box[i].left, box[i].top, SRCCOPY)) memcpy(tela[i].data(), tb, tela[i].size() * 4);
+            if (BitBlt(m2, 0, 0, bw, bh, sdc, box[i].left, box[i].top, SRCCOPY)) { memcpy(tela[i].data(), tb, tela[i].size() * 4); have[i] = true; }
             SelectObject(m2, o2); DeleteObject(tbm);
         }
         DeleteDC(m2);
@@ -957,31 +904,25 @@ void CapasCantos(Info* in, RECT vis) {
         if (!have[i]) continue;
         bool right = i & 1, bottom = (i & 2) != 0;
         int bw = box[i].right - box[i].left, bh = box[i].bottom - box[i].top;
-        // quanto a tela de verdade é mais escura que a foto, por canal: na linha de fora (cima/baixo) para cada x e na
-        // coluna de fora (esquerda/direita) para cada y
-        auto ratio = [&](int x, int y, int c) {
-            UINT32 f = bg[i][(size_t)y * bw + x], t = tela[i][(size_t)y * bw + x] & 0xFFFFFF;
-            float a = (float)((f >> (c * 8)) & 255), b = (float)((t >> (c * 8)) & 255);
-            return a < 8 ? 1.f : std::clamp(b / a, 0.f, 1.2f);
-        };
+        // a linha de fora (em cima ou embaixo) e a coluna de fora (do lado do canto), 1 px fora da janela
         int ry = bottom ? bh - 1 : 0, rx = right ? bw - 1 : 0;
-        std::vector<float> kr((size_t)bw * 3), kc((size_t)bh * 3);
-        for (int x = 0; x < bw; x++) for (int c = 0; c < 3; c++) kr[(size_t)x * 3 + c] = ratio(x, ry, c);
-        for (int y = 0; y < bh; y++) for (int c = 0; c < 3; c++) kc[(size_t)y * 3 + c] = ratio(rx, y, c);
+        auto tel = [&](int x, int y) { return tela[i][(size_t)y * bw + x] & 0xFFFFFF; };
         for (int y = 0; y < bh; y++)
             for (int x = 0; x < bw; x++) {
                 int sx = box[i].left + x, sy = box[i].top + y;          // tela
                 int lx = sx - vis.left + M, ly = sy - vis.top + M;       // na capa
                 float fx = lx + 0.5f, fy = ly + 0.5f;
                 float d = SqSdf(fx - cxm, fy - cym, hw, hh, (float)r), d8 = sdf(fx, fy, (float)r0);  // o nosso (contínuo) / o do DWM
-                float A = std::clamp(cov(d8) - cov(d), 0.f, 1.f);       // o pedaço do app que o canto do Mac esconde
+                // o pedaço do app que o canto do Mac esconde; o arco do DWM com 1 px de folga para fora (o pixel da borda,
+                // meio coberto, deixava ver um resto do fio do DWM: uma coluna 1 px mais clara junto da quina)
+                float A = std::clamp(cov(d8 - 1) - cov(d), 0.f, 1.f);
                 float R = 0, G = 0, B = 0, Aa = 0;  // pré-multiplicado
                 auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); Aa = a + Aa * (1 - a); };
-                if (A > 0) {
-                    UINT32 v = bg[i][(size_t)y * bw + x];
-                    float kb = (kr[(size_t)x * 3 + 0] + kc[(size_t)y * 3 + 0]) / 2, kg = (kr[(size_t)x * 3 + 1] + kc[(size_t)y * 3 + 1]) / 2,
-                          kR = (kr[(size_t)x * 3 + 2] + kc[(size_t)y * 3 + 2]) / 2;
-                    over(std::min(1.f, ((v >> 16) & 255) / 255.f * kR), std::min(1.f, ((v >> 8) & 255) / 255.f * kg), std::min(1.f, (v & 255) / 255.f * kb), A);
+                if (A > 0) {  // a cor de fora mais perto: a da linha pesa mais perto dela, a da coluna perto da coluna
+                    UINT32 cr = tel(x, ry), cc = tel(rx, y);
+                    float dx = (float)std::abs(x - rx), dy = (float)std::abs(y - ry), wr = dx / std::max(dx + dy, 1.f), wc = 1 - wr;
+                    auto ch = [&](int sh) { return (((cr >> sh) & 255) * wr + ((cc >> sh) & 255) * wc) / 255.f; };
+                    over(ch(16), ch(8), ch(0), A);
                 }
                 over(bR, bG, bB, std::clamp(cov(d) - cov(d + 1), 0.f, 1.f));  // o fio da borda no arco grande
                 if (Aa <= 0) continue;
