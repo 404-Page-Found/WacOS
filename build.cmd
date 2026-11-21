@@ -27,6 +27,8 @@ call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 cd /d "%~dp0"
 if not exist bin\obj mkdir bin\obj
 if not exist bin\ferramentas mkdir bin\ferramentas
+rem a etiqueta da versao (bin\versao.txt: ultima build publicada, commit, data) a cada compilacao; erro aqui nao para o build
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\versao.ps1 >nul 2>nul
 
 rem icones e descricoes (VERSIONINFO) de cada programa
 set "RES=bin\obj\res"

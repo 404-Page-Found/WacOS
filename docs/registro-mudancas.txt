@@ -832,3 +832,5 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   2) Ajustes > Geral > Sobre: grupo "Menu da Apple" com o popup "Sobre Este Mac mostra" (Este PC / Mac Studio). 4 frases novas nos 12 idiomas.
   3) WacOSSetup.exe (src\setup\main.cpp) e tools\atualizar-github.ps1: se a API do GitHub recusa (60 consultas/hora por IP sem login; CGNAT das operadoras estoura), lê a página pública: /releases/latest -> tag, /releases/expanded_assets/<tag> -> .zip e sha256. Erros mostram o código HTTP. Testado forçando a API a falhar (os dois acham build-21 com o SHA certo) e o download completo de 177 MB pelo código do instalador.
   Compilado (shell, ajustes, setup), instalado e conferido no PC (foto do Sobre). Nada no registro do Windows. DESFAZER: reverter o commit.
+
+[2026-11-21 02:58] build.cmd roda tools\versao.ps1 em toda compilacao: bin\versao.txt = ultima build publicada no GitHub (gh), commit atual e data (sem gh/rede mantem a versao do arquivo). C:\Users\Public\copiar-inst.ps1 copia o versao.txt para a instalacao. Motivo: instalado era a build-22 e os Ajustes mostravam build-19. DESFAZER: reverter o commit.
