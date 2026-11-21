@@ -1296,6 +1296,80 @@ void MedirBarra(Info* in) {
     if (done) in->layoutAt = GetTickCount() | 1;
 }
 
+// ---- Abas horizontais com espaço para os botões do Mac (Chrome), como o Chrome do Mac
+// O Chromium monta a barra pelo BrowserFrameViewWin::GetBrowserLayoutParams: além da área do app, ele devolve uma
+// "área reservada" no começo da linha (leading_exclusion, usada no Mac para os três botões) e outra no fim (os botões
+// do Windows). No Windows a do começo vem zerada e as abas encostam na borda: os botões do Mac cobriam o grupo de
+// abas. O gancho troca o ponteiro dessa função na tabela virtual da classe (sem reescrever instruções do app), chama
+// a original e põe na área do começo a largura dos botões do Mac: o próprio Chrome empurra as abas para a direita.
+// Só para as versões medidas (tabela abaixo, achada com os símbolos públicos do Google): o ponteiro na tabela tem de
+// apontar exatamente para a função e os primeiros 16 bytes dela têm de bater. Qualquer diferença: não mexe.
+struct GanchoChromium { const wchar_t* dll; DWORD vt; int slot; DWORD fn; BYTE sig[16]; };
+static const GanchoChromium g_ganchos[] = {
+    // Chrome 157.0.8103.79 (chrome.dll.pdb 57DD8BAFFD89996F4C4C44205044422E1): vftable 0x100845a0, slot 123
+    { L"chrome.dll", 0x100845a0, 123, 0x371cb40, { 0x48, 0x89, 0xd0, 0x0f, 0x57, 0xc0, 0x0f, 0x11, 0x42, 0x20, 0x0f, 0x11, 0x42, 0x10, 0x0f, 0x10 } },
+};
+using LayoutParamsFn = void* (__fastcall*)(void* self, void* out);
+static LayoutParamsFn g_lpOrig;
+static void** g_lpSlot;
+static volatile float g_leadW;  // largura (pt = DIP) dos botões do Mac no começo da linha
+// BrowserLayoutParams: gfx::Rect visual_client_area (0x00), leading_exclusion { SizeF content; float hpad, vpad } (0x10),
+// trailing_exclusion (0x20). Em floats: [4] largura e [5] altura do começo, [9] altura do fim.
+static void* __fastcall LayoutParamsHook(void* self, void* out) {
+    void* r = g_lpOrig(self, out);
+    float need = g_leadW;
+    if (out && need > 0) {
+        float* p = (float*)out;
+        if (p[4] < need) {
+            p[4] = need;
+            if (p[5] < p[9]) p[5] = p[9];
+            if (p[5] <= 0) p[5] = 30;
+        }
+    }
+    return r;
+}
+// liga (true) ou desfaz (false). true: o gancho está posto (agora ou antes)
+bool GanchoAbas(bool on) {
+    if (!on) {
+        if (g_lpSlot && *g_lpSlot == (void*)&LayoutParamsHook) {
+            DWORD old;
+            if (VirtualProtect(g_lpSlot, sizeof(void*), PAGE_READWRITE, &old)) {
+                InterlockedExchangePointer(g_lpSlot, (void*)g_lpOrig);
+                VirtualProtect(g_lpSlot, sizeof(void*), old, &old);
+            }
+        }
+        g_lpSlot = nullptr;
+        return false;
+    }
+    if (g_lpSlot) return *g_lpSlot == (void*)&LayoutParamsHook;
+    // PROVA (21/11/2026): só no Chrome de teste aberto com --wacos-teste-abas; o Chrome do usuário fica como está
+    if (!wcsstr(GetCommandLineW(), L"--wacos-teste-abas")) return false;
+    for (const auto& e : g_ganchos) {
+        auto* base = (BYTE*)GetModuleHandleW(e.dll);
+        if (!base) continue;
+        auto* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+        DWORD size = nt->OptionalHeader.SizeOfImage;
+        if (e.vt + (e.slot + 1) * sizeof(void*) > size || e.fn + sizeof(e.sig) > size) continue;
+        void** slot = (void**)(base + e.vt) + e.slot;
+        BYTE* fn = base + e.fn;
+        if (*slot != fn || memcmp(fn, e.sig, sizeof(e.sig))) continue;  // outra versão: não mexe
+        DWORD old;
+        if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old)) continue;
+        g_lpOrig = (LayoutParamsFn)fn;
+        InterlockedExchangePointer(slot, (void*)&LayoutParamsHook);
+        VirtualProtect(slot, sizeof(void*), old, &old);
+        g_lpSlot = slot;
+        return true;
+    }
+    return false;
+}
+// o Chrome refaz a barra com a área nova (o mesmo caminho de quando a moldura muda)
+void RefazBarra(HWND h) {
+    SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    RECT cr; GetClientRect(h, &cr);
+    SendMessageW(h, WM_SIZE, IsZoomed(h) ? SIZE_MAXIMIZED : SIZE_RESTORED, MAKELPARAM(cr.right, cr.bottom));
+}
+
 void Detach(HWND h, Info* in);
 
 void CALLBACK UncloakShown(HWND h, UINT, UINT_PTR id, DWORD);
@@ -1623,6 +1697,8 @@ void Attach(HWND h, int mode) {
         in->dark = Dark();  // barra própria: os botões do Mac e a faixa por cima dos botões do app (BarRect/Paint)
         SetPropW(h, L"MacJanelaPropria", (HANDLE)1);
         in->patchR = g_ultimoPatch;
+        g_leadW = PatchL(in);
+        if (GanchoAbas(true)) RefazBarra(h);  // Chrome medido: as abas começam depois dos botões do Mac
     }
     in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
     if (in->overlay) { SetWindowLongPtrW(in->overlay, GWLP_USERDATA, (LONG_PTR)in); in->fastUntil = GetTickCount() + 900; SetTimer(in->overlay, 1, 16, nullptr); }
@@ -1675,6 +1751,8 @@ void Detach(HWND h, Info* in) {
         RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaPropria");
         RemoveWindowSubclass(h, OwnerProc, SUBCLASS_ID);
         delete in;
+        if (g_lpSlot) GanchoAbas(false);
+        if (g_lpOrig) RefazBarra(h);  // as abas voltam para a borda (a versão nova põe de novo)
         return;
     }
     COLORREF defc = 0xFFFFFFFF;
