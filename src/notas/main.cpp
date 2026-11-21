@@ -534,7 +534,8 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
         // texto vem 4 pt mais perto (ícone a 25, nome a 40)
         float gx = Mac26() ? 25.f : 29.f, nx = Mac26() ? 40.f : 44.f;
         D2D1_COLOR_F gc = Mac26() ? (g_dark ? D2D1::ColorF(139 / 255.f, 168 / 255.f, 199 / 255.f) : D2D1::ColorF(59 / 255.f, 92 / 255.f, 117 / 255.f)) : folderC;
-        Glyph(dc, br, s.glyph.c_str(), gx, cy, s.glyph == L"x.squareroot" ? 15.f : 16.f, s.glyph == L"trash" ? 15.f : 13.f, gc);
+        float gs = Mac26() ? 1.15f : 1.f;  // macOS 26 (foto 2x): a pasta tem ~18 pt de largura
+        Glyph(dc, br, s.glyph.c_str(), gx, cy, (s.glyph == L"x.squareroot" ? 15.f : 16.f) * gs, (s.glyph == L"trash" ? 15.f : 13.f) * gs, gc);
         if (g_focus == F_RENAME && s.id == g_renameId) {
             D2D1_RECT_F fr{ nx, r.top + 2, r.right - 6, r.bottom - 2 };
             br->SetColor(g_dark ? D2D1::ColorF(0.12f, 0.12f, 0.13f) : D2D1::ColorF(1, 1, 1));
@@ -707,8 +708,8 @@ void DrawList(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) 
         float o1 = mac26 ? 3.f : 0.f, o2 = mac26 ? 2.f : 0.f;  // macOS 26: título a 20 pt e data a 36 pt do topo do cartão
         Text(dc, br, n->Title(), g_f13b, D2D1::RectF(tx, y + 8 + o1, R - 22, y + 26 + o1), t1);
         std::wstring d = ShortDate(n->modified);
-        float dw = TextW(mac26 ? g_f12b : g_f12, d);
-        Text(dc, br, d, mac26 ? g_f12b : g_f12, D2D1::RectF(tx, y + 26 + o2, tx + dw + 2, y + 43 + o2), tdate);  // macOS 26: a data em negrito
+        float dw = TextW(g_f12, d);
+        Text(dc, br, d, g_f12, D2D1::RectF(tx, y + 26 + o2, tx + dw + 2, y + 43 + o2), tdate);  // macOS 26: data em peso normal, só mais escura que a prévia
         Text(dc, br, n->Preview(), g_f12, D2D1::RectF(tx + dw + 7, y + 26 + o2, R - 22, y + 43 + o2), t2);
         if (ShowFolderLine()) {
             Glyph(dc, br, n->folder == L"apagadas" ? L"trash" : L"folder", tx + 6, y + 51, 12, 10, t2);
