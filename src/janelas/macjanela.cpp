@@ -103,13 +103,14 @@ struct Info {
     int sobre = 0;               // o mouse está em cima de: 1 o grupo movido, 2 o ˅ (repassado ao app)
     int barGlyph = 0;            // altura da barra pelo centro dos botões do app (px), quando a medida pela cor erra
     int barCor = 0;              // a altura medida pela cor (SampleBar), sem a correção
-    // Um ícone do app debaixo dos botões do Mac que atravessa o pé da barra (o sino do TeamSpeak, na linha de baixo): a
-    // faixa da esquerda desce mais patchExt px, com patchExtW px de largura, para não sobrar o pé dele à mostra
-    int patchExt = 0, patchExtW = 0;
+    // A faixa cobriria desenho do app que não dá para levar para depois dos botões (MedirBarra): a janela fica com a barra
+    // do próprio app, sem a faixa (a faixa nunca come o app)
+    bool recusa = false;
   // chunkTop: 1ª linha da foto, a partir do topo
     RECT capasVis{};             // retângulo da última foto do fundo dos cantos
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
+    POINT lastPos{ INT_MIN, INT_MIN };  // onde a janela estava (barra própria: a faixa só anda junto ao arrastar)
     // janela de ferramenta com barra (plug-ins VST do Ableton e afins): barra escura compacta, como as janelas de
     // plug-in no Mac (botões menores, título cinza no meio), sem pegar a cor do app
     bool tool = false;
@@ -151,7 +152,7 @@ RECT CaptionRect(HWND h) {
 // com os cantos, a sombra, o ampliar e os três botões, desenhados por cima no meio dessa faixa, a 26 pt da borda.
 int UnifiedBar(HWND h) { return (int)(INT_PTR)GetPropW(h, L"WacOSBarraUnificada"); }
 
-bool BarraPropria();       // mais abaixo: barra_mac_propria=1 no ajustes.txt do Shell (desligado por padrão: em testes)
+bool BarraPropria();       // mais abaixo: barra_mac_propria no ajustes.txt do Shell (ligado por padrão; =0 desliga)
 bool ProcessoChromium();   // mais abaixo
 bool Fullscreen(HWND h);   // mais abaixo
 // 0: não mexe; 1: barra padrão do Windows; 2: barra desenhada pelo próprio app (Chromium/Electron e afins)
@@ -345,7 +346,7 @@ RECT BarRect(Info* in) {
     float sc = Scale(in->owner);
     int h = in->barH ? in->barH : (int)(32 * sc);
     if (in->capas) { f.left = in->capasVis.left; f.right = in->capasVis.right; }  // rente às capas (com o fio da borda do DWM)
-    return { f.left, f.top, f.right, f.top + h + in->patchExt };
+    return { f.left, f.top, f.right, f.top + h };
 }
 
 // ---- desenho da faixa (janela em camadas, alfa por pixel)
@@ -423,13 +424,8 @@ void Paint(Info* in) {
                 rt->FillGeometry(g, b);
                 g->Release();
             };
-            float Hb = H - in->patchExt / sc;  // a barra em si (sem o pedaço que desce à esquerda)
-            fill(in->leftColor, D2D1::RectF(0, 0, PatchLeft(in), Hb), true);
-            if (in->patchExt) {
-                b->SetColor(D2D1::ColorF(GetRValue(in->leftColor) / 255.f, GetGValue(in->leftColor) / 255.f, GetBValue(in->leftColor) / 255.f, 1));
-                rt->FillRectangle(D2D1::RectF(0, Hb - 1, in->patchExtW / sc, H), b);
-            }
-            fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, Hb), false);
+            fill(in->leftColor, D2D1::RectF(0, 0, PatchLeft(in), H), true);
+            fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
             if (in->capas && !IsZoomed(in->owner)) {  // o fio da borda do DWM, que as faixas cobrem nos lados (continua o das capas)
                 int fundo = (int)(INT_PTR)GetPropW(in->owner, L"MacJanelaFundo");
                 bool dk = fundo ? fundo == 2 : Dark();
@@ -450,7 +446,7 @@ void Paint(Info* in) {
                             sk->BeginFigure({ W - PatchR(in), o }, D2D1_FIGURE_BEGIN_HOLLOW);
                             sk->AddLine({ W - Ef, o });
                             SqCanto(sk, W - Ef, Ef, Ei, true);
-                            sk->AddLine({ W - o, Hb });
+                            sk->AddLine({ W - o, H });
                         }
                         sk->EndFigure(D2D1_FIGURE_END_OPEN);
                         sk->Close(); sk->Release();
@@ -669,9 +665,10 @@ bool OwnApp() {
     return own == 1;
 }
 static bool g_golden;  // lido junto com o Tahoe (TemaTahoe)
-// barra_mac_propria (TemaTahoe). Desligado por padrão desde a build-25: os botões do Mac nos apps de barra própria
-// ainda estão em testes (sessão "macOS Title bar for all apps"); barra_mac_propria=1 liga
-static bool g_propria = false;
+// barra_mac_propria (TemaTahoe). Ligado de novo por padrão (21/11/2026, a pedido do usuário: "todos os apps possíveis"
+// com a barra do Mac); barra_mac_propria=0 desliga. Na build-25 tinha ficado desligado enquanto estava em testes. Onde a
+// faixa cobriria parte do app, a janela fica com a barra dele (recusa, MedirBarra)
+static bool g_propria = true;
 bool ProvaAbas();  // mais abaixo: o Chrome de teste (--wacos-teste-abas)
 bool BarraPropria() { TemaTahoe(); return g_propria || ProvaAbas(); }  // (o Chrome de teste conta como ligado: as provas continuam)
 bool TemaGolden() { return TemaTahoe() && g_golden; }
@@ -691,7 +688,7 @@ bool TemaTahoe(bool force) {
     buf[n] = 0;
     on = strstr(buf, "liquid_glass=1") != nullptr;
     g_golden = strstr(buf, "golden_gate=1") != nullptr;
-    g_propria = strstr(buf, "barra_mac_propria=1") != nullptr;
+    g_propria = strstr(buf, "barra_mac_propria=0") == nullptr;
     return on;
 }
 int CornerRadius(HWND h) { return (int)std::lround((TemaTahoe() ? 16 : 12)  /* Golden Gate: também 16 pt (medido) */ * Scale(h)); }
@@ -1309,6 +1306,18 @@ bool LevarMenuDaSeta(Info* in) {
     if (std::abs(q.left - x) > 2) SetWindowPos(f.achou, nullptr, x, q.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     return true;
 }
+// O mouse saiu do grupo movido (ou do ˅): o app tinha recebido o mouse repassado e o botão ficava aceso (no
+// CurseForge, um bloco claro de cima a baixo da barra no "←", que ainda fazia a faixa recusar a janela). O Chromium
+// ignora o WM_MOUSELEAVE que não foi ele que pediu; então vai também um movimento para um ponto vazio da barra, logo
+// depois do grupo de verdade (lá há um vão de 24 pt), e o app apaga o realce (21/11/2026)
+void SaiDoGrupo(Info* in) {
+    RECT f = FrameRect(in->owner);
+    float sc = Scale(in->owner);
+    POINT a{ f.left + (in->chunkW ? in->chunkSrc + in->chunkW + (int)(10 * sc) : (int)(PatchL(in) * sc) + 4), f.top + (int)(4 * sc) };
+    ScreenToClient(in->owner, &a);
+    PostMessageW(in->owner, WM_MOUSEMOVE, 0, MAKELPARAM(a.x, a.y));
+    PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0);
+}
 bool RepassaGrupo(Info* in, POINT p, UINT msg) {
     POINT real;
     int k = AlvoMovido(in, p, real);
@@ -1331,7 +1340,6 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
         if (in->custom) {  // só as duas faixas pintadas; o resto deixa o clique passar para a barra do app (abas, arrastar)
-            if (p.y >= r.bottom - r.top - in->patchExt) return p.x < in->patchExtW ? HTCLIENT : HTTRANSPARENT;  // o pedaço que desce
             if (p.x / sc < PatchLeft(in)) return HTCLIENT;
             if (p.x / sc > (r.right - r.left) / sc - PatchR(in)) return HTCLIENT;
             return HTTRANSPARENT;
@@ -1369,8 +1377,10 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             } else SampleCaption(in);
             UpdateShadow(in);
             // logo depois de aparecer ou ativar: relê a cada quadro até a cor firmar; depois, devagar
-            bool fast = !in->custom && in->needColor && GetTickCount() < in->fastUntil;
-            SetTimer(h, 1, fast ? 16 : in->active ? 1500 : 4000, nullptr);
+            // barra própria: relê a cor a cada 33 ms por um tempo depois de ativar, desativar ou soltar a janela (a cor de
+            // inativa demorava até 4 s para vir, 21/11/2026)
+            bool fast = GetTickCount() < in->fastUntil && (in->custom || in->needColor);
+            SetTimer(h, 1, fast ? (in->custom ? 33 : 16) : in->active ? 1500 : 4000, nullptr);
         }
         return 0;
     case WM_MOUSEMOVE:
@@ -1383,7 +1393,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             POINT real;
             int alvo = AlvoMovido(in, p, real);
             if (alvo) RepassaGrupo(in, p, WM_MOUSEMOVE);  // o app acende o botão no lugar de verdade; a miniatura mostra na hora
-            if (alvo != in->sobre) { if (in->sobre && !alvo) PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); in->sobre = alvo; }
+            if (alvo != in->sobre) { if (in->sobre && !alvo) SaiDoGrupo(in); in->sobre = alvo; }
             bool grupo = alvo != 0;
             // os símbolos (× − +) só em cima dos botões do Mac, como no Mac (antes acendiam em qualquer ponto da faixa)
             bool luzes = !grupo && (!in->custom || p.x / Scale(in->owner) < PatchL(in));
@@ -1398,7 +1408,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSELEAVE:
         if (in) {
             in->hoverLights = false; in->press = -1; Paint(in);
-            if (in->sobre) { in->sobre = 0; PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); }
+            if (in->sobre) { in->sobre = 0; SaiDoGrupo(in); }
         }
         RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); return 0;
     case WM_LBUTTONDOWN: RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); if (in) {
@@ -1465,7 +1475,7 @@ void KeepAbove(Info* in) {
 void PlaceOverlay(Info* in) {
     if (!in->overlay || in->transit) return;
     if (GetPropW(in->owner, L"MacJanelaPintando")) return;  // aparecendo: a barra espera a janela pintar
-    bool show = IsWindowVisible(in->owner) && !IsIconic(in->owner) && !Fullscreen(in->owner) && !controles::IsAlert(in->owner) && !TakenByShell(in->owner);
+    bool show = !(in->custom && in->recusa) && IsWindowVisible(in->owner) && !IsIconic(in->owner) && !Fullscreen(in->owner) && !controles::IsAlert(in->owner) && !TakenByShell(in->owner);
     if (!show) { ShowWindow(in->overlay, SW_HIDE); return; }
     Paint(in);  // UpdateLayeredWindow já posiciona e redimensiona
     if (!IsWindowVisible(in->overlay)) { ShowWindow(in->overlay, SW_SHOWNOACTIVATE); KeepAbove(in); }
@@ -1751,6 +1761,9 @@ void MedirBarra(Info* in) {
             // termina num vão de 24 pt anda para depois deles, se lá estiver vazio
             int oldW = in->chunkW, oldDst = in->chunkDst, oldSrc = in->chunkSrc, oldSeta[4] = { in->setaX, in->setaY, in->setaW, in->setaH };
             in->chunkW = 0;
+            // sem os três botões do app medidos, a faixa da direita cobriria uma largura chutada: também recusa
+            bool recusa = in->patchR <= 0;
+            int porque = recusa ? 1 : 0;  // MacJanelaRecusa: 1 botões do app não medidos, 2 desenho do app debaixo dos botões do Mac
             if (g_lpSlot) MedirSeta(in, at, dist, bg, x0, x1, y0, ya, yb, sc);
             else {
                 // só numa faixa de ±10 pt em volta do centro dos botões: a barra medida (mín. 30 pt) pegava o topo da caixa de
@@ -1769,37 +1782,40 @@ void MedirBarra(Info* in) {
                     // vazio só precisa estar o que fica além do fim do grupo (o lugar antigo a faixa cobre de qualquer jeito)
                     bool livre = gap >= need && dst + cw + need / 2 < x1;
                     for (int xx = std::max(dst, e0 + 1); livre && xx < dst + cw + need / 2; xx++) if (ink(xx)) livre = false;
-                    // e o grupo tem de caber inteiro na faixa: tinta logo abaixo (ou acima) dela é um ícone que atravessa
-                    // o pé da barra (o sino do TeamSpeak, na linha de baixo), e ele andava cortado ao meio (21/11/2026)
-                    for (int xx = s0; livre && xx <= e0; xx++)
-                        if ((bb < H && dist(at(xx, bb), bg) > 40) || (ba > 0 && dist(at(xx, ba - 1), bg) > 40)) livre = false;
-                    int ch = bb - ba;
-                    if (livre && ch > 0) { in->chunkW = cw; in->chunkH = ch; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ba - y0; }
+                    // a altura de verdade do grupo dentro da barra (de ya a yb), não a faixa de ±10 pt: rente a ela a borda
+                    // suave do ícone (o topo da bigorna do CurseForge) ficava de fora e saía cortada, ou o grupo era
+                    // recusado. E ele tem de acabar dentro da barra: desenho na última linha medida (yb) é um ícone que
+                    // atravessa o pé dela (o sino do TeamSpeak) e andaria cortado ao meio (21/11/2026)
+                    int gt = INT_MAX, gb = -1;
+                    for (int yy = ya; yy <= std::min(yb, H - 1); yy++)
+                        for (int xx = s0; xx <= e0; xx++) if (dist(at(xx, yy), bg) > 40) { gt = std::min(gt, yy); gb = yy; break; }
+                    if (gb < 0 || gb >= yb) livre = false;
+                    int ta = std::max(y0 + 1, gt - (int)(2 * sc)), tb = std::min(y0 + bh, gb + 1 + (int)(2 * sc)), ch = tb - ta;
+                    if (livre && ch > 0) { in->chunkW = cw; in->chunkH = tb - ta; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ta - y0; }
                 }
-                // (4) um ícone debaixo dos botões do Mac que passa do pé da barra (o sino do TeamSpeak): sobrava o pé dele
-                // à mostra embaixo da faixa. A faixa desce até ele acabar, se ali embaixo o fundo é o da barra (senão
-                // apareceria um retângulo da cor da barra por cima do conteúdo) e se é um ícone, não um traço de ponta a
-                // ponta (o separador entre a barra e o conteúdo do Discord)
-                int ext = 0, extW = 0, yBar = y0 + bh, pl = std::min(x1, x0 + lights);
-                int cs = -1, ce = -1;
-                for (int x = x0 + 2; x < pl; x++) if (dist(at(x, yBar - 1), bg) > 40) { if (cs < 0) cs = x; ce = x; }
-                if (cs > x0 + 2 && ce - cs < (pl - x0) / 2 && yBar < H) {
-                    int y = yBar;
-                    for (; y < H; y++) {
-                        bool tem = false;
-                        for (int x = std::max(x0, cs - (int)(2 * sc)); x <= std::min(x1 - 1, ce + (int)(2 * sc)) && !tem; x++) tem = dist(at(x, y), bg) > 40;
-                        if (!tem) break;
-                    }
-                    // só da borda até um pouco depois do ícone (ao lado pode começar outro painel, como no TeamSpeak);
-                    // logo abaixo do ícone, nessas colunas, tem de ser o fundo da barra
-                    int xe = std::min(pl, ce + (int)(4 * sc)), fora = 0, tot = 0;
-                    for (int x = x0 + 2; y < H && x < xe; x++, tot++) if (dist(at(x, std::min(H - 1, y + 1)), bg) > 24) fora++;
-                    if (y < H && tot && fora * 10 <= tot) { ext = y - yBar + (int)(2 * sc); extW = xe - x0; }
+                // (4) a faixa NUNCA come o app: se embaixo dos botões do Mac sobra desenho do app que não andou para depois
+                // deles (um ícone que não cabe na faixa, como o sino do TeamSpeak, que atravessa o pé da barra; um botão
+                // largo demais; um fundo de outra cor), a janela fica com a barra do próprio app (recusa). Antes a faixa
+                // pintava por cima e o ícone sumia (21/11/2026). Linhas quase inteiras de desenho são traços (o separador
+                // entre a barra e o conteúdo do Discord, a borda de cima) e não contam.
+                int pl = std::min(x1, x0 + lights), sw = pl - (x0 + 2), px1 = 0, py1 = 0;
+                bool sobra = false;
+                // (só de ya a yb, como as outras medidas: a barra medida passa uns px do pé da barra de verdade, e o painel
+                // claro logo abaixo, no CurseForge, fazia recusar)
+                for (int y = ya; y < yb && !sobra && sw > 0; y++) {
+                    int n = 0, fora = 0;
+                    for (int x = x0 + 2; x < pl; x++)
+                        if (dist(at(x, y), bg) > 40) { n++; if (!in->chunkW || x < x0 + in->chunkSrc || x >= x0 + in->chunkSrc + in->chunkW || y < y0 + in->chunkTop || y >= y0 + in->chunkTop + in->chunkH) { if (!fora) px1 = x - x0, py1 = y - y0; fora++; } }
+                    if (fora && n * 10 < sw * 8) sobra = true;
                 }
-                if (ext != in->patchExt || extW != in->patchExtW) { in->patchExt = ext; in->patchExtW = extW; PlaceOverlay(in); }
+                if (sobra && !recusa) { recusa = true; porque = 2 | std::min(px1, 4095) << 4 | std::min(py1, 4095) << 16 | (in->chunkW ? 1 << 30 : 0); }  // e onde (x, y; bit 30: havia grupo movido)
             }
+            if (g_lpSlot) recusa = false, porque = 0;  // Chrome com o gancho: o espaço é aberto pelo próprio Chrome
+            SetPropW(h, L"MacJanelaRecusa", (HANDLE)(INT_PTR)(recusa ? porque : 0));
+            bool mudouRecusa = recusa != in->recusa;
+            in->recusa = recusa;
             if (in->chunkW != oldW || in->chunkDst != oldDst || in->chunkSrc != oldSrc || in->setaX != oldSeta[0] || in->setaY != oldSeta[1] ||
-                in->setaW != oldSeta[2] || in->setaH != oldSeta[3]) PlaceOverlay(in);
+                in->setaW != oldSeta[2] || in->setaH != oldSeta[3] || mudouRecusa) PlaceOverlay(in);
         }
     }
     SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
@@ -2025,6 +2041,25 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         // depois desta mensagem: redimensionar aqui dentro deixava o app desenhando no tamanho antigo
         // (o Ableton ficava cortado embaixo)
         if (!(((WINDOWPOS*)l)->flags & SWP_NOSIZE) && g_msgZoom) PostMessageW(h, g_msgZoom, 2, 0);
+        // Barra própria só mudando de lugar (arrastando): a faixa anda junto, sem redesenhar. Redesenhar (D2D +
+        // UpdateLayeredWindow) a cada passo do arraste deixava a faixa para trás da janela e com a pintura errada
+        // (21/11/2026). Muda de tamanho, aparece ou some: redesenha como antes.
+        {
+            auto* wp = (WINDOWPOS*)l;
+            RECT wr; GetWindowRect(h, &wr);
+            int dx = wr.left - in->lastPos.x, dy = wr.top - in->lastPos.y;
+            bool so = in->custom && (wp->flags & SWP_NOSIZE) && !(wp->flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW | SWP_FRAMECHANGED)) &&
+                      in->lastPos.x != INT_MIN && (dx || dy) && in->overlay && IsWindowVisible(in->overlay);
+            in->lastPos = { wr.left, wr.top };
+            if (so) {
+                OffsetRect(&in->capasVis, dx, dy);
+                RECT ov; GetWindowRect(in->overlay, &ov);
+                SetWindowPos(in->overlay, nullptr, ov.left + dx, ov.top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+                UpdateShadow(in);
+                if (!(wp->flags & SWP_NOZORDER)) KeepAbove(in);
+                return r;
+            }
+        }
         ApplyRegion(in); PlaceOverlay(in); UpdateShadow(in);
         if (!(((WINDOWPOS*)l)->flags & SWP_NOZORDER)) KeepAbove(in);
         return r;
@@ -2096,6 +2131,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         }
         if (!moved) in->tiled = false;  // redimensionou: deixa de estar encaixada
         if (moved) { in->lastStart = in->moveStart; in->lastStartAt = GetTickCount(); }  // o Shell pode encaixar logo depois (MacJanelaEncaixar)
+        if (in->custom && in->overlay) { PlaceOverlay(in); in->fastUntil = GetTickCount() + 500; SetTimer(in->overlay, 1, 33, nullptr); }  // pinta de novo no lugar final
         UpdateShadow(in);
         break;
     }
@@ -2121,7 +2157,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         Paint(in);
         UpdateShadow(in);
         if (in->active && in->overlay) { in->needColor = true; in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 16, nullptr); }  // relê a cor do app logo depois de ativar
-        else if (in->custom && in->overlay) SetTimer(in->overlay, 1, 200, nullptr);  // barra própria: a cor de inativa, depois de o app repintar
+        else if (in->custom && in->overlay) { in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 33, nullptr); }  // barra própria: a cor de inativa, logo que o app repintar
         break;
     case WM_SETTEXT: { LRESULT r = DefSubclassProc(h, m, w, l); PaintNC(in); Paint(in); return r; }
     case WM_DPICHANGED: { LRESULT r = DefSubclassProc(h, m, w, l); PlaceOverlay(in); return r; }
@@ -2384,6 +2420,7 @@ void CantoLeveDesfazer(HWND h) {
     DwmSetWindowAttribute(h, 34, &c, sizeof(c));
     RemovePropW(h, PROP_CANTO);
     RemovePropW(h, PROP_FUNDO);
+    RemovePropW(h, L"MacJanelaRecusa");
     RemovePropW(h, L"MacJanelaFundoN");
 }
 
