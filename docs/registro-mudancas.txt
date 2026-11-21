@@ -912,3 +912,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   3) tools\gancho-chrome\simbolos.py e desmonta.py: acham os endereços de uma versão nova (PDB público do Google: chromium-browser-symsrv.commondatastorage.googleapis.com/chrome.dll.pdb/<GUID+idade>/chrome.dll.pdb, ~1 GB baixado, 5,7 GB no disco; GUID tirado do diretório de depuração do chrome.dll). Precisa do capstone (pip) e do dbghelp do Windows SDK.
   Testado num Chrome 157 de teste (perfil próprio, apagado depois): normal, com grupo de abas "TESTE", maximizado e restaurado: busca de abas, grupo e abas inteiros depois dos botões; botões do Windows cobertos. Fotos mandadas ao usuário e apagadas. NÃO feito: Edge (msedge.dll, símbolos da Microsoft), Discord/Electron (sem símbolos públicos).
   Nada no registro do Windows. DESFAZER: reverter o commit.
+
+[2026-11-21 15:20] Teste: cantos do tamanho do Finder nos apps de barra própria (Chrome/Discord/Electron). NÃO deu; nada mudou no código.
+  - O canto deles é o do DWM (DWMWCP_ROUND, 8 px; não há opção maior). O recorte (SetWindowRgn) não corta o que o Chromium desenha pelo DirectComposition (janela filha "Intermediate D3D Window" do processo da GPU).
+  - BrowserFrameViewWin::GetWindowRoundedCorners só informa ao Chrome o raio do DWM (para ele combinar o desenho); mudar o número não arredonda a janela.
+  - Pintar "o que está atrás" nos cantos: o HostBackdropBrush de uma camada por cima vê o próprio Chrome; o filtro do Magnifier (MagSetWindowFilterList) não funciona com o DWM; excluir o Chrome da captura (WDA_EXCLUDEFROMCAPTURE) o tiraria de prints e compartilhamento de tela.
+  - Chrome com --disable-direct-composition: o recorte pegou (canto de 16 px), mas o Chrome 157 parou de desenhar (janela branca, título no estilo antigo), com ou sem o gancho das abas. A tentativa na DLL (recortar a barra própria sem DirectComposition) foi desfeita: em casos raros traria de volta o bug da borda escura do Discord.
+  Testado só num Chrome de teste (perfil apagado). DLL do commit do gancho reinstalada; Discord, Claude e o Chrome do usuário sem recorte, como antes.
