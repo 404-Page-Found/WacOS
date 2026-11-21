@@ -1562,3 +1562,7 @@
 { L"Copiar “", L"„" },
 { L"” como Nome de Caminho", L"“ als Pfadname kopieren" },
 { L"Mostrar na Pasta Superior", L"Im umgebenden Ordner anzeigen" },
+{ L"Mostrar o Finder no Alt+Tab mesmo sem janelas", L"Finder in Alt+Tab auch ohne Fenster anzeigen" },
+{ L"Mostrar Arquivos Ocultos", L"Unsichtbare Dateien einblenden" },
+{ L"Arquivos ocultos à mostra", L"Unsichtbare Dateien eingeblendet" },
+{ L"Arquivos ocultos escondidos", L"Unsichtbare Dateien ausgeblendet" },

@@ -1562,3 +1562,7 @@
 { L"Copiar “", L"“" },
 { L"” como Nome de Caminho", L"”のパス名をコピー" },
 { L"Mostrar na Pasta Superior", L"内包しているフォルダに表示" },
+{ L"Mostrar o Finder no Alt+Tab mesmo sem janelas", L"ウインドウがなくてもAlt+TabにFinderを表示" },
+{ L"Mostrar Arquivos Ocultos", L"不可視ファイルを表示" },
+{ L"Arquivos ocultos à mostra", L"不可視ファイルを表示しました" },
+{ L"Arquivos ocultos escondidos", L"不可視ファイルを隠しました" },

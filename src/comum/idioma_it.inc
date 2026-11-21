@@ -1562,3 +1562,7 @@
 { L"Copiar “", L"Copia “" },
 { L"” como Nome de Caminho", L"” come nome percorso" },
 { L"Mostrar na Pasta Superior", L"Mostra nella cartella che lo contiene" },
+{ L"Mostrar o Finder no Alt+Tab mesmo sem janelas", L"Mostra il Finder in Alt+Tab anche senza finestre" },
+{ L"Mostrar Arquivos Ocultos", L"Mostra file nascosti" },
+{ L"Arquivos ocultos à mostra", L"File nascosti visibili" },
+{ L"Arquivos ocultos escondidos", L"File nascosti nascosti" },

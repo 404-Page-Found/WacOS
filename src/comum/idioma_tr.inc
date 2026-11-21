@@ -1562,3 +1562,7 @@
 { L"Copiar “", L"“" },
 { L"” como Nome de Caminho", L"” öğesini yol adı olarak kopyala" },
 { L"Mostrar na Pasta Superior", L"Kapsayan klasörde göster" },
+{ L"Mostrar o Finder no Alt+Tab mesmo sem janelas", L"Pencere olmasa da Finder'ı Alt+Tab'de göster" },
+{ L"Mostrar Arquivos Ocultos", L"Gizli dosyaları göster" },
+{ L"Arquivos ocultos à mostra", L"Gizli dosyalar gösteriliyor" },
+{ L"Arquivos ocultos escondidos", L"Gizli dosyalar gizlendi" },

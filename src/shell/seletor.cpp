@@ -1,4 +1,4 @@
-// Seletor de apps (Cmd+Tab do Mac) no Alt+Tab: um ícone por app, na ordem de uso, num painel de vidro
+﻿// Seletor de apps (Cmd+Tab do Mac) no Alt+Tab: um ícone por app, na ordem de uso, num painel de vidro
 // no meio da tela; o escolhido fica num quadrado escuro com o nome embaixo. Segurando o Alt: Tab avança,
 // Shift+Tab volta, setas andam, Q encerra o app escolhido, H oculta, Esc cancela; soltar o Alt troca.
 // Um Alt+Tab rápido troca para o app anterior sem nem mostrar o painel (como no Mac).
@@ -35,6 +35,7 @@ bool g_glass;
 ui::GpuSurface g_s;
 std::vector<Entry> g_list;
 int g_sel = 0;
+bool g_frenteNaLista;  // o 1º da lista é o app que está na frente (senão o Tab começa nele, não no 2º)
 bool g_active, g_visible;
 float g_k = 1;  // encolhe tudo quando não cabe na tela
 RECT g_mon{};
@@ -58,7 +59,15 @@ void Collect() {
         if (a && !a->wins.empty()) add(a);
     }
     for (auto& a : apps::list) if (!a.wins.empty()) add(&a);  // minimizados
-    for (auto& a : apps::list) if (a.finder) add(&a);          // o Finder está sempre na lista, como no Mac
+    // o Finder está sempre na lista, como no Mac; seletor_finder=0 (Ajustes): só com janela aberta (issue #4: fechado,
+    // ele seguia no Alt+Tab e atrapalhava voltar ao app anterior)
+    if (shell::Setting(L"seletor_finder", L"1") != L"0")
+        for (auto& a : apps::list) if (a.finder) add(&a);
+    {   // fechou a janela da frente (ou o foco está na mesa/Dock): ninguém está "na frente" e o 1º da lista já é o app
+        // anterior. Antes o Tab pulava para o 2º e caía no Finder (issue #4)
+        App* fg = apps::OfWindow(GetForegroundWindow());
+        g_frenteNaLista = !order.empty() && fg == order[0];
+    }
     for (App* a : order) {
         apps::EnsureIcon(*a, 128);
         Entry e; e.id = a->id; e.name = a->name; e.mac = a->mac;
@@ -293,7 +302,7 @@ void seletor::Step(int dir) {
         Log(L"seletor: lista em %.1f ms", anim::Now() - t0);
         if (g_list.empty()) return;
         g_active = true;
-        g_sel = g_list.size() > 1 ? (dir > 0 ? 1 : (int)g_list.size() - 1) : 0;  // o app anterior
+        g_sel = g_list.size() > 1 ? (dir > 0 ? (g_frenteNaLista ? 1 : 0) : (int)g_list.size() - 1) : 0;  // o app anterior
         // aparece junto com o Tab (como o Cmd+Tab do Mac); o toque rápido ainda troca de app normalmente
         double t1 = anim::Now();
         Show();

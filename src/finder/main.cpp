@@ -392,6 +392,9 @@ static RECT g_pickWin{};   // o mesmo para a janela de Abrir/Salvar
 static int g_pickView = -1;  // visão usada na janela de Abrir/Salvar (-1: lista)
 static bool g_sideWidthSet;
 static bool g_pathBarUser;  // a barra de caminho das janelas normais (o Abrir/Salvar liga a dele sem mexer nesta)  // largura da barra lateral escolhida (arrastando); senão cabe o nome mais longo
+// arquivos ocultos à mostra (Cmd+Shift+. no Mac; aqui Ctrl+Shift+., ou o menu do fundo da pasta). Os protegidos do
+// sistema (ocultos E de sistema: desktop.ini, $Recycle.Bin...) continuam escondidos, como no Explorador (issue #5)
+static bool g_showHidden = false;
 static bool g_pathBar = false;  // barra de caminho embaixo: desligada, como no Finder (Ctrl+Alt+P liga)   // tamanho do texto: ícones / lista e colunas
 // Leopard: a lista do 10.5 tem linhas de 19 com o ícone de 16 (sem o tamanho grande do Finder novo)
 static float ListRowH() { return tahoe::Leopard() ? 19.f : g_listLarge ? 36.f : 24.f; }
@@ -1035,8 +1038,10 @@ static std::vector<Entry> ReadEntries(const std::wstring& folder) {
     if (f != INVALID_HANDLE_VALUE) {
         do {
             if (!wcscmp(fd.cFileName, L".") || !wcscmp(fd.cFileName, L"..")) continue;
-            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
-            if (fd.cFileName[0] == L'.') continue;  // como no Mac: nomes com ponto ficam ocultos
+            if (!g_showHidden) {
+                if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+                if (fd.cFileName[0] == L'.') continue;  // como no Mac: nomes com ponto ficam ocultos
+            } else if ((fd.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) && (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM)) continue;
             Entry e;
             e.name = fd.cFileName;
             e.path = Join(folder, fd.cFileName);
@@ -4684,7 +4689,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     std::vector<Item> items;
     std::vector<IAssocHandler*> handlers;
     enum { M_OPEN = 1, M_OPENTAB, M_TRASH, M_INFO, M_RENAME, M_ZIP, M_DUP, M_ALIAS, M_QL, M_COPY, M_SHARE, M_MORE, M_NEWFOLDER, M_PASTE,
-           M_VIEWOPTS, M_TERMINAL, M_TAGNONE, M_RUNPS, M_RUNADMIN, M_COPYPATH, M_TAG0 = 40, M_SORT0 = 60, M_OTHER = 99, M_WITH0 = 100,
+           M_VIEWOPTS, M_TERMINAL, M_TAGNONE, M_RUNPS, M_RUNADMIN, M_COPYPATH, M_HIDDEN, M_TAG0 = 40, M_SORT0 = 60, M_OTHER = 99, M_WITH0 = 100,
            M_PCOLOR0 = 200, M_PEMOJI0 = 220, M_PRESET = 260 };
     if (!paths.empty()) {
         bool allDirs = true;
@@ -4784,6 +4789,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
         for (int k = 0; k <= (int)SORT_CREATED; k++) { Item it = I(names[k], M_SORT0 + k); it.checked = g_sortCol == k; sort.sub.push_back(it); }
         items.push_back(sort);
         items.push_back(I(Tr(L"Mostrar Opções de Visualização"), M_VIEWOPTS, L"", 0xE713));
+        { Item hid = I(Tr(L"Mostrar Arquivos Ocultos"), M_HIDDEN, L"Ctrl+Shift+.", 0xE7B3); hid.checked = g_showHidden; items.push_back(hid); }
         items.push_back(I(Tr(L"Novo Terminal na Pasta"), M_TERMINAL, L"", 0xE756));
         items.push_back(sep);
         items.push_back(I(Tr(L"Ações Rápidas"), M_MORE, L"", 0xE945));
@@ -4852,6 +4858,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     case M_NEWFOLDER: NewFolder(); break;
     case M_PASTE: if (FAILED(PasteInto(g_hwnd, folder))) Flash(Tr(L"Nada para colar")); break;
     case M_VIEWOPTS: g_viewOpts = true; break;
+    case M_HIDDEN: g_showHidden = !g_showHidden; SaveOptions(); Reload(); break;
     case M_TERMINAL: {  // o nosso Terminal (PowerShell) nesta pasta; sem ele, o PowerShell do Windows
         wchar_t exe[MAX_PATH]; ExePath(exe, MAX_PATH); PathRemoveFileSpecW(exe);
         std::wstring term = std::wstring(exe) + L"\\WacOSTerminal.exe";
@@ -5083,6 +5090,7 @@ static void SaveOptions() {
              (int)g_defaultView, (int)g_sortCol, g_sortAsc, (int)g_groupBy, g_icon, g_labelSize, g_rowTextSize, g_showThumbs,
              g_listLarge, g_colSize, g_colKind, g_colDate, g_colCreated, g_relDates, g_colIcons, g_colPreview, g_pick.on ? g_pathBarUser : g_pathBar);
     if (g_sideWidthSet) fwprintf(f, L"larguraLateral=%g\n", Lay::SIDEBAR_W);
+    fwprintf(f, L"ocultos=%d\n", g_showHidden ? 1 : 0);
     if (g_hwnd && !g_reserva && !g_pick.on && IsWindowVisible(g_hwnd)) {
         // retângulo de tela de verdade (o da colocação é relativo à área de trabalho: vinha 24 px acima)
         if (!IsZoomed(g_hwnd) && !IsIconic(g_hwnd)) GetWindowRect(g_hwnd, &g_savedWin);
@@ -5115,6 +5123,7 @@ static void LoadOptions() {
         else if (k == L"textoIcones") g_labelSize = std::clamp((float)v, 10.f, 16.f);
         else if (k == L"textoLista") g_rowTextSize = std::clamp((float)v, 10.f, 16.f);
         else if (k == L"previa") g_showThumbs = v != 0;
+        else if (k == L"ocultos") g_showHidden = v != 0;
         else if (k == L"barraCaminho") { g_pathBar = v != 0; Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0); }
         else if (k == L"larguraLateral") { Lay::SIDEBAR_W = std::clamp((float)v, Lay::SIDEBAR_MIN, Lay::SIDEBAR_MAX); g_sideWidthSet = true; }
         else if (k == L"listaGrande") g_listLarge = v != 0;
@@ -5850,6 +5859,13 @@ static bool HandleKey(UINT vk) {
     if (ctrl && (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)) { SetIconSize(g_icon - 16); return true; }
     if (ctrl && vk == 'A') { for (auto& e : g_items) e.sel = true; Invalidate(); return true; }
     if (ctrl && vk == 'Z') { Undo(); return true; }
+    if (ctrl && shift && vk == VK_OEM_PERIOD) {  // Mostrar/Ocultar arquivos ocultos (Cmd+Shift+. no Mac)
+        g_showHidden = !g_showHidden;
+        SaveOptions();
+        Reload();
+        Flash(g_showHidden ? Tr(L"Arquivos ocultos à mostra") : Tr(L"Arquivos ocultos escondidos"));
+        return true;
+    }
     if (ctrl && alt && vk == 'P') {  // Mostrar/Ocultar Barra de Caminho (Option+Cmd+P no Mac)
         g_pathBar = !g_pathBar;
         Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0);

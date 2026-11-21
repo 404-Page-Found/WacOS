@@ -1,4 +1,4 @@
-// As páginas do Ajustes do Sistema, na ordem e com os nomes do macOS Sequoia (pt-BR). Cada uma
+﻿// As páginas do Ajustes do Sistema, na ordem e com os nomes do macOS Sequoia (pt-BR). Cada uma
 // mostra e muda o equivalente do Windows; o que não tem como ser feito aqui abre a página do Windows.
 #include "ajustes.h"
 #include <set>
@@ -1585,6 +1585,9 @@ Page MesaDock() {
                                  [] { std::wstring v = Setting(L"clique_mostra_mesa", L"palco"); return v == L"1" ? 0 : v == L"0" ? 2 : 1; },
                                  [](int i) { SetSetting(L"clique_mostra_mesa", i == 0 ? L"1" : i == 2 ? L"0" : L"palco"); }) }, L"Área de Trabalho"));
     p.groups.push_back(G({ Toggle(L"Arrastar janelas para as bordas da tela para organizar", [] { return sys::SnapEnabled(); }, [](bool on) { sys::SetSnapEnabled(on); }),
+                           // issue #4: como no Mac, o Finder fica no Alt+Tab mesmo sem janela; desligado, só com janela aberta
+                           Toggle(L"Mostrar o Finder no Alt+Tab mesmo sem janelas", [] { return Setting(L"seletor_finder", L"1") != L"0"; },
+                                  [](bool v) { SetSetting(L"seletor_finder", v ? L"1" : L"0"); }),
                            Uri(L"Navegador padrão", L"ms-settings:defaultapps") }, L"Janelas"));
     // Organizador Visual (Stage Manager): só o app da frente na tela, os outros numa faixa à esquerda
     p.groups.push_back(G({ Toggle(L"Organizador Visual", flag(L"organizador", L"0"), setFlag(L"organizador")) }, L"",

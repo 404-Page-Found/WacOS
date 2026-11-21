@@ -1562,3 +1562,7 @@
 { L"Copiar “", L"将“" },
 { L"” como Nome de Caminho", L"”拷贝为路径名称" },
 { L"Mostrar na Pasta Superior", L"在所在文件夹中显示" },
+{ L"Mostrar o Finder no Alt+Tab mesmo sem janelas", L"即使没有窗口也在 Alt+Tab 中显示访达" },
+{ L"Mostrar Arquivos Ocultos", L"显示隐藏文件" },
+{ L"Arquivos ocultos à mostra", L"已显示隐藏文件" },
+{ L"Arquivos ocultos escondidos", L"已隐藏隐藏文件" },

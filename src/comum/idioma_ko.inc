@@ -1562,3 +1562,7 @@
 { L"Copiar “", L"“" },
 { L"” como Nome de Caminho", L"” 경로 이름 복사" },
 { L"Mostrar na Pasta Superior", L"상위 폴더에서 보기" },
+{ L"Mostrar o Finder no Alt+Tab mesmo sem janelas", L"윈도우가 없어도 Alt+Tab에 Finder 표시" },
+{ L"Mostrar Arquivos Ocultos", L"숨김 파일 보기" },
+{ L"Arquivos ocultos à mostra", L"숨김 파일 표시됨" },
+{ L"Arquivos ocultos escondidos", L"숨김 파일 숨겨짐" },
