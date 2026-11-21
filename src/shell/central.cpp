@@ -126,7 +126,7 @@ struct Ctl { const wchar_t* id; const wchar_t* name; const wchar_t* cat; int w, 
 const Ctl CTLS[] = {
     { L"wifi", L"Wi‑Fi", L"Conectividade", 2, 1, L"wifi", 0xE701 },
     { L"tocando", L"Tocando Agora", L"Tocando Agora", 2, 2, L"play.fill", 0xE768 },
-    { L"bluetooth", L"Bluetooth", L"Conectividade", 2, 1, L"", 0xE702 },
+    { L"bluetooth", L"Bluetooth", L"Conectividade", 2, 1, L"proprio.bluetooth", 0xE702 },
     { L"airdrop", L"AirDrop", L"Conectividade", 2, 1, L"dot.radiowaves.left.and.right", 0xE72D },
     { L"mission", L"Mission Control", L"Mesa e Finder", 1, 1, L"rectangle.3.group", 0xE7C4 },
     { L"organizador", L"Organizador Visual", L"Mesa e Finder", 1, 1, L"squares.leading.rectangle", 0xE7C4 },
@@ -137,7 +137,7 @@ const Ctl CTLS[] = {
     { L"tela", L"Tela", L"Tela e Brilho", 4, 1, L"sun.max", 0xE706 },
     { L"som", L"Som", L"Sons", 4, 1, L"speaker.wave.3.fill", 0xE767 },
     // os que vêm da galeria (círculos)
-    { L"calculadora", L"Calculadora", L"Utilitários", 1, 1, L"plus.forwardslash.minus", 0xE8EF },
+    { L"calculadora", L"Calculadora", L"Utilitários", 1, 1, L"proprio.calculadora", 0xE8EF },
     { L"bloquear", L"Bloquear Tela", L"Tela Bloqueada", 1, 1, L"lock.fill", 0xE72E },
     { L"mesa", L"Mostrar Mesa", L"Mesa e Finder", 1, 1, L"menubar.dock.rectangle", 0xE7F4 },
     { L"launchpad", L"Apps", L"Mesa e Finder", 1, 1, L"square.grid.3x3.fill", 0xF0E2 },
@@ -623,6 +623,39 @@ void Text(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const std::wstring& 
 
 void Sym(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const wchar_t* name, wchar_t fallback, D2D1_RECT_F r, D2D1_COLOR_F c) {
     br->SetColor(c);
+    // Bluetooth e Calculadora não têm SVG (o Bluetooth nem é um SF Symbol): antes caíam no glifo da Segoe Fluent, com
+    // outro tamanho e outro traço que os vizinhos (issue #8). Desenhados aqui, com a altura e o peso dos símbolos SF.
+    if (name && (!wcscmp(name, L"proprio.bluetooth") || !wcscmp(name, L"proprio.calculadora"))) {
+        float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, H = std::min(r.right - r.left, r.bottom - r.top);
+        ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+        ID2D1StrokeStyle* ss = nullptr;
+        if (f) f->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND), nullptr, 0, &ss);
+        if (!wcscmp(name, L"proprio.bluetooth")) {
+            // a runa do Bluetooth: haste no meio e as duas pontas de seta à direita (altura ~0,8 do quadro, a do wifi)
+            float h = H * 0.40f, a = H * 0.21f, w = H * 0.085f;
+            ID2D1PathGeometry* g = nullptr; ID2D1GeometrySink* sk = nullptr;
+            if (f && SUCCEEDED(f->CreatePathGeometry(&g)) && SUCCEEDED(g->Open(&sk))) {
+                sk->BeginFigure({ cx - a, cy - h * 0.5f }, D2D1_FIGURE_BEGIN_HOLLOW);
+                D2D1_POINT_2F p[] = { { cx + a, cy + h * 0.5f }, { cx, cy + h }, { cx, cy - h }, { cx + a, cy - h * 0.5f }, { cx - a, cy + h * 0.5f } };
+                sk->AddLines(p, 5);
+                sk->EndFigure(D2D1_FIGURE_END_OPEN);
+                sk->Close();
+                dc->DrawGeometry(g, br, w, ss);
+            }
+            if (sk) sk->Release();
+            if (g) g->Release();
+        } else {
+            // plus.forwardslash.minus: "+" em cima à esquerda, a barra no meio e o "−" embaixo à direita
+            float w = H * 0.085f, q = H * 0.25f, arm = H * 0.15f;
+            dc->DrawLine({ cx - q - arm, cy - q }, { cx - q + arm, cy - q }, br, w, ss);
+            dc->DrawLine({ cx - q, cy - q - arm }, { cx - q, cy - q + arm }, br, w, ss);
+            dc->DrawLine({ cx + q - arm, cy + q }, { cx + q + arm, cy + q }, br, w, ss);
+            dc->DrawLine({ cx + H * 0.30f, cy - H * 0.40f }, { cx - H * 0.30f, cy + H * 0.40f }, br, w, ss);
+        }
+        if (ss) ss->Release();
+        if (f) f->Release();
+        return;
+    }
     if (simbolo::Draw(dc, name, r, br)) return;
     float s = std::max(r.right - r.left, r.bottom - r.top) + 6;
     float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
@@ -859,7 +892,7 @@ void Paint() {
     std::wstring airSub = st.airdrop == 2 ? Tr(L"Todos") : st.airdrop == 1 ? Tr(L"Só Meus Dispositivos") : Tr(L"Desativado");
     Row rows[3] = {
         { H_WIFI_BTN, H_WIFI, L"wifi", 0xE701, L"Wi‑Fi", wifiSub, st.radio[0] == 1 },
-        { H_BT_BTN, H_BT, L"", 0xE702, L"Bluetooth", btSub, st.radio[1] == 1 },
+        { H_BT_BTN, H_BT, L"proprio.bluetooth", 0xE702, L"Bluetooth", btSub, st.radio[1] == 1 },
         { H_AIRDROP, H_AIRDROP, L"dot.radiowaves.left.and.right", 0xE72D, L"AirDrop", airSub, st.airdrop > 0 },
     };
     for (int i = 0; i < 3; i++) {
@@ -1519,6 +1552,10 @@ void Paint() {
     D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.94f) : D2D1::ColorF(0, 0, 0, 0.86f);
     D2D1_COLOR_F text2 = dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.5f);
     if (!glass) { br->SetColor(dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.96f) : D2D1::ColorF(0.96f, 0.96f, 0.97f, 0.97f)); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, GW, GH), 24, 24), br); }
+    // Com o Liquid Glass a tinta do vidro passa pela transparência dos Ajustes (vidro_tinta, Liquid Glass "nítido") e a
+    // galeria ficava quase só vidro claro, ilegível sobre a mesa (issue #8). Como as folhas do macOS 26, ela leva um
+    // fundo bem mais opaco por cima do desfoque: o vidro aparece só um pouco nas bordas e o texto fica legível.
+    else { br->SetColor(dark ? D2D1::ColorF(0.14f, 0.14f, 0.16f, 0.78f) : D2D1::ColorF(0.97f, 0.97f, 0.98f, 0.80f)); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, GW, GH), 24, 24), br); }
     // barra lateral: um tom mais escuro, com a mesma curva
     br->SetColor(dark ? D2D1::ColorF(0, 0, 0, 0.14f) : D2D1::ColorF(1, 1, 1, 0.30f));
     dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(8, 8, SW, GH - 8), 16, 16), br);

@@ -762,6 +762,13 @@ void Render() {
         rt->DrawTextW(t.c_str(), (UINT32)t.size(), tfN, D2D1::RectF(r - w + PAD, 0, r, H), br);
         r -= w;
     }
+    // microfone/câmera em uso (issue #8, todos os temas): como no macOS, uma bolinha de 6 pt no vão entre a Central de
+    // Controle e a data/hora: laranja = microfone, verde = câmera (a câmera ganha). barra_privacidade=0 tira.
+    if (shell::Setting(L"barra_privacidade", L"1") != L"0")
+        if (int pv = ilha::Privacidade()) {
+            br->SetColor(pv & 2 ? D2D1::ColorF(0.20f, 0.78f, 0.35f) : D2D1::ColorF(1.0f, 0.58f, 0.0f));
+            rt->FillEllipse(D2D1::Ellipse({ r, H / 2 }, 3, 3), br);  // no meio do vão (os dois PAD): nada anda de lugar
+        }
     { auto bx = slot(18, K_CC, 0); if (!sym(L"switch.2", bx, 14)) DrawCC(rt, br, (bx.left + bx.right) / 2, H / 2); }
     if (!leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {
         auto bx = slot(15, K_SPOT, 0);
@@ -1457,7 +1464,7 @@ bool menubar::Create(HINSTANCE hi) {
     BarGlass(g_bar);
     g_tf = ui::Format(13.5f, DWRITE_FONT_WEIGHT_MEDIUM);  // o Mac desenha a barra com vibrância: as letras parecem mais cheias
     g_tfBold = ui::Format(13.5f, DWRITE_FONT_WEIGHT_BOLD);
-    g_tfBadge = ui::Format(10, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+    g_tfBadge = ui::Format(10, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);  // sem negrito (issue #8)
     if (g_tfBadge) g_tfBadge->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     g_tfIcon = ui::Format(14, DWRITE_FONT_WEIGHT_NORMAL, true, DWRITE_TEXT_ALIGNMENT_CENTER);
     RefreshStatus();

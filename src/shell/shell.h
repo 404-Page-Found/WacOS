@@ -418,6 +418,7 @@ bool Create(HINSTANCE hi);
 void Toggle();
 bool IsOpen();
 bool BannerVisible();  // um banner está na tela (Tahoe: o relógio da barra ganha a pílula de destaque)
+void IconsChanged();   // ícone próprio do Dock mudou (apps::ReloadIcons): relê os ícones das notificações
 void Stop();  // ao sair: o banner do Windows volta a aparecer (o Shell troca pelo banner do Mac; ajuste "banners_mac")
 // Widgets da coluna, embaixo das notificações. Sem chamar, vêm Calendário e Relógio próprios.
 // w × h em pt (pequeno 164 × 164, médio 344 × 164); paint desenha em DIPs com a origem no canto do widget
@@ -441,6 +442,7 @@ bool Notificacao(const std::wstring& app, const std::wstring& title, const std::
                  std::function<void(ID2D1DeviceContext*, ID2D1SolidColorBrush*, D2D1_RECT_F)> icon, std::function<void()> click);
 bool Volume(float level, bool mute);  // teclas de volume: true = a ilha mostrou (sem o aviso de volume)
 void CapsLock();                // a tecla Caps Lock foi apertada (gancho de teclado do main.cpp)
+int Privacidade();              // 1 microfone, 2 câmera em uso (bits); a 1ª chamada liga a vigia; mudou = menubar::Update()
 }
 namespace palco {  // Organizador Visual / Stage Manager (palco.cpp): ajuste organizador=1
 bool On();
@@ -536,7 +538,7 @@ void ReloadSettings();  // o Ajustes do Sistema mudou tamanho, ampliação...
 void ApplyTheme();      // claro/escuro mudou
 void IconsChanged();    // o pacote de ícones mudou (tema Sequoia/Tahoe): solta os ícones guardados
 void SetFullscreen(bool on);  // app em tela cheia na frente: some
-RECT MinimizeTarget();  // tela: onde a janela minimizada vai parar (animação do Windows)
+RECT MinimizeTarget(HWND h = nullptr);  // tela: onde a janela minimizada vai parar (h: no ícone do app com dock_minimizar_no_icone)
 void BadgesChanged();   // chegou ou saiu notificação: redesenha os badges vermelhos
 }
 

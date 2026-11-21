@@ -159,6 +159,8 @@ void Worker() {
                     Note x;
                     x.id = nid;
                     try { x.time = winrt::clock::to_file_time(n.CreationTime()).value; } catch (...) {}
+                    // sem a hora (alguns apps): a hora em que a vimos, senão ela ia para o fim da lista como a mais antiga
+                    if (x.time <= 0) { FILETIME ft; GetSystemTimeAsFileTime(&ft); x.time = ((long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime; }
                     try {
                         auto ai = n.AppInfo();
                         x.aumid = ai.AppUserModelId().c_str();
@@ -240,7 +242,8 @@ bool g_customWidgets;
 void Rebuild() {
     std::vector<Note> data;
     { std::lock_guard<std::mutex> k(g_mx); data = g_data; g_accessUi = g_access; }
-    std::sort(data.begin(), data.end(), [](const Note& a, const Note& b) { return a.time > b.time; });
+    // as mais novas em cima (issue #8); mesma hora: a de id maior (o Windows numera em ordem de chegada) vem antes
+    std::sort(data.begin(), data.end(), [](const Note& a, const Note& b) { return a.time != b.time ? a.time > b.time : a.id > b.id; });
     g_groups.clear();
     for (auto& n : data) {
         auto it = std::find_if(g_groups.begin(), g_groups.end(), [&](const Group& g) { return g.aumid == n.aumid; });
@@ -700,8 +703,18 @@ ID2D1Bitmap* IconFor(ID2D1DeviceContext* dc, const Group& g) {
     if (it != g_icons.end()) return it->second;
     UINT w = 0, h = 0; std::vector<BYTE> px;
     std::wstring exe = g.aumid.find(L'!') == std::wstring::npos ? L"\\" + g.aumid + L".exe" : L"";
-    std::wstring png = apps::PackIconByName(g.app, exe);
-    bool ok = !png.empty() && ui::LoadPng(png, w, h, px);
+    // issue #8: o ícone próprio escolhido no Dock (Alterar Ícone…) vale também aqui, para o app ser reconhecido igual
+    // nos dois lugares. Procura pelo app da lista (as mesmas chaves do Dock) e, sem ele, pelo nome/exe da notificação.
+    std::wstring own;
+    for (auto& a : apps::list) {
+        bool same = !_wcsicmp(a.name.c_str(), g.app.c_str()) || !_wcsicmp(a.id.c_str(), (L"aumid:" + g.aumid).c_str()) ||
+                    (!exe.empty() && a.exe.size() >= exe.size() && !_wcsicmp(a.exe.c_str() + a.exe.size() - exe.size(), exe.c_str()));
+        if (same) { own = apps::CustomIcon(a.finder ? L"Finder" : a.name, a.finder ? L"" : (a.exe.empty() ? a.id : a.exe)); break; }
+    }
+    if (own.empty()) own = apps::CustomIcon(g.app, exe);
+    bool ok = !own.empty() && ui::LoadPng(own, w, h, px);
+    std::wstring png = ok ? L"" : apps::PackIconByName(g.app, exe);
+    ok = ok || (!png.empty() && ui::LoadPng(png, w, h, px));
     if (!ok) {  // app sem ícone do Sequoia: o do Windows (pela lista de apps), senão o logo da notificação
         for (auto& a : apps::list)
             if (!_wcsicmp(a.name.c_str(), g.app.c_str()) || !_wcsicmp(a.id.c_str(), (L"aumid:" + g.aumid).c_str())) {
@@ -1465,28 +1478,52 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 // ================= banner: a notificação que chega com o painel fechado (o do Mac no lugar do toast do Windows)
 HWND g_bwnd, g_bback;
 ui::GpuSurface g_bs;
-Note g_bnote;
-bool g_bshow, g_bout, g_bhover, g_bhoverX;
-double g_bAt;
-float g_bslide = 1;
+// Até 3 banners ao mesmo tempo (issue #8), um embaixo do outro sem se cobrir, o mais novo em cima (antes era um só:
+// o novo caía por cima e o anterior só espiava embaixo). Quem chega entra da direita no topo e empurra os outros para
+// baixo numa mola; um 4º faz o mais antigo sair. Cada um some sozinho no seu tempo (parado com o ponteiro em cima).
+struct Ban {
+    Note n;
+    double at = 0;        // entrou (anim::Now)
+    double outAt = -1;    // saindo (desliza para a direita); < 0 = na tela
+    ULONGLONG until = 0;  // GetTickCount64 em que começa a sair
+    float y = -1;         // topo animado (pt); -1 = ainda não posto
+};
+std::vector<Ban> g_bans;  // [0] = o mais novo (em cima)
+const int MAX_BANS = 3;
+const float BAN_GAP = 8;
+const double BAN_OUT_MS = 300;
+int g_bhover = -1;        // banner com o ponteiro em cima (índice em g_bans)
+bool g_bhoverX;
+double g_blast;           // último quadro (passo da mola das posições)
+int g_bhPx;               // altura atual da janela (px)
 const UINT_PTR T_BANNER = 2;
 // some sozinho depois de 5 s (parado enquanto o mouse estiver em cima); Ajustes > Notificações > "Tempo do banner na
 // tela" muda (notif_duracao, em segundos, 2 a 30)
 UINT BannerMs() { std::wstring v = shell::Setting(L"notif_duracao", L"5"); return (UINT)(std::clamp(_wtof(v.c_str()), 2.0, 30.0) * 1000); }
 
 bool BannersOn() { return shell::Setting(L"banners_mac", L"1") != L"0"; }
-// outra notificação chegando com o banner na tela: a nova cai no lugar numa mola e a anterior fica
-// espiando embaixo (pilha de banners do Mac)
-bool g_bstack;
-double g_bswapAt;
-const float STACK_PEEK = 8;
-float SwapDy() {
-    if (g_bswapAt <= 0) return 0;
-    float t = (float)((anim::Now() - g_bswapAt) / 1000.0);
-    return -14.f * (1 - anim::Spring(t, 0.34f, 0.78f));
+// onde o banner i fica quando a mola assenta: embaixo dos que estão acima dele (os que estão saindo guardam o lugar
+// até sumir, então ninguém passa por cima de ninguém)
+float BanTargetY(int i) { float y = TOP; for (int k = 0; k < i; k++) y += CardH(g_bans[k].n) + BAN_GAP; return y; }
+float BanSlide(const Ban& b, double now) {
+    if (b.outAt >= 0) { float k = std::min(1.f, (float)((now - b.outAt) / BAN_OUT_MS)); return anim::Bezier(k, 0.4f, 0.0f, 0.9f, 0.6f); }
+    if (anim::reduceMotion) return 0.f;
+    // Tahoe (guia, seção 65): mola de resposta 0,24 s e amortecimento 1,0 (sem passar do ponto): 90 % em 0,18 s,
+    // assenta em ~0,30 s
+    float t = (float)((now - b.at) / 1000.0);
+    return 1 - (liquid::On() ? anim::Spring(t, 0.24f, 1.0f) : anim::Spring(t, 0.42f, 0.82f));  // entra da direita e assenta
 }
-float BannerH() { return TOP + CardH(g_bnote) + 14 + (g_bstack ? STACK_PEEK : 0); }
-D2D1_RECT_F BannerCard() { float ox = PAD_L + g_bslide * COL_W, dy = SwapDy(); return D2D1::RectF(ox, TOP + dy, ox + CARD_W, TOP + dy + CardH(g_bnote)); }
+D2D1_RECT_F BanRect(int i) {
+    const Ban& b = g_bans[i];
+    float ox = PAD_L + BanSlide(b, anim::Now()) * COL_W, y = b.y < 0 ? BanTargetY(i) : b.y;
+    return D2D1::RectF(ox, y, ox + CARD_W, y + CardH(b.n));
+}
+float BannerH() {  // a janela cobre o mais baixo, na posição de agora ou na de destino (o que for maior) + a sombra
+    float h = TOP;
+    for (int i = 0; i < (int)g_bans.size(); i++) h = std::max(h, std::max(g_bans[i].y, BanTargetY(i)) + CardH(g_bans[i].n));
+    return h + 14;
+}
+bool BanAnyIn() { for (auto& b : g_bans) if (b.outAt < 0) return true; return false; }
 
 void BannerPlace() {
     float sc = ui::Scale(g_bwnd);
@@ -1495,12 +1532,13 @@ void BannerPlace() {
     int top = mi.rcMonitor.top + menubar::Height();
     int w = (int)std::lround(COL_W * sc), h = (int)std::lround(BannerH() * sc);
     int x = mi.rcMonitor.right - w;
+    g_bhPx = h;
     SetWindowPos(g_bwnd, HWND_TOPMOST, x, top, w, h, SWP_NOACTIVATE);
     SetWindowPos(g_bback, g_bwnd, x, top, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
 void BannerPaint() {
-    if (!g_bshow) return;
+    if (g_bans.empty()) return;
     float sc = ui::Scale(g_bwnd);
     RECT wr; GetClientRect(g_bwnd, &wr);
     auto* dc = ui::GpuBegin(g_bs, wr.right, wr.bottom, sc);
@@ -1509,35 +1547,30 @@ void BannerPaint() {
     bool dark = Dark();
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(p.text, &br);
-    D2D1_RECT_F r = BannerCard();
     g_host = &g_hostBanner;
     g_host->used = 0;
-    if (g_bstack) {  // o banner anterior, espiando embaixo do novo
-        float base = TOP + CardH(g_bnote);
-        D2D1_RECT_F pr = D2D1::RectF(r.left + 9, base - 24, r.right - 9, base + STACK_PEEK);
-        GlassRect(D2D1::RectF(pr.left * sc, pr.top * sc, pr.right * sc, pr.bottom * sc), CardR() * sc, p.tint, 0.8f, r.bottom * sc);
-        if (!g_hasGlass) {
-            br->SetColor(dark ? D2D1::ColorF(0.15f, 0.15f, 0.16f, 0.90f) : D2D1::ColorF(0.90f, 0.90f, 0.91f, 0.90f));
-            dc->FillRoundedRectangle(D2D1::RoundedRect(pr, CardR(), CardR()), br);
-        }
-    }
-    if (!liquid::Leopard()) {  // Leopard: o balão do Growl é desenhado pelo DrawCard (sem o vidro)
-    GlassRect(D2D1::RectF(r.left * sc, r.top * sc, r.right * sc, r.bottom * sc), CardR() * sc, p.tint, 1);
-    if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.97f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.97f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
-    }
-    Group g{ g_bnote.aumid, g_bnote.app, {} };
     std::wstring saved = g_hover;
     g_hover.clear();
-    DrawCard(dc, br, p, g, g_bnote, r, L"banner");
-    g_hover = saved;
-    if (g_bhover) {  // ✕ no canto, como no painel
-        D2D1_POINT_2F c{ r.left + 4, r.top + 4 };
-        br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.35f : 0.12f));
-        dc->FillEllipse(D2D1::Ellipse({ c.x, c.y + 0.5f }, 10.3f, 10.3f), br);
-        br->SetColor(p.close);
-        dc->FillEllipse(D2D1::Ellipse(c, 9.5f, 9.5f), br);
-        DrawX(dc, br, c, 3.2f, 1.5f, g_bhoverX ? p.text : p.closeGlyph);
+    for (int i = (int)g_bans.size() - 1; i >= 0; i--) {  // de baixo para cima (o de cima fica por cima ao entrar)
+        const Ban& b = g_bans[i];
+        D2D1_RECT_F r = BanRect(i);
+        if (r.left >= COL_W) continue;  // fora da tela (entrando ou terminando de sair)
+        if (!liquid::Leopard()) {  // Leopard: o balão do Growl é desenhado pelo DrawCard (sem o vidro)
+            GlassRect(D2D1::RectF(r.left * sc, r.top * sc, r.right * sc, r.bottom * sc), CardR() * sc, p.tint, 1);
+            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.97f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.97f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+        }
+        Group g{ b.n.aumid, b.n.app, {} };
+        DrawCard(dc, br, p, g, b.n, r, L"banner:" + std::to_wstring(b.n.id));
+        if (g_bhover == i && b.outAt < 0) {  // ✕ no canto, como no painel
+            D2D1_POINT_2F c{ r.left + 4, r.top + 4 };
+            br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.35f : 0.12f));
+            dc->FillEllipse(D2D1::Ellipse({ c.x, c.y + 0.5f }, 10.3f, 10.3f), br);
+            br->SetColor(p.close);
+            dc->FillEllipse(D2D1::Ellipse(c, 9.5f, 9.5f), br);
+            DrawX(dc, br, c, 3.2f, 1.5f, g_bhoverX ? p.text : p.closeGlyph);
+        }
     }
+    g_hover = saved;
     br->Release();
     ui::GpuEnd(g_bs);
     GlassEnd();
@@ -1545,10 +1578,10 @@ void BannerPaint() {
 }
 
 void BannerHide() {
-    bool was = g_bshow;
-    g_bshow = g_bout = false;
+    bool was = !g_bans.empty();
+    g_bans.clear();
+    g_bhover = -1; g_bhoverX = false; g_blast = 0;
     if (was) menubar::SoundChanged(false);  // a pílula do relógio sai
-    g_bstack = false; g_bswapAt = 0;
     KillTimer(g_bwnd, T_BANNER);
     ui::FrameClock(g_bwnd, WM_NC_BFRAME, false);
     ShowWindow(g_bwnd, SW_HIDE);
@@ -1556,10 +1589,10 @@ void BannerHide() {
     for (auto& gl : g_hostBanner.pool) gl.outer.IsVisible(false);
 }
 
-void BannerOut() {
-    if (!g_bshow || g_bout) return;
-    g_bout = true;
-    g_bAt = anim::Now();
+void BannerOut(int i) {
+    if (i < 0 || i >= (int)g_bans.size() || g_bans[i].outAt >= 0) return;
+    g_bans[i].outAt = anim::Now();
+    if (!BanAnyIn()) menubar::SoundChanged(false);
     ui::FrameClock(g_bwnd, WM_NC_BFRAME, true);
 }
 
@@ -1677,34 +1710,49 @@ void BannerShowNote(const Note& n) {
                               [nn] { OpenApp(nn); })) { Log(L"notificação na ilha: %ls", n.app.c_str()); return; }
     }
     if (g_open || g_closing || !BannersOn() || !g_bwnd) return;
-    bool wasIn = g_bshow && !g_bout;
-    g_bnote = n;
-    g_bshow = true;
-    g_bout = false;
-    if (!wasIn) { g_bAt = anim::Now(); g_bslide = 1; g_bhover = g_bhoverX = false; g_bstack = false; g_bswapAt = 0; }
-    else { g_bstack = true; g_bswapAt = anim::Now(); }  // já tinha um: a nova cai por cima, a velha espia embaixo
+    bool first = g_bans.empty();
+    Ban b;
+    b.n = n; b.at = anim::Now(); b.until = GetTickCount64() + BannerMs(); b.y = TOP;
+    g_bans.insert(g_bans.begin(), b);  // o novo em cima; os outros descem na mola (BannerFrame)
+    if (g_bhover >= 0) g_bhover++;
+    int live = 0;
+    for (auto& x : g_bans) if (x.outAt < 0) live++;
+    for (int i = (int)g_bans.size() - 1; i >= 0 && live > MAX_BANS; i--)  // mais de 3: o mais antigo sai
+        if (g_bans[i].outAt < 0) { g_bans[i].outAt = anim::Now(); live--; }
+    if (first) { g_bhover = -1; g_bhoverX = false; g_blast = 0; }
     BannerPlace();
     BannerPaint();
     ShowWindow(g_bwnd, SW_SHOWNOACTIVATE);
-    SetTimer(g_bwnd, T_BANNER, BannerMs(), nullptr);
+    SetTimer(g_bwnd, T_BANNER, 250, nullptr);  // o prazo de cada um (só enquanto há banner na tela)
     menubar::SoundChanged(false);  // Tahoe: o relógio ganha a pílula de destaque enquanto o banner aparece
     ui::FrameClock(g_bwnd, WM_NC_BFRAME, true);
 }
 
 void BannerFrame() {
-    float t = (float)((anim::Now() - g_bAt) / 1000.0);
-    if (g_bout) {
-        float k = std::min(1.f, t / 0.30f);
-        g_bslide = anim::Bezier(k, 0.4f, 0.0f, 0.9f, 0.6f);
-        if (k >= 1) { BannerHide(); return; }
-    } else {
-        // Tahoe (guia, seção 65): mola de resposta 0,24 s e amortecimento 1,0 (sem passar do ponto): 90 % em
-        // 0,18 s, assenta em ~0,30 s
-        bool th = liquid::On();
-        g_bslide = anim::reduceMotion ? 0.f : 1 - (th ? anim::Spring(t, 0.24f, 1.0f) : anim::Spring(t, 0.42f, 0.82f));  // entra da direita e assenta
-        bool swapDone = g_bswapAt <= 0 || anim::Now() - g_bswapAt > 650;
-        if (t > (th ? 0.45f : 0.9f) && swapDone) { g_bslide = 0; g_bswapAt = 0; ui::FrameClock(g_bwnd, WM_NC_BFRAME, false); }
+    double now = anim::Now();
+    float dt = g_blast > 0 ? (float)(now - g_blast) : 16.f;
+    g_blast = now;
+    for (size_t i = 0; i < g_bans.size();) {  // os que terminaram de sair
+        if (g_bans[i].outAt >= 0 && now - g_bans[i].outAt >= BAN_OUT_MS) {
+            g_bans.erase(g_bans.begin() + i);
+            if (g_bhover == (int)i) { g_bhover = -1; g_bhoverX = false; } else if (g_bhover > (int)i) g_bhover--;
+        } else i++;
     }
+    if (g_bans.empty()) { BannerHide(); return; }
+    bool moving = false;
+    for (int i = 0; i < (int)g_bans.size(); i++) {
+        Ban& b = g_bans[i];
+        float tg = BanTargetY(i);
+        if (b.y < 0) b.y = tg;
+        else if (b.y != tg) {  // sobe/desce até o lugar (exponencial por tempo: igual em 60 ou 174 Hz)
+            b.y += (tg - b.y) * (1 - std::exp(-dt / 70.f));
+            if (std::fabs(tg - b.y) < 0.25f) b.y = tg; else moving = true;
+        }
+        if (b.outAt >= 0 || now - b.at < (liquid::On() ? 450 : 900)) moving = true;
+    }
+    float sc = ui::Scale(g_bwnd);
+    if ((int)std::lround(BannerH() * sc) != g_bhPx) BannerPlace();
+    if (!moving) { g_blast = 0; ui::FrameClock(g_bwnd, WM_NC_BFRAME, false); }
     BannerPaint();
 }
 
@@ -1714,33 +1762,44 @@ LRESULT CALLBACK BannerProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_NC_BFRAME: BannerFrame(); return 0;
     case WM_TIMER:
-        if (w == T_BANNER) { if (g_bhover) SetTimer(h, T_BANNER, 1500, nullptr); else { KillTimer(h, T_BANNER); BannerOut(); } }
+        if (w == T_BANNER) {
+            ULONGLONG now = GetTickCount64();
+            for (int i = 0; i < (int)g_bans.size(); i++) {
+                Ban& b = g_bans[i];
+                if (b.outAt >= 0) continue;
+                if (i == g_bhover) b.until = std::max(b.until, now + 1500);  // com o ponteiro em cima não some
+                else if (now >= b.until) BannerOut(i);
+            }
+            if (g_bans.empty()) KillTimer(h, T_BANNER);
+        }
         if (w == 7) ChecarAvisos();  // Lembretes e Calendário
         return 0;
     case WM_MOUSEMOVE: case WM_LBUTTONDOWN: {
-        if (!g_bshow || g_bout) return 0;
+        if (g_bans.empty()) return 0;
         float sc = ui::Scale(h);
         D2D1_POINT_2F p{ (short)LOWORD(l) / sc, (short)HIWORD(l) / sc };
-        D2D1_RECT_F r = BannerCard();
-        float dx = p.x - (r.left + 4), dy = p.y - (r.top + 4);
-        bool onX = dx * dx + dy * dy <= 12 * 12;
-        bool onCard = p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom;
+        int hv = -1; bool onX = false;
+        for (int i = 0; i < (int)g_bans.size(); i++) {
+            if (g_bans[i].outAt >= 0) continue;
+            D2D1_RECT_F r = BanRect(i);
+            float dx = p.x - (r.left + 4), dy = p.y - (r.top + 4);
+            bool x = i == g_bhover && dx * dx + dy * dy <= 12 * 12;  // o ✕ só existe no que tem o ponteiro
+            if (x || (p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom)) { hv = i; onX = x; break; }
+        }
         if (m == WM_LBUTTONDOWN) {
-            if (onX && g_bhover) { BannerOut(); return 0; }  // fica na Central, como no Mac
-            if (onCard) {
-                Note n = g_bnote;
-                BannerOut();
-                if (n.id >= AVISO_ID) { ShellExecuteW(nullptr, L"open", n.aumid.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0; }  // aviso do Lembretes/Calendário: abre o app
-                RemoveIds({ n.id }); OpenApp(n);
-            }
+            if (hv < 0) return 0;
+            if (onX) { BannerOut(hv); return 0; }  // fica na Central, como no Mac
+            Note n = g_bans[hv].n;
+            BannerOut(hv);
+            if (n.id >= AVISO_ID) { ShellExecuteW(nullptr, L"open", n.aumid.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0; }  // aviso do Lembretes/Calendário: abre o app
+            RemoveIds({ n.id }); OpenApp(n);
             return 0;
         }
         TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 }; TrackMouseEvent(&t);
-        bool hv = onCard || (onX && g_bhover);
         if (hv != g_bhover || onX != g_bhoverX) { g_bhover = hv; g_bhoverX = onX; BannerPaint(); }
         return 0;
     }
-    case WM_MOUSELEAVE: if (g_bhover) { g_bhover = g_bhoverX = false; BannerPaint(); } return 0;
+    case WM_MOUSELEAVE: if (g_bhover >= 0) { g_bhover = -1; g_bhoverX = false; BannerPaint(); } return 0;
     }
     return DefWindowProcW(h, m, w, l);
 }
@@ -1837,7 +1896,12 @@ bool notificacoes::Create(HINSTANCE hi) {
 }
 
 bool notificacoes::IsOpen() { return g_open; }
-bool notificacoes::BannerVisible() { return g_bshow && !g_bout; }
+// ícone próprio escolhido/restaurado no Dock (apps::ReloadIcons): solta os ícones guardados e relê na próxima pintura
+void notificacoes::IconsChanged() {
+    for (auto& [k, b] : g_icons) if (b) b->Release();
+    g_icons.clear();
+}
+bool notificacoes::BannerVisible() { return BanAnyIn(); }
 
 void notificacoes::Toggle() {
     if (g_open) { Close(L"clique no relógio / canto ativo"); return; }

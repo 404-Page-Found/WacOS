@@ -503,6 +503,49 @@ static void AvisarIconeMudou() {
 void apps::ChooseIcon(const std::wstring& name, const std::wstring& exe) {
     // numa thread própria (STA): a janela de Abrir é modal e a interface do Shell não pode parar (o vigia o reiniciaria)
     std::thread([name, exe] {
+        // Primeiro o Finder em modo escolher (a janela de Abrir do Mac, issue #8): o mesmo exe que atende o
+        // Abrir/Salvar dos outros programas; ele passa o pedido para a reserva e devolve 0 = escolheu.
+        // Sem o Finder (ou se ele não abrir), cai na janela de Abrir do Windows, como antes.
+        std::wstring finder = shell::dir + L"\\" EXE_FINDER;
+        if (GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            wchar_t tmp[MAX_PATH], res[MAX_PATH];
+            GetTempPathW(MAX_PATH, tmp);
+            GetTempFileNameW(tmp, L"ico", 0, res);
+            PWSTR pics = nullptr; std::wstring start;
+            if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, 0, nullptr, &pics))) { start = pics; CoTaskMemFree(pics); }
+            auto q = [](const std::wstring& s) { return L"\"" + s + L"\""; };
+            std::wstring tipos = std::wstring(Tr(L"Imagens")) + L"|*.png;*.ico;*.jpg;*.jpeg;*.webp;*.bmp;*.gif;*.tif;*.tiff;*.heic||" +
+                                 Tr(L"Ícones e programas") + L"|*.ico;*.exe;*.dll";
+            std::wstring cmd = q(finder) + L" " + q(start) + L" --escolher abrir --tipos " + q(tipos) + L" --tipo 0 --ok " + q(Tr(L"Escolher")) +
+                               L" --resultado " + q(res);
+            STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+                AllowSetForegroundWindow(pi.dwProcessId);
+                CloseHandle(pi.hThread);
+                WaitForSingleObject(pi.hProcess, INFINITE);
+                DWORD code = 1; GetExitCodeProcess(pi.hProcess, &code);
+                CloseHandle(pi.hProcess);
+                std::wstring path;
+                if (code == 0) {
+                    FILE* f = nullptr;
+                    if (!_wfopen_s(&f, res, L"r, ccs=UTF-8") && f) {
+                        wchar_t line[2048];
+                        while (path.empty() && fgetws(line, 2048, f)) {
+                            std::wstring l = line;
+                            while (!l.empty() && (l.back() == L'\n' || l.back() == L'\r')) l.pop_back();
+                            if (!l.empty() && l.rfind(L"tipo=", 0) != 0) path = l;
+                        }
+                        fclose(f);
+                    }
+                }
+                DeleteFileW(res);
+                Log(L"ícone próprio: Finder escolher terminou (%lu)%ls", code, path.empty() ? L"" : L", arquivo escolhido");
+                if (!path.empty() && SaveCustomIcon(name, exe, path)) AvisarIconeMudou();
+                return;
+            }
+            DeleteFileW(res);
+            Log(L"ícone próprio: Finder não abriu (%lu); janela do Windows", GetLastError());
+        }
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         IFileOpenDialog* dlg = nullptr;
         if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) {
@@ -553,6 +596,7 @@ void apps::ReloadIcons() {
     dock::IconsChanged();
     seletor::IconsChanged();
     launchpad::IconsChanged();
+    notificacoes::IconsChanged();  // o ícone próprio vale também nas notificações (issue #8)
 }
 
 static std::wstring PackIconFor(const App& a) {
