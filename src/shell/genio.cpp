@@ -231,7 +231,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
     if (m == WM_TIMER && h == g_wnd) {
         if (w == T_BACK) { KillTimer(h, T_BACK); RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); dock::Raise(); }
-        else if (w == T_END) { KillTimer(h, T_END); if (g_a.restore) { RealBack(); SetTimer(h, T_SETTLE, 140, nullptr); } else FinishComp(); }
+        else if (w == T_END) { KillTimer(h, T_END); if (g_a.restore) { RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); SetTimer(h, T_SETTLE, 220, nullptr); } else FinishComp(); }  // o último quadro fica enquanto a janela redesenha
         else if (w == T_SETTLE) FinishComp();
         return 0;
     }
@@ -492,7 +492,9 @@ bool Start(HWND h) {
     dock::Raise();
     if (!g_a.restore) { DwmFlush(); HideCap(); }  // o compositor já está na tela: a foto parada sai
     UINT ms = (UINT)std::lround(D * 1000);
-    if (g_a.restore) SetTimer(g_wnd, T_BACK, (UINT)(ms * 0.4f), nullptr);
+    // Restaurar: a janela de verdade só volta no fim, por baixo do último quadro (a janela inteira no lugar dela). Voltava
+    // aos 40% e, aqui no compositor, nada cobre o resto da tela (o motor antigo tinha a cópia da tela por cima): a janela
+    // inteira aparecia pelas partes transparentes do funil, junto com ele ("o gênio tá meio bugado", 21/11/2026).
     SetTimer(g_wnd, T_END, ms + 20, nullptr);
     Log(L"gênio (compositor): %d faixas em %d níveis, foto %dx%d em %.1f ms, níveis até %.1f ms, faixas até %.1f ms, preparo %.1f ms; o resto é com o DWM",
         n, g_levels, sw, sh, tSnap, tLv, tStrips, anim::Now() - t0);

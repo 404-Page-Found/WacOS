@@ -1021,3 +1021,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   src\shell\mesa.cpp: com a mesa própria (sem papel de parede animado), cada movimento do mouse na seleção invalidava a tela inteira: cópia do papel de parede inteiro, o Direct2D ligado à tela toda (o EndDraw copiava a tela inteira) e a cópia para a janela. Agora só o pedaço que mudou: o retângulo de antes e o de agora mais os ícones cuja seleção mudou (o nome antes e depois), com 10 px de folga; o Paint liga o Direct2D só nesse pedaço (BindDC no retângulo, origem deslocada). No papel de parede animado (janela em camadas) continua inteiro, limitado a ~60/s.
   NÃO conferido: neste PC a mesa é a do Explorador ("mesa própria não"), então a seleção lenta do relato pode ser outra coisa; os dois vídeos (no Discord do usuário) não deu para abrir (o cache do Discord só tinha 1 MB de cada, sem o índice). O gênio "meio bugado" ficou para quando os vídeos chegarem.
   DESFAZER: reverter o commit.
+
+[2026-11-21 20:50] Gênio ao restaurar (vídeos de um usuário, salvos em Downloads).
+  src\shell\genio.cpp (motor do compositor): ao restaurar do Dock, a janela de verdade voltava aos 40% da animação (T_BACK) e, sem a cópia da tela que o motor antigo punha por cima, aparecia inteira pelas partes transparentes do funil, junto com ele (vídeo: o Discord inteiro na tela enquanto o funil ainda subia). Agora ela só volta no fim, por baixo do último quadro (a janela inteira no lugar), com o gênio por cima (topmost) e 220 ms (eram 140) para ela redesenhar antes de tirar o desenho.
+  O segundo vídeo confirmou a seleção lenta na mesa do WacOS (o retângulo branco ficava para trás do ponteiro): é a correção do commit anterior (redesenhar só o pedaço que muda).
+  Compilado e instalado o Shell. NÃO conferido na tela: restaurar pelo Dock precisa de clique de verdade; neste PC a mesa é a do Explorador.
+  DESFAZER: reverter o commit.
