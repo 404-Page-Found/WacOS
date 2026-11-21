@@ -130,7 +130,7 @@ RECT CaptionRect(HWND h) {
 // com os cantos, a sombra, o ampliar e os três botões, desenhados por cima no meio dessa faixa, a 26 pt da borda.
 int UnifiedBar(HWND h) { return (int)(INT_PTR)GetPropW(h, L"WacOSBarraUnificada"); }
 
-bool BarraPropria();       // mais abaixo: barra_mac_propria (padrão ligado) no ajustes.txt do Shell
+bool BarraPropria();       // mais abaixo: barra_mac_propria=1 no ajustes.txt do Shell (desligado por padrão: em testes)
 bool ProcessoChromium();   // mais abaixo
 bool Fullscreen(HWND h);   // mais abaixo
 // 0: não mexe; 1: barra padrão do Windows; 2: barra desenhada pelo próprio app (Chromium/Electron e afins)
@@ -565,7 +565,9 @@ bool OwnApp() {
     return own == 1;
 }
 static bool g_golden;  // lido junto com o Tahoe (TemaTahoe)
-static bool g_propria = true;  // barra_mac_propria (TemaTahoe)
+// barra_mac_propria (TemaTahoe). Desligado por padrão desde a build-25: os botões do Mac nos apps de barra própria
+// ainda estão em testes (sessão "macOS Title bar for all apps"); barra_mac_propria=1 liga
+static bool g_propria = false;
 bool BarraPropria() { TemaTahoe(); return g_propria; }
 bool TemaGolden() { return TemaTahoe() && g_golden; }
 bool TemaTahoe(bool force) {
@@ -584,7 +586,7 @@ bool TemaTahoe(bool force) {
     buf[n] = 0;
     on = strstr(buf, "liquid_glass=1") != nullptr;
     g_golden = strstr(buf, "golden_gate=1") != nullptr;
-    g_propria = strstr(buf, "barra_mac_propria=0") == nullptr;
+    g_propria = strstr(buf, "barra_mac_propria=1") != nullptr;
     return on;
 }
 int CornerRadius(HWND h) { return (int)std::lround((TemaTahoe() ? 16 : 12)  /* Golden Gate: também 16 pt (medido) */ * Scale(h)); }
