@@ -848,3 +848,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   7 frases novas nos 12 idiomas. Compilado tudo (e janelas), instalado. Conferido na tela: Salvar/pasta/substituir com a janela original do Windows (programa de teste), alerta no meio da tela, bolinha do microfone com o ffmpeg, aviso "Captura feita", SVG no Quick Look. NÃO conferidos na tela: Bloquear Tela, Ajustes > Capturas de Tela, canto do Tempo (app aberto por mim sai sem desenho), Notas, Fotos, volume e arrasto do vídeo.
   Às 03:52 o PC reiniciou sozinho (Kernel-Power 41, BugcheckCode 0, sem dump; igual a 09/11 e 17/11): suspeita de hardware (i9-14900K), não do WacOS.
   Nada no registro do Windows. DESFAZER: reverter o commit.
+
+[2026-11-21 12:50] Issues abertos (#10, #15, #16).
+  1) #15 Photoshop/Figma salvavam fora da pasta escolhida (src\shell\dialogs.cpp, Finish): com um arquivo só, a janela original (fora da tela) primeiro entra na pasta escolhida (campo = pasta + OK, confere pela barra de endereço) e só depois recebe o nome. Antes ia o caminho inteiro no campo: GetResult saía certo, mas a original continuava na pasta inicial, e programas que montam o destino com GetFolder + GetFileName gravavam lá. Sem confirmar a pasta em ~1,2 s, segue com o caminho inteiro como antes.
+  2) #16 gênio ao minimizar (src\shell\genio.cpp, WindowArea): com a janela ainda na tela, o retângulo vem do DWMWA_EXTENDED_FRAME_BOUNDS (e o recorte do GetWindowRect), não da posição "normal" do GetWindowPlacement: numa janela encaixada (metade da tela, Snap Layouts) essa é a de antes do encaixe e o gênio saía de outro lugar e tamanho.
+  3) #10 (Dock/Finder "como o MyDockFinder", espelho pirata): nada copiado; sem pedido concreto.
+  Compilado o Shell e instalado. NÃO conferido na tela: um pedido de câmera do WhatsApp (do Windows) ficou na frente de tudo e as janelas de teste não minimizavam; Photoshop/Figma não estão neste PC.
+  Nada no registro do Windows. DESFAZER: reverter o commit.

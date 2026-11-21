@@ -563,6 +563,17 @@ bool WindowArea(HWND h, RECT& vis, RECT& src) {
     int fh = maxed ? (mi.rcWork.bottom - mi.rcWork.top) + 2 * MulDiv(8, dpi, 96) : full.bottom - full.top;
     int inset = maxed ? MulDiv(8, dpi, 96) : border;
     src = { inset, maxed ? inset : 0, fw - inset, fh - inset };
+    // Ainda na tela (pergunta do Windows antes de minimizar): o lugar de verdade manda. A posição "normal" de uma
+    // janela encaixada (metade da tela, cantos, Snap Layouts) é a de antes do encaixe, e o gênio saía de outro lugar,
+    // com outro tamanho: a janela pulava antes de escorrer (issue #16, 21/11/2026).
+    RECT wr, fb;
+    if (!maxed && !IsIconic(h) && IsWindowVisible(h) && GetWindowRect(h, &wr) &&
+        SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb))) &&
+        fb.right > fb.left && fb.bottom > fb.top && fb.left >= wr.left && fb.top >= wr.top) {
+        vis = fb;
+        inset = fb.left - wr.left;
+        src = { inset, fb.top - wr.top, (wr.right - wr.left) - (wr.right - fb.right), (wr.bottom - wr.top) - (wr.bottom - fb.bottom) };
+    }
     g_a.inset = inset; g_a.maxed = maxed;
     return vis.right > vis.left && vis.bottom > vis.top;
 }

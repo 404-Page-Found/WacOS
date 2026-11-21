@@ -235,6 +235,22 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
         SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, 0, SMTO_ABORTIFHUNG, 2000, nullptr);
         value.clear();
         for (auto& p : paths) value += L"\"" + std::wstring(PathFindFileNameW(p.c_str())) + L"\" ";
+    } else if (r.mode != 2 && edit == NameEdit(r.dlg)) {
+        // Um só: a original entra antes na pasta escolhida e recebe só o nome. Com o caminho inteiro no campo ela
+        // salva certo, mas continua "na" pasta onde abriu, e programas que montam o destino com GetFolder +
+        // GetFileName (Photoshop, Figma: issue #15, 21/11/2026) gravavam na pasta inicial, não na escolhida.
+        size_t cut = paths[0].find_last_of(L'\\');
+        std::wstring dir = cut == std::wstring::npos ? L"" : paths[0].substr(0, cut);
+        if (dir.size() == 2) dir += L'\\';
+        if (!dir.empty() && _wcsicmp(CurrentFolder(r.dlg).c_str(), dir.c_str())) {
+            SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)dir.c_str(), SMTO_ABORTIFHUNG, 300, nullptr);
+            SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK), SMTO_ABORTIFHUNG, 2000, nullptr);
+            bool entrou = false;
+            for (int i = 0; i < 30 && IsWindow(r.dlg) && !entrou; i++) { Sleep(40); entrou = !_wcsicmp(CurrentFolder(r.dlg).c_str(), dir.c_str()); }
+            if (!IsWindow(r.dlg)) return;
+            if (entrou) value = PathFindFileNameW(paths[0].c_str());  // sem confirmar a pasta, segue com o caminho inteiro
+            Log(L"  original na pasta escolhida: %ls", entrou ? L"sim" : L"não (vai o caminho inteiro)");
+        }
     }
     SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)value.c_str(), SMTO_ABORTIFHUNG, 300, nullptr);
     PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
