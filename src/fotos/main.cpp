@@ -114,6 +114,10 @@ void SaveFav() { std::vector<std::wstring> v{ L"# Fotos favoritas" }; for (auto&
 
 std::wstring g_search;  // macOS 27: a lupa filtra pelo nome do arquivo
 int g_showMode = 2;  // 0 anos, 1 meses, 2 todas: a grade ganha um cabeçalho por ano ou por mês
+// botões da barra (issue #8: "vários não faziam nada"): ajustar/preencher os quadrados, a ordem e o menu ⋯
+bool g_fillSq;       // as fotos preenchem o quadrado (cortadas) em vez de aparecerem inteiras
+bool g_newest;       // as mais novas primeiro (o Mac abre com as mais antigas em cima e rola até o fim)
+float ScrollStart() { return g_newest ? 0.f : 1e9f; }  // onde a grade abre: nas mais novas
 void Filter() {
     g_shown.clear();
     std::wstring q = g_search; for (auto& c : q) c = towlower(c);
@@ -127,6 +131,7 @@ void Filter() {
         if (ok && !q.empty()) { std::wstring nm = it.path.substr(it.path.find_last_of(L"\\/") + 1); for (auto& c : nm) c = towlower(c); ok = nm.find(q) != std::wstring::npos; }
         if (ok) g_shown.push_back(i);
     }
+    if (g_newest) std::reverse(g_shown.begin(), g_shown.end());
     if (g_sel >= (int)g_shown.size()) g_sel = -1;
 }
 
@@ -205,18 +210,20 @@ void PaintGolden2(D2D1_SIZE_F sz, bool dark) {
             t.used = now;
             if (!t.bmp && !t.asked) { t.asked = true; std::lock_guard<std::mutex> q(g_qmx); g_queue.push_back(it.path); g_qcv.notify_one(); }
             D2D1_RECT_F ir = r;
-            if (t.bmp) {  // a foto inteira dentro do quadrado (como no Mac 27)
+            if (t.bmp) {  // a foto inteira dentro do quadrado (como no Mac 27); "Preencher": cortada, ocupando o quadrado
                 D2D1_SIZE_F bs = t.bmp->GetSize();
-                float k = std::min((r.right - r.left) / bs.width, (r.bottom - r.top) / bs.height);
+                float k = g_fillSq ? std::max((r.right - r.left) / bs.width, (r.bottom - r.top) / bs.height)
+                                   : std::min((r.right - r.left) / bs.width, (r.bottom - r.top) / bs.height);
                 float w = bs.width * k, hh = bs.height * k, cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
                 ir = D2D1::RectF(cx - w / 2, cy - hh / 2, cx + w / 2, cy + hh / 2);
                 ID2D1BitmapBrush* bb = nullptr;
                 rt->CreateBitmapBrush(t.bmp, D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR), &bb);
                 if (bb) {
                     bb->SetTransform(D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation(ir.left, ir.top));
-                    rt->FillRoundedRectangle(D2D1::RoundedRect(ir, 8, 8), bb);
+                    rt->FillRoundedRectangle(D2D1::RoundedRect(g_fillSq ? r : ir, 8, 8), bb);  // preenchendo: o quadrado corta
                     bb->Release();
                 }
+                if (g_fillSq) ir = r;
             } else {
                 float cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2, w = (r.right - r.left), hh = w * 0.66f;
                 ir = D2D1::RectF(r.left, cy - hh / 2, r.right, cy + hh / 2);
@@ -256,7 +263,8 @@ void PaintGolden2(D2D1_SIZE_F sz, bool dark) {
                 SYSTEMTIME st; FILETIME loc; FileTimeToLocalFileTime(&f, &loc); FileTimeToSystemTime(&loc, &st);
                 return idioma::Date(st, idioma::D_SHORT);  // "20 de nov. de 2026", "Nov 20, 2026"
             };
-            range = fmt(g_all[g_shown.front()].time) + L" – " + fmt(g_all[g_shown.back()].time);
+            const FILETIME& a = g_all[g_shown.front()].time; const FILETIME& z = g_all[g_shown.back()].time;
+            range = CompareFileTime(&a, &z) <= 0 ? fmt(a) + L" – " + fmt(z) : fmt(z) + L" – " + fmt(a);  // da mais antiga à mais nova
         }
         Text(range, g_tfSmall, D2D1::RectF(tx, 27, tx + 320, 42), gray);
     }
@@ -272,19 +280,25 @@ void PaintGolden2(D2D1_SIZE_F sz, bool dark) {
     }
     {   // info, compartilhar, favoritar, girar/editar
         D2D1_RECT_F r = group(146);
-        wchar_t gl[4] = { 0xE946, 0xE72D, (wchar_t)(g_sel >= 0 && g_fav.count(SelPath()) ? 0xEB52 : 0xEB51), 0xE7AD };
+        // info, compartilhar, favoritar e editar (o lápis: o botão abre o editor, onde ficam Girar e Recortar; antes
+        // tinha o desenho de girar e confundia)
+        wchar_t gl[4] = { 0xE946, 0xE72D, (wchar_t)(g_sel >= 0 && g_fav.count(SelPath()) ? 0xEB52 : 0xEB51), 0xE70F };
         int kinds[4] = { 7, 6, 5, 8 };
         for (int i = 0; i < 4; i++) {
             D2D1_RECT_F c = D2D1::RectF(r.left + 6 + i * 33.5f, r.top, r.left + 6 + (i + 1) * 33.5f, r.bottom);
-            Glyph(gl[i], c, i == 0 || g_sel >= 0 ? text : gray);
+            Glyph(gl[i], c, g_sel >= 0 ? text : gray);  // os quatro pedem uma foto escolhida (cinza sem ela)
             g_gh.push_back({ kinds[i], 0, c });
         }
         R -= 7;
     }
-    {   // tamanho, ordem, mais
+    {   // ajustar/preencher os quadrados, ordem e ⋯ (antes só desenhados, sem fazer nada)
         D2D1_RECT_F r = group(110);
-        wchar_t gl[3] = { 0xE9A6, 0xE8CB, 0xE712 };
-        for (int i = 0; i < 3; i++) Glyph(gl[i], D2D1::RectF(r.left + 6 + i * 32.6f, r.top, r.left + 6 + (i + 1) * 32.6f, r.bottom), text);
+        wchar_t gl[3] = { (wchar_t)(g_fillSq ? 0xE9A6 : 0xE740), 0xE8CB, 0xE712 };
+        for (int i = 0; i < 3; i++) {
+            D2D1_RECT_F c = D2D1::RectF(r.left + 6 + i * 32.6f, r.top, r.left + 6 + (i + 1) * 32.6f, r.bottom);
+            Glyph(gl[i], c, text);
+            g_gh.push_back({ 12 + i, 0, c });
+        }
         R -= 12;
     }
     if (R - 253 - 16 - 73 > tx + 160) {
@@ -653,7 +667,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_SIZE: OnSize(l); return 0;
     case WM_DPICHANGED: OnDpi(w, l); return 0;
     case WM_SETTINGCHANGE: InvalidateRect(h, nullptr, FALSE); return 0;
-    case WM_SCAN: g_scanning = false; Filter(); g_scroll = 1e9f; InvalidateRect(h, nullptr, FALSE); return 0;  // abre no fim (as mais novas), como no Mac
+    case WM_SCAN: g_scanning = false; Filter(); g_scroll = ScrollStart(); InvalidateRect(h, nullptr, FALSE); return 0;  // abre no fim (as mais novas), como no Mac
     case WM_THUMB: {
         auto* d = (ThumbData*)l;
         auto it = g_thumbs.find(d->path);
@@ -680,7 +694,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             for (auto& gh : g_gh) if (In(gh.r, x, y)) {
                 if (m == WM_RBUTTONUP) return 0;
                 switch (gh.kind) {
-                case 1: g_view = gh.arg; g_sel = -1; Filter(); g_scroll = 1e9f; break;
+                case 1: g_view = gh.arg; g_sel = -1; Filter(); g_scroll = ScrollStart(); break;
                 case 2: g_sbHidden = !g_sbHidden; SB = g_sbHidden ? 0.f : 216.f; break;
                 case 3: Zoom(1 / 1.2f); break;
                 case 4: Zoom(1.2f); break;
@@ -689,6 +703,32 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 case 7: { std::wstring p = SelPath(); if (!p.empty()) { SHELLEXECUTEINFOW se{ sizeof(se) }; se.fMask = SEE_MASK_INVOKEIDLIST; se.lpVerb = L"properties"; se.lpFile = p.c_str(); se.nShow = SW_SHOWNORMAL; ShellExecuteExW(&se); } break; }
                 case 8: EditOpen(SelPath()); break;
                 case 10: g_showMode = gh.arg; g_scroll = 0; break;
+                case 12: g_fillSq = !g_fillSq; break;  // fotos inteiras / preenchendo os quadrados
+                case 13: case 14: {  // ordem / ⋯: menus pequenos, embaixo do botão
+                    POINT scr{ (LONG)(gh.r.left * Sc()), (LONG)(gh.r.bottom * Sc() + 4) }; ClientToScreen(h, &scr);
+                    HMENU mm = CreatePopupMenu();
+                    bool sel = !SelPath().empty();
+                    if (gh.kind == 13) {
+                        AppendMenuW(mm, MF_STRING | (g_newest ? 0 : MF_CHECKED), 1, Tr(L"Mais Antigas Primeiro"));
+                        AppendMenuW(mm, MF_STRING | (g_newest ? MF_CHECKED : 0), 2, Tr(L"Mais Recentes Primeiro"));
+                    } else {
+                        AppendMenuW(mm, MF_STRING | (sel ? 0 : MF_GRAYED), 3, Tr(L"Abrir"));
+                        AppendMenuW(mm, MF_STRING | (sel ? 0 : MF_GRAYED), 4, Tr(L"Mostrar no Finder"));
+                        AppendMenuW(mm, MF_STRING | (sel ? 0 : MF_GRAYED), 5, Tr(L"Mover para o Lixo"));
+                        AppendMenuW(mm, MF_SEPARATOR, 0, nullptr);
+                        AppendMenuW(mm, MF_STRING, 6, g_sbHidden ? Tr(L"Mostrar Barra Lateral") : Tr(L"Ocultar Barra Lateral"));
+                        AppendMenuW(mm, MF_STRING, 7, Tr(L"Atualizar a Biblioteca"));
+                    }
+                    int k = TrackPopupMenu(mm, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, scr.x, scr.y, 0, h, nullptr);
+                    DestroyMenu(mm);
+                    if (k == 1 || k == 2) { g_newest = k == 2; g_sel = -1; Filter(); g_scroll = ScrollStart(); }
+                    else if (k == 3) OpenSel();
+                    else if (k == 4) { std::wstring p = SelPath(); PIDLIST_ABSOLUTE pidl = ILCreateFromPathW(p.c_str()); if (pidl) { SHOpenFolderAndSelectItems(pidl, 0, nullptr, 0); ILFree(pidl); } }
+                    else if (k == 5) Trash();
+                    else if (k == 6) { g_sbHidden = !g_sbHidden; SB = g_sbHidden ? 0.f : 216.f; }
+                    else if (k == 7) { g_scanning = true; Scan(); }
+                    break;
+                }
                 case 11: {  // busca: o campo abre na barra e filtra pelo nome enquanto digita
                     D2D1_RECT_F fr = D2D1::RectF(gh.r.right - 200 + 32, gh.r.top + 9, gh.r.right - 10, gh.r.bottom - 9);
                     FieldOpen(fr, g_search, 13, false, [](const std::wstring& q, int key) {
@@ -703,7 +743,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (x < SB || y < TB) return 0;
         } else if (x < SB) {
             int i = (int)((y - 48) / 34);
-            if (y >= 48 && i >= 0 && i < 5) { g_view = i; g_sel = -1; Filter(); g_scroll = 1e9f; InvalidateRect(h, nullptr, FALSE); }
+            if (y >= 48 && i >= 0 && i < 5) { g_view = i; g_sel = -1; Filter(); g_scroll = ScrollStart(); InvalidateRect(h, nullptr, FALSE); }
             return 0;
         }
         int c = HitCell(x, y);

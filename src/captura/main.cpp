@@ -79,7 +79,9 @@ template <class T> static void Rel(T*& p) { if (p) { p->Release(); p = nullptr; 
 
 // ---------------------------------------------------------------- opções (Shell\captura.txt)
 struct Cfg {
-    int dest = 0;      // 0 Mesa, 1 Documentos, 2 Área de Transferência
+    // 0 Mesa, 1 Documentos, 2 Área de Transferência, 3 Imagens › Capturas de Tela, 4 Outro Local (pasta em "outro")
+    int dest = 0;
+    std::wstring other;
     int timer = 0;     // 0, 5, 10 segundos
     int mode = 2;      // última ferramenta da barra: 0 tela inteira, 1 janela, 2 região
     bool thumb = true, remember = true, pointer = false, hasSel = false;
@@ -103,7 +105,8 @@ static void LoadCfg() {
         if (eq == std::wstring::npos || s[0] == L'#') continue;
         std::wstring k = s.substr(0, eq), v = s.substr(eq + 1);
         int n = _wtoi(v.c_str());
-        if (k == L"destino") g_cfg.dest = std::clamp(n, 0, 2);
+        if (k == L"destino") g_cfg.dest = std::clamp(n, 0, 4);
+        else if (k == L"outro") g_cfg.other = v;
         else if (k == L"temporizador") g_cfg.timer = n == 5 || n == 10 ? n : 0;
         else if (k == L"modo") g_cfg.mode = std::clamp(n, 0, 2);
         else if (k == L"miniatura") g_cfg.thumb = n != 0;
@@ -126,6 +129,7 @@ static void SaveCfg() {
     fwprintf(fp, L"# Captura de Tela (WacOSScreenshot.exe): opções do menu Opções da barra (Win+Shift+5)\n");
     fwprintf(fp, L"destino=%d\ntemporizador=%d\nmodo=%d\nminiatura=%d\nlembrar=%d\nponteiro=%d\n", g_cfg.dest, g_cfg.timer, g_cfg.mode, g_cfg.thumb, g_cfg.remember, g_cfg.pointer);
     if (g_cfg.hasSel) fwprintf(fp, L"selecao=%ld,%ld,%ld,%ld\n", g_cfg.sel.left, g_cfg.sel.top, g_cfg.sel.right, g_cfg.sel.bottom);
+    if (!g_cfg.other.empty()) fwprintf(fp, L"outro=%ls\n", g_cfg.other.c_str());
     fclose(fp);
 }
 
@@ -565,10 +569,87 @@ static void Shutter() {
     PlaySoundW((g_root + L"\\sons\\mac\\Screen_Capture.wav").c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
 }
 
-static std::wstring DestFolder() {
+// Onde a captura vai (issue #8): Mesa, Documentos, Imagens › Capturas de Tela (a pasta "Screenshots" do Windows,
+// criada se não existir) ou a pasta escolhida em "Outro Local…" (se ela sumiu: Capturas de Tela)
+static std::wstring Known(REFKNOWNFOLDERID id, DWORD flags = 0) {
     PWSTR p = nullptr; std::wstring d;
-    if (SUCCEEDED(SHGetKnownFolderPath(g_cfg.dest == 1 ? FOLDERID_Documents : FOLDERID_Desktop, 0, nullptr, &p))) { d = p; CoTaskMemFree(p); }
+    if (SUCCEEDED(SHGetKnownFolderPath(id, flags, nullptr, &p))) d = p;
+    CoTaskMemFree(p);
     return d;
+}
+static std::wstring ShotsFolder() {
+    std::wstring d = Known(FOLDERID_Screenshots, KF_FLAG_CREATE);
+    if (d.empty()) { d = Known(FOLDERID_Pictures); if (!d.empty()) { d += L"\\Screenshots"; CreateDirectoryW(d.c_str(), nullptr); } }
+    return d;
+}
+static std::wstring DestFolder() {
+    if (g_cfg.dest == 4 && !g_cfg.other.empty()) {
+        DWORD a = GetFileAttributesW(g_cfg.other.c_str());
+        if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) return g_cfg.other;
+        Logf(L"Outro Local sumiu (%ls): vai para Capturas de Tela", g_cfg.other.c_str());
+    }
+    if (g_cfg.dest == 3 || g_cfg.dest == 4) { std::wstring d = ShotsFolder(); if (!d.empty()) return d; }
+    return Known(g_cfg.dest == 1 ? FOLDERID_Documents : FOLDERID_Desktop);
+}
+
+// "Outro Local…": escolher a pasta (o Abrir do Windows, que o WacOS troca pelo Finder quando ligado)
+static bool PickOtherFolder(HWND owner) {
+    IFileOpenDialog* d = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d))) || !d) return false;
+    DWORD o = 0; d->GetOptions(&o);
+    d->SetOptions(o | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+    d->SetTitle(Tr(L"Salvar Capturas de Tela em"));
+    IShellItem* start = nullptr;
+    std::wstring cur = DestFolder();
+    if (!cur.empty() && SUCCEEDED(SHCreateItemFromParsingName(cur.c_str(), nullptr, IID_PPV_ARGS(&start))) && start) { d->SetFolder(start); start->Release(); }
+    bool ok = false;
+    if (SUCCEEDED(d->Show(owner))) {
+        IShellItem* it = nullptr;
+        if (SUCCEEDED(d->GetResult(&it)) && it) {
+            PWSTR p = nullptr;
+            if (SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &p)) && p) { g_cfg.other = p; CoTaskMemFree(p); ok = true; }
+            it->Release();
+        }
+    }
+    d->Release();
+    return ok;
+}
+
+// Abrir a captura na Pré-Visualização, como no Mac (antes ia para o app padrão de imagens: as Fotos do Windows).
+// O exe vem da pasta da instalação atual (o Shell sabe qual é: a janela de mensagens dele), não da pasta deste
+// processo: a Captura residente continua rodando depois de uma atualização, de dentro de SequoiaBinariosAntigos,
+// onde a Pré-Visualização não existe com o nome certo nem tem a WacOSWindow.dll ao lado (sem a barra do Mac)
+static std::wstring AppDir() {
+    if (HWND sh = FindWindowW(L"ShellMensagens", nullptr)) {
+        DWORD pid = 0; GetWindowThreadProcessId(sh, &pid);
+        if (HANDLE pr = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+            wchar_t p[MAX_PATH]; DWORD n = MAX_PATH;
+            std::wstring d;
+            if (QueryFullProcessImageNameW(pr, 0, p, &n)) { d = p; d = d.substr(0, d.find_last_of(L'\\')); }
+            CloseHandle(pr);
+            if (!d.empty() && GetFileAttributesW((d + L"\\" EXE_PREVIEW).c_str()) != INVALID_FILE_ATTRIBUTES) return d;
+        }
+    }
+    if (GetFileAttributesW((g_dir + L"\\" EXE_PREVIEW).c_str()) != INVALID_FILE_ATTRIBUTES) return g_dir;
+    std::wstring inst = Known(FOLDERID_LocalAppData) + L"\\Programs\\WacOS\\bin";  // a instalação padrão
+    if (GetFileAttributesW((inst + L"\\" EXE_PREVIEW).c_str()) != INVALID_FILE_ATTRIBUTES) return inst;
+    return g_dir;
+}
+static void OpenShot(const std::wstring& path) {
+    std::wstring pv = AppDir() + L"\\" EXE_PREVIEW;
+    bool own = GetFileAttributesW(pv.c_str()) != INVALID_FILE_ATTRIBUTES;
+    Logf(L"abrir %ls em %ls", path.c_str(), own ? pv.c_str() : L"(app padrão)");
+    if (own) {
+        // pelo CreateProcess, com a pasta do exe como pasta atual (a DLL da barra do Mac é a do lado dele)
+        std::wstring cmd = L"\"" + pv + L"\" \"" + path + L"\"", dir = pv.substr(0, pv.find_last_of(L'\\'));
+        STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+        if (CreateProcessW(pv.c_str(), cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi)) {
+            AllowSetForegroundWindow(pi.dwProcessId);
+            CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+            return;
+        }
+    }
+    ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 static void ShowThumb(const Img& im, const std::wstring& path, const Mon& m);
@@ -1103,7 +1184,12 @@ static void ShowOptions() {
     items.push_back(header(Tr(L"Salvar em")));
     items.push_back(item(Tr(L"Mesa"), 101, g_cfg.dest == 0));
     items.push_back(item(Tr(L"Documentos"), 102, g_cfg.dest == 1));
+    items.push_back(item(Tr(L"Imagens › Capturas de Tela"), 104, g_cfg.dest == 3));
     items.push_back(item(Tr(L"Área de Transferência"), 103, g_cfg.dest == 2));
+    std::wstring otherName;  // a pasta escolhida em "Outro Local…" aparece com o nome dela, como no Mac
+    if (!g_cfg.other.empty()) { otherName = g_cfg.other.substr(g_cfg.other.find_last_of(L'\\') + 1); if (otherName.empty()) otherName = g_cfg.other; }
+    if (!otherName.empty()) items.push_back(item(otherName.c_str(), 106, g_cfg.dest == 4));
+    items.push_back(item(Tr(L"Outro Local…"), 105, false));
     items.push_back(sep());
     items.push_back(header(Tr(L"Temporizador")));
     items.push_back(item(Tr(L"Nenhum"), 201, g_cfg.timer == 0));
@@ -1123,6 +1209,9 @@ static void ShowOptions() {
     case 101: g_cfg.dest = 0; break;
     case 102: g_cfg.dest = 1; break;
     case 103: g_cfg.dest = 2; break;
+    case 104: g_cfg.dest = 3; break;
+    case 106: g_cfg.dest = 4; break;
+    case 105: if (PickOtherFolder(o.h)) g_cfg.dest = 4; else id = 0; break;
     case 201: g_cfg.timer = 0; break;
     case 202: g_cfg.timer = 5; break;
     case 203: g_cfg.timer = 10; break;
@@ -1441,11 +1530,11 @@ static void ThumbMenu(HWND h) {
     if (!g_thumb) return;
     std::wstring path = g_thumb->path;
     switch (id) {
-    case 1: ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); DestroyThumb(); return;
-    case 2: if ((INT_PTR)ShellExecuteW(nullptr, L"edit", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL) <= 32) ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); DestroyThumb(); return;
+    case 1: OpenShot(path); DestroyThumb(); return;
+    case 2: OpenShot(path); DestroyThumb(); return;  // Editar: a marcação é da Pré-Visualização, como no Mac
     case 3: {
         std::wstring folder = path.substr(0, path.find_last_of(L'\\'));
-        std::wstring finder = g_dir + L"\\" EXE_FINDER;
+        std::wstring finder = AppDir() + L"\\" EXE_FINDER;
         if (GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES) ShellExecuteW(nullptr, L"open", finder.c_str(), (L"\"" + folder + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
         else ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         ThumbOut();
@@ -1523,9 +1612,9 @@ static LRESULT CALLBACK ThumbProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             t.swipe = false;
             if (t.off > 30 * t.sc) ThumbOut(); else t.off = 0;
             ThumbPlace();
-        } else if (!t.decided) {  // clique: abre (Fotos) e a miniatura some
+        } else if (!t.decided) {  // clique: abre na Pré-Visualização (como no Mac) e a miniatura some
             Logf(L"miniatura: abrir %ls", t.path.c_str());
-            ShellExecuteW(nullptr, L"open", t.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            OpenShot(t.path);
             DestroyThumb();
         }
         return 0;

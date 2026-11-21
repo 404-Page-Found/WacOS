@@ -23,6 +23,7 @@
 #include "idioma.h"
 #include "semaforo.h"  // semaforo::Aqua(): tema macOS Golden Gate
 #include "barra_mac.h"  // a WacOSWindow.dll carregada pelo próprio app (barra do Mac sem o Shell)
+#include "simbolos.h"   // SF Symbols (icones\simbolos): o ícone da barra lateral igual ao do Notas e do Finder
 #include <commctrl.h>
 #include <shellapi.h>
 #pragma comment(lib, "comctl32.lib")
@@ -172,13 +173,17 @@ inline void GlassField(D2D1_RECT_F r, bool dark) {
     br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
     rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), rad - 0.25f, rad - 0.25f), br, 0.5f);
 }
-// ícone de "barra lateral" (SF Symbol sidebar.left: retângulo com a coluna da esquerda e três tracinhos) e lupa, desenhados.
-// Medido na captura do Contatos do macOS 27 (2x): 19 × 15 pt, moldura ~1,5 pt, divisa a 6,5 pt da borda, tracinhos de
-// 2,5 pt. A 100% de escala, 1,5 px de traço cai entre dois pixels e vira uma faixa cinza de 2–3 px (o "negrito" da
-// issue #8 no Contatos/Tempo). Agora cada traço tem um número inteiro de pixels (1 px a 100%, 2 px a 150/200%) e fica
-// alinhado à grade: o peso fica igual ao dos símbolos do Finder e do Mac em qualquer escala.
+// ícone de "barra lateral" e lupa. A barra lateral é o SF Symbol sidebar.left (18 × 14, o peso normal do Mac, o mesmo
+// do Notas). O desenho antigo, de traço 1,5, parecia em negrito (issue #8: Fotos, Contatos, Tempo). Sem o .svg na
+// instalação, um desenho com cada traço num número inteiro de pixels (o mesmo peso em qualquer escala).
 inline void IconSidebar(D2D1_POINT_2F c, D2D1_COLOR_F col) {
     br->SetColor(col);
+    if (simbolo::Dir().empty()) {
+        wchar_t exe[MAX_PATH] = {}; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring d = exe; d = d.substr(0, d.find_last_of(L'\\'));  // ...\bin
+        simbolo::Dir() = d.substr(0, d.find_last_of(L'\\')) + L"\\icones\\simbolos";
+    }
+    if (simbolo::Draw(rt, L"sidebar.left", D2D1::RectF(c.x - 9, c.y - 7, c.x + 9, c.y + 7), br)) return;
     float s = GetDpiForWindow(wnd) / 96.f;
     if (s <= 0) s = 1;
     auto Px = [&](float v) { return std::round(v * s) / s; };       // na borda de um pixel

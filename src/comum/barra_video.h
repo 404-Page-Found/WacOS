@@ -59,6 +59,13 @@ inline void Desenha(ID2D1RenderTarget* rt2, ID2D1SolidColorBrush* b, float W, fl
     };
     const D2D1_COLOR_F ic = D2D1::ColorF(1, 1, 1, 0.86f);
     float cy = 30.5f, cx = W / 2;
+    // Barra mais estreita que os 458 do QuickTime (vídeo em pé, painel pequeno): as medidas do Mac são fixas a partir das
+    // bordas e o volume, o AirPlay e as legendas iam parar em cima de ⏪ ⏩ (issue #8: "ícones um em cima do outro").
+    // Agora o trilho do volume encolhe até o ⏪, e AirPlay/legendas somem quando não cabem antes do ⏩
+    const float midL = cx - 41 - 11 - 12, midR = cx + 39 + 11 + 12;  // ⏪ ⏵ ⏩ com folga
+    const bool showAir = W - 124.5f - 10 > midR, showSub = W - 81 - 10 > midR;
+    const float volR = std::min(117.5f, midL);
+    const bool volOn = volR - 40.5f >= 24;
     // alto-falante (corpo cheio) e as ondas conforme o volume
     b->SetColor(ic);
     fill([&](ID2D1GeometrySink* sk) {
@@ -75,9 +82,11 @@ inline void Desenha(ID2D1RenderTarget* rt2, ID2D1SolidColorBrush* b, float W, fl
             sk->EndFigure(D2D1_FIGURE_END_OPEN);
         }, 1.4f);
     }
-    D2D1_RECT_F vol = D2D1::RectF(40.5f, cy - 2.5f, 117.5f, cy + 2.5f);
-    track(vol, volume);
-    hits.push_back({ VOL, D2D1::RectF(vol.left - 6, cy - 12, vol.right + 6, cy + 12) });
+    if (volOn) {
+        D2D1_RECT_F vol = D2D1::RectF(40.5f, cy - 2.5f, volR, cy + 2.5f);
+        track(vol, volume);
+        hits.push_back({ VOL, D2D1::RectF(vol.left - 6, cy - 12, vol.right + 6, cy + 12) });
+    }
     // ⏪ ⏵/⏸ ⏩: triângulos cheios
     b->SetColor(ic);
     float bx = cx - 41, fx = cx + 39;
@@ -104,12 +113,15 @@ inline void Desenha(ID2D1RenderTarget* rt2, ID2D1SolidColorBrush* b, float W, fl
     // AirPlay (tela com o triângulo), legendas (balão com linhas) e » (mais / tela cheia)
     b->SetColor(D2D1::ColorF(1, 1, 1, 0.78f));
     float ax = W - 124.5f, sx = W - 81, mx = W - 26;
+    if (showAir) {
     stroke([&](ID2D1GeometrySink* sk) {
         sk->BeginFigure({ ax - 4.5f, cy + 5.5f }, D2D1_FIGURE_BEGIN_HOLLOW);
         sk->AddLine({ ax - 9.f, cy + 5.5f }); sk->AddLine({ ax - 9.f, cy - 7.f }); sk->AddLine({ ax + 9.f, cy - 7.f }); sk->AddLine({ ax + 9.f, cy + 5.5f }); sk->AddLine({ ax + 4.5f, cy + 5.5f });
         sk->EndFigure(D2D1_FIGURE_END_OPEN);
     }, 1.3f);
     tri({ ax, cy + 1.f }, { ax + 5.f, cy + 8.f }, { ax - 5.f, cy + 8.f });
+    }
+    if (showSub) {
     stroke([&](ID2D1GeometrySink* sk) {
         sk->BeginFigure({ sx - 6.f, cy + 5.f }, D2D1_FIGURE_BEGIN_HOLLOW);
         sk->AddLine({ sx - 7.f, cy + 5.f });
@@ -125,6 +137,7 @@ inline void Desenha(ID2D1RenderTarget* rt2, ID2D1SolidColorBrush* b, float W, fl
     }, 1.3f);
     rt2->DrawLine({ sx - 5.f, cy - 1.5f }, { sx + 5.f, cy - 1.5f }, b, 1.2f);
     rt2->DrawLine({ sx - 5.f, cy + 1.5f }, { sx + 2.f, cy + 1.5f }, b, 1.2f);
+    }
     stroke([&](ID2D1GeometrySink* sk) {
         for (float o : { -3.5f, 2.5f }) {
             sk->BeginFigure({ mx + o - 2.5f, cy - 5.5f }, D2D1_FIGURE_BEGIN_HOLLOW);
@@ -138,10 +151,14 @@ inline void Desenha(ID2D1RenderTarget* rt2, ID2D1SolidColorBrush* b, float W, fl
     auto tc = [](double v) { v = std::max(0.0, v); int t2 = (int)v, fr = (int)((v - t2) * 30); wchar_t s2[24]; swprintf_s(s2, L"%02d:%02d:%02d:%02d", t2 / 3600, t2 / 60 % 60, t2 % 60, fr); return std::wstring(s2); };
     float by = 73;
     b->SetColor(D2D1::ColorF(1, 1, 1, 0.72f));
-    std::wstring a1 = tc(pos), a2 = tc(len);
-    rt2->DrawTextW(a1.c_str(), (UINT32)a1.size(), tfL, D2D1::RectF(17, by - 10, 120, by + 10), b);
-    rt2->DrawTextW(a2.c_str(), (UINT32)a2.size(), tfR, D2D1::RectF(W - 120, by - 10, W - 17, by + 10), b);
-    D2D1_RECT_F bar = D2D1::RectF(113.5f, by - 2.5f, W - 113, by + 2.5f);
+    // estreita: os tempos curtos (m:ss) e a linha do tempo mais comprida, para ela não sumir entre eles
+    bool shortTc = W - 113 - 113.5f < 120;
+    auto mss = [](double v) { int t2 = (int)std::max(0.0, v); wchar_t s2[24]; swprintf_s(s2, L"%d:%02d", t2 / 60, t2 % 60); return std::wstring(s2); };
+    std::wstring a1 = shortTc ? mss(pos) : tc(pos), a2 = shortTc ? mss(len) : tc(len);
+    float tw = shortTc ? 44.f : 103.f;
+    rt2->DrawTextW(a1.c_str(), (UINT32)a1.size(), tfL, D2D1::RectF(17, by - 10, 17 + tw, by + 10), b);
+    rt2->DrawTextW(a2.c_str(), (UINT32)a2.size(), tfR, D2D1::RectF(W - 17 - tw, by - 10, W - 17, by + 10), b);
+    D2D1_RECT_F bar = shortTc ? D2D1::RectF(17 + tw + 8, by - 2.5f, W - 17 - tw - 8, by + 2.5f) : D2D1::RectF(113.5f, by - 2.5f, W - 113, by + 2.5f);
     track(bar, len > 0 ? (float)std::clamp(pos / len, 0.0, 1.0) : 0.f);
     hits.push_back({ SCRUB, D2D1::RectF(bar.left, by - 12, bar.right, by + 12) });
     if (fac) fac->Release();
@@ -171,7 +188,9 @@ inline bool FundoBorrado(ID2D1RenderTarget* rt, HWND src, RECT scr, float sc, D2
         SelectObject(mem, bmp); bw = ww; bh = wh; last = nullptr;
     }
     DWORD now = GetTickCount();
-    if (last != src || now - at > 25) {
+    // a foto da janela (PrintWindow com PW_RENDERFULLCONTENT faz o DWM compor o vídeo) no máximo 10×/s: o fundo
+    // borrado não precisa de mais, e a 40×/s pesava na CPU com o vídeo tocando (issue #8)
+    if (last != src || now - at > 100) {
         if (!PrintWindow(src, mem, 2 /*PW_RENDERFULLCONTENT*/)) return false;
         GdiFlush(); last = src; at = now;
     }
