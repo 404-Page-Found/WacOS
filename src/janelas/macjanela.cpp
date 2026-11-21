@@ -264,6 +264,7 @@ RECT BarRect(Info* in) {
     RECT f = FrameRect(in->owner);
     float sc = Scale(in->owner);
     int h = in->barH ? in->barH : (int)(32 * sc);
+    if (in->capas) { f.left = in->capasVis.left; f.right = in->capasVis.right; }  // rente às capas (com o fio da borda do DWM)
     return { f.left, f.top, f.right, f.top + h };
 }
 
@@ -319,6 +320,34 @@ void Paint(Info* in) {
             };
             fill(in->leftColor, D2D1::RectF(0, 0, PatchL(in), H), true);
             fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
+            if (in->capas && !IsZoomed(in->owner)) {  // o fio da borda do DWM, que as faixas cobrem nos lados (continua o das capas)
+                int fundo = (int)(INT_PTR)GetPropW(in->owner, L"MacJanelaFundo");
+                bool dk = fundo ? fundo == 2 : Dark();
+                b->SetColor(dk ? D2D1::ColorF(0x4A / 255.f, 0x4A / 255.f, 0x4D / 255.f) : D2D1::ColorF(0xC2 / 255.f, 0xC2 / 255.f, 0xC5 / 255.f));
+                float Rr = CornerRadius(in->owner) / sc, o = 0.5f / sc, lw = 1 / sc;
+                for (int side = 0; side < 2; side++) {
+                    ID2D1PathGeometry* g = nullptr;
+                    if (FAILED(g_d2d->CreatePathGeometry(&g))) continue;
+                    ID2D1GeometrySink* sk = nullptr;
+                    if (SUCCEEDED(g->Open(&sk))) {
+                        if (!side) {
+                            sk->BeginFigure({ o, H }, D2D1_FIGURE_BEGIN_HOLLOW);
+                            sk->AddLine({ o, Rr });
+                            sk->AddArc(D2D1::ArcSegment({ Rr, o }, { Rr - o, Rr - o }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                            sk->AddLine({ PatchL(in), o });
+                        } else {
+                            sk->BeginFigure({ W - PatchR(in), o }, D2D1_FIGURE_BEGIN_HOLLOW);
+                            sk->AddLine({ W - Rr, o });
+                            sk->AddArc(D2D1::ArcSegment({ W - o, Rr }, { Rr - o, Rr - o }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                            sk->AddLine({ W - o, H });
+                        }
+                        sk->EndFigure(D2D1_FIGURE_END_OPEN);
+                        sk->Close(); sk->Release();
+                        rt->DrawGeometry(g, b, lw);
+                    }
+                    g->Release();
+                }
+            }
         }
         // Leopard: a barra de título padrão vira o metal cinza do 10.5 de ponta a ponta (com os cantos de cima da
         // janela); a barra própria dos apps (Chromium e afins) e as janelas de plug-in ficam como estão
@@ -739,6 +768,16 @@ void CapasCantos(Info* in, RECT vis) {
     HWND h = in->owner;
     static const bool prova = wcsstr(GetCommandLineW(), L"--wacos-teste-abas") != nullptr;  // PROVA: só no Chrome de teste
     if (!prova) { HideCorners(in); return; }
+    // A forma é a parte visível que o DWM desenha: o fio da borda dele fica 1 px por fora da área do app (dos lados e
+    // embaixo). Rente à área do app, o arco de 8 px do DWM sobrava 1 px por fora da capa (o risquinho no cantinho) e o
+    // fio do arco grande ficava 1 px para dentro do fio reto. Vale o retângulo do DWM quando ele difere da área do
+    // app só nesse fio (com o quadro desligado ele vinha com a borda invisível de 11 px: aí fica a área do app).
+    {
+        RECT e;
+        if (SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &e, sizeof(e))) && std::abs(e.left - vis.left) <= 2 &&
+            std::abs(e.top - vis.top) <= 2 && std::abs(e.right - vis.right) <= 2 && std::abs(e.bottom - vis.bottom) <= 2)
+            vis = e;
+    }
     float sc = Scale(h);
     int r = CornerRadius(h), r0 = (int)std::lround((leopard::On() ? 4 : 8) * sc);  // o nosso raio / o do DWM
     if (in->moving || in->transit || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h) || r <= r0 + 1 || TakenByShell(h)) {
@@ -766,25 +805,39 @@ void CapasCantos(Info* in, RECT vis) {
         SetPropW(h, L"MacJanelaMoldura", fw);
         SetTimer(fw, 1, 500, nullptr);
     }
-    // fundo de cada canto: a janela de trás + a nossa sombra
-    RECT shR{}; GetWindowRect(in->shadow.wnd, &shR);
-    auto* shPx = (UINT32*)in->shadow.bits;
-    int shW = shR.right - shR.left, shH = shR.bottom - shR.top;
-    bool shOk = shPx && in->shadow.wnd && IsWindowVisible(in->shadow.wnd) && in->shadow.last.cx == shW && in->shadow.last.cy == shH;
-    std::vector<UINT32> bg[4];
+    // Fundo de cada canto: a foto da janela de trás, com 1 px a mais em volta (fora da janela). Em volta da janela a
+    // tela tem as sombras (a nossa e a do próprio DWM, que o Chromium tem): a foto de trás não, e o cantinho coberto
+    // saía mais claro que a tela ao lado. Então a capa compara, nesse 1 px de fora (a linha de cima/baixo e a coluna do
+    // lado), a foto com a tela de verdade e escurece cada ponto na mesma proporção (média da linha e da coluna).
+    std::vector<UINT32> bg[4], tela[4];
     RECT box[4];
     bool have[4]{};
     std::map<HWND, int> fotos;  // uma foto por janela de trás (a mesma janela costuma estar atrás de vários cantos)
+    HDC sdc = GetDC(nullptr);
     for (int i = 0; i < 4; i++) {
         bool right = i & 1, bottom = (i & 2) != 0;
         int x0 = right ? vis.right - S : vis.left, y0 = bottom ? vis.bottom - S : vis.top;
-        box[i] = { x0, y0, x0 + S, y0 + S };
+        box[i] = { x0 - 1, y0 - 1, x0 + S + 1, y0 + S + 1 };
         POINT p{ right ? vis.right - 2 : vis.left + 1, bottom ? vis.bottom - 2 : vis.top + 1 };  // o pixel do canto
         HWND w = JanelaAtras(h, p);
         if (!w || (fotos.count(w) && fotos[w] > 3)) continue;
         fotos[w]++;
         have[i] = FotoDe(w, box[i], bg[i]);
+        if (!have[i]) continue;
+        int bw = box[i].right - box[i].left, bh = box[i].bottom - box[i].top;
+        tela[i].assign((size_t)bw * bh, 0);
+        HDC m2 = CreateCompatibleDC(sdc);
+        BITMAPINFO b2{}; b2.bmiHeader = { sizeof(BITMAPINFOHEADER), bw, -bh, 1, 32, BI_RGB };
+        void* tb = nullptr;
+        HBITMAP tbm = CreateDIBSection(m2, &b2, DIB_RGB_COLORS, &tb, nullptr, 0);
+        if (tbm) {
+            HGDIOBJ o2 = SelectObject(m2, tbm);
+            if (BitBlt(m2, 0, 0, bw, bh, sdc, box[i].left, box[i].top, SRCCOPY)) memcpy(tela[i].data(), tb, tela[i].size() * 4);
+            SelectObject(m2, o2); DeleteObject(tbm);
+        }
+        DeleteDC(m2);
     }
+    ReleaseDC(nullptr, sdc);
     if (!have[0] && !have[1] && !have[2] && !have[3]) { HideCorners(in); return; }
     HDC mem = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{};
@@ -805,8 +858,20 @@ void CapasCantos(Info* in, RECT vis) {
     };
     for (int i = 0; i < 4; i++) {
         if (!have[i]) continue;
-        int bw = box[i].right - box[i].left;
-        for (int y = 0; y < S; y++)
+        bool right = i & 1, bottom = (i & 2) != 0;
+        int bw = box[i].right - box[i].left, bh = box[i].bottom - box[i].top;
+        // quanto a tela de verdade é mais escura que a foto, por canal: na linha de fora (cima/baixo) para cada x e na
+        // coluna de fora (esquerda/direita) para cada y
+        auto ratio = [&](int x, int y, int c) {
+            UINT32 f = bg[i][(size_t)y * bw + x], t = tela[i][(size_t)y * bw + x] & 0xFFFFFF;
+            float a = (float)((f >> (c * 8)) & 255), b = (float)((t >> (c * 8)) & 255);
+            return a < 8 ? 1.f : std::clamp(b / a, 0.f, 1.2f);
+        };
+        int ry = bottom ? bh - 1 : 0, rx = right ? bw - 1 : 0;
+        std::vector<float> kr((size_t)bw * 3), kc((size_t)bh * 3);
+        for (int x = 0; x < bw; x++) for (int c = 0; c < 3; c++) kr[(size_t)x * 3 + c] = ratio(x, ry, c);
+        for (int y = 0; y < bh; y++) for (int c = 0; c < 3; c++) kc[(size_t)y * 3 + c] = ratio(rx, y, c);
+        for (int y = 0; y < bh; y++)
             for (int x = 0; x < bw; x++) {
                 int sx = box[i].left + x, sy = box[i].top + y;          // tela
                 int lx = sx - vis.left + M, ly = sy - vis.top + M;       // na capa
@@ -817,12 +882,9 @@ void CapasCantos(Info* in, RECT vis) {
                 auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); Aa = a + Aa * (1 - a); };
                 if (A > 0) {
                     UINT32 v = bg[i][(size_t)y * bw + x];
-                    float k = 1;
-                    if (shOk) {
-                        int qx = sx - shR.left, qy = sy - shR.top;
-                        if (qx >= 0 && qy >= 0 && qx < shW && qy < shH) k = 1 - (shPx[(size_t)qy * shW + qx] >> 24) / 255.f;
-                    }
-                    over(((v >> 16) & 255) / 255.f * k, ((v >> 8) & 255) / 255.f * k, (v & 255) / 255.f * k, A);
+                    float kb = (kr[(size_t)x * 3 + 0] + kc[(size_t)y * 3 + 0]) / 2, kg = (kr[(size_t)x * 3 + 1] + kc[(size_t)y * 3 + 1]) / 2,
+                          kR = (kr[(size_t)x * 3 + 2] + kc[(size_t)y * 3 + 2]) / 2;
+                    over(std::min(1.f, ((v >> 16) & 255) / 255.f * kR), std::min(1.f, ((v >> 8) & 255) / 255.f * kg), std::min(1.f, (v & 255) / 255.f * kb), A);
                 }
                 over(bR, bG, bB, std::clamp(cov(d) - cov(d + 1), 0.f, 1.f));  // o fio da borda no arco grande
                 if (Aa <= 0) continue;
