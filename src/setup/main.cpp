@@ -659,8 +659,9 @@ static void DoUninstall() {
 // ============================================================ GitHub (versão nova)
 struct Release { wstring tag, date, url, sha; std::vector<wstring> notes; ULONGLONG size = 0; };
 static Release g_rel; static wstring g_relErr;
+static DWORD g_httpCode;  // status da última resposta (0 = sem conexão)
 static std::string HttpGet(const wstring& host, const wstring& path, const wchar_t* accept, const wstring& outFile = L"", std::function<void(ULONGLONG, ULONGLONG)> prog = {}) {
-    std::string body;
+    std::string body; g_httpCode = 0;
     HINTERNET s = WinHttpOpen(L"WacOS-Setup/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!s) return body;
     WinHttpSetTimeouts(s, 10000, 10000, 30000, 60000);
@@ -670,6 +671,7 @@ static std::string HttpGet(const wstring& host, const wstring& path, const wchar
     HANDLE f = INVALID_HANDLE_VALUE;
     if (r && WinHttpSendRequest(r, hdr.c_str(), (DWORD)-1, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(r, nullptr)) {
         DWORD code = 0, sz = 4; WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, nullptr, &code, &sz, nullptr);
+        g_httpCode = code;
         wchar_t len[32] = {}; DWORD ln = sizeof(len); ULONGLONG total = 0;
         if (WinHttpQueryHeaders(r, WINHTTP_QUERY_CONTENT_LENGTH, nullptr, len, &ln, nullptr)) total = _wcstoui64(len, nullptr, 10);
         if (code == 200) {
@@ -701,10 +703,42 @@ static wstring JsonStr(const std::string& j, const std::string& key, size_t from
     if (!w.empty() && w[0] == 0xFEFF) w.erase(0, 1);
     if (at) *at = p; return w;
 }
+// Sem a API (Reddit, 21/11/2026: "dá um erro com o Github"): a API aceita só 60 consultas por hora por IP sem
+// login, e operadoras que dividem um IP entre muitos clientes (CGNAT) estouram isso. A página pública da release
+// tem o mesmo: /releases/latest leva à tag, e /releases/expanded_assets/<tag> lista o .zip com o SHA-256.
+static bool CheckGitHubPagina() {
+    std::string pg = HttpGet(L"github.com", L"/renzyxx/WacOS/releases/latest", L"text/html");
+    const std::string ea = "/renzyxx/WacOS/releases/expanded_assets/";
+    size_t p = pg.find(ea); if (p == std::string::npos) return false;
+    p += ea.size();
+    size_t e = pg.find_first_of("\"'?#", p); if (e == std::string::npos) return false;
+    std::string tag = pg.substr(p, e - p);
+    std::string as = HttpGet(L"github.com", FromUtf8(ea + tag), L"text/html");
+    const std::string dl = "/renzyxx/WacOS/releases/download/" + tag + "/";
+    for (size_t q = as.find(dl); q != std::string::npos; q = as.find(dl, q + 1)) {
+        size_t qe = as.find('"', q); if (qe == std::string::npos) break;
+        std::string href = as.substr(q, qe - q);
+        if (href.size() < 4 || href.compare(href.size() - 4, 4, ".zip")) continue;
+        g_rel.tag = FromUtf8(tag);
+        g_rel.url = L"https://github.com" + FromUtf8(href);
+        size_t h = as.find("sha256:", qe);
+        if (h != std::string::npos && h + 71 <= as.size()) g_rel.sha = Lower(FromUtf8(as.substr(h + 7, 64)));
+        if (g_rel.sha.find_first_not_of(L"0123456789abcdef") != wstring::npos) g_rel.sha.clear();
+        return true;
+    }
+    return false;
+}
 static void CheckGitHub() {
     g_rel = {}; g_relErr.clear();
     std::string j = HttpGet(L"api.github.com", L"/repos/renzyxx/WacOS/releases/latest", L"application/vnd.github+json");
-    if (j.empty()) { g_relErr = T(L"Não deu para falar com o GitHub. Confira a internet e tente de novo.", L"Couldn't reach GitHub. Check your connection and try again."); return; }
+    if (j.empty()) {
+        DWORD api = g_httpCode;
+        if (CheckGitHubPagina()) return;
+        wchar_t b[300];
+        if (api) swprintf_s(b, T(L"O GitHub recusou a consulta (HTTP %lu). Tente de novo em alguns minutos.", L"GitHub refused the request (HTTP %lu). Try again in a few minutes."), api);
+        else wcscpy_s(b, T(L"Não deu para falar com o GitHub. Confira a internet e tente de novo.", L"Couldn't reach GitHub. Check your connection and try again."));
+        g_relErr = b; return;
+    }
     g_rel.tag = JsonStr(j, "tag_name");
     wstring d = JsonStr(j, "published_at"); if (d.size() >= 10) g_rel.date = d.substr(8, 2) + L"/" + d.substr(5, 2) + L"/" + d.substr(0, 4);
     for (auto& l : Lines(JsonStr(j, "body"))) { wstring t = Trim(l); while (!t.empty() && (t[0] == L'-' || t[0] == L'*' || t[0] == L' ')) t.erase(0, 1); if (!t.empty() && g_rel.notes.size() < 8) g_rel.notes.push_back(t); }
@@ -748,7 +782,12 @@ static void DoUpdate() {
         if (total) g_progress = 0.02f + 0.5f * (float)got / total;
         wchar_t b[96]; swprintf_s(b, T(L"Baixando… %.0f de %.0f MB", L"Downloading… %.0f of %.0f MB"), got / 1048576.0, total / 1048576.0); Status(b);
     });
-    if (ok.empty()) { Fail(T(L"O download falhou. Tente de novo.", L"The download failed. Try again.")); g_workOk = false; g_workDone = true; return; }
+    if (ok.empty()) {
+        wchar_t b[200];
+        if (g_httpCode) swprintf_s(b, T(L"O download falhou (HTTP %lu). Tente de novo.", L"The download failed (HTTP %lu). Try again."), g_httpCode);
+        else wcscpy_s(b, T(L"O download falhou (sem conexão com o GitHub). Tente de novo.", L"The download failed (couldn't reach GitHub). Try again."));
+        Fail(b); g_workOk = false; g_workDone = true; return;
+    }
     Status(T(L"Conferindo o pacote (SHA-256)…", L"Checking the package (SHA-256)…")); g_progress = 0.54f;
     if (!g_rel.sha.empty() && Sha256File(zip) != g_rel.sha) { Fail(T(L"O arquivo baixado não bate com o publicado (SHA-256). Nada foi instalado.", L"The download doesn't match the published package (SHA-256). Nothing was installed.")); g_workOk = false; g_workDone = true; return; }
     Status(T(L"Extraindo…", L"Extracting…")); g_progress = 0.57f;

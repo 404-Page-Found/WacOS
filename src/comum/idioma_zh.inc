@@ -1615,3 +1615,7 @@
 { L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos.", L"复制文本、图像或文件时，在灵动岛上短暂提示。" },
 { L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).", L"灵动岛上还会显示正在使用的橙色（麦克风）或绿色（摄像头）圆点、计时器（计时器标签：暂停、停止、±1 分钟）以及复制内容的历史（剪贴板标签）。" },
 { L"Termina às %ls", L"%ls 结束" },
+{ L"Sobre Este Mac mostra", L"“关于本机”显示" },
+{ L"Este PC", L"这台电脑" },
+{ L"Menu da Apple", L"Apple 菜单" },
+{ L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Apple 菜单中的窗口：这台电脑的真实配置，或作为装饰的 Mac Studio。" },

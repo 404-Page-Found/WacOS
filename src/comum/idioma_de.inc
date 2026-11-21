@@ -1615,3 +1615,7 @@
 { L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos.", L"Ein kurzer Hinweis auf der Insel, wenn du Text, ein Bild oder Dateien kopierst." },
 { L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).", L"Auf der Insel sind auch der orange (Mikrofon) oder grüne (Kamera) Punkt bei Nutzung, der Timer (Tab Timer: Pause, Stopp, ±1 Minute) und der Verlauf des Kopierten (Tab Zwischenablage)." },
 { L"Termina às %ls", L"Endet um %ls" },
+{ L"Sobre Este Mac mostra", L"„Über diesen Mac“ zeigt" },
+{ L"Este PC", L"Diesen PC" },
+{ L"Menu da Apple", L"Apple-Menü" },
+{ L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Das Fenster im Apple-Menü: die echten Daten dieses Computers oder ein Mac Studio als Deko." },

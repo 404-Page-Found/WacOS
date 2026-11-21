@@ -29,15 +29,37 @@ if (Test-Path $tf) { $h['Authorization'] = 'Bearer ' + (Get-Content $tf -TotalCo
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 if (-not $Verificar) { Write-Host 'Looking for the latest version on GitHub...' }
+$rel = $null
 try { $rel = Invoke-RestMethod -Headers $h -Uri "https://api.github.com/repos/$repo/releases/latest" }
 catch {
     $code = 0; try { $code = $_.Exception.Response.StatusCode.value__ } catch {}
-    if ($code -eq 404) { Erro "no release found at github.com/$repo (private repository? put a token in $tf)" }
-    Erro "could not reach GitHub ($($_.Exception.Message))"
+    $apiErr = $_.Exception.Message
+    # without the API (60 requests per hour per IP without a login; ISPs that share one IP among many customers hit
+    # that): the public release page has the same data. /releases/latest leads to the tag, and
+    # /releases/expanded_assets/<tag> lists the .zip with its SHA-256.
+    try {
+        $wh = @{ 'User-Agent' = 'WacOS-atualizador' }
+        $pg = Invoke-WebRequest -UseBasicParsing -Headers $wh -Uri "https://github.com/$repo/releases/latest"
+        if ($pg.Content -match "/$repo/releases/expanded_assets/([^""'?#]+)") {
+            $tag = $Matches[1]
+            $as = (Invoke-WebRequest -UseBasicParsing -Headers $wh -Uri "https://github.com/$repo/releases/expanded_assets/$tag").Content
+            if ($as -match "href=""(/$repo/releases/download/$([regex]::Escape($tag))/([^""]+\.zip))""") {
+                $href = $Matches[1]; $name = $Matches[2]; $dig = ''
+                $rest = $as.Substring($as.IndexOf($href))
+                if ($rest -match 'sha256:([0-9a-f]{64})') { $dig = "sha256:$($Matches[1])" }
+                $rel = [pscustomobject]@{ tag_name = $tag; published_at = ''; body = '';
+                    assets = @([pscustomobject]@{ name = $name; size = 0; digest = $dig; url = "https://github.com$href" }) }
+            }
+        }
+    } catch {}
+    if (-not $rel) {
+        if ($code -eq 404) { Erro "no release found at github.com/$repo (private repository? put a token in $tf)" }
+        Erro "could not reach GitHub ($apiErr)"
+    }
 }
 $novo = $rel.tag_name
 $out.Add("novo=$novo")
-$out.Add("data=$(([datetime]$rel.published_at).ToLocalTime().ToString('dd/MM/yyyy HH:mm'))")
+if ($rel.published_at) { $out.Add("data=$(([datetime]$rel.published_at).ToLocalTime().ToString('dd/MM/yyyy HH:mm'))") }
 if ($atual -and $atual -eq $novo) { Fim 'WacOS is up to date.' }
 
 # what is missing: the commits between the installed version and the new one (else the release notes)
@@ -60,7 +82,7 @@ if (-not $asset) { Fim 'The latest release has no .zip package.' 8 }
 $tmp = Join-Path $env:TEMP ('wacos-atualizar-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $zip = Join-Path $tmp $asset.name
-Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size / 1MB)) MB)..."
+Write-Host "Downloading $($asset.name)$(if ($asset.size) { " ($([math]::Round($asset.size / 1MB)) MB)" })..."
 $dh = $h.Clone(); $dh['Accept'] = 'application/octet-stream'
 $ProgressPreference = 'SilentlyContinue'  # the PowerShell progress bar makes downloads very slow
 Invoke-WebRequest -UseBasicParsing -Headers $dh -Uri $asset.url -OutFile $zip

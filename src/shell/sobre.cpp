@@ -1,4 +1,5 @@
-// "Sobre Este Mac" (menu da Apple): a janela do Sequoia, mostrando um Mac Studio M4 Max.
+// "Sobre Este Mac" (menu da Apple): a janela do Sequoia, com os dados deste PC (padrão) ou, no ajuste
+// sobre_mac=macstudio (Ajustes > Geral > Sobre), um Mac Studio M4 Max de enfeite.
 // Medidas tiradas da referência (foto da janela no Sequoia 15.3, 1,725 px por pt): 280 × 474 pt,
 // só o botão de fechar ativo, desenho do aparelho, nome em 24 pt negrito, ano, ficha em duas colunas
 // (rótulos alinhados à direita), botão "Mais Informações…" e o rodapé de direitos.
@@ -69,6 +70,52 @@ std::wstring Memoria() {
     return b;
 }
 
+// "Sobre Este Mac" com os dados deste PC (ajuste sobre_mac=pc, o padrão; macstudio = o Mac Studio M4 Max de
+// enfeite). Reddit, 21/11/2026: "o Sobre este PC mostra um Mac aleatório". Mesmo desenho da janela, com o
+// símbolo desktopcomputer no lugar da foto, o modelo da placa/fabricante no título e a ficha real.
+bool ModoPC() { return shell::Setting(L"sobre_mac", L"pc") != L"macstudio"; }
+std::wstring Reg(const wchar_t* key, const wchar_t* val) {
+    wchar_t v[256] = {}; DWORD cb = sizeof(v);
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, key, val, RRF_RT_REG_SZ | RRF_SUBKEY_WOW6464KEY, nullptr, v, &cb)) return L"";
+    std::wstring s = v;
+    while (!s.empty() && s.back() == L' ') s.pop_back();
+    while (!s.empty() && s[0] == L' ') s.erase(0, 1);
+    return s;
+}
+struct PcInfo { std::wstring modelo, fabricante, cpu, gpu, ram, nome, windows; };
+const PcInfo& Pc() {
+    static PcInfo i; static bool done;
+    if (done) return i;
+    done = true;
+    const wchar_t* bios = L"HARDWARE\\DESCRIPTION\\System\\BIOS";
+    auto lixo = [](const std::wstring& s) {
+        std::wstring l = s; for (auto& c : l) c = towlower(c);
+        return l.empty() || l.find(L"system product") != std::wstring::npos || l.find(L"to be filled") != std::wstring::npos ||
+               l.find(L"default string") != std::wstring::npos || l.find(L"system manufacturer") != std::wstring::npos || l == L"o.e.m.";
+    };
+    i.modelo = Reg(bios, L"SystemProductName"); i.fabricante = Reg(bios, L"SystemManufacturer");
+    if (lixo(i.modelo)) { i.modelo = Reg(bios, L"BaseBoardProduct"); i.fabricante = Reg(bios, L"BaseBoardManufacturer"); }
+    if (lixo(i.fabricante)) i.fabricante.clear();
+    wchar_t b[256]; DWORD n = 256;
+    if (GetComputerNameExW(ComputerNameDnsHostname, b, &n)) i.nome = b;
+    if (lixo(i.modelo)) i.modelo = L"PC";
+    i.cpu = Reg(L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"ProcessorNameString");
+    for (const wchar_t* tira : { L"(R)", L"(TM)", L" CPU", L" Processor" }) for (size_t p; (p = i.cpu.find(tira)) != std::wstring::npos;) i.cpu.erase(p, wcslen(tira));
+    if (size_t p = i.cpu.find(L" @ "); p != std::wstring::npos) i.cpu.erase(p);
+    for (size_t p; (p = i.cpu.find(L"  ")) != std::wstring::npos;) i.cpu.erase(p, 1);
+    DISPLAY_DEVICEW dd{ sizeof(dd) };
+    for (DWORD k = 0; EnumDisplayDevicesW(nullptr, k, &dd, 0); k++)
+        if (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) { i.gpu = dd.DeviceString; break; }
+    ULONGLONG kb = 0;
+    if (GetPhysicallyInstalledSystemMemory(&kb)) { swprintf_s(b, L"%llu GB", (kb + 512 * 1024) / (1024 * 1024)); i.ram = b; }
+    else i.ram = Memoria();
+    const wchar_t* cv = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+    std::wstring prod = Reg(cv, L"ProductName");
+    if (_wtoi(Reg(cv, L"CurrentBuild").c_str()) >= 22000 && prod.find(L"Windows 10") == 0) prod.replace(0, 10, L"Windows 11");  // o registro ainda diz 10
+    i.windows = prod + L" " + Reg(cv, L"DisplayVersion");
+    return i;
+}
+
 // botão em pílula do Aqua (perolado; com o mouse apertado, azul)
 void AquaPill(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r, bool down) {
     float rad = (r.bottom - r.top) / 2;
@@ -110,6 +157,13 @@ void Text(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const std::wstring& 
     if (!tf) return;
     tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
     tf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    // texto mais largo que o espaço (nomes de placa de vídeo, processador...): corta com "…"
+    IDWriteInlineObject* dots = nullptr;
+    if (SUCCEEDED(ui::dw->CreateEllipsisTrimmingSign(tf, &dots))) {
+        DWRITE_TRIMMING tr{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        tf->SetTrimming(&tr, dots);
+        dots->Release();
+    }
     IDWriteTextLayout* lay = nullptr;
     if (SUCCEEDED(ui::dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, r.right - r.left, r.bottom - r.top, &lay))) {
         if (underline) lay->SetUnderline(TRUE, { 0, (UINT32)s.size() });
@@ -290,33 +344,74 @@ void Paint() {
         }
     }
 
-    if (!g_triedPhoto) {
-        g_triedPhoto = true;
-        std::wstring png = ui::PackIcon(L"macstudio");
-        if (png.empty() || !ui::LoadPng(png, g_pw, g_ph, g_px)) g_px.clear();
+    bool pc = ModoPC();
+    if (pc) {  // este PC: o símbolo "desktopcomputer" em alumínio (degradê), na área da foto
+        D2D1_RECT_F ar = D2D1::RectF(W / 2 - 54, IMG_TOP - 10, W / 2 + 54, IMG_TOP + 84);
+        D2D1_GRADIENT_STOP st[2] = { { 0, dark ? D2D1::ColorF(0.86f, 0.86f, 0.88f, 1) : D2D1::ColorF(0.62f, 0.62f, 0.65f, 1) },
+                                     { 1, dark ? D2D1::ColorF(0.58f, 0.58f, 0.61f, 1) : D2D1::ColorF(0.36f, 0.36f, 0.39f, 1) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        bool ok = false;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, ar.top }, { 0, ar.bottom }), gs, &lb)))
+            ok = simbolo::Draw(dc, L"desktopcomputer", ar, lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        if (!ok) DrawMacStudio(dc, (W - IMG_W) / 2, IMG_TOP);
+    } else {
+        if (!g_triedPhoto) {
+            g_triedPhoto = true;
+            std::wstring png = ui::PackIcon(L"macstudio");
+            if (png.empty() || !ui::LoadPng(png, g_pw, g_ph, g_px)) g_px.clear();
+        }
+        if (!g_photo && !g_px.empty()) g_photo = ui::Bitmap(dc, g_pw, g_ph, g_px);
+        if (g_photo) {  // a imagem do próprio Sequoia, na largura medida (145,5 pt)
+            float h = IMG_W * g_ph / g_pw;
+            dc->DrawBitmap(g_photo, D2D1::RectF((W - IMG_W) / 2, IMG_TOP, (W + IMG_W) / 2, IMG_TOP + h), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        } else DrawMacStudio(dc, (W - IMG_W) / 2, IMG_TOP);  // sem o arquivo: o desenho vetorial
     }
-    if (!g_photo && !g_px.empty()) g_photo = ui::Bitmap(dc, g_pw, g_ph, g_px);
-    if (g_photo) {  // a imagem do próprio Sequoia, na largura medida (145,5 pt)
-        float h = IMG_W * g_ph / g_pw;
-        dc->DrawBitmap(g_photo, D2D1::RectF((W - IMG_W) / 2, IMG_TOP, (W + IMG_W) / 2, IMG_TOP + h), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-    } else DrawMacStudio(dc, (W - IMG_W) / 2, IMG_TOP);  // sem o arquivo: o desenho vetorial
 
     D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.86f);
     D2D1_COLOR_F text2 = dark ? D2D1::ColorF(1, 1, 1, 0.52f) : D2D1::ColorF(0, 0, 0, 0.50f);
     auto C = DWRITE_TEXT_ALIGNMENT_CENTER;
-    Text(dc, br, L"Mac Studio", 21.5f, DWRITE_FONT_WEIGHT_BOLD, C, D2D1::RectF(0, TITLE_CY - 16, W, TITLE_CY + 16), text, false, true);
-    if (!GG) Text(dc, br, L"2025", 11, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, YEAR_CY - 8, W, YEAR_CY + 8), text2);  // macOS 27: sem o ano
+    const PcInfo& info = Pc();
+    if (pc) {
+        // o modelo no título, diminuindo até caber; o fabricante na linha do ano
+        float size = 21.5f;
+        for (; size > 13; size -= 0.5f) {
+            IDWriteTextFormat* tb = ui::Format(size, DWRITE_FONT_WEIGHT_BOLD);
+            float tw = tb ? ui::TextWidth(tb, info.modelo) : 0;
+            if (tb) tb->Release();
+            if (tw <= W - 28) break;
+        }
+        Text(dc, br, info.modelo, size, DWRITE_FONT_WEIGHT_BOLD, C, D2D1::RectF(14, TITLE_CY - 16, W - 14, TITLE_CY + 16), text, false, true);
+        if (!info.fabricante.empty())
+            Text(dc, br, info.fabricante, 11, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(14, (GG ? TITLE_CY + 19 : YEAR_CY) - 8, W - 14, (GG ? TITLE_CY + 19 : YEAR_CY) + 8), text2);
+    } else {
+        Text(dc, br, L"Mac Studio", 21.5f, DWRITE_FONT_WEIGHT_BOLD, C, D2D1::RectF(0, TITLE_CY - 16, W, TITLE_CY + 16), text, false, true);
+        if (!GG) Text(dc, br, L"2025", 11, DWRITE_FONT_WEIGHT_NORMAL, C, D2D1::RectF(0, YEAR_CY - 8, W, YEAR_CY + 8), text2);  // macOS 27: sem o ano
+    }
 
-    const wchar_t* rows[4][2] = {
+    std::wstring rows[5][2] = {
         { L"Chip", L"Apple M4 Max" },
         { Tr(L"Memória"), Tr(L"128 GB") },
-        { Tr(L"Número de série"), g_serial.c_str() },
+        { Tr(L"Número de série"), g_serial },
         { L"macOS", GG ? L"Golden Gate 27.2.1" : liquid::On() ? L"Tahoe 26.7.2" : L"Sequoia 15.3" },  // Golden Gate: a última (27.2.1, nov. 2026)  // Tahoe: a última lançada (26.7.2, out. 2026)
     };
-    for (int i = 0; i < 4; i++) {
-        float cy = ROW0_CY + i * ROW_PITCH;
-        Text(dc, br, rows[i][0], 11, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_TRAILING, D2D1::RectF(0, cy - 8, COL_SPLIT, cy + 8), text);
-        Text(dc, br, rows[i][1], 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(COL_SPLIT + COL_GAP, cy - 8, W - 8, cy + 8),
+    int nrows = 4;
+    if (pc) {
+        rows[0][0] = Tr(L"Processador"); rows[0][1] = info.cpu;
+        rows[1][0] = Tr(L"Gráficos");    rows[1][1] = info.gpu;
+        rows[2][0] = Tr(L"Memória");     rows[2][1] = info.ram;
+        rows[3][0] = Tr(L"Nome");        rows[3][1] = info.nome;
+        rows[4][0] = L"Windows";         rows[4][1] = info.windows.substr(info.windows.find(L"Windows ") == 0 ? 8 : 0);
+        nrows = 5;
+    }
+    float row0 = ROW0_CY + (pc && GG ? 6.f : 0.f);  // macOS 27: abaixo da linha do fabricante
+    float split = pc ? 96.f : COL_SPLIT;  // este PC: nomes de processador e placa de vídeo mais longos
+    for (int i = 0; i < nrows; i++) {
+        float cy = row0 + i * ROW_PITCH;
+        Text(dc, br, rows[i][0], 11, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_TRAILING, D2D1::RectF(0, cy - 8, split, cy + 8), text);
+        Text(dc, br, rows[i][1], 11, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(split + COL_GAP, cy - 8, W - 8, cy + 8),
              dark ? D2D1::ColorF(1, 1, 1, 0.80f) : D2D1::ColorF(0, 0, 0, 0.75f));
     }
 

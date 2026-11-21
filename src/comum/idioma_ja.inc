@@ -1615,3 +1615,7 @@
 { L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos.", L"テキスト、画像、ファイルをコピーしたときにアイランドに短く表示します。" },
 { L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).", L"アイランドには、使用中のオレンジ（マイク）または緑（カメラ）の点、タイマー（タイマータブ：一時停止、停止、±1分）、コピーした内容の履歴（クリップボードタブ）も表示されます。" },
 { L"Termina às %ls", L"%ls に終了" },
+{ L"Sobre Este Mac mostra", L"「このMacについて」の表示" },
+{ L"Este PC", L"このPC" },
+{ L"Menu da Apple", L"Appleメニュー" },
+{ L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Appleメニューのウインドウ：このコンピュータの実際の仕様、または飾りのMac Studio。" },

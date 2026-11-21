@@ -371,7 +371,12 @@ Page Sobre() {
                                [] { Push(L"Armazenamento", Armazenamento); },
                                Size(d.free) + Tr(L" disponíveis de ") + Size(d.total)));
     if (!disks.empty()) p.groups.push_back(G(disks, L"Armazenamento"));
-    p.groups.push_back(Plain(Buttons({ { L"Relatório do Sistema…", [] { ShellExecuteW(nullptr, L"open", L"msinfo32.exe", nullptr, nullptr, SW_SHOWNORMAL); } } })));
+    // o que o "Sobre Este Mac" do menu da Apple mostra (sobre_mac=, src\shell\sobre.cpp): este PC ou o Mac Studio de enfeite
+    p.groups.push_back(G({ Popup(L"Sobre Este Mac mostra", { L"Este PC", L"Mac Studio" },
+                                 [] { return Setting(L"sobre_mac", L"pc") == L"macstudio" ? 1 : 0; },
+                                 [](int i) { SetSetting(L"sobre_mac", i == 1 ? L"macstudio" : L"pc"); }),
+                           Note(L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.") }, L"Menu da Apple"));
+    p.groups.push_back(Plain(Buttons({ { L"Relatório do Sistema…",[] { ShellExecuteW(nullptr, L"open", L"msinfo32.exe", nullptr, nullptr, SW_SHOWNORMAL); } } })));
     return p;
 }
 

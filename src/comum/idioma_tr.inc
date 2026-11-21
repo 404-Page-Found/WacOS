@@ -1615,3 +1615,7 @@
 { L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos.", L"Bir metin, görüntü veya dosya kopyaladığınızda adada kısa bir uyarı." },
 { L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).", L"Adada ayrıca kullanımdaki turuncu (mikrofon) veya yeşil (kamera) nokta, zamanlayıcı (Zamanlayıcı sekmesi: duraklat, durdur, ±1 dakika) ve kopyaladıklarınızın geçmişi (Pano sekmesi) bulunur." },
 { L"Termina às %ls", L"Bitiş: %ls" },
+{ L"Sobre Este Mac mostra", L"Bu Mac Hakkında gösterir" },
+{ L"Este PC", L"Bu bilgisayar" },
+{ L"Menu da Apple", L"Apple Menüsü" },
+{ L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Apple menüsündeki pencere: bu bilgisayarın gerçek özellikleri ya da süs olarak bir Mac Studio." },

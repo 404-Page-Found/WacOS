@@ -1615,3 +1615,7 @@
 { L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos.", L"텍스트, 이미지 또는 파일을 복사하면 아일랜드에 잠깐 알림이 표시됩니다." },
 { L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).", L"아일랜드에는 사용 중인 주황색(마이크) 또는 초록색(카메라) 점, 타이머(타이머 탭: 일시정지, 정지, ±1분), 복사한 항목의 기록(클립보드 탭)도 표시됩니다." },
 { L"Termina às %ls", L"%ls에 종료" },
+{ L"Sobre Este Mac mostra", L"'이 Mac에 관하여' 표시" },
+{ L"Este PC", L"이 PC" },
+{ L"Menu da Apple", L"Apple 메뉴" },
+{ L"A janela do menu da Apple: os dados reais deste computador ou um Mac Studio de enfeite.", L"Apple 메뉴 창: 이 컴퓨터의 실제 사양 또는 장식용 Mac Studio." },
