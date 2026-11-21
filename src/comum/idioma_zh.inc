@@ -952,6 +952,8 @@
 { L"Colaborar requer iCloud", L"协作需要 iCloud" },
 { L"Tabelas ainda não disponíveis", L"表格尚不可用" },
 { L"Gravar Áudio indisponível", L"录音不可用" },
+{ L"Desenhos indisponíveis", L"绘图不可用" },
+{ L"Ferramentas de Escrita indisponíveis", L"写作工具不可用" },
 { L"Fotos e arquivos indisponíveis", L"照片和文件不可用" },
 { L"Notas apagadas não podem ser editadas.", L"已删除的备忘录无法编辑。" },
 { L"Para editar esta nota, recupere-a primeiro.", L"要编辑此备忘录，请先将其恢复。" },

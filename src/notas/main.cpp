@@ -53,7 +53,7 @@ float g_scale = 1, g_dpi = 96;
 bool g_active = true, g_hoverLights;
 std::wstring g_family = L"Segoe UI", g_mono = L"Consolas";
 D2D1_SIZE_F g_capSize{};   // modo captura
-bool g_capture;
+bool g_capture, g_capListFocus;
 
 float g_sideW = 214, g_listW = 300;
 bool g_sideHidden;
@@ -79,7 +79,7 @@ int g_divDrag;  // 1 borda da barra lateral, 2 borda da lista
 struct Sheet { bool on = false; std::wstring title, msg, ok; std::function<void()> act; } g_sheet;
 D2D1_RECT_F g_sheetOk, g_sheetCancel;
 
-IDWriteTextFormat *g_f13b, *g_f13, *g_f12, *g_f12b, *g_f11, *g_f11b, *g_fCount, *g_fCardT, *g_fCardD, *g_fThumbT, *g_fThumb, *g_f13c, *g_fFmt[5];
+IDWriteTextFormat *g_f14b, *g_f13b, *g_f13, *g_f12, *g_f12b, *g_f11, *g_f11b, *g_fCount, *g_fCardT, *g_fCardD, *g_fThumbT, *g_fThumb, *g_f13c, *g_fFmt[5];
 ID2D1StrokeStyle* g_round;
 
 D2D1_SIZE_F ClientDip() {
@@ -89,11 +89,14 @@ D2D1_SIZE_F ClientDip() {
 bool In(D2D1_RECT_F r, D2D1_POINT_2F p) { return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
 void Invalidate() { if (g_hwnd) InvalidateRect(g_hwnd, nullptr, FALSE); }
 
+// macOS 26 Tahoe e macOS 27 Golden Gate (liquid_glass=1, com ou sem golden_gate): o Notas das fotos de referência
+// (3 colunas, botões em cápsulas de vidro, nota escolhida num cartão amarelo). Sequoia e Leopard seguem como eram.
+bool Mac26() { return semaforo::Liquid(); }
 float SideW() { return g_sideHidden ? 0.f : g_sideW; }
 float ListL() { return SideW(); }
 // macOS 27 com a lateral escondida: a coluna das notas carrega os três botões, o da lateral, o nome da pasta e o
 // "⋯" na barra; com menos de 310 pt ficava tudo apertado ("Not…")
-float ListW() { return g_sideHidden && semaforo::Aqua() ? std::max(g_listW, 310.f) : g_listW; }
+float ListW() { return g_sideHidden && Mac26() ? std::max(g_listW, 310.f) : g_listW; }
 float ListR() { return g_gallery ? ClientDip().width : SideW() + ListW(); }
 float EdL() { return g_gallery ? SideW() : ListR(); }
 bool EditorShown() { return !g_gallery || g_galleryOpen; }
@@ -101,7 +104,19 @@ float ToolStart() { return g_sideHidden ? 128.f : SideW(); }  // onde começam o
 
 // ---- cores
 struct Pal { D2D1_COLOR_F side, list, editor, text, text2, text3, line, sel, selFocus, icon, iconOff, hover, field; };
+Pal ColorsNormal();
 Pal Colors() {
+    // issue #8 (macOS 26/27): o acrílico do Windows sozinho deixava a lateral num cinza turvo (e chapado com a janela
+    // inativa). Por cima dele vai um véu na cor medida na foto (claro 236,236,240; escuro 32,34,38) a 72 %: o papel de
+    // parede ainda tinge a lateral, como no Mac, mas o vidro fica discreto. O resto da paleta vem do tema normal.
+    if (Mac26() && !semaforo::Leopard()) {
+        Pal p = ColorsNormal();
+        p.side = g_dark ? D2D1::ColorF(32 / 255.f, 34 / 255.f, 38 / 255.f, 0.72f) : D2D1::ColorF(236 / 255.f, 236 / 255.f, 240 / 255.f, 0.72f);
+        return p;
+    }
+    return ColorsNormal();
+}
+Pal ColorsNormal() {
     // Leopard (as Notas do Mail do 10.5): barra lateral azul-acinzentada, lista branca com a seleção azul do Aqua; o papel
     // amarelo pautado é desenhado pelo editor (editor.cpp)
     if (semaforo::Leopard())
@@ -109,7 +124,8 @@ Pal Colors() {
                  D2D1::ColorF(0, 0, 0, 0.90f), D2D1::ColorF(0, 0, 0, 0.55f), D2D1::ColorF(0, 0, 0, 0.30f), D2D1::ColorF(0, 0, 0, 0.12f),
                  D2D1::ColorF(0.83f, 0.83f, 0.83f), D2D1::ColorF(56 / 255.f, 117 / 255.f, 215 / 255.f), D2D1::ColorF(0, 0, 0, 0.60f), D2D1::ColorF(0, 0, 0, 0.22f),
                  D2D1::ColorF(0, 0, 0, 0.06f), D2D1::ColorF(1, 1, 1) };
-    if (g_dark) return { D2D1::ColorF(0, 0, 0, 0.22f), D2D1::ColorF(0.157f, 0.157f, 0.165f), D2D1::ColorF(0.118f, 0.118f, 0.122f),
+    // macOS 26 escuro (foto): lista 34,36,39 e editor 30,30,30
+    if (g_dark) return { D2D1::ColorF(0, 0, 0, 0.22f), Mac26() ? D2D1::ColorF(0.133f, 0.141f, 0.153f) : D2D1::ColorF(0.157f, 0.157f, 0.165f), Mac26() ? D2D1::ColorF(0.118f, 0.118f, 0.118f) : D2D1::ColorF(0.118f, 0.118f, 0.122f),
                          D2D1::ColorF(1, 1, 1, 0.88f), D2D1::ColorF(1, 1, 1, 0.50f), D2D1::ColorF(1, 1, 1, 0.30f), D2D1::ColorF(1, 1, 1, 0.09f),
                          D2D1::ColorF(1, 1, 1, 0.13f), D2D1::ColorF(0.60f, 0.47f, 0.07f), D2D1::ColorF(1, 1, 1, 0.58f), D2D1::ColorF(1, 1, 1, 0.22f),
                          D2D1::ColorF(1, 1, 1, 0.08f), D2D1::ColorF(1, 1, 1, 0.08f) };
@@ -178,29 +194,35 @@ int CountIn(const std::wstring& id) {
     return n;
 }
 
+float SideRowH() { return Mac26() ? 32.f : SIDE_ROW_H; }  // macOS 26: a linha escolhida tem 31 pt de altura
+
 void BuildSide() {
     g_side.clear();
-    float y = TOOLBAR_H + 2;
+    // macOS 26 (foto de referência): "iCloud" a 61 pt do topo, logo abaixo dos semáforos
+    float y = Mac26() ? 42.f : TOOLBAR_H + 2;
+    // macOS 26: Notas Matemáticas, Todo o iCloud e No Meu Mac só aparecem quando têm o que mostrar (ou estão
+    // escolhidas); com uma pasta só, a lateral tem só "iCloud" e "Notas", como na foto
+    const bool mac26 = Mac26();
     auto item = [&](const std::wstring& id, const std::wstring& name, const wchar_t* glyph) {
-        SideItem s; s.id = id; s.name = Tr(name); s.glyph = glyph; s.count = CountIn(id); s.y = y; y += SIDE_ROW_H;
+        SideItem s; s.id = id; s.name = Tr(name); s.glyph = glyph; s.count = CountIn(id); s.y = y; y += SideRowH();
         g_side.push_back(s);
     };
     auto header = [&](const wchar_t* name) { SideItem s; s.header = true; s.name = name; s.y = y; y += SIDE_HDR_H; g_side.push_back(s); };
-    item(L"math", store::FolderName(L"math"), L"x.squareroot");
+    auto shown = [&](const wchar_t* id) { return !mac26 || CountIn(id) > 0 || g_folder == id; };
+    if (shown(L"math")) item(L"math", store::FolderName(L"math"), L"x.squareroot");
     if (CountIn(L"rapidas") > 0 || g_folder == L"rapidas") item(L"rapidas", store::FolderName(L"rapidas"), L"note.text");
-    header(Tr(L"iCloud"));
-    item(L"todas", L"Todo o iCloud", L"folder");
-    item(L"notas", store::FolderName(L"notas"), L"folder");
     std::vector<NFolder*> user;
     for (auto& f : store::folders) if (f.id != L"notas" && f.id != L"mac" && f.id != L"math" && f.id != L"rapidas") user.push_back(&f);
     std::sort(user.begin(), user.end(), [](NFolder* a, NFolder* b) { return _wcsicmp(a->name.c_str(), b->name.c_str()) < 0; });
+    header(Tr(L"iCloud"));
+    if (!mac26 || !user.empty() || g_folder == L"todas") item(L"todas", L"Todo o iCloud", L"folder");
+    item(L"notas", store::FolderName(L"notas"), L"folder");
     for (auto* f : user) item(f->id, f->name, L"folder");
     if (CountIn(L"apagadas") > 0) item(L"apagadas", L"Apagadas Recentemente", L"trash");
-    header(Tr(L"No Meu Mac"));
-    item(L"mac", store::FolderName(L"mac"), L"folder");
+    if (shown(L"mac")) { header(Tr(L"No Meu Mac")); item(L"mac", store::FolderName(L"mac"), L"folder"); }
 }
 
-D2D1_RECT_F SideRowRect(const SideItem& s) { return { 10, s.y - g_sideScroll + 1, SideW() - 10, s.y - g_sideScroll + SIDE_ROW_H - 1 }; }
+D2D1_RECT_F SideRowRect(const SideItem& s) { float in = Mac26() ? 0.5f : 1.f; return { 10, s.y - g_sideScroll + in, SideW() - 10, s.y - g_sideScroll + SideRowH() - in }; }
 D2D1_RECT_F NewFolderRect() { auto c = ClientDip(); return { 10, c.height - 34, SideW() - 10, c.height - 8 }; }
 
 int HitSide(D2D1_POINT_2F p) {
@@ -220,7 +242,7 @@ std::wstring g_lastQuery;
 bool Searching() { return g_searchOpen && !g_search.text.empty(); }
 std::wstring Lower(std::wstring s) { for (auto& c : s) c = towlower(c); return s; }
 bool ShowFolderLine() { return Searching() || g_folder == L"todas"; }
-float RowH() { return ShowFolderLine() ? 68.f : 52.f; }
+float RowH() { return ShowFolderLine() ? 68.f : Mac26() ? 57.f : 52.f; }  // macOS 26: cartão de 55 pt
 
 NFolder* CurFolder() { return store::FindFolder(g_folder == L"todas" ? L"notas" : g_folder); }
 
@@ -247,9 +269,10 @@ void BuildRows() {
         if (sort == 2) return _wcsicmp(a->Title().c_str(), b->Title().c_str()) < 0;
         return key(a) > key(b);
     });
-    float y = TOOLBAR_H + 4;
+    float y = Mac26() ? TOOLBAR_H + 2 : TOOLBAR_H + 4;
+    // macOS 26: "7 Dias Anteriores" maior (14 pt) com uma linha fina embaixo; o cartão começa a 102 pt do topo
     auto header = [&](const std::wstring& label, bool pin) {
-        Row r; r.header = true; r.label = label; r.pin = pin; r.y = y; r.h = pin ? 26.f : 30.f; y += r.h; g_rows.push_back(r);
+        Row r; r.header = true; r.label = label; r.pin = pin; r.y = y; r.h = pin ? 26.f : Mac26() ? 48.f : 30.f; y += r.h; g_rows.push_back(r);
     };
     bool deleted = g_folder == L"apagadas" && !Searching();
     // fixadas primeiro
@@ -319,7 +342,7 @@ int HitCard(D2D1_POINT_2F p) {
 
 // ---------------------------------------------------------------------------
 // botões das barras de ferramentas
-enum Btn { B_SIDEBAR, B_LIST, B_GALLERY, B_TRASH, B_BACK, B_COMPOSE, B_FORMAT, B_CHECK, B_TABLE, B_AUDIO, B_MEDIA, B_COLLAB, B_LOCK, B_SHARE, B_SEARCH, B_FOLDER, B_MORE, B_COUNT };  // B_FOLDER/B_MORE: macOS 27
+enum Btn { B_SIDEBAR, B_LIST, B_GALLERY, B_TRASH, B_BACK, B_COMPOSE, B_FORMAT, B_CHECK, B_TABLE, B_AUDIO, B_MEDIA, B_COLLAB, B_LOCK, B_SHARE, B_SEARCH, B_FOLDER, B_MORE, B_ATTACH, B_MARKUP, B_WRITING, B_EDMORE, B_COUNT };  // B_FOLDER/B_MORE: macOS 27; B_ATTACH..B_EDMORE: macOS 26
 struct BtnInfo { D2D1_RECT_F r{}; bool shown = false, enabled = true; const wchar_t* glyph = L""; bool chevron = false; float gw = 17, gh = 15; };
 BtnInfo g_btn[B_COUNT];
 D2D1_RECT_F g_searchRect;
@@ -341,7 +364,7 @@ void LayoutButtons() {
         return;
     }
     put(B_SIDEBAR, g_sideHidden ? 104.f : std::min(108.f, SideW() - 22), L"sidebar.left", 32, 18, 14);
-    const bool gg = semaforo::Aqua();
+    const bool gg = Mac26();
     if (gg) {
         // macOS 27 (captura Notes, 2x): na lateral, "nova pasta" e esconder a lateral em botões redondos de vidro; na
         // coluna das notas, o nome da pasta e a contagem à esquerda e "⋯" (Lista/Galeria, Apagar) à direita; nada de
@@ -355,7 +378,15 @@ void LayoutButtons() {
     put(B_GALLERY, L0 + 69, L"square.grid.2x2", 36, 14, 14);
     if (gg) { g_btn[B_LIST].shown = g_btn[B_GALLERY].shown = false; }
     float e0;
-    if (g_gallery) {
+    if (g_gallery && gg) {
+        // issue #8: na galeria, o título da pasta e o "⋯" (Ver como Lista) ficam onde estariam na coluna das notas;
+        // com uma nota aberta, a seta de voltar vem logo depois, num círculo de vidro
+        auto roundB = [&](int id, float cx, const wchar_t* glyph, float gw, float gh) { put(id, cx, glyph, 36, gw, gh); g_btn[id].r.top = TOOL_CY - 18; g_btn[id].r.bottom = TOOL_CY + 18; };
+        float colR = L0 + std::max(ListW(), 250.f);
+        roundB(B_MORE, colR - 28, L"", 16, 4);
+        if (g_galleryOpen) { roundB(B_BACK, colR + 26, L"chevron.left", 8, 14); e0 = colR + 44; }
+        else e0 = colR;
+    } else if (g_gallery) {
         put(B_TRASH, L0 + 110, L"trash", 32, 14, 16);
         if (g_galleryOpen) put(B_BACK, L0 + 148, L"chevron.left", 30, 8, 14);
         e0 = L0 + (g_galleryOpen ? 166 : 130);
@@ -365,7 +396,37 @@ void LayoutButtons() {
         if (gg) { g_btn[B_TRASH].shown = false; put(B_MORE, ListR() - 28, L"", 36, 16, 4); g_btn[B_MORE].r.top = TOOL_CY - 18; g_btn[B_MORE].r.bottom = TOOL_CY + 18; }
     }
     float e1 = c.width;
-    put(B_COMPOSE, e0 + 29, L"square.and.pencil", semaforo::Aqua() ? 28.f : 32.f, 16, 16);  // macOS 27: com a cápsula de 4, um círculo de 36
+    if (gg) {
+        // macOS 26 (foto de referência, medida em pt): escrever num círculo de 36 a 27 pt da coluna; um grupo em cápsula
+        // com Aa, lista de verificação, tabela, anexo, marcação e Ferramentas de Escrita (a cada 37,5 pt, o 1º a
+        // 106 pt); compartilhar e "⋯" noutra cápsula; a busca num círculo no canto (vira campo ao clicar)
+        auto round = [&](int id, float cx, const wchar_t* glyph, float w, float gw, float gh) { put(id, cx, glyph, w, gw, gh); g_btn[id].r.top = TOOL_CY - 18; g_btn[id].r.bottom = TOOL_CY + 18; };
+        round(B_COMPOSE, e0 + 27, L"square.and.pencil", 36, 16, 16);
+        const int grp[6] = { B_FORMAT, B_CHECK, B_TABLE, B_ATTACH, B_MARKUP, B_WRITING };
+        const wchar_t* gl[6] = { L"textformat", L"checklist", L"tablecells", L"paperclip", L"pencil.tip.crop.circle", L"apple.intelligence" };
+        const float gw[6] = { 20, 17, 17, 16, 17, 17 }, gh[6] = { 13, 15, 14, 17, 17, 17 };
+        for (int k = 0; k < 6; k++) round(grp[k], e0 + 106 + k * 37.5f, gl[k], 37, gw[k], gh[k]);
+        float capR;
+        if (g_searchOpen) {
+            float w = std::clamp((e1 - e0) * 0.32f, 150.f, 230.f);
+            g_searchRect = { e1 - 8 - w, TOOL_CY - 18, e1 - 8, TOOL_CY + 18 };
+            capR = g_searchRect.left - 7.5f;
+        } else {
+            round(B_SEARCH, e1 - 26, L"magnifyingglass", 36, 15, 15);
+            capR = e1 - 44 - 7.5f;
+        }
+        round(B_EDMORE, capR - 19.5f, L"", 37, 16, 4);
+        round(B_SHARE, capR - 63, L"square.and.arrow.up", 37, 14, 17);
+        // sem espaço: os do grupo somem da direita para a esquerda antes de encostar em compartilhar
+        float lim = capR - 82 - 8;
+        for (int k = 5; k >= 0; k--) if (g_btn[grp[k]].r.right + 2 > lim) g_btn[grp[k]].shown = false;
+        bool ed = EditorShown() && editor::Current() && editor::Current()->folder != L"apagadas";
+        for (int id : grp) g_btn[id].enabled = ed;
+        g_btn[B_SHARE].enabled = g_btn[B_EDMORE].enabled = editor::Current() != nullptr;
+        g_btn[B_COMPOSE].enabled = g_folder != L"apagadas" || Searching();
+        return;
+    }
+    put(B_COMPOSE, e0 + 29, L"square.and.pencil", Mac26() ? 28.f : 32.f, 16, 16);  // macOS 27: com a cápsula de 4, um círculo de 36
     put(B_FORMAT, e0 + 92, L"textformat", 34, 20, 13);
     put(B_CHECK, e0 + 133, L"checklist", 32, 17, 15);
     put(B_TABLE, e0 + 176, L"tablecells", 32, 17, 14);
@@ -479,19 +540,24 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
     for (int i = 0; i < (int)g_side.size(); i++) {
         auto& s = g_side[i];
         float y = s.y - g_sideScroll;
-        if (s.header) { Text(dc, br, s.name, g_f11b, D2D1::RectF(18, y + 10, SideW() - 12, y + SIDE_HDR_H - 2), pal.text3); continue; }
+        if (s.header) { Text(dc, br, s.name, g_f11b, D2D1::RectF(Mac26() ? 16.f : 18.f, y + 10, SideW() - 12, y + SIDE_HDR_H - 2), pal.text3); continue; }
         auto r = SideRowRect(s);
         bool sel = s.id == g_folder && !Searching();
         bool drop = g_dragging && s.id == g_dropFolder;
-        if (sel) { br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, g_focus == F_SIDE ? 0.16f : 0.11f) : D2D1::ColorF(0, 0, 0, g_focus == F_SIDE ? 0.12f : 0.085f)); float fr2 = semaforo::Aqua() ? 10.f : 6.f; dc->FillRoundedRectangle(D2D1::RoundedRect(r, fr2, fr2), br); }
+        if (sel) { br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, g_focus == F_SIDE ? 0.16f : 0.11f) : D2D1::ColorF(0, 0, 0, g_focus == F_SIDE ? 0.12f : 0.085f)); float fr2 = Mac26() ? 10.f : 6.f; dc->FillRoundedRectangle(D2D1::RoundedRect(r, fr2, fr2), br); }
         if (drop) {
             auto a = Accent(); br->SetColor(D2D1::ColorF(a.r, a.g, a.b, 0.30f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br);
             br->SetColor(a); dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1), 5, 5), br, 2);
         }
         float cy = (r.top + r.bottom) / 2;
-        Glyph(dc, br, s.glyph.c_str(), 29, cy, s.glyph == L"x.squareroot" ? 15.f : 16.f, s.glyph == L"trash" ? 15.f : 13.f, folderC);
+        // macOS 26: a pasta é um contorno azul-ardósia (59,92,117 no claro; 139,168,199 no escuro), não amarelo, e o
+        // texto vem 4 pt mais perto (ícone a 25, nome a 40)
+        float gx = Mac26() ? 25.f : 29.f, nx = Mac26() ? 40.f : 44.f;
+        D2D1_COLOR_F gc = Mac26() ? (g_dark ? D2D1::ColorF(139 / 255.f, 168 / 255.f, 199 / 255.f) : D2D1::ColorF(59 / 255.f, 92 / 255.f, 117 / 255.f)) : folderC;
+        float gs = Mac26() ? 1.15f : 1.f;  // macOS 26 (foto 2x): a pasta tem ~18 pt de largura
+        Glyph(dc, br, s.glyph.c_str(), gx, cy, (s.glyph == L"x.squareroot" ? 15.f : 16.f) * gs, (s.glyph == L"trash" ? 15.f : 13.f) * gs, gc);
         if (g_focus == F_RENAME && s.id == g_renameId) {
-            D2D1_RECT_F fr{ 44, r.top + 2, r.right - 6, r.bottom - 2 };
+            D2D1_RECT_F fr{ nx, r.top + 2, r.right - 6, r.bottom - 2 };
             br->SetColor(g_dark ? D2D1::ColorF(0.12f, 0.12f, 0.13f) : D2D1::ColorF(1, 1, 1));
             dc->FillRoundedRectangle(D2D1::RoundedRect(fr, 4, 4), br);
             auto a = Accent(); br->SetColor(D2D1::ColorF(a.r, a.g, a.b, 0.8f));
@@ -503,12 +569,12 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
             continue;
         }
         float cw = s.count ? TextW(g_fCount, std::to_wstring(s.count)) : 0;
-        Text(dc, br, s.name, g_f13, D2D1::RectF(44, r.top, r.right - cw - 14, r.bottom), pal.text);
+        Text(dc, br, s.name, sel && Mac26() ? g_f13b : g_f13, D2D1::RectF(nx, r.top, r.right - cw - 14, r.bottom), pal.text);  // macOS 26: a escolhida em negrito
         if (s.count) Text(dc, br, std::to_wstring(s.count), g_fCount, D2D1::RectF(r.right - 60, r.top, r.right - 8, r.bottom), pal.text2);
     }
     dc->PopAxisAlignedClip();
     // + Nova Pasta (macOS 27: no botão de vidro da lateral)
-    if (semaforo::Aqua()) return;
+    if (Mac26()) return;
     auto nr = NewFolderRect();
     float cy = (nr.top + nr.bottom) / 2;
     Glyph(dc, br, L"plus.circle", 27, cy, 15, 15, pal.text2);
@@ -516,28 +582,47 @@ void DrawSidebar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pa
 }
 
 void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) {
-    if (semaforo::Aqua()) {
+    if (Mac26()) {
         // macOS 27 (captura Notes, 2x): os botões ficam em cápsulas de vidro de 36 de altura — escrever; Aa, lista,
         // tabela, áudio e mídia juntos; cadeado e compartilhar juntos; a busca numa cápsula própria
-        auto cap = [&](int a, int b) {
-            if (!g_btn[a].shown || !g_btn[b].shown) return;
-            D2D1_RECT_F r = D2D1::RectF(std::min(g_btn[a].r.left, g_btn[b].r.left) - 4, TOOL_CY - 18, std::max(g_btn[a].r.right, g_btn[b].r.right) + 4, TOOL_CY + 18);
-            br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.22f : 0.05f));
+        // cápsula de vidro sobre os botões visíveis de um grupo (folga de 20 pt antes do 1º e depois do último centro;
+        // botão sozinho = círculo de 36). Cores medidas na foto: claro ~246 sobre o branco, escuro ~branco 16 %
+        auto capIds = [&](std::initializer_list<int> ids, float pad) {
+            float l = 1e9f, rgt = -1e9f;
+            for (int id : ids) if (g_btn[id].shown) { float cx = (g_btn[id].r.left + g_btn[id].r.right) / 2; l = std::min(l, cx - pad); rgt = std::max(rgt, cx + pad); }
+            if (l > rgt) return;
+            D2D1_RECT_F r = D2D1::RectF(l, TOOL_CY - 18, rgt, TOOL_CY + 18);
+            br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.22f : 0.045f));
             dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1.5f), 18, 18), br);
-            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.09f) : D2D1::ColorF(1, 1, 1, 0.92f));
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0.962f, 0.965f, 0.972f, 0.94f));
             dc->FillRoundedRectangle(D2D1::RoundedRect(r, 18, 18), br);
-            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.07f));
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.06f));
             dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 17.5f, 17.5f), br, 1);
         };
+        auto cap = [&](int a, int b) { if (g_btn[a].shown && g_btn[b].shown) capIds({ a, b }, 18); };
         cap(B_COMPOSE, B_COMPOSE);
-        cap(B_FORMAT, B_MEDIA);
-        if (g_btn[B_LOCK].shown) cap(B_LOCK, B_SHARE); else cap(B_SHARE, B_SHARE);
+        capIds({ B_FORMAT, B_CHECK, B_TABLE, B_ATTACH, B_MARKUP, B_WRITING }, 20);
+        capIds({ B_SHARE, B_EDMORE }, 18.5f);
         cap(B_SEARCH, B_SEARCH);
-        cap(B_SIDEBAR, B_SIDEBAR);
-        cap(B_FOLDER, B_FOLDER);
         cap(B_MORE, B_MORE);
+        cap(B_BACK, B_BACK);
+        // issue #8: na barra lateral os dois botões eram brancos chapados sobre o vidro; no macOS 26 (foto) são vidro
+        // discreto: um véu claro de ~35 % com o fio da borda, sem sombra (o vidro da lateral aparece por trás)
+        for (int id : { B_SIDEBAR, B_FOLDER }) {
+            if (!g_btn[id].shown) continue;
+            float cx = (g_btn[id].r.left + g_btn[id].r.right) / 2;
+            D2D1_RECT_F r = D2D1::RectF(cx - 18, TOOL_CY - 18, cx + 18, TOOL_CY + 18);
+            bool overSide = !g_sideHidden && cx < SideW();
+            if (!overSide) { cap(id, id); continue; }
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(1, 1, 1, 0.38f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(r, 18, 18), br);
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(1, 1, 1, 0.65f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 17.5f, 17.5f), br, 1);
+            br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.20f) : D2D1::ColorF(0, 0, 0, 0.05f));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 0.5f, r.top - 0.5f, r.right + 0.5f, r.bottom + 0.5f), 18.5f, 18.5f), br, 1);
+        }
         // nome da pasta e quantas notas, à esquerda da coluna das notas (no lugar do seletor lista/galeria)
-        if (!g_gallery && !g_quick) {
+        if (!g_quick) {  // issue #8: também na galeria
             float L = ToolStart() + 18, R = g_btn[B_MORE].shown ? g_btn[B_MORE].r.left - 6 : ListR() - 10;
             int n = 0; for (auto& r : g_rows) if (!r.header) n++;
             std::wstring name = Searching() ? std::wstring(Tr(L"Resultados")) : store::FolderName(g_folder);
@@ -555,19 +640,25 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
         if (!b.shown) continue;
         if (b.enabled && (g_hoverBtn == i || g_pressBtn == i || (i == B_FORMAT && g_fmtOpen)) && i != B_LIST && i != B_GALLERY) {
             br->SetColor(g_pressBtn == i || (i == B_FORMAT && g_fmtOpen) ? (g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.09f)) : pal.hover);
-            float rr = semaforo::Aqua() ? (b.r.bottom - b.r.top) / 2 : 7.f;  // macOS 27: o realce segue o vidro redondo
-            if (semaforo::Aqua() && (i == B_COMPOSE || i == B_SHARE || i == B_SIDEBAR || i == B_FOLDER || i == B_MORE || i == B_SEARCH)) {
-                float cx2 = (b.r.left + b.r.right) / 2, cy2 = (b.r.top + b.r.bottom) / 2, rad = i == B_SEARCH ? 0 : 16.f;
+            float rr = Mac26() ? (b.r.bottom - b.r.top) / 2 : 7.f;  // macOS 27: o realce segue o vidro redondo
+            if (Mac26() && (i == B_COMPOSE || i == B_SIDEBAR || i == B_FOLDER || i == B_MORE || i == B_SEARCH || i == B_BACK)) {
+                float cx2 = (b.r.left + b.r.right) / 2, cy2 = (b.r.top + b.r.bottom) / 2, rad = 16.f;
                 if (rad > 0) dc->FillEllipse(D2D1::Ellipse({ cx2, cy2 }, rad, rad), br); else dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, 18, 18), br);
             } else dc->FillRoundedRectangle(D2D1::RoundedRect(b.r, rr, rr), br);
         }
         D2D1_COLOR_F col = b.enabled ? pal.icon : pal.iconOff;
+        // macOS 26: Aa fica apagado enquanto o texto não tem o foco (foto: lista escolhida, Aa cinza)
+        if (Mac26() && i == B_FORMAT && g_focus != F_EDITOR && !g_fmtOpen) col = pal.iconOff;
         if ((i == B_LIST && !g_gallery) || (i == B_GALLERY && g_gallery)) col = g_dark ? D2D1::ColorF(1, 1, 1, 0.85f) : D2D1::ColorF(0, 0, 0, 0.75f);
         float cx = (b.r.left + b.r.right) / 2 - (b.chevron ? 6 : 0);
-        if (i == B_MORE) { br->SetColor(col); for (int k = -1; k <= 1; k++) dc->FillEllipse(D2D1::Ellipse({ cx + k * 5.5f, TOOL_CY }, 1.6f, 1.6f), br); continue; }
-        if (i == B_SEARCH && semaforo::Aqua()) {  // campo fechado: lupa e "Buscar"
-            Glyph(dc, br, b.glyph, b.r.left + 18, TOOL_CY, 13, 13, pal.text2);
-            Text(dc, br, Tr(L"Buscar"), g_f13, D2D1::RectF(b.r.left + 32, b.r.top, b.r.right - 8, b.r.bottom), pal.text3);
+        if (i == B_MORE || i == B_EDMORE) { br->SetColor(col); for (int k = -1; k <= 1; k++) dc->FillEllipse(D2D1::Ellipse({ cx + k * 5.5f, TOOL_CY }, 1.6f, 1.6f), br); continue; }
+        if (i == B_WRITING) {  // Ferramentas de Escrita: a flor do Apple Intelligence com um lápis atravessando (com folga)
+            Glyph(dc, br, L"apple.intelligence", cx - 1, TOOL_CY + 0.5f, 16, 16, col);
+            br->SetColor(g_dark ? D2D1::ColorF(0.25f, 0.25f, 0.26f) : D2D1::ColorF(0.965f, 0.967f, 0.973f));
+            Line(dc, br, cx - 1.5f, TOOL_CY + 1.5f, cx + 7.5f, TOOL_CY - 7.5f, 4.2f);
+            br->SetColor(col);
+            Line(dc, br, cx - 1.5f, TOOL_CY + 1.5f, cx + 6.5f, TOOL_CY - 6.5f, 1.5f);
+            dc->FillEllipse(D2D1::Ellipse({ cx + 7.6f, TOOL_CY - 7.6f }, 0.9f, 0.9f), br);
             continue;
         }
         Glyph(dc, br, b.glyph, cx, TOOL_CY, b.gw, b.gh, col);
@@ -575,14 +666,20 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
     }
     if (g_searchOpen) {
         auto r = g_searchRect;
-        br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.09f) : D2D1::ColorF(0, 0, 0, 0.055f));
-        dc->FillRoundedRectangle(D2D1::RoundedRect(r, 7, 7), br);
+        float sr = Mac26() ? 18.f : 7.f;
+        if (Mac26()) {
+            br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.22f : 0.045f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left, r.top + 1, r.right, r.bottom + 1.5f), sr, sr), br);
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0.962f, 0.965f, 0.972f, 0.94f));
+        } else br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.09f) : D2D1::ColorF(0, 0, 0, 0.055f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, sr, sr), br);
         if (g_focus == F_SEARCH) {
             auto a = Accent(); br->SetColor(D2D1::ColorF(a.r, a.g, a.b, 0.55f));
-            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 1.5f, r.top - 1.5f, r.right + 1.5f, r.bottom + 1.5f), 8.5f, 8.5f), br, 3);
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 1.5f, r.top - 1.5f, r.right + 1.5f, r.bottom + 1.5f), sr + 1.5f, sr + 1.5f), br, 3);
         }
-        Glyph(dc, br, L"magnifyingglass", r.left + 14, TOOL_CY, 12, 12, pal.text2);
-        D2D1_RECT_F tr{ r.left + 26, r.top, r.right - 22, r.bottom };
+        float sx = Mac26() ? 8.f : 0.f;  // macOS 26: a cápsula é mais redonda, o texto entra um pouco mais
+        Glyph(dc, br, L"magnifyingglass", r.left + 14 + sx, TOOL_CY, 12, 12, pal.text2);
+        D2D1_RECT_F tr{ r.left + 26 + sx, r.top, r.right - 22 - sx, r.bottom };
         if (g_search.text.empty()) Text(dc, br, Tr(L"Buscar"), g_f13, tr, pal.text3);
         ID2D1SolidColorBrush *tb = nullptr, *sb = nullptr, *cb = nullptr;
         auto a = Accent();
@@ -590,9 +687,10 @@ void DrawToolbarButtons(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const 
         g_search.Draw(dc, g_f13, tr, tb, sb, cb, g_focus == F_SEARCH && editor::Focused() == false, false);
         tb->Release(); sb->Release(); cb->Release();
         if (!g_search.text.empty()) {  // x para limpar
-            br->SetColor(pal.text3); dc->FillEllipse(D2D1::Ellipse({ r.right - 12, TOOL_CY }, 6.5f, 6.5f), br);
+            float xr = r.right - 12 - sx;
+            br->SetColor(pal.text3); dc->FillEllipse(D2D1::Ellipse({ xr, TOOL_CY }, 6.5f, 6.5f), br);
             br->SetColor(g_dark ? D2D1::ColorF(0.2f, 0.2f, 0.2f) : D2D1::ColorF(1, 1, 1));
-            Line(dc, br, r.right - 14.3f, TOOL_CY - 2.3f, r.right - 9.7f, TOOL_CY + 2.3f, 1.3f); Line(dc, br, r.right - 14.3f, TOOL_CY + 2.3f, r.right - 9.7f, TOOL_CY - 2.3f, 1.3f);
+            Line(dc, br, xr - 2.3f, TOOL_CY - 2.3f, xr + 2.3f, TOOL_CY + 2.3f, 1.3f); Line(dc, br, xr - 2.3f, TOOL_CY + 2.3f, xr + 2.3f, TOOL_CY - 2.3f, 1.3f);
         }
     }
 }
@@ -605,7 +703,8 @@ void DrawList(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) 
         Text(dc, br, Searching() ? Tr(L"Nenhum Resultado") : Tr(L"Nenhuma Nota"), g_f13c, D2D1::RectF(L, c.height / 2 - 20, R, c.height / 2), pal.text3);
     }
     bool listFocus = g_focus == F_LIST;
-    float tx = L + 30;
+    const bool mac26 = Mac26();
+    float tx = mac26 ? L + 35 : L + 30;  // macOS 26: texto do cartão a 35 pt da borda da coluna
     for (size_t i = 0; i < g_rows.size(); i++) {
         auto& r = g_rows[i];
         float y = r.y - g_listScroll;
@@ -614,13 +713,19 @@ void DrawList(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) 
             if (r.pin) {
                 Glyph(dc, br, L"pin.fill", L + 23, y + r.h - 10, 8, 11, pal.text2);
                 Text(dc, br, r.label, g_f11b, D2D1::RectF(L + 31, y + 4, R - 10, y + r.h - 2), pal.text2);
+            } else if (mac26) {  // "7 Dias Anteriores" em 14 pt negrito a 16 pt da borda, linha fina embaixo
+                Text(dc, br, r.label, g_f14b, D2D1::RectF(L + 16, y + 6, R - 10, y + 31), pal.text);
+                br->SetColor(D2D1::ColorF(g_dark ? 1.f : 0.f, g_dark ? 1.f : 0.f, g_dark ? 1.f : 0.f, g_dark ? 0.06f : 0.045f));
+                dc->FillRectangle(D2D1::RectF(L, y + 38.5f, R, y + 39.3f), br);
             } else Text(dc, br, r.label, g_f13b, D2D1::RectF(L + 20, y + 6, R - 10, y + r.h - 1), pal.text);
             continue;
         }
         Note* n = r.n;
         bool sel = n == g_sel;
-        D2D1_RECT_F rr{ L + 10, y + 1, R - 10, y + r.h - 1 };
-        if (sel) { float sr = semaforo::Aqua() ? 12.f : 8.f; br->SetColor(listFocus ? pal.selFocus : pal.sel); dc->FillRoundedRectangle(D2D1::RoundedRect(rr, sr, sr), br); }  // macOS 27: mais redonda
+        D2D1_RECT_F rr{ L + 10, y + 1, R - (mac26 ? 11.f : 10.f), y + r.h - 1 };
+        // macOS 26: com a lista em foco, a nota fica num cartão amarelo (255,227,143; no escuro 159,131,46) de raio 11
+        D2D1_COLOR_F yel = g_dark ? D2D1::ColorF(159 / 255.f, 131 / 255.f, 46 / 255.f) : D2D1::ColorF(1.0f, 227 / 255.f, 143 / 255.f);
+        if (sel) { float sr = mac26 ? 11.f : 8.f; br->SetColor(listFocus ? (mac26 ? yel : pal.selFocus) : pal.sel); dc->FillRoundedRectangle(D2D1::RoundedRect(rr, sr, sr), br); }  // macOS 27: mais redonda
         else {  // divisória fina entre as notas (não encosta na selecionada)
             bool nextSel = i + 1 < g_rows.size() && g_rows[i + 1].n == g_sel && g_sel;
             bool nextHeader = i + 1 >= g_rows.size() || g_rows[i + 1].header;
@@ -628,11 +733,18 @@ void DrawList(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) 
         }
         D2D1_COLOR_F t1 = sel && listFocus && !g_dark ? D2D1::ColorF(0, 0, 0, 0.88f) : pal.text;
         D2D1_COLOR_F t2 = sel && listFocus && !g_dark ? D2D1::ColorF(0, 0, 0, 0.55f) : pal.text2;
-        Text(dc, br, n->Title(), g_f13b, D2D1::RectF(tx, y + 8, R - 22, y + 26), t1);
+        D2D1_COLOR_F tdate = t1;
+        if (mac26 && sel && listFocus) {  // cores lidas no cartão da foto (claro e escuro)
+            t1 = g_dark ? D2D1::ColorF(1, 1, 1, 0.98f) : D2D1::ColorF(0, 0, 0, 0.86f);
+            tdate = g_dark ? D2D1::ColorF(1, 1, 1, 0.94f) : D2D1::ColorF(0, 0, 0, 0.80f);
+            t2 = g_dark ? D2D1::ColorF(1, 1, 1, 0.60f) : D2D1::ColorF(0, 0, 0, 0.46f);
+        }
+        float o1 = mac26 ? 3.f : 0.f, o2 = mac26 ? 2.f : 0.f;  // macOS 26: título a 20 pt e data a 36 pt do topo do cartão
+        Text(dc, br, n->Title(), g_f13b, D2D1::RectF(tx, y + 8 + o1, R - 22, y + 26 + o1), t1);
         std::wstring d = ShortDate(n->modified);
         float dw = TextW(g_f12, d);
-        Text(dc, br, d, g_f12, D2D1::RectF(tx, y + 26, tx + dw + 2, y + 43), t1);
-        Text(dc, br, n->Preview(), g_f12, D2D1::RectF(tx + dw + 7, y + 26, R - 22, y + 43), t2);
+        Text(dc, br, d, g_f12, D2D1::RectF(tx, y + 26 + o2, tx + dw + 2, y + 43 + o2), tdate);  // macOS 26: data em peso normal, só mais escura que a prévia
+        Text(dc, br, n->Preview(), g_f12, D2D1::RectF(tx + dw + 7, y + 26 + o2, R - 22, y + 43 + o2), t2);
         if (ShowFolderLine()) {
             Glyph(dc, br, n->folder == L"apagadas" ? L"trash" : L"folder", tx + 6, y + 51, 12, 10, t2);
             Text(dc, br, store::FolderName(n->folder), g_f12, D2D1::RectF(tx + 17, y + 43, R - 22, y + 60), t2);
@@ -827,7 +939,9 @@ void Render(ID2D1DeviceContext* dc) {
         br->SetColor(pal.editor); dc->FillRectangle(D2D1::RectF(ListR(), 0, c.width, TOOLBAR_H), br);
     }
     // divisórias
-    br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.6f) : D2D1::ColorF(0, 0, 0, 0.10f));
+    // macOS 26: as divisórias quase somem (claro ~243 sobre o branco; escuro um fio claro, não preto)
+    if (Mac26()) br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.07f) : D2D1::ColorF(0, 0, 0, 0.055f));
+    else br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.6f) : D2D1::ColorF(0, 0, 0, 0.10f));
     if (!g_sideHidden) dc->FillRectangle(D2D1::RectF(SideW() - 0.5f, 0, SideW() + 0.5f, c.height), br);
     if (!g_gallery) dc->FillRectangle(D2D1::RectF(ListR() - 0.5f, 0, ListR() + 0.5f, c.height), br);
     if (g_listScroll > 0 && !g_gallery) { br->SetColor(pal.line); dc->FillRectangle(D2D1::RectF(ListL(), TOOLBAR_H - 0.5f, ListR(), TOOLBAR_H + 0.5f), br); }
@@ -1155,6 +1269,8 @@ void UnavailableMenu(int b) {
     else if (b == B_COLLAB) items = { I(Tr(L"Colaborar requer iCloud"), 1, true) };
     else if (b == B_TABLE) items = { I(Tr(L"Tabelas ainda não disponíveis"), 1, true) };
     else if (b == B_AUDIO) items = { I(Tr(L"Gravar Áudio indisponível"), 1, true) };
+    else if (b == B_MARKUP) items = { I(Tr(L"Desenhos indisponíveis"), 1, true) };
+    else if (b == B_WRITING) items = { I(Tr(L"Ferramentas de Escrita indisponíveis"), 1, true) };
     else items = { I(Tr(L"Fotos e arquivos indisponíveis"), 1, true) };
     int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
     if (b == B_SHARE && editor::Current()) {
@@ -1183,6 +1299,17 @@ void ClickButton(int b) {
     case B_CHECK: editor::ToggleList(L_CHECK); g_focus = F_EDITOR; editor::Focus(true); break;
     case B_SEARCH: OpenSearch(); break;
     case B_FOLDER: NewFolderCmd(); break;
+    case B_EDMORE: {  // macOS 26: o "⋯" do editor junta o que não coube na barra (fixar, cadeado, colaborar, áudio)
+        Note* n = editor::Current();
+        if (!n) break;
+        auto r = g_btn[B_EDMORE].r;
+        Item sep; sep.separator = true;
+        std::vector<Item> items = { I(n->pinned ? Tr(L"Desafixar Nota") : Tr(L"Fixar Nota"), 1, n->folder == L"apagadas"), sep,
+                                    I(Tr(L"Bloquear Nota"), 2, true), I(Tr(L"Colaborar requer iCloud"), 3, true), I(Tr(L"Gravar Áudio indisponível"), 4, true) };
+        int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
+        if (id == 1) { n->pinned = !n->pinned; n->dirty = true; store::SaveNote(n); Refresh(); }
+        break;
+    }
     case B_MORE: {  // macOS 27: Lista / Galeria e apagar a nota
         auto r = g_btn[B_MORE].r;
         Item sep; sep.separator = true;
@@ -1204,6 +1331,7 @@ void FormatClick(D2D1_POINT_2F p) {
         else if (it.kind == 2) editor::ToggleList(it.v);
         else editor::SetHighlight(it.v);
         editor::Focus(true); g_focus = F_EDITOR;
+        g_fmtOpen = false;  // issue #8: escolheu, o painel fecha (antes ficava aberto até clicar fora)
         Invalidate();
         return;
     }
@@ -1450,7 +1578,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (!g_gallery && std::fabs(p.x - ListR()) <= 4) { g_divDrag = 2; SetCapture(h); return 0; }
         // barra lateral
         if (p.x < SideW()) {
-            if (!semaforo::Aqua() && In(NewFolderRect(), p)) { NewFolderCmd(); return 0; }
+            if (!Mac26() && In(NewFolderRect(), p)) { NewFolderCmd(); return 0; }
             int s = HitSide(p);
             if (s >= 0) {
                 if (g_focus == F_RENAME && g_side[s].id == g_renameId) { g_rename.Click(g_f13, p, false); Invalidate(); return 0; }
@@ -1690,7 +1818,7 @@ void CreateFormats() {
     g_family = PickFamily({ L"SF Pro Text", L"SF Pro", L"Inter", L"Segoe UI Variable Text", L"Segoe UI" });
     g_mono = PickFamily({ L"SF Mono", L"Menlo", L"Cascadia Mono", L"Consolas" });
     auto N = DWRITE_FONT_WEIGHT_NORMAL, B = DWRITE_FONT_WEIGHT_BOLD;
-    g_f13b = Fmt(13, B); g_f13 = Fmt(13, N); g_f12 = Fmt(12, N); g_f12b = Fmt(12, B); g_f11 = Fmt(11, N); g_f11b = Fmt(11, B);
+    g_f14b = Fmt(14, B); g_f13b = Fmt(13, B); g_f13 = Fmt(13, N); g_f12 = Fmt(12, N); g_f12b = Fmt(12, B); g_f11 = Fmt(11, N); g_f11b = Fmt(11, B);
     g_f13c = Fmt(13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER);
     g_fCount = Fmt(12, N, DWRITE_TEXT_ALIGNMENT_TRAILING);
     g_fCardT = Fmt(12, B, DWRITE_TEXT_ALIGNMENT_CENTER); g_fCardD = Fmt(11, N, DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -1776,9 +1904,9 @@ int Capture(const std::wstring& out, int noteIdx, bool aa) {
     editor::SetNote(g_sel);
     if (g_gallery) BuildCards();
     if (aa) { g_fmtOpen = true; g_focus = F_EDITOR; }
-    else g_focus = F_EDITOR;
-    editor::Focus(true);
-    if (g_sel) editor::PlaceCaretAtEnd();
+    else g_focus = g_capListFocus ? F_LIST : F_EDITOR;
+    editor::Focus(g_focus == F_EDITOR);
+    if (g_sel && g_focus == F_EDITOR) editor::PlaceCaretAtEnd();
     dc->BeginDraw();
     // "papel de parede" + o acrílico da barra lateral (simulado)
     ID2D1GradientStopCollection* stops = nullptr;
@@ -1836,6 +1964,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
         else if (auto v5 = val(L"--nota="); v5 != L"\x01") capNote = _wtoi(v5.c_str());
         else if (s == L"--galeria") g_gallery = true;
         else if (s == L"--aa") capAa = true;
+        else if (s == L"--foco-lista") g_capListFocus = true;  // como na foto de referência: nota escolhida em amarelo
+        else if (auto v7 = val(L"--larguras="); v7 != L"\x01") swscanf_s(v7.c_str(), L"%f,%f", &g_sideW, &g_listW);
         else if (s == L"--sem-lateral") g_sideHidden = true;
         else if (s == L"--nota-rapida") g_quick = true;
         else if (auto v6 = val(L"--busca="); v6 != L"\x01") { g_searchOpen = true; g_search.SetText(v6, false); }

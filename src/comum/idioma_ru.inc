@@ -952,6 +952,8 @@
 { L"Colaborar requer iCloud", L"Для совместной работы нужен iCloud" },
 { L"Tabelas ainda não disponíveis", L"Таблицы пока недоступны" },
 { L"Gravar Áudio indisponível", L"Запись аудио недоступна" },
+{ L"Desenhos indisponíveis", L"Рисунки недоступны" },
+{ L"Ferramentas de Escrita indisponíveis", L"Инструменты письма недоступны" },
 { L"Fotos e arquivos indisponíveis", L"Фото и файлы недоступны" },
 { L"Notas apagadas não podem ser editadas.", L"Удаленные заметки нельзя редактировать." },
 { L"Para editar esta nota, recupere-a primeiro.", L"Чтобы изменить эту заметку, сначала восстановите ее." },
