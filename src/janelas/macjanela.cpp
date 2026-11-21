@@ -22,6 +22,7 @@
 #include "../comum/gancho_mapa.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra de título cinza metálico e botões de gel
 #include "../comum/jogos.h"    // jogos e anti-cheat (a DLL nunca fica neles) e apps Chromium/Electron
+#include "../comum/squircle.h"  // canto contínuo da Apple (o mesmo do Finder)
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
@@ -198,22 +199,66 @@ COLORREF CapColor(Info* in);  // mais abaixo: a cor da barra
 // suavizada (UpdateCorners) desenha: um pixel só entra se o centro dele fica a 0,5 px ou mais para dentro do arco.
 // O CreateRoundRectRgn do Windows não é simétrico (sai ~1 px a mais à direita e embaixo): os degraus dele
 // passavam do arco suavizado e sobravam "cantinhos" claros nas janelas no tema claro (20/11/2026).
+// Canto contínuo da Apple ("squircle") no lugar do arco de círculo (21/11/2026, "a Apple usa o squircle, não o
+// quadrado"). É o traçado do "corner smoothing" de 60% (o do iOS/macOS, o mesmo que o Figma usa para imitá-lo): no meio,
+// um arco do MESMO raio (a quina fica tão redonda quanto o círculo); nas pontas, duas curvas de Bézier que levam a curva
+// até 1,6 × o raio e entram na borda reta sem o "degrau" do círculo. (A 1ª tentativa, uma superelipse de expoente 4,
+// enchia a quina: cortava 9 px na 1ª linha contra 11-16 do círculo, e o canto ficava MAIS quadrado.) Uma curva só para
+// o recorte, a moldura suavizada, as capas, a faixa dos botões e a prévia do encaixe: o mesmo desenho em todos.
+// (a curva e o cache ficam em ../comum/squircle.h, o mesmo do Finder)
+// até onde a curva vai (px) a partir da quina
+inline float SqExt(float r, float hw, float hh) { float R = SqRaio(r, hw, hh); return R > 0 ? PerfilSq(R).p : 0.f; }
+// distância (px) até a borda de um retângulo de cantos contínuos centrado em 0 (meias medidas hw × hh, raio r); < 0
+// dentro. qx/qy > 0 nos dois: o ponto está na área do canto (entre a quina e o começo da curva)
+inline float SqSdf(float x, float y, float hw, float hh, float r, float* qxo = nullptr, float* qyo = nullptr) {
+    float R = SqRaio(r, hw, hh);
+    float dx = hw - std::fabs(x), dy = hh - std::fabs(y);
+    if (R <= 0) { if (qxo) *qxo = -1; if (qyo) *qyo = -1; return -std::min(dx, dy); }
+    const SqPerfil& P = PerfilSq(R);
+    if (qxo) *qxo = P.p - dx;
+    if (qyo) *qyo = P.p - dy;
+    if (dx >= P.p || dy >= P.p || dx < 0 || dy < 0) return -std::min(dx, dy);
+    float dist = P.Dist(dx, dy);
+    return dy > P.Yat(dx) ? -dist : dist;
+}
+// a curva de um canto (D2D) com extensão E: no de cima à esquerda (dir = false) de (cx - E, cy) até (cx, cy - E); no
+// de cima à direita (dir = true) de (cx, cy - E) até (cx + E, cy). O ponto de partida já tem de estar na figura.
+void SqCanto(ID2D1GeometrySink* sk, float cx, float cy, float E, bool dir) {
+    if (E <= 0) return;
+    const SqPerfil& P = PerfilSq(E / 1.6f);
+    float k = E / P.p;  // (a chave do cache arredonda o raio)
+    size_t n = P.xs.size();
+    for (size_t i = 1; i < n; i++) {
+        size_t j = dir ? i : n - 1 - i;
+        float dx = P.xs[j] * k, dy = P.ys[j] * k;
+        if (dir) sk->AddLine({ cx + E - dx, cy - E + dy });
+        else sk->AddLine({ cx - E + dx, cy - E + dy });
+    }
+}
+
 HRGN RoundRgn(int x0, int y0, int x1, int y1, int r) {
     int w = x1 - x0, h = y1 - y0;
     r = std::max(0, std::min(r, std::min(w, h) / 2));
+    float R = SqRaio((float)r, w / 2.f, h / 2.f), E = R > 0 ? PerfilSq(R).p : 0.f;
+    int Ei = (int)std::ceil(E);
     std::vector<RECT> rows;
-    auto inset = [&](int y) {  // quantos pixels ficam de fora no começo da linha y (0 = topo)
-        int yy = y < r ? y : h - 1 - y;
-        if (yy >= r) return 0;
-        float dy = r - (yy + 0.5f), lim = r - 0.5f;
-        float in2 = lim * lim - dy * dy;
-        if (in2 < 0) return -1;  // linha inteira fora do arco
-        return (int)std::ceil(r - std::sqrt(in2) - 0.5f);
+    auto inset = [&](int y) {  // quantos pixels ficam de fora no começo da linha y (0 = topo): o centro do pixel 0,5 px para dentro
+        int yy = y < Ei ? y : h - 1 - y;
+        if (R <= 0 || yy >= E) return 0;
+        const SqPerfil& P = PerfilSq(R);
+        float dy = yy + 0.5f;
+        for (int k = 0; k <= Ei; k++) {
+            float dx = k + 0.5f, d;
+            if (dx >= P.p) d = -std::min(dx, dy);
+            else { float dist = P.Dist(dx, dy); d = dy > P.Yat(dx) ? -dist : dist; }
+            if (d <= -0.45f) return k;  // (folga: na 1ª linha o centro fica a 0,5 px exatos da borda e cortava 26 px)
+        }
+        return -1;  // linha inteira fora da curva
     };
     for (int y = 0; y < h; y++) {
         int k = inset(y);
         if (k < 0 || 2 * k >= w) continue;
-        if (y >= r && y < h - r) { rows.push_back({ x0, y0 + y, x1, y0 + h - r }); y = h - r - 1; continue; }  // o meio de uma vez
+        if (y >= Ei && y < h - Ei) { rows.push_back({ x0, y0 + y, x1, y0 + h - Ei }); y = h - Ei - 1; continue; }  // o meio de uma vez
         rows.push_back({ x0 + k, y0 + y, x1 - k, y0 + y + 1 });
     }
     std::vector<char> buf(sizeof(RGNDATAHEADER) + rows.size() * sizeof(RECT));
@@ -324,15 +369,19 @@ void Paint(Info* in) {
                 g->Open(&sk);
                 // maximizada: canto reto (o arco deixava ver um pedaço do app); com as capas, o raio do Finder
                 float R = IsZoomed(in->owner) ? 0.f : in->capas ? CornerRadius(in->owner) / sc : 8.f;
+                bool sq = in->capas && R > 0;  // com as capas, o canto contínuo (o mesmo das capas); sem elas, o círculo do DWM
+                float E = sq ? SqExt(R, 1e6f, H) : R;
                 if (leftCorner) {
                     sk->BeginFigure({ rr.left, rr.bottom }, D2D1_FIGURE_BEGIN_FILLED);
-                    sk->AddLine({ rr.left, rr.top + R });
-                    sk->AddArc(D2D1::ArcSegment({ rr.left + R, rr.top }, { R, R }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                    sk->AddLine({ rr.left, rr.top + E });
+                    if (sq) SqCanto(sk, rr.left + E, rr.top + E, E, false);
+                    else sk->AddArc(D2D1::ArcSegment({ rr.left + R, rr.top }, { R, R }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
                     sk->AddLine({ rr.right, rr.top }); sk->AddLine({ rr.right, rr.bottom });
                 } else {
                     sk->BeginFigure({ rr.left, rr.bottom }, D2D1_FIGURE_BEGIN_FILLED);
-                    sk->AddLine({ rr.left, rr.top }); sk->AddLine({ rr.right - R, rr.top });
-                    sk->AddArc(D2D1::ArcSegment({ rr.right, rr.top + R }, { R, R }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                    sk->AddLine({ rr.left, rr.top }); sk->AddLine({ rr.right - E, rr.top });
+                    if (sq) SqCanto(sk, rr.right - E, rr.top + E, E, true);
+                    else sk->AddArc(D2D1::ArcSegment({ rr.right, rr.top + R }, { R, R }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
                     sk->AddLine({ rr.right, rr.bottom });
                 }
                 sk->EndFigure(D2D1_FIGURE_END_CLOSED);
@@ -347,6 +396,7 @@ void Paint(Info* in) {
                 bool dk = fundo ? fundo == 2 : Dark();
                 b->SetColor(dk ? D2D1::ColorF(0x4A / 255.f, 0x4A / 255.f, 0x4D / 255.f) : D2D1::ColorF(0xC2 / 255.f, 0xC2 / 255.f, 0xC5 / 255.f));
                 float Rr = CornerRadius(in->owner) / sc, o = 0.5f / sc, lw = 1 / sc;
+                float Ef = SqExt(Rr, 1e6f, H), Ei = std::max(0.f, Ef - o);  // o fio corre meio pixel por dentro
                 for (int side = 0; side < 2; side++) {
                     ID2D1PathGeometry* g = nullptr;
                     if (FAILED(g_d2d->CreatePathGeometry(&g))) continue;
@@ -354,13 +404,13 @@ void Paint(Info* in) {
                     if (SUCCEEDED(g->Open(&sk))) {
                         if (!side) {
                             sk->BeginFigure({ o, H }, D2D1_FIGURE_BEGIN_HOLLOW);
-                            sk->AddLine({ o, Rr });
-                            sk->AddArc(D2D1::ArcSegment({ Rr, o }, { Rr - o, Rr - o }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
-                            sk->AddLine({ PatchL(in), o });
+                            sk->AddLine({ o, Ef });
+                            SqCanto(sk, Ef, Ef, Ei, false);
+                            sk->AddLine({ PatchLeft(in), o });
                         } else {
                             sk->BeginFigure({ W - PatchR(in), o }, D2D1_FIGURE_BEGIN_HOLLOW);
-                            sk->AddLine({ W - Rr, o });
-                            sk->AddArc(D2D1::ArcSegment({ W - o, Rr }, { Rr - o, Rr - o }, 0, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+                            sk->AddLine({ W - Ef, o });
+                            SqCanto(sk, W - Ef, Ef, Ei, true);
                             sk->AddLine({ W - o, H });
                         }
                         sk->EndFigure(D2D1_FIGURE_END_OPEN);
@@ -657,7 +707,7 @@ void KeepAbove(Info* in);  // mais abaixo
 void UpdateCorners(Info* in, RECT vis) {
     HWND h = in->owner;
     if (!in->rgn.cx || in->moving || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h)) { HideCorners(in); return; }
-    int r = CornerRadius(h), S = r + 2;
+    int r = CornerRadius(h), S = (int)std::ceil(SqExt((float)r, (vis.right - vis.left) / 2.f, (vis.bottom - vis.top) / 2.f)) + 2;
     // cor embaixo: só lê da tela quando o ponto é mesmo desta janela (não coberto por outra)
     HDC screen = GetDC(nullptr);
     for (int i = 0; i < 2; i++) {
@@ -721,8 +771,8 @@ void UpdateCorners(Info* in, RECT vis) {
     float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
     auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };  // fração do pixel com distância <= 0
     auto pixel = [&](int x, int y) {
-        float qx = std::fabs(x + 0.5f - cxm) - (hw - r), qy = std::fabs(y + 0.5f - cym) - (hh - r);
-        float d = std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - r;  // < 0 dentro
+        float qx, qy;
+        float d = SqSdf(x + 0.5f - cxm, y + 0.5f - cym, hw, hh, (float)r, &qx, &qy);  // < 0 dentro (canto contínuo)
         float R = 0, G = 0, B = 0, A = 0;  // pré-multiplicado
         auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); A = a + A * (1 - a); };
         // arco suavizado: só nos cantos, na faixa junto ao arco (o recorte corta um pouco por dentro)
@@ -833,7 +883,7 @@ void CapasCantos(Info* in, RECT vis) {
     }
     // nada mudou de lugar e a foto é recente: as capas ficam como estão
     if (in->capas && EqualRect(&vis, &in->capasVis) && GetTickCount() - in->capasAt < 10000) return;
-    int S = r + 2;
+    int S = (int)std::ceil(SqExt((float)r, (vis.right - vis.left) / 2.f, (vis.bottom - vis.top) / 2.f)) + 2;  // canto contínuo: a curva começa mais longe
     const int M = 1;  // margem para o contorno de fora
     int W = vis.right - vis.left + 2 * M, H = vis.bottom - vis.top + 2 * M;
     if (W <= 2 * S || H <= 2 * S || W > 16384 || H > 16384) { HideCorners(in); return; }
@@ -899,7 +949,7 @@ void CapasCantos(Info* in, RECT vis) {
     float bR = (dk ? 0x4A : 0xC2) / 255.f, bG = (dk ? 0x4A : 0xC2) / 255.f, bB = (dk ? 0x4D : 0xC5) / 255.f;
     float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
     auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };
-    auto sdf = [&](float x, float y, float rad) {
+    auto sdf = [&](float x, float y, float rad) {  // o arco de círculo de 8 px do DWM (o que as capas cobrem)
         float qx = std::fabs(x - cxm) - (hw - rad), qy = std::fabs(y - cym) - (hh - rad);
         return std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - rad;
     };
@@ -923,7 +973,7 @@ void CapasCantos(Info* in, RECT vis) {
                 int sx = box[i].left + x, sy = box[i].top + y;          // tela
                 int lx = sx - vis.left + M, ly = sy - vis.top + M;       // na capa
                 float fx = lx + 0.5f, fy = ly + 0.5f;
-                float d = sdf(fx, fy, (float)r), d8 = sdf(fx, fy, (float)r0);
+                float d = SqSdf(fx - cxm, fy - cym, hw, hh, (float)r), d8 = sdf(fx, fy, (float)r0);  // o nosso (contínuo) / o do DWM
                 float A = std::clamp(cov(d8) - cov(d), 0.f, 1.f);       // o pedaço do app que o canto do Mac esconde
                 float R = 0, G = 0, B = 0, Aa = 0;  // pré-multiplicado
                 auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); Aa = a + Aa * (1 - a); };
@@ -1088,8 +1138,7 @@ void ShowPreview(Info* in, RECT t) {
     const float fillA = 0.22f, lineA = 0.55f;
     for (int y = 0; y < H; y++)
         for (int x = 0; x < W; x++) {
-            float qx = std::fabs(x + 0.5f - hw) - (hw - r), qy = std::fabs(y + 0.5f - hh) - (hh - r);
-            float d = std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - r;
+            float d = SqSdf(x + 0.5f - hw, y + 0.5f - hh, hw, hh, r);  // o mesmo canto contínuo das janelas
             float inside = cov(d), line = inside - cov(d + 1);
             float a = (inside - line) * fillA + line * lineA;  // branco pré-multiplicado
             BYTE v = (BYTE)std::lround(a * 255);
