@@ -90,11 +90,20 @@ struct Info {
     // Apps sem o gancho (Discord, Claude, VS Code: a barra é a página do app): o grupo de ícones do começo da linha, que
     // os botões do Mac cobririam (as setas do Discord), aparece logo depois deles, como no Mac (MedirBarra/Paint); os
     // cliques nele vão para o lugar de verdade. Posições em px a partir da borda esquerda visível (FrameRect).
-    std::vector<UINT32> chunk;   // a foto do grupo (BGRA, opaca), chunkW × chunkH
-    int chunkW = 0, chunkH = 0, chunkSrc = 0, chunkDst = 0, chunkTop = 0;
+    // O grupo é redesenhado AO VIVO por uma miniatura do DWM da própria janela (thGrupo): o brilho ao passar o mouse e
+    // as mudanças aparecem na hora (antes era uma foto refeita a cada 2,5 s). O mesmo método da barra nativa do Shell
+    // (src\shell\barras.cpp, 12/11/2026).
+    int chunkW = 0, chunkH = 0, chunkSrc = 0, chunkDst = 0, chunkTop = 0;  // chunkTop: 1ª linha, a partir do topo
+    HTHUMBNAIL thGrupo = nullptr;
+    // Chrome com o gancho: o ˅ da busca de abas (TabStripComboButton) na ponta DIREITA da linha, como no Chrome do Mac.
+    // O de verdade fica escondido debaixo da faixa dos botões do Mac (a área reservada encolhe para ele caber ali); uma
+    // miniatura ao vivo dele (thSeta) aparece na ponta direita; o mouse e o clique vão para o de verdade.
+    int setaX = 0, setaY = 0, setaW = 0, setaH = 0;  // o ˅ de verdade (px, a partir da borda/topo visíveis); setaW = 0: não há
+    HTHUMBNAIL thSeta = nullptr;
+    int sobre = 0;               // o mouse está em cima de: 1 o grupo movido, 2 o ˅ (repassado ao app)
     int barGlyph = 0;            // altura da barra pelo centro dos botões do app (px), quando a medida pela cor erra
     int barCor = 0;              // a altura medida pela cor (SampleBar), sem a correção
-    bool sobreGrupo = false;     // o mouse está em cima do grupo movido (repassado ao app)  // chunkTop: 1ª linha da foto, a partir do topo
+  // chunkTop: 1ª linha da foto, a partir do topo
     RECT capasVis{};             // retângulo da última foto do fundo dos cantos
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
@@ -297,6 +306,7 @@ float PatchL(Info* in) { float lx0, lp, lr; LightsLayout(in, lx0, lp, lr); retur
 float PatchLeft(Info* in) {
     float w = PatchL(in);
     if (in->chunkW) w = std::max(w, (in->chunkDst + in->chunkW) / Scale(in->owner) + 4);
+    if (in->setaW) w = std::max(w, (in->setaX + in->setaW) / Scale(in->owner) + 1);  // o ˅ de verdade, escondido
     return w;
 }
 // onde a linha das abas começa (gancho do Chrome): no Chrome do Mac a 1ª aba (com o "pé" curvo) começa ~16 pt depois
@@ -337,6 +347,27 @@ RECT BarRect(Info* in) {
 
 // ---- desenho da faixa (janela em camadas, alfa por pixel)
 void Line(ID2D1RenderTarget* rt, ID2D1Brush* b, float x1, float y1, float x2, float y2, float w) { rt->DrawLine({ x1, y1 }, { x2, y2 }, b, w); }
+
+// As miniaturas ao vivo (DWM) da própria janela na faixa: o grupo movido e o ˅ do Chrome na ponta direita
+void Minis(Info* in) {
+    HWND ov = in->overlay;
+    if (!ov) return;
+    RECT r = BarRect(in), f = FrameRect(in->owner), wr; GetWindowRect(in->owner, &wr);
+    auto put = [&](HTHUMBNAIL& th, bool want, RECT src, RECT dst) {
+        if (!want) { if (th) { DwmUnregisterThumbnail(th); th = nullptr; } return; }
+        if (!th && FAILED(DwmRegisterThumbnail(ov, in->owner, &th))) { th = nullptr; return; }
+        DWM_THUMBNAIL_PROPERTIES t{};
+        t.dwFlags = DWM_TNP_RECTSOURCE | DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_SOURCECLIENTAREAONLY;
+        t.rcSource = src; t.rcDestination = dst; t.fVisible = TRUE; t.opacity = 255; t.fSourceClientAreaOnly = FALSE;
+        DwmUpdateThumbnailProperties(th, &t);
+    };
+    int fx = f.left - wr.left, fy = f.top - wr.top, ox = f.left - r.left, oy = f.top - r.top;
+    put(in->thGrupo, in->chunkW > 0, { fx + in->chunkSrc, fy + in->chunkTop, fx + in->chunkSrc + in->chunkW, fy + in->chunkTop + in->chunkH },
+        { ox + in->chunkDst, oy + in->chunkTop, ox + in->chunkDst + in->chunkW, oy + in->chunkTop + in->chunkH });
+    int W = r.right - r.left, m = (int)std::lround(8 * Scale(in->owner));
+    put(in->thSeta, in->setaW > 0, { fx + in->setaX, fy + in->setaY, fx + in->setaX + in->setaW, fy + in->setaY + in->setaH },
+        { W - m - in->setaW, oy + in->setaY, W - m, oy + in->setaY + in->setaH });
+}
 
 void Paint(Info* in) {
     if (!in->overlay || !g_d2d) return;
@@ -493,21 +524,11 @@ void Paint(Info* in) {
         rt->EndDraw();
         rt->Release();
     }
-    if (in->custom && in->chunkW && bits && !in->chunk.empty()) {  // o grupo de ícones movido para depois dos botões
-        RECT f = FrameRect(in->owner);
-        int ox = (f.left - r.left) + in->chunkDst;
-        auto* px = (UINT32*)bits;
-        int oy = (f.top - r.top) + in->chunkTop;
-        for (int y = 0; y < in->chunkH; y++)
-            for (int x = 0; x < in->chunkW; x++) {
-                int dx = ox + x, dy = oy + y;
-                if (dx >= 0 && dx < w && dy >= 0 && dy < h) px[(size_t)dy * w + dx] = in->chunk[(size_t)y * in->chunkW + x] | 0xFF000000;
-            }
-    }
     POINT dst{ r.left, r.top }, src{ 0, 0 };
     SIZE sz{ w, h };
     BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     UpdateLayeredWindow(in->overlay, screen, &dst, &sz, mem, &src, 0, &bf, ULW_ALPHA);
+    if (in->custom) Minis(in);
     SelectObject(mem, old);
     DeleteObject(bmp);
     DeleteDC(mem);
@@ -1233,13 +1254,58 @@ void SampleBar(Info* in);
 void MedirBarra(Info* in);
 
 // clique no grupo movido (ponto na faixa): manda ao app no lugar de verdade do grupo. true = era no grupo
-bool RepassaGrupo(Info* in, POINT p, UINT msg) {
-    if (!in->chunkW) return false;
+// o ponto da faixa (px) está no grupo movido (1) ou no ˅ levado para a direita (2)? real = o ponto de verdade (tela)
+int AlvoMovido(Info* in, POINT p, POINT& real) {
     RECT r = BarRect(in), f = FrameRect(in->owner);
     POINT s{ r.left + p.x, r.top + p.y };  // tela
-    int x0 = f.left + in->chunkDst;
-    if (s.x < x0 || s.x >= x0 + in->chunkW || s.y < f.top + in->chunkTop || s.y >= f.top + in->chunkTop + in->chunkH) return false;
-    POINT a{ s.x - in->chunkDst + in->chunkSrc, s.y };
+    if (in->chunkW) {
+        int x0 = f.left + in->chunkDst;
+        if (s.x >= x0 && s.x < x0 + in->chunkW && s.y >= f.top + in->chunkTop && s.y < f.top + in->chunkTop + in->chunkH) {
+            real = { s.x - in->chunkDst + in->chunkSrc, s.y };
+            return 1;
+        }
+    }
+    if (in->setaW) {
+        int m = (int)std::lround(8 * Scale(in->owner)), x0 = r.right - m - in->setaW;
+        if (s.x >= x0 && s.x < r.right - m && s.y >= f.top + in->setaY && s.y < f.top + in->setaY + in->setaH) {
+            real = { f.left + in->setaX + (s.x - x0), s.y };
+            return 2;
+        }
+    }
+    return 0;
+}
+// O menu que o Chrome abre embaixo do ˅ nasce onde o botão de verdade está (à esquerda): por até 1,6 s depois do clique,
+// a janela dele (do mesmo processo, logo abaixo da linha das abas) é levada para baixo do ˅ da direita, alinhada pela
+// direita, como no Chrome do Mac (o mesmo da barra nativa, barras.cpp LevarMenuDaSeta)
+bool LevarMenuDaSeta(Info* in) {
+    RECT r = BarRect(in);
+    float sc = Scale(in->owner);
+    struct F { HWND owner, ov, achou; RECT faixa; float sc; } f{ in->owner, in->overlay, nullptr, r, sc };
+    EnumWindows([](HWND w, LPARAM l) -> BOOL {
+        auto* f = (F*)l;
+        if (w == f->owner || w == f->ov || !IsWindowVisible(w)) return TRUE;
+        DWORD p = 0; GetWindowThreadProcessId(w, &p);
+        if (p != GetCurrentProcessId() || !(GetWindowLongW(w, GWL_STYLE) & WS_POPUP)) return TRUE;
+        wchar_t c[32] = {}; GetClassNameW(w, c, 32);
+        if (!wcsncmp(c, L"MacJanela", 9)) return TRUE;
+        RECT q; GetWindowRect(w, &q);
+        int ww = q.right - q.left, hh = q.bottom - q.top;
+        if (ww < (int)(180 * f->sc) || ww > (int)(560 * f->sc) || hh < (int)(60 * f->sc)) return TRUE;
+        if (q.top < f->faixa.top || q.top > f->faixa.bottom + (int)(24 * f->sc)) return TRUE;
+        f->achou = w;
+        return FALSE;
+    }, (LPARAM)&f);
+    if (!f.achou) return false;
+    RECT q; GetWindowRect(f.achou, &q);
+    int x = r.right - (int)std::lround(8 * sc) - (q.right - q.left);
+    if (std::abs(q.left - x) > 2) SetWindowPos(f.achou, nullptr, x, q.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return true;
+}
+bool RepassaGrupo(Info* in, POINT p, UINT msg) {
+    POINT real;
+    int k = AlvoMovido(in, p, real);
+    if (!k) return false;
+    POINT a = real;
     ScreenToClient(in->owner, &a);
     LPARAM lp = MAKELPARAM(a.x, a.y);
     if (msg == WM_LBUTTONDOWN) PostMessageW(in->owner, WM_MOUSEMOVE, 0, lp);
@@ -1266,7 +1332,12 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
-        if (w == 8) { KillTimer(h, 8); if (in) MedirBarra(in); return 0; }  // o app redesenhou o grupo (hover/clique): foto nova
+        if (w == 9) {  // o menu do ˅: levar para baixo do ˅ da direita (até 40 tentativas de 40 ms)
+            int n = (int)(INT_PTR)GetPropW(h, L"MacSetaMenu") + 1;
+            SetPropW(h, L"MacSetaMenu", (HANDLE)(INT_PTR)n);
+            if (!in || LevarMenuDaSeta(in) || n > 40) { KillTimer(h, 9); RemovePropW(h, L"MacSetaMenu"); }
+            return 0;
+        }
         if (w == 7) {  // ponteiro parado no botão verde: o menu de encaixe do Shell (como no macOS Sequoia)
             KillTimer(h, 7);
             POINT c; GetCursorPos(&c);
@@ -1285,7 +1356,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SampleBar(in);
                 // onde ficam os botões: logo ao pegar a janela, depois de mudar de tamanho/ativar, e a cada 8 s ativa
                 // (um grupo de abas novo no Chrome). A foto da faixa de cima custa alguns ms; não mais que isso.
-                if (!in->layoutAt || (in->active && GetTickCount() - in->layoutAt > (in->chunkW ? 2500u : 8000u))) MedirBarra(in);
+                if (!in->layoutAt || (in->active && GetTickCount() - in->layoutAt > 8000u)) MedirBarra(in);
             } else SampleCaption(in);
             UpdateShadow(in);
             // logo depois de aparecer ou ativar: relê a cada quadro até a cor firmar; depois, devagar
@@ -1300,9 +1371,11 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             TrackMouseEvent(&t);
             // o grupo movido (setas do Discord): o mouse vai para o app, que acende o botão no lugar de verdade; a foto
             // do grupo é refeita logo depois (no máximo a cada 150 ms) e o brilho aparece aqui
-            bool grupo = RepassaGrupo(in, p, WM_MOUSEMOVE);
-            if (grupo != in->sobreGrupo) { in->sobreGrupo = grupo; if (!grupo) PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); }
-            if (grupo) SetTimer(h, 8, 150, nullptr);
+            POINT real;
+            int alvo = AlvoMovido(in, p, real);
+            if (alvo) RepassaGrupo(in, p, WM_MOUSEMOVE);  // o app acende o botão no lugar de verdade; a miniatura mostra na hora
+            if (alvo != in->sobre) { if (in->sobre && !alvo) PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); in->sobre = alvo; }
+            bool grupo = alvo != 0;
             // os símbolos (× − +) só em cima dos botões do Mac, como no Mac (antes acendiam em qualquer ponto da faixa)
             bool luzes = !grupo && (!in->custom || p.x / Scale(in->owner) < PatchL(in));
             if (luzes != in->hoverLights) { in->hoverLights = luzes; Paint(in); }
@@ -1316,11 +1389,14 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSELEAVE:
         if (in) {
             in->hoverLights = false; in->press = -1; Paint(in);
-            if (in->sobreGrupo) { in->sobreGrupo = false; PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); SetTimer(h, 8, 150, nullptr); }
+            if (in->sobre) { in->sobre = 0; PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); }
         }
         RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); return 0;
     case WM_LBUTTONDOWN: RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); if (in) {
             POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
+            POINT real;
+            int alvo = AlvoMovido(in, p, real);
+            if (alvo == 2) { in->press = 101; SetCapture(h); return 0; }  // o ˅: o clique inteiro vai quando o botão solta
             if (RepassaGrupo(in, p, WM_LBUTTONDOWN)) { in->press = 100; return 0; }
             in->press = HitLight(in, p); SetCapture(h);
         } return 0;
@@ -1328,7 +1404,18 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         ReleaseCapture();
         if (!in) return 0;
         POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
-        if (in->press == 100) { RepassaGrupo(in, p, WM_LBUTTONUP); in->press = -1; in->layoutAt = 0; SetTimer(h, 1, 350, nullptr); return 0; }
+        if (in->press == 100) { RepassaGrupo(in, p, WM_LBUTTONUP); in->press = -1; return 0; }
+        if (in->press == 101) {  // o ˅: mover, apertar e soltar de uma vez no de verdade (o Chrome cancela se vierem separados)
+            in->press = -1;
+            POINT real;
+            if (AlvoMovido(in, p, real) == 2) {
+                RepassaGrupo(in, p, WM_LBUTTONDOWN);
+                RepassaGrupo(in, p, WM_LBUTTONUP);
+                SetPropW(h, L"MacSetaMenu", (HANDLE)0);
+                SetTimer(h, 9, 40, nullptr);
+            }
+            return 0;
+        }
         int k = HitLight(in, p);
         if (k >= 0 && k == in->press) {
             if (k == 0) PostMessageW(in->owner, WM_SYSCOMMAND, SC_CLOSE, 0);
@@ -1532,7 +1619,45 @@ void SampleBar(Info* in) {
 // três botões do app à direita (Chrome/Edge/Claude 46 pt cada, Discord ~36 pt)? A faixa da direita cobria 144 pt fixos
 // e escondia o "?" do Discord e o "Compartilhar" do Claude; a da esquerda escondia os grupos de abas do Chrome.
 static void** g_lpSlot;  // o gancho das abas do Chrome está posto (GanchoAbas, mais abaixo)
-static float g_ultimoPatch = 0;  // a última medida neste processo (a próxima janela do Chrome já nasce com ela)
+static float g_ultimoPatch = 0;
+static volatile float g_leadW;   // largura (pt = DIP) da área reservada no começo da linha das abas (gancho)
+static float g_setaAjuste = 0;   // quanto a área reservada encolhe para o ˅ de verdade caber debaixo dos botões do Mac (pt)
+void RefazBarra(HWND h);         // mais abaixo
+float LeadW(Info* in);           // mais abaixo
+// Chrome com o gancho: o ˅ (um botão de ~28 pt com fundo próprio) logo depois da área reservada. Achou: a área
+// reservada encolhe para a 1ª aba ficar no lugar de sempre (88 pt; a aba começa ~7 pt depois do fim do ˅) com o ˅
+// escondido debaixo da faixa dos botões, e a miniatura dele vai para a ponta direita. Não achou (desafixado): normal.
+template <class AT, class DI>
+void MedirSeta(Info* in, AT at, DI dist, UINT32 bg, int x0, int x1, int y0, int ya, int yb, float sc) {
+    int lead = x0 + (int)std::lround(g_leadW * sc);
+    // só na faixa do meio da linha (±10 pt): embaixo, o "pé" curvo da 1ª aba encosta no fundo do ˅ e os dois viravam um
+    // bloco largo demais para ser o ˅
+    int cy = (ya + yb) / 2, ba = std::max(ya, cy - (int)(10 * sc)), bb = std::min(yb, cy + (int)(10 * sc));
+    auto ink = [&](int x) { for (int y = ba; y < bb; y++) if (dist(at(x, y), bg) > 40) return true; return false; };
+    int s = -1, e = -1, gap = 0;
+    for (int x = std::max(x0, lead - (int)(2 * sc)); x < std::min(x1, lead + (int)(70 * sc)); x++) {
+        if (ink(x)) { if (s < 0) s = x; e = x; gap = 0; }
+        else if (s >= 0 && ++gap >= (int)(3 * sc)) break;
+    }
+    int w = e - s + 1;
+    in->setaW = 0;
+    if (s >= 0 && w >= (int)(18 * sc) && w <= (int)(44 * sc) && s <= lead + (int)(14 * sc)) {
+        int ymin = INT_MAX, ymax = -1;
+        for (int x = s + 2; x <= e - 2; x++) for (int y = ya; y < yb; y++) if (dist(at(x, y), bg) > 40) { ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+        if (ymax > ymin) { in->setaX = s - x0; in->setaW = w; in->setaY = ymin - y0; in->setaH = ymax - ymin + 1; }
+    }
+    float lx0, lp, lr; LightsLayout(in, lx0, lp, lr);
+    float alvo = lx0 + 2 * lp + lr + 16;  // onde a 1ª aba fica (pt)
+    float aj = 0;
+    if (in->setaW) aj = g_setaAjuste + ((in->setaX + in->setaW) / sc + 7 - alvo);
+    aj = std::max(0.f, aj);
+    if (std::fabs(aj - g_setaAjuste) > 1) {
+        g_setaAjuste = aj;
+        g_leadW = LeadW(in) - g_setaAjuste;
+        in->layoutAt = 0;  // mede de novo depois de o Chrome refazer a linha
+        RefazBarra(in->owner);
+    }
+}  // a última medida neste processo (a próxima janela do Chrome já nasce com ela)
 void MedirBarra(Info* in) {
     HWND h = in->owner;
     if (!IsWindowVisible(h) || IsIconic(h) || Fullscreen(h) || in->moving || in->transit) return;
@@ -1614,10 +1739,10 @@ void MedirBarra(Info* in) {
             if (pr > 0 && std::fabs(pr - in->patchR) >= 1) { in->patchR = pr; g_ultimoPatch = pr; PlaceOverlay(in); }
             // (3) sem o gancho (a barra é a página do app): o grupo de ícones que começa debaixo dos botões do Mac e
             // termina num vão de 24 pt anda para depois deles, se lá estiver vazio
-            int oldW = in->chunkW, oldDst = in->chunkDst;
-            std::vector<UINT32> oldChunk; oldChunk.swap(in->chunk);
+            int oldW = in->chunkW, oldDst = in->chunkDst, oldSrc = in->chunkSrc, oldSeta[4] = { in->setaX, in->setaY, in->setaW, in->setaH };
             in->chunkW = 0;
-            if (!g_lpSlot) {
+            if (g_lpSlot) MedirSeta(in, at, dist, bg, x0, x1, y0, ya, yb, sc);
+            else {
                 // só numa faixa de ±10 pt em volta do centro dos botões: a barra medida (mín. 30 pt) pegava o topo da caixa de
                 // busca e do ícone do Discord, logo abaixo da barra dele, e o lugar de destino parecia ocupado
                 int cy = y0 + (int)(LightsY(in, bh / sc) * sc), ba = std::max(ya, cy - (int)(10 * sc)), bb = std::min(yb, cy + (int)(10 * sc));
@@ -1635,14 +1760,11 @@ void MedirBarra(Info* in) {
                     bool livre = gap >= need && dst + cw + need / 2 < x1;
                     for (int xx = std::max(dst, e0 + 1); livre && xx < dst + cw + need / 2; xx++) if (ink(xx)) livre = false;
                     int ch = bb - ba;
-                    if (livre && ch > 0) {
-                        in->chunk.resize((size_t)cw * ch);
-                        for (int y = 0; y < ch; y++) for (int xx = 0; xx < cw; xx++) in->chunk[(size_t)y * cw + xx] = at(src + xx, ba + y);
-                        in->chunkW = cw; in->chunkH = ch; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ba - y0;
-                    }
+                    if (livre && ch > 0) { in->chunkW = cw; in->chunkH = ch; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ba - y0; }
                 }
             }
-            if (in->chunkW != oldW || in->chunkDst != oldDst || in->chunk != oldChunk) PlaceOverlay(in);
+            if (in->chunkW != oldW || in->chunkDst != oldDst || in->chunkSrc != oldSrc || in->setaX != oldSeta[0] || in->setaY != oldSeta[1] ||
+                in->setaW != oldSeta[2] || in->setaH != oldSeta[3]) PlaceOverlay(in);
         }
     }
     SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
@@ -1664,7 +1786,7 @@ static const GanchoChromium g_ganchos[] = {
 };
 using LayoutParamsFn = void* (__fastcall*)(void* self, void* out);
 static LayoutParamsFn g_lpOrig;
-static volatile float g_leadW;  // largura (pt = DIP) dos botões do Mac no começo da linha
+// (g_leadW: mais acima, junto do ˅ da busca de abas)
 // BrowserLayoutParams: gfx::Rect visual_client_area (0x00), leading_exclusion { SizeF content; float hpad, vpad } (0x10),
 // trailing_exclusion (0x20). Em floats: [4] largura e [5] altura do começo, [9] altura do fim.
 static void* __fastcall LayoutParamsHook(void* self, void* out) {
@@ -2079,7 +2201,7 @@ void Attach(HWND h, int mode) {
         in->dark = Dark();  // barra própria: os botões do Mac e a faixa por cima dos botões do app (BarRect/Paint)
         SetPropW(h, L"MacJanelaPropria", (HANDLE)1);
         in->patchR = g_ultimoPatch;
-        g_leadW = LeadW(in);
+        g_leadW = LeadW(in) - g_setaAjuste;
         if (GanchoAbas(true)) RefazBarra(h);  // Chrome medido: as abas começam depois dos botões do Mac
     }
     in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
@@ -2109,6 +2231,8 @@ void Attach(HWND h, int mode) {
 
 void Detach(HWND h, Info* in) {
     controles::Unstyle(h);
+    if (in->thGrupo) { DwmUnregisterThumbnail(in->thGrupo); in->thGrupo = nullptr; }
+    if (in->thSeta) { DwmUnregisterThumbnail(in->thSeta); in->thSeta = nullptr; }
     if (in->overlay) { DestroyWindow(in->overlay); in->overlay = nullptr; }
     in->shadow.Destroy();
     for (HWND& c : in->corner) if (c) { DestroyWindow(c); c = nullptr; }
