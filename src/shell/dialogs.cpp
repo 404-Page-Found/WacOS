@@ -393,7 +393,19 @@ void Serve(Request r) {
     wchar_t tmp[MAX_PATH], res[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
     GetTempFileNameW(tmp, L"dlg", 0, res);
-    auto q = [](const std::wstring& s) { return L"\"" + s + L"\""; };
+    // aspas do jeito que o CommandLineToArgvW do Finder entende: barras antes de aspa dobram e aspas internas são
+    // escapadas. Só pôr aspas em volta quebrava tudo com uma pasta "D:\" (a barra escapava a aspa) ou um nome com
+    // aspas: o Finder abria como janela comum, na pasta do usuário, sem o Salvar (issue #19, Dia Browser, 21/11/2026)
+    auto q = [](const std::wstring& s) {
+        std::wstring r = L"\""; size_t bs = 0;
+        for (wchar_t c : s) {
+            if (c == L'\\') { bs++; continue; }
+            if (c == L'"') { r.append(bs * 2 + 1, L'\\'); r += L'"'; bs = 0; continue; }
+            r.append(bs, L'\\'); bs = 0; r += c;
+        }
+        r.append(bs * 2, L'\\'); r += L'"';
+        return r;
+    };
     std::wstring start = r.folder;
     if (start.empty()) { PWSTR d = nullptr; if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &d))) { start = d; CoTaskMemFree(d); } }
     std::wstring cmd = q(finder) + L" " + q(start) + L" --lista --escolher " + (r.mode == 1 ? L"salvar" : r.mode == 2 ? L"pasta" : L"abrir");

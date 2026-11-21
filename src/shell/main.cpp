@@ -46,6 +46,10 @@ static std::atomic<bool> g_altTab;  // seletor de apps aberto (Alt seguro desde 
 static HHOOK g_kbHook;
 static bool g_winDown, g_winCombo, g_winEaten, g_spaceHeld, g_tabHeld;  // eaten: a combinação foi nossa (Win+I)
 static DWORD g_winVk, g_winAt;  // At: quando a tecla Win desceu (ms do gancho)
+// A tecla Win segurada (repetindo) ou com um clique do mouse vai para o Windows na hora: AltSnap e afins usam
+// Win + arrastar, e com a tecla presa aqui até soltar eles nunca a viam (issue #21, 21/11/2026). Ao soltar, uma tecla
+// muda antes, para o Iniciar não abrir; o Launchpad/Spotlight continua só no toque curto.
+static volatile bool g_winPassed;
 
 static void Inject(DWORD vk, bool up) {
     INPUT in{ INPUT_KEYBOARD };
@@ -114,12 +118,21 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 if (down) {  // segura: ainda não sabemos se é sozinha ou combinação
                     if (!g_winDown) {
                         g_winDown = true; g_winCombo = false; g_winEaten = false; g_spaceHeld = false; g_tabHeld = false; g_winVk = k->vkCode; g_winAt = k->time;
-                        if (mods()) { g_winCombo = true; Inject(g_winVk, false); }  // Ctrl/Shift/Alt já seguros: é atalho do Windows
+                        g_winPassed = false;
+                        if (mods()) { g_winCombo = true; g_winPassed = true; Inject(g_winVk, false); }  // Ctrl/Shift/Alt já seguros: é atalho do Windows
+                    } else if (!g_winPassed && !g_winCombo && k->time - g_winAt > 300) {
+                        g_winPassed = true; Inject(g_winVk, false);  // segurando (a tecla já repete): o Windows e os outros programas veem
                     }
                     return 1;
                 }
                 if (g_winDown) {
                     g_winDown = false;
+                    if (g_winPassed) {  // o Windows já viu a tecla descer: ela sobe lá também, sem abrir o Iniciar
+                        g_winPassed = false;
+                        Inject(0xE8, false); Inject(0xE8, true);
+                        Inject(g_winVk, true);
+                        return 1;
+                    }
                     if (g_winCombo) {  // fim da combinação: as nossas (Win+I, Win+Tab) não mandam nada ao Windows
                         if (!g_winEaten) Inject(g_winVk, true);
                     } else if (k->time - g_winAt > 1000) {
@@ -262,7 +275,7 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
             } else if (g_winDown && down && !g_winCombo) {
                 // combinação: devolve a tecla Windows e esta tecla, na ordem, para o Windows tratar
                 g_winCombo = true;
-                Inject(g_winVk, false);
+                if (!g_winPassed) { g_winPassed = true; Inject(g_winVk, false); }
                 Inject(k->vkCode, false);
                 return 1;
             }
@@ -271,10 +284,31 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
     return CallNextHookEx(g_kbHook, code, w, l);
 }
 
+// Win + clique (AltSnap: Win + arrastar a janela): a tecla Win vai para o Windows ANTES do clique. O clique é
+// segurado aqui e devolvido logo depois dela, na ordem, para quem olha o estado da tecla no clique já a ver descida.
+static LRESULT CALLBACK WinMouseHook(int code, WPARAM w, LPARAM l) {
+    if (code == HC_ACTION && g_winDown && !g_winPassed && !shell::nativo && !bloqueio::Active() &&
+        (w == WM_LBUTTONDOWN || w == WM_RBUTTONDOWN || w == WM_MBUTTONDOWN)) {
+        auto* ms = (MSLLHOOKSTRUCT*)l;
+        if (!(ms->flags & LLMHF_INJECTED)) {
+            g_winPassed = true;
+            Inject(g_winVk, false);
+            INPUT in{ INPUT_MOUSE };
+            in.mi.dwFlags = w == WM_LBUTTONDOWN ? MOUSEEVENTF_LEFTDOWN : w == WM_RBUTTONDOWN ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_MIDDLEDOWN;
+            in.mi.dwExtraInfo = KEY_MARK;
+            SendInput(1, &in, sizeof(in));
+            return 1;
+        }
+    }
+    return CallNextHookEx(nullptr, code, w, l);
+}
+
 static void KeyThread() {
     g_kbHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyHook, GetModuleHandleW(nullptr), 0);
+    HHOOK ms = g_fullHook ? SetWindowsHookExW(WH_MOUSE_LL, WinMouseHook, GetModuleHandleW(nullptr), 0) : nullptr;
     MSG m;
     while (GetMessageW(&m, nullptr, 0, 0)) {}
+    if (ms) UnhookWindowsHookEx(ms);
     if (g_kbHook) UnhookWindowsHookEx(g_kbHook);
 }
 

@@ -184,6 +184,7 @@ RECT FrameRect(HWND h) {
 bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
 bool TemaGolden();                   // mais abaixo: macOS 27 Golden Gate (liquid_glass=1 + golden_gate=1)
 int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
+COLORREF CapColor(Info* in);  // mais abaixo: a cor da barra
 
 // Recorte arredondado [x0, x1) × [y0, y1) com raio r (px), simétrico e sempre por dentro do arco que a moldura
 // suavizada (UpdateCorners) desenha: um pixel só entra se o centro dele fica a 0,5 px ou mais para dentro do arco.
@@ -360,6 +361,18 @@ void Paint(Info* in) {
         // janela); a barra própria dos apps (Chromium e afins) e as janelas de plug-in ficam como estão
         const bool leo = leopard::On() && !in->custom && !in->tool && !UnifiedBar(in->owner);
         if (leo) leopard::Metal(rt, D2D1::RectF(0, 0, W, H), in->active, in->dark, true, IsZoomed(in->owner) ? 0.f : CornerRadius(in->owner) / sc);
+        // Janela que desenha tudo pela placa de vídeo (WS_EX_NOREDIRECTIONBITMAP: Windows Terminal com a barra do
+        // Windows, apps GTK/WinUI): a barra que o PaintNC pinta com GDI não aparece nelas, e com o recorte o DWM não
+        // pinta nada: a barra ficava transparente, com o papel de parede atrás (issue #20, 21/11/2026). A cor da barra
+        // vai aqui, na faixa, com os cantos de cima da janela.
+        else if (!in->custom && !in->tool && !UnifiedBar(in->owner) && (GetWindowLongW(in->owner, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP)) {
+            COLORREF cc = CapColor(in);
+            b->SetColor(D2D1::ColorF(GetRValue(cc) / 255.f, GetGValue(cc) / 255.f, GetBValue(cc) / 255.f, 1));
+            float R = IsZoomed(in->owner) ? 0.f : CornerRadius(in->owner) / sc;
+            rt->PushAxisAlignedClip(D2D1::RectF(0, 0, W, H), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H + R + 1), R, R), b);
+            rt->PopAxisAlignedClip();
+        }
         // os três botões no tamanho padrão do projeto (o do Monitor de Atividade): 14 pt, 23 pt entre centros
         static const D2D1_COLOR_F on_c[3] = { D2D1::ColorF(1.0f, 0.373f, 0.341f), D2D1::ColorF(0.996f, 0.737f, 0.18f), D2D1::ColorF(0.157f, 0.784f, 0.251f) }; const D2D1_COLOR_F* on = semaforo::Pick(on_c, semaforo::FILL);
         LONG st = in->style;
