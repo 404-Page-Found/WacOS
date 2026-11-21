@@ -231,6 +231,8 @@ void LightsLayout(Info* in, float& lx0, float& lpitch, float& lr) {
     if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
     lx0 += WinAppInset(in);
 }
+// largura (pt) da faixa da esquerda na barra própria: só até 6 pt depois do verde (cobre o mínimo do app)
+float PatchL(Info* in) { float lx0, lp, lr; LightsLayout(in, lx0, lp, lr); return lx0 + 2 * lp + lr + 6; }
 // altura (pt) do centro dos botões: no meio da barra do app (a linha das abas no Chrome, como no Mac)
 float LightsY(Info* in, float H) {
     if (in->custom && in->barH) return in->barH / Scale(in->owner) / 2;
@@ -311,7 +313,7 @@ void Paint(Info* in) {
                 rt->FillGeometry(g, b);
                 g->Release();
             };
-            fill(in->leftColor, D2D1::RectF(0, 0, PATCH_L, H), true);
+            fill(in->leftColor, D2D1::RectF(0, 0, PatchL(in), H), true);
             fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
         }
         // Leopard: a barra de título padrão vira o metal cinza do 10.5 de ponta a ponta (com os cantos de cima da
@@ -978,7 +980,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
         if (in->custom) {  // só as duas faixas pintadas; o resto deixa o clique passar para a barra do app (abas, arrastar)
-            if (p.x / sc < PATCH_L) return HTCLIENT;
+            if (p.x / sc < PatchL(in)) return HTCLIENT;
             if (p.x / sc > (r.right - r.left) / sc - PatchR(in)) return HTCLIENT;
             return HTTRANSPARENT;
         }

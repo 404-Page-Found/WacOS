@@ -900,3 +900,5 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   LIMITE: no Windows o Chrome começa as abas rente à borda e nenhum programa de fora consegue empurrar só a linha das abas (no Mac o próprio Chrome reserva esse espaço). Então o começo da linha (o chip do grupo "MERCOR" no Chrome, as setas do Discord, o menu do Claude) fica por baixo dos botões.
   Compilado, instalado, Shell reiniciado; foto do canto do Chrome (apagada). NÃO conferidos: cliques e F11 nas janelas do usuário.
   Nada no registro do Windows. DESFAZER: reverter o commit.
+
+[2026-11-21 14:20] Barra própria: a faixa da esquerda só do tamanho dos botões (PatchL = até 6 pt depois do verde; era 80 pt fixos), cobrindo o mínimo do começo da linha do app. Compilado, instalado, fotos dos cantos do Chrome e do Claude mandadas ao usuário (apagadas daqui).
