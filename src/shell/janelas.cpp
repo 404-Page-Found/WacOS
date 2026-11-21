@@ -71,11 +71,17 @@ std::wstring LoginId() {
     return b;
 }
 
-void GanchoFalhou(DWORD tid, DWORD err, const wchar_t* onde) {
-    if (err != ERROR_MOD_NOT_FOUND) { Log(L"janelas: gancho falhou %ls, thread %lu (erro %lu)", onde, tid, err); return; }
-    if (g_cheio) return;
-    g_cheio = true;
-    Log(L"janelas: tabela de DLLs de gancho do Windows cheia (erro 126, thread %lu): sem novas barras até sair e entrar no Windows", tid);
+// Os de 32 bits vão por outra carregadora (WacOSGancho32, pelo hospedeiro): com a tabela cheia ela pode ficar de fora
+// enquanto a de 64 bits, que já estava na tabela, continua entrando. Por isso a marca é separada (os apps de 64 bits
+// seguem ganhando a barra).
+bool g_cheio32 = false;
+void GanchoFalhou(DWORD tid, DWORD err, const wchar_t* onde, bool b32 = false) {
+    if (err != ERROR_MOD_NOT_FOUND) { Log(L"janelas: gancho%ls falhou %ls, thread %lu (erro %lu)", b32 ? L" de 32 bits" : L"", onde, tid, err); return; }
+    bool& cheio = b32 ? g_cheio32 : g_cheio;
+    if (cheio) return;
+    cheio = true;
+    Log(L"janelas: tabela de DLLs de gancho do Windows cheia (erro 126, thread %lu%ls): sem novas barras%ls até sair e entrar no Windows",
+        tid, b32 ? L", carregadora de 32 bits" : L"", b32 ? L" nos apps de 32 bits" : L"");
     std::wstring id = LoginId();
     if (!id.empty() && shell::Setting(L"aviso_ganchos", L"") == id) return;  // já avisou neste login
     shell::SetSetting(L"aviso_ganchos", id);
@@ -266,8 +272,11 @@ void Consider(HWND h) {
     if (!pm.ok || (tipo == 2 && !pm.chromium)) return;
     if (is32) {
         HWND host = FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr);
-        if (!host) return;
-        PostMessageW(host, HOST_HOOK, tid, (LPARAM)h);
+        if (!host || g_cheio32) return;
+        // esperando a resposta (antes era PostMessage e uma falha do gancho passava calada)
+        DWORD_PTR r = 0;
+        if (!SendMessageTimeoutW(host, HOST_HOOK, tid, (LPARAM)h, SMTO_ABORTIFHUNG, 200, &r)) return;
+        if (r) { GanchoFalhou(tid, (DWORD)r, L"ao mostrar", true); return; }
         g_hooks32.insert(tid);
         g_nasc[tid] = NascThread(tid);
         return;
@@ -308,9 +317,10 @@ void CALLBACK OnCreate(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
         // 32 bits: pelo hospedeiro, já na criação (só no "mostrar" a primeira janela aparecia antes de a DLL
         // entrar e abria sem a animação). Esperando o hospedeiro pôr o gancho: a janela ainda está escondida
         HWND host = FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr);
-        if (!host) return;
+        if (!host || g_cheio32) return;
         DWORD_PTR r = 0;
-        SendMessageTimeoutW(host, HOST_HOOK, tid, (LPARAM)h, SMTO_ABORTIFHUNG, 200, &r);
+        if (!SendMessageTimeoutW(host, HOST_HOOK, tid, (LPARAM)h, SMTO_ABORTIFHUNG, 200, &r)) return;
+        if (r) { GanchoFalhou(tid, (DWORD)r, L"na criação", true); return; }
         g_hooks32.insert(tid);
         g_nasc[tid] = NascThread(tid);
         return;

@@ -103,6 +103,9 @@ struct Info {
     int sobre = 0;               // o mouse está em cima de: 1 o grupo movido, 2 o ˅ (repassado ao app)
     int barGlyph = 0;            // altura da barra pelo centro dos botões do app (px), quando a medida pela cor erra
     int barCor = 0;              // a altura medida pela cor (SampleBar), sem a correção
+    // Um ícone do app debaixo dos botões do Mac que atravessa o pé da barra (o sino do TeamSpeak, na linha de baixo): a
+    // faixa da esquerda desce mais patchExt px, com patchExtW px de largura, para não sobrar o pé dele à mostra
+    int patchExt = 0, patchExtW = 0;
   // chunkTop: 1ª linha da foto, a partir do topo
     RECT capasVis{};             // retângulo da última foto do fundo dos cantos
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
@@ -342,7 +345,7 @@ RECT BarRect(Info* in) {
     float sc = Scale(in->owner);
     int h = in->barH ? in->barH : (int)(32 * sc);
     if (in->capas) { f.left = in->capasVis.left; f.right = in->capasVis.right; }  // rente às capas (com o fio da borda do DWM)
-    return { f.left, f.top, f.right, f.top + h };
+    return { f.left, f.top, f.right, f.top + h + in->patchExt };
 }
 
 // ---- desenho da faixa (janela em camadas, alfa por pixel)
@@ -420,8 +423,13 @@ void Paint(Info* in) {
                 rt->FillGeometry(g, b);
                 g->Release();
             };
-            fill(in->leftColor, D2D1::RectF(0, 0, PatchLeft(in), H), true);
-            fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
+            float Hb = H - in->patchExt / sc;  // a barra em si (sem o pedaço que desce à esquerda)
+            fill(in->leftColor, D2D1::RectF(0, 0, PatchLeft(in), Hb), true);
+            if (in->patchExt) {
+                b->SetColor(D2D1::ColorF(GetRValue(in->leftColor) / 255.f, GetGValue(in->leftColor) / 255.f, GetBValue(in->leftColor) / 255.f, 1));
+                rt->FillRectangle(D2D1::RectF(0, Hb - 1, in->patchExtW / sc, H), b);
+            }
+            fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, Hb), false);
             if (in->capas && !IsZoomed(in->owner)) {  // o fio da borda do DWM, que as faixas cobrem nos lados (continua o das capas)
                 int fundo = (int)(INT_PTR)GetPropW(in->owner, L"MacJanelaFundo");
                 bool dk = fundo ? fundo == 2 : Dark();
@@ -442,7 +450,7 @@ void Paint(Info* in) {
                             sk->BeginFigure({ W - PatchR(in), o }, D2D1_FIGURE_BEGIN_HOLLOW);
                             sk->AddLine({ W - Ef, o });
                             SqCanto(sk, W - Ef, Ef, Ei, true);
-                            sk->AddLine({ W - o, H });
+                            sk->AddLine({ W - o, Hb });
                         }
                         sk->EndFigure(D2D1_FIGURE_END_OPEN);
                         sk->Close(); sk->Release();
@@ -1323,6 +1331,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
         if (in->custom) {  // só as duas faixas pintadas; o resto deixa o clique passar para a barra do app (abas, arrastar)
+            if (p.y >= r.bottom - r.top - in->patchExt) return p.x < in->patchExtW ? HTCLIENT : HTTRANSPARENT;  // o pedaço que desce
             if (p.x / sc < PatchLeft(in)) return HTCLIENT;
             if (p.x / sc > (r.right - r.left) / sc - PatchR(in)) return HTCLIENT;
             return HTTRANSPARENT;
@@ -1665,8 +1674,9 @@ void MedirBarra(Info* in) {
     RECT f = FrameRect(h);
     float sc = Scale(h);
     int bh = in->barH ? in->barH : (int)(32 * sc);
-    int W = wr.right - wr.left, H = (f.top - wr.top) + bh;
-    if (W < 200 || W > 16384 || H < 16 || H > 1024) return;
+    // a foto vai 24 pt abaixo da barra: o pé de um ícone que atravessa a barra (patchExt)
+    int W = wr.right - wr.left, Hb = (f.top - wr.top) + bh, H = std::min<int>(Hb + (int)(24 * sc), wr.bottom - wr.top);
+    if (W < 200 || W > 16384 || Hb < 16 || H > 1024) return;
     HDC mdc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
     void* bits = nullptr;
@@ -1680,7 +1690,7 @@ void MedirBarra(Info* in) {
         return std::abs((int)(a & 255) - (int)(b & 255)) + std::abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + std::abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
     };
     int x0 = std::max(0, (int)(f.left - wr.left)), x1 = std::min(W, (int)(f.right - wr.left)), y0 = f.top - wr.top;
-    int ya = y0 + (int)(3 * sc), yb = std::min(H, y0 + bh - (int)(3 * sc));
+    int ya = y0 + (int)(3 * sc), yb = std::min(Hb, y0 + bh - (int)(3 * sc));
     bool done = false;
     if (ok && yb > ya && x1 - x0 > 200) {
         // fundo da barra: a cor mais comum
@@ -1766,6 +1776,27 @@ void MedirBarra(Info* in) {
                     int ch = bb - ba;
                     if (livre && ch > 0) { in->chunkW = cw; in->chunkH = ch; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ba - y0; }
                 }
+                // (4) um ícone debaixo dos botões do Mac que passa do pé da barra (o sino do TeamSpeak): sobrava o pé dele
+                // à mostra embaixo da faixa. A faixa desce até ele acabar, se ali embaixo o fundo é o da barra (senão
+                // apareceria um retângulo da cor da barra por cima do conteúdo) e se é um ícone, não um traço de ponta a
+                // ponta (o separador entre a barra e o conteúdo do Discord)
+                int ext = 0, extW = 0, yBar = y0 + bh, pl = std::min(x1, x0 + lights);
+                int cs = -1, ce = -1;
+                for (int x = x0 + 2; x < pl; x++) if (dist(at(x, yBar - 1), bg) > 40) { if (cs < 0) cs = x; ce = x; }
+                if (cs > x0 + 2 && ce - cs < (pl - x0) / 2 && yBar < H) {
+                    int y = yBar;
+                    for (; y < H; y++) {
+                        bool tem = false;
+                        for (int x = std::max(x0, cs - (int)(2 * sc)); x <= std::min(x1 - 1, ce + (int)(2 * sc)) && !tem; x++) tem = dist(at(x, y), bg) > 40;
+                        if (!tem) break;
+                    }
+                    // só da borda até um pouco depois do ícone (ao lado pode começar outro painel, como no TeamSpeak);
+                    // logo abaixo do ícone, nessas colunas, tem de ser o fundo da barra
+                    int xe = std::min(pl, ce + (int)(4 * sc)), fora = 0, tot = 0;
+                    for (int x = x0 + 2; y < H && x < xe; x++, tot++) if (dist(at(x, std::min(H - 1, y + 1)), bg) > 24) fora++;
+                    if (y < H && tot && fora * 10 <= tot) { ext = y - yBar + (int)(2 * sc); extW = xe - x0; }
+                }
+                if (ext != in->patchExt || extW != in->patchExtW) { in->patchExt = ext; in->patchExtW = extW; PlaceOverlay(in); }
             }
             if (in->chunkW != oldW || in->chunkDst != oldDst || in->chunkSrc != oldSrc || in->setaX != oldSeta[0] || in->setaY != oldSeta[1] ||
                 in->setaW != oldSeta[2] || in->setaH != oldSeta[3]) PlaceOverlay(in);
@@ -2770,11 +2801,17 @@ LRESULT CALLBACK HostProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // número de uma thread que já morreu, agora de outra (outro programa): o gancho antigo sumiu com ela.
         // Antes o número ficava marcado como "já tem" e o programa novo nunca ganhava a barra
         if (it != g_hostHooks.end() && it->second.born != born) { UnhookWindowsHookEx(it->second.hk); g_hostHooks.erase(it); }
-        if (!g_hostHooks.count(tid))
-            if (HostGancho(), true)
-                if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_hostProc, g_hostMod, tid)) g_hostHooks[tid] = { hk, born };
-        if (l) PostMessageW((HWND)l, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
-        return 0;
+        // devolve 0 (gancho posto ou já havia) ou o erro do Windows: com a tabela de DLLs de gancho cheia (erro 126) a
+        // carregadora de 32 bits não entra em nada e antes isso era calado (o VSCodium do Windhawk e o Mapa de
+        // Caracteres ficavam sem a barra e o log dizia "barra do Mac em ...", 21/11/2026)
+        LRESULT err = 0;
+        if (!g_hostHooks.count(tid)) {
+            HostGancho();
+            if (HHOOK hk = SetWindowsHookExW(WH_GETMESSAGE, g_hostProc, g_hostMod, tid)) g_hostHooks[tid] = { hk, born };
+            else err = GetLastError() ? GetLastError() : ERROR_GEN_FAILURE;
+        }
+        if (l && !err) PostMessageW((HWND)l, WM_NULL, 0, 0);  // a thread processa uma mensagem e a DLL entra
+        return err;
     }
     if (m == HOST_QUIT) { DestroyWindow(h); return 0; }
     if (m == WM_DESTROY) {
