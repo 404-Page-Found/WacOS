@@ -92,7 +92,8 @@ struct Info {
     std::vector<UINT32> chunk;   // a foto do grupo (BGRA, opaca), chunkW × chunkH
     int chunkW = 0, chunkH = 0, chunkSrc = 0, chunkDst = 0, chunkTop = 0;
     int barGlyph = 0;            // altura da barra pelo centro dos botões do app (px), quando a medida pela cor erra
-    int barCor = 0;              // a altura medida pela cor (SampleBar), sem a correção  // chunkTop: 1ª linha da foto, a partir do topo
+    int barCor = 0;              // a altura medida pela cor (SampleBar), sem a correção
+    bool sobreGrupo = false;     // o mouse está em cima do grupo movido (repassado ao app)  // chunkTop: 1ª linha da foto, a partir do topo
     RECT capasVis{};             // retângulo da última foto do fundo dos cantos
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
@@ -1276,6 +1277,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
+        if (w == 8) { KillTimer(h, 8); if (in) MedirBarra(in); return 0; }  // o app redesenhou o grupo (hover/clique): foto nova
         if (w == 7) {  // ponteiro parado no botão verde: o menu de encaixe do Shell (como no macOS Sequoia)
             KillTimer(h, 7);
             POINT c; GetCursorPos(&c);
@@ -1300,11 +1302,18 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     case WM_MOUSEMOVE:
-        if (in && !in->hoverLights) {
-            in->hoverLights = true;
+        if (in) {
+            POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
             TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 };
             TrackMouseEvent(&t);
-            Paint(in);
+            // o grupo movido (setas do Discord): o mouse vai para o app, que acende o botão no lugar de verdade; a foto
+            // do grupo é refeita logo depois (no máximo a cada 150 ms) e o brilho aparece aqui
+            bool grupo = RepassaGrupo(in, p, WM_MOUSEMOVE);
+            if (grupo != in->sobreGrupo) { in->sobreGrupo = grupo; if (!grupo) PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); }
+            if (grupo) SetTimer(h, 8, 150, nullptr);
+            // os símbolos (× − +) só em cima dos botões do Mac, como no Mac (antes acendiam em qualquer ponto da faixa)
+            bool luzes = !grupo && (!in->custom || p.x / Scale(in->owner) < PatchL(in));
+            if (luzes != in->hoverLights) { in->hoverLights = luzes; Paint(in); }
         }
         if (in) {  // em cima do verde: conta o tempo parado; saiu dele: cancela
             POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
@@ -1312,7 +1321,12 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else if (RemovePropW(h, L"MacVerdeEspera")) KillTimer(h, 7);
         }
         return 0;
-    case WM_MOUSELEAVE: if (in) { in->hoverLights = false; in->press = -1; Paint(in); } RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); return 0;
+    case WM_MOUSELEAVE:
+        if (in) {
+            in->hoverLights = false; in->press = -1; Paint(in);
+            if (in->sobreGrupo) { in->sobreGrupo = false; PostMessageW(in->owner, WM_MOUSELEAVE, 0, 0); SetTimer(h, 8, 150, nullptr); }
+        }
+        RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); return 0;
     case WM_LBUTTONDOWN: RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); if (in) {
             POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
             if (RepassaGrupo(in, p, WM_LBUTTONDOWN)) { in->press = 100; return 0; }
@@ -1618,7 +1632,9 @@ void MedirBarra(Info* in) {
                     int need = (int)(24 * sc), e0 = s0, gap = 0, x = s0;
                     for (; x < std::min(x1, x0 + (int)(220 * sc)); x++) { if (ink(x)) { e0 = x; gap = 0; } else if (++gap >= need) break; }
                     int cw = e0 - s0 + 1 + (int)(4 * sc);  // com uma folga em volta
-                    int src = std::max(x0, s0 - (int)(2 * sc)), dst = x0 + lights + (int)(2 * sc);
+                    // como no Mac (medido no Chrome do Mac): o 1º item da barra ~16 pt depois do verde
+                    float lx0, lp, lr; LightsLayout(in, lx0, lp, lr);
+                    int src = std::max(x0, s0 - (int)(2 * sc)), dst = x0 + (int)((lx0 + 2 * lp + lr + 16) * sc) - (s0 - src);
                     // vazio só precisa estar o que fica além do fim do grupo (o lugar antigo a faixa cobre de qualquer jeito)
                     bool livre = gap >= need && dst + cw + need / 2 < x1;
                     for (int xx = std::max(dst, e0 + 1); livre && xx < dst + cw + need / 2; xx++) if (ink(xx)) livre = false;
