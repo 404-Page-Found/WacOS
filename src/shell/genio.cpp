@@ -365,7 +365,10 @@ bool Start(HWND h) {
     // janela por faixa bastam. Eram ~3 px (até 200 faixas, 700 no total): montar tudo levava ~30 ms antes de a janela
     // se mexer, e numa GTX 1660 a "pausa antes de minimizar" aparecia (Reddit, 20/11/2026)
     const int n0 = std::clamp((int)((g_a.win.bottom - g_a.win.top) / 6), 24, 110);
-    auto stripsOf = [&](int lvl) { return lvl == 0 ? n0 : std::max(12, n0 / 2); };  // os níveis estreitos aparecem com a janela já fina
+    // Cada nível menor só aparece com a janela já estreita e baixa no funil (a escala dele na tela é ~0,55 da do anterior):
+    // as faixas acompanham essa altura. Com n0/2 em todos os níveis eram centenas de faixas e curvas montadas antes
+    // de a janela se mexer (uma pausa no começo de minimizar em PCs mais fracos; PR #12 apontou, 21/11/2026)
+    auto stripsOf = [&](int lvl) { return lvl == 0 ? n0 : std::max(10, (int)std::lround(n0 * std::pow(0.55f, (float)lvl))); };
     for (g_levels = 0; g_levels < MAX_LEVELS; g_levels++) {
         if (!Upload(lv, lw, lh, &g_surf[g_levels])) break;
         {
@@ -476,7 +479,9 @@ bool Start(HWND h) {
         std::vector<float> op(K);
         for (int k = 0; k < K; k++) {
             float t = (float)k / (K - 1), pp = g_a.restore ? 1 - anim::Ease(t) : anim::Ease(t);
-            op[k] = 1 - 0.15f * Smooth(0.85f, 1.f, pp);
+            // some de todo ao entrar no Dock (e aparece do nada ao sair dele). Parava em 85 % e sumia num quadro: o corte
+            // no fim de minimizar (issue #16, PR #12)
+            op[k] = 1 - Smooth(0.75f, 1.f, pp);
         }
         if (IDCompositionAnimation* ao = Curve(op, D)) { g_fx->SetOpacity(ao); ao->Release(); }
     }
@@ -529,7 +534,7 @@ void Frame() {
         tp.rcSource = { g_a.src.left, g_a.src.top + (LONG)std::lround(v0 * sh), g_a.src.right, g_a.src.top + (LONG)std::lround(v1 * sh) };
         tp.rcDestination = { (LONG)std::lround(L) - g_ovRect.left, (LONG)std::floor(ya) - g_ovRect.top, (LONG)std::lround(R) - g_ovRect.left, (LONG)std::ceil(yb) - g_ovRect.top };
         tp.fVisible = yb - ya >= 0.2f && R - L >= 1;
-        tp.opacity = (BYTE)std::lround(255 * (1 - 0.15f * Smooth(0.85f, 1.f, p)));  // some de leve ao entrar no Dock
+        tp.opacity = (BYTE)std::lround(255 * (1 - Smooth(0.75f, 1.f, p)));  // some de todo ao entrar no Dock (o mesmo do compositor)
         tp.fSourceClientAreaOnly = FALSE;
         if (i < (int)g_a.strips.size() && g_a.strips[i]) DwmUpdateThumbnailProperties(g_a.strips[i], &tp);
     }

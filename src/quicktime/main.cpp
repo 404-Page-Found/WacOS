@@ -25,7 +25,7 @@ IMFPMediaPlayer* g_mp;
 std::wstring g_path;
 bool g_full = false, g_ended = false, g_ready = false, g_noVideo = false;  // noVideo: só som (sem o codec da imagem)
 WINDOWPLACEMENT g_place{ sizeof(g_place) };
-float g_volume = 1.0f;
+float g_volume = 1.0f, g_volumeInicial = 1.0f;
 DWORD g_lastMove = 0;
 bool g_barShown = false, g_scrubbing = false;
 IDWriteTextFormat *g_tfTime, *g_tfIcon, *g_tfIconBig, *g_tfTitle;
@@ -468,6 +468,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_DROPFILES: { wchar_t p[MAX_PATH * 2] = {}; if (DragQueryFileW((HDROP)w, 0, p, MAX_PATH * 2)) Open(p); DragFinish((HDROP)w); return 0; }
     case WM_DESTROY:
+        // o volume fica para a próxima vez (quicktime_volume no ajustes.txt; gravado só ao fechar e só se mudou: antes
+        // cada vídeo aberto voltava a 100 %)
+        if (std::fabs(g_volume - g_volumeInicial) > 0.004f) { wchar_t v[16]; swprintf_s(v, L"%.2f", g_volume); SetAppSetting(L"quicktime_volume", v); }
         if (g_mp) { g_mp->Shutdown(); g_mp->Release(); g_mp = nullptr; }
         if (g_bar) DestroyWindow(g_bar);
         if (g_barBack) DestroyWindow(g_barBack);
@@ -483,6 +486,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     if (!Init()) return 1;
+    for (auto& l : ReadLines(DataPath(L"ajustes.txt")))  // o volume da última vez (WM_DESTROY grava)
+        if (l.rfind(L"quicktime_volume=", 0) == 0) { float v = (float)_wtof(l.c_str() + 17); if (v >= 0 && v <= 1) g_volume = v; }
+    g_volumeInicial = g_volume;
     MFStartup(MF_VERSION);
     g_tfTime = Fmt(11, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER);
     g_tfIcon = Fmt(16, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, false, IconFamily());

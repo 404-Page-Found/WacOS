@@ -84,7 +84,7 @@ static float CellMinW() { return std::max(96.f, g_icon + 38); }
 static float CellH() { return g_icon + 56.5f; }
 static float LabelW() { return std::max(98.f, g_icon + 34); }
 
-enum : UINT { WM_APP_THUMB = WM_APP + 1, WM_APP_CHANGE = WM_APP + 2, WM_APP_SEARCH = WM_APP + 3, WM_APP_MEDIA = WM_APP + 4, WM_APP_WARMUP = WM_APP + 5, WM_APP_INFO = WM_APP + 6 };
+enum : UINT { WM_APP_THUMB = WM_APP + 1, WM_APP_CHANGE = WM_APP + 2, WM_APP_SEARCH = WM_APP + 3, WM_APP_MEDIA = WM_APP + 4, WM_APP_WARMUP = WM_APP + 5, WM_APP_INFO = WM_APP + 6, WM_APP_QUADRO = WM_APP + 7 };
 enum : UINT_PTR { T_SCROLL = 1, T_RELOAD = 2, T_CARET = 3, T_AUTOSCROLL = 4, T_SCROLLBAR = 5, T_SEARCH = 7, T_MEDIA = 8, T_WARMUP = 9, T_SLOWRENAME = 10, T_TAHOE = 11, T_FRENTE = 12, T_DRIVES = 13 };
 // Logo depois de abrir, quem pediu às vezes toma a frente de volta (o painel de downloads do Chrome se fecha e
 // reativa a janela dele): por 3 s, se o usuário não clicou nem apertou tecla, o Finder volta para a frente.
@@ -3661,11 +3661,46 @@ static D2D1_RECT_F QlPhotoRect(D2D1_RECT_F body, UINT iw, UINT ih, bool fill) {
     return D2D1::RectF(x, y, x + w, y + h);
 }
 
+// Ritmo dos quadros do vídeo no Quick Look: uma thread com um timer de alta resolução no período da tela (60, 120,
+// 144 Hz... pelo DWM) avisa a janela, que pergunta ao Media Foundation se já há quadro novo. Era um SetTimer de 15 ms:
+// os timers comuns andam em degraus de ~15,6 ms e são as mensagens de menor prioridade, então num vídeo de 30/60
+// quadros uns quadros saíam atrasados e outros repetidos (engasgos; PR #12 apontou, 21/11/2026). A espera nunca passa
+// de 100 ms (sem depender do monitor ligado): parar é rápido mesmo com a tela apagada.
+static std::atomic<bool> g_quadrosOn{ false }, g_quadroNaFila{ false };
+static std::thread g_quadros;
+static void QuadrosParar() {
+    g_quadrosOn = false;
+    if (g_quadros.joinable()) g_quadros.join();
+    g_quadroNaFila = false;
+}
+static void QuadrosComecar() {
+    QuadrosParar();
+    double hz = 60;
+    DWM_TIMING_INFO ti{ sizeof(ti) };
+    if (SUCCEEDED(DwmGetCompositionTimingInfo(nullptr, &ti)) && ti.rateRefresh.uiNumerator && ti.rateRefresh.uiDenominator)
+        hz = (double)ti.rateRefresh.uiNumerator / ti.rateRefresh.uiDenominator;
+    hz = std::clamp(hz, 24.0, 240.0);
+    g_quadrosOn = true;
+    HWND janela = g_hwnd;
+    g_quadros = std::thread([hz, janela] {
+        HANDLE tm = CreateWaitableTimerExW(nullptr, nullptr, 0x2 /*CREATE_WAITABLE_TIMER_HIGH_RESOLUTION*/, TIMER_ALL_ACCESS);
+        if (!tm) tm = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+        LARGE_INTEGER passo; passo.QuadPart = -(LONGLONG)std::llround(1e7 / hz);  // relativo, em 100 ns
+        while (g_quadrosOn) {
+            if (tm && SetWaitableTimer(tm, &passo, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(tm, 100);
+            else Sleep(8);
+            if (g_quadrosOn && !g_quadroNaFila.exchange(true)) PostMessageW(janela, WM_APP_QUADRO, 0, 0);
+        }
+        if (tm) CloseHandle(tm);
+    });
+}
+
 // Abre/fecha o player conforme o item do Quick Look (chamado antes de cada quadro).
 static void QlSyncMedia() {
     std::wstring want;
     if (g_ql) { int i = QlItem(); if (i >= 0 && IsMediaFile(g_items[i])) want = g_items[i].path; }
     if (want == g_qlMediaPath) return;
+    QuadrosParar();
     media::Close();
     KillTimer(g_hwnd, T_MEDIA);
     g_qlSeekDrag = false;
@@ -3681,7 +3716,8 @@ static void QlSyncMedia() {
     }
     media::Open(want);
     g_qlMouseAt = GetTickCount();
-    SetTimer(g_hwnd, T_MEDIA, 15, nullptr);
+    SetTimer(g_hwnd, T_MEDIA, 100, nullptr);  // o tempo e o fim; os quadros vêm pelo WM_APP_QUADRO
+    QuadrosComecar();
 }
 
 static bool QlMediaOn(const Entry& e) { return !g_qlMediaPath.empty() && g_qlMediaPath == e.path && media::Active() && !media::Failed(); }
@@ -6698,7 +6734,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case T_MEDIA: {  // quadros do vídeo; tempo da música ~5x por segundo
             static DWORD last;
             // sem player, ou o vídeo não abriu (sem codec): o timer para (antes seguia redesenhando a janela à toa)
-            if (!media::Active() || media::Failed()) { KillTimer(h, T_MEDIA); Invalidate(); break; }
+            if (!media::Active() || media::Failed()) { KillTimer(h, T_MEDIA); QuadrosParar(); Invalidate(); break; }
             bool fresh = media::UpdateFrame();
             if (fresh || GetTickCount() - last > 200) { last = GetTickCount(); Render(); }
             break;
@@ -6781,7 +6817,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         DestroyWindow(h);
         return 0;
+    case WM_APP_QUADRO:  // hora de um quadro (QuadrosComecar): só desenha se o vídeo tem quadro novo
+        g_quadroNaFila = false;
+        if (media::Active() && !media::Failed() && media::UpdateFrame()) Render();
+        return 0;
     case WM_DESTROY:
+        QuadrosParar();
         shadow::Destroy();
         if (g_notifyId) SHChangeNotifyDeregister(g_notifyId);
         RevokeDragDrop(h);
