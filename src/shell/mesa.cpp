@@ -864,12 +864,15 @@ void Paint(Mon& m) {
         RECT u = ps.rcPaint;
         BitBlt(m.bufDC, u.left, u.top, u.right - u.left, u.bottom - u.top, m.wallDC, u.left, u.top, SRCCOPY);
         if (m.primary && m.rt) {
-            RECT full{ 0, 0, W, H };
-            if (SUCCEEDED(m.rt->BindDC(m.bufDC, &full))) {
+            // o desenho só no pedaço que mudou: ligado à tela inteira, o EndDraw copiava a tela toda a cada movimento
+            // do mouse (o retângulo de seleção travava em telas grandes; Reddit, 21/11/2026)
+            if (SUCCEEDED(m.rt->BindDC(m.bufDC, &u))) {
                 m.rt->BeginDraw();
+                m.rt->SetTransform(D2D1::Matrix3x2F::Translation(-(float)u.left, -(float)u.top));
                 m.rt->PushAxisAlignedClip(D2D1::RectF((float)u.left, (float)u.top, (float)u.right, (float)u.bottom), D2D1_ANTIALIAS_MODE_ALIASED);
                 DrawIcons(m.rt);
                 m.rt->PopAxisAlignedClip();
+                m.rt->SetTransform(D2D1::Matrix3x2F::Identity());
                 if (m.rt->EndDraw() == D2DERR_RECREATE_TARGET) {
                     for (auto& it : g_items) { if (it.bmp) it.bmp->Release(); it.bmp = nullptr; }
                     if (g_br) { g_br->Release(); g_br = nullptr; }
@@ -1368,8 +1371,10 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (!g_items[i].sel) g_items[i].sel = true;
             StartDrag(i);
         } else if (g_band) {
+            RECT antes{ std::min(g_bandA.x, g_bandB.x), std::min(g_bandA.y, g_bandB.y), std::max(g_bandA.x, g_bandB.x), std::max(g_bandA.y, g_bandB.y) };
             g_bandB = p;
             RECT b{ std::min(g_bandA.x, p.x), std::min(g_bandA.y, p.y), std::max(g_bandA.x, p.x), std::max(g_bandA.y, p.y) };
+            RECT sujo; UnionRect(&sujo, &antes, &b);  // o que redesenhar: o retângulo de antes e o de agora
             for (int i = 0; i < (int)g_items.size(); i++) {
                 auto& it = g_items[i];
                 if (it.col < 0) continue;
@@ -1377,9 +1382,21 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 RECT r{ (LONG)a.left, (LONG)a.top, (LONG)a.right, (LONG)lb.bottom }, x;
                 bool in = IntersectRect(&x, &r, &b) != FALSE;
                 bool orig = i < (int)g_bandOrig.size() && g_bandOrig[i];
-                it.sel = orig != in;
+                bool sel = orig != in;
+                if (sel != it.sel) {  // mudou: o ícone e o nome (no tamanho de antes e no de depois) entram no pedaço a redesenhar
+                    RECT ir{ (LONG)std::floor(std::min(a.left, lb.left)), (LONG)std::floor(a.top), (LONG)std::ceil(std::max(a.right, lb.right)), (LONG)std::ceil(lb.bottom) };
+                    UnionRect(&sujo, &sujo, &ir);
+                    it.sel = sel;
+                    D2D1_RECT_F lb2 = LabelBox(it);  // o nome selecionado pode aparecer inteiro (mais linhas)
+                    RECT ir2{ (LONG)std::floor(lb2.left), (LONG)std::floor(lb2.top), (LONG)std::ceil(lb2.right), (LONG)std::ceil(lb2.bottom) };
+                    UnionRect(&sujo, &sujo, &ir2);
+                }
+                it.sel = sel;
             }
-            Redraw();
+            // só o pedaço que mudou (antes: a tela inteira a cada movimento do mouse); no papel de parede animado a mesa
+            // é uma janela em camadas e o desenho é sempre inteiro (Invalidate já limita a ~60 por segundo)
+            if (g_live) Redraw();
+            else if (Mon* pm = Primary()) { InflateRect(&sujo, 10, 10); InvalidateRect(pm->h, &sujo, FALSE); }
         }
         return 0;
     }
