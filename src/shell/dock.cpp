@@ -1,4 +1,4 @@
-// Dock no estilo do macOS Sequoia. Duas janelas: o fundo (acrílico arredondado) e, por cima, uma
+﻿// Dock no estilo do macOS Sequoia. Duas janelas: o fundo (acrílico arredondado) e, por cima, uma
 // janela com alfa por pixel onde ficam os ícones (podem crescer para fora do fundo na ampliação;
 // onde não há nada desenhado, o clique passa). Ver docs/dock-e-barra-de-menus.md.
 #include "shell.h"
@@ -1509,17 +1509,43 @@ struct DockDrop : IDropTarget {
         D2D1_POINT_2F q = ScreenToLocal(POINT{ p.x, p.y });
         return HitTest(q.x, q.y);
     }
+    // só atalhos/programas arrastados: soltos nos apps (não na Lixeira nem nos Downloads), ficam fixos no Dock
+    bool programs = false;
+    static std::vector<std::wstring> Files(IDataObject* d) {
+        std::vector<std::wstring> files;
+        FORMATETC fe{ CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        STGMEDIUM sm{};
+        if (d && SUCCEEDED(d->GetData(&fe, &sm))) {
+            HDROP hd = (HDROP)GlobalLock(sm.hGlobal);
+            UINT n = DragQueryFileW(hd, 0xFFFFFFFF, nullptr, 0);
+            for (UINT k = 0; k < n; k++) { wchar_t f[MAX_PATH * 2]; DragQueryFileW(hd, k, f, MAX_PATH * 2); files.push_back(f); }
+            GlobalUnlock(sm.hGlobal);
+            ReleaseStgMedium(&sm);
+        }
+        return files;
+    }
+    bool PinSpot(int i) {  // fora da Lixeira, dos Downloads e das janelas minimizadas
+        if (!programs) return false;
+        return i < 0 || g_items[i].kind == I_APP || g_items[i].kind == I_SEP || g_items[i].kind == I_LAUNCHPAD;
+    }
     DWORD Effect(int i) {
+        if (PinSpot(i)) return DROPEFFECT_LINK;
         if (i < 0) return DROPEFFECT_NONE;
         if (g_items[i].kind == I_TRASH) return DROPEFFECT_MOVE;
         if (g_items[i].kind == I_APP) return DROPEFFECT_COPY;
         return DROPEFFECT_NONE;
     }
-    STDMETHODIMP DragEnter(IDataObject*, DWORD, POINTL p, DWORD* e) override { return DragOver(0, p, e); }
+    STDMETHODIMP DragEnter(IDataObject* d, DWORD, POINTL p, DWORD* e) override {
+        auto files = Files(d);
+        programs = !files.empty();
+        for (auto& f : files) if (!apps::IsProgramFile(f)) programs = false;
+        return DragOver(0, p, e);
+    }
     STDMETHODIMP DragOver(DWORD, POINTL p, DWORD* e) override {
         int i = At(p);
         *e = Effect(i);
-        if ((*e ? i : -1) != g_dropHit) { g_dropHit = *e ? i : -1; Paint(); }
+        int hl = *e && !PinSpot(i) ? i : -1;  // fixando: sem o destaque de "abrir com"
+        if (hl != g_dropHit) { g_dropHit = hl; Paint(); }
         return S_OK;
     }
     STDMETHODIMP DragLeave() override { g_dropHit = -1; Paint(); return S_OK; }
@@ -1527,6 +1553,16 @@ struct DockDrop : IDropTarget {
         int i = At(p);
         *e = Effect(i);
         g_dropHit = -1;
+        if (*e && PinSpot(i)) {  // fixa cada programa no lugar onde foi solto (antes do app embaixo do mouse)
+            int at = i >= 0 && g_items[i].kind == I_APP ? g_items[i].app : -1;
+            bool any = false;
+            for (auto& f : Files(d)) if (apps::PinPath(f, at)) { any = true; if (at > 0) at++; }
+            programs = false;
+            if (any) { apps::Refresh(); BuildItems(); }
+            Paint();
+            return S_OK;
+        }
+        programs = false;
         FORMATETC fe{ CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
         STGMEDIUM sm{};
         std::vector<std::wstring> files;

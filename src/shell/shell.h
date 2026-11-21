@@ -1,4 +1,4 @@
-// Shell no estilo do macOS Sequoia: barra de menus (topo), Dock (embaixo) e bandeja.
+﻿// Shell no estilo do macOS Sequoia: barra de menus (topo), Dock (embaixo) e bandeja.
 // Ver docs/dock-e-barra-de-menus.md e docs/estudo-bandeja.md.
 #pragma once
 #include "../comum/nomes.h"
@@ -176,6 +176,10 @@ void Hide(App& a);            // Ocultar do Mac: as janelas somem (sem gênio, s
 bool IsHidden(HWND h);        // janela oculta pelo Ocultar (minimizada por baixo, mas não aparece no Dock)
 void Quit(App& a);
 void SetPinned(App& a, bool pin);
+// programa ou atalho (.lnk, .exe, .url, .appref-ms) solto no Dock: fica fixo antes do app de índice `at` (-1 = no fim
+// dos fixos). Já no Dock: só fixa. false = não é programa
+bool PinPath(const std::wstring& path, int at);
+bool IsProgramFile(const std::wstring& path);
 void Move(int from, int to);
 void ForgetRecent(const std::wstring& id);  // tira um app da seção de recentes
 bool OpenAtLogin(const App& a);

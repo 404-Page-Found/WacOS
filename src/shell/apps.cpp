@@ -1,4 +1,4 @@
-// Apps do Dock: os fixos (dock.txt; na primeira vez, os fixados na barra de tarefas do Windows),
+﻿// Apps do Dock: os fixos (dock.txt; na primeira vez, os fixados na barra de tarefas do Windows),
 // os abertos (janelas que apareceriam na barra de tarefas) e os recentes. Abrir, ativar, ocultar,
 // encerrar, fixar, abrir ao iniciar sessão.
 #include "shell.h"
@@ -1017,6 +1017,48 @@ void apps::SetPinned(App& a, bool pin) {
     }
     std::stable_partition(list.begin(), list.end(), [](const App& x) { return x.pinned; });
     Save();
+}
+
+// Arrastar atalhos e programas para o Dock (Reddit, dougnite, 21/11/2026: "tenho que abrir cada programa para fixar")
+bool apps::IsProgramFile(const std::wstring& path) {
+    std::wstring l = Lower(path);
+    for (const wchar_t* e : { L".lnk", L".exe", L".url", L".appref-ms" })
+        if (l.size() > wcslen(e) && l.compare(l.size() - wcslen(e), wcslen(e), e) == 0) return true;
+    return false;
+}
+
+bool apps::PinPath(const std::wstring& path, int at) {
+    if (!IsProgramFile(path)) return false;
+    std::wstring low = Lower(path), target, aumid;
+    bool lnk = low.size() > 4 && low.compare(low.size() - 4, 4, L".lnk") == 0;
+    bool exe = low.size() > 4 && low.compare(low.size() - 4, 4, L".exe") == 0;
+    if (lnk) ReadLink(path, target, aumid);
+    else if (exe) target = path;
+    std::wstring t = Lower(target);
+    // um atalho para uma pasta ou um documento não é app (o Finder abre pastas; documentos vão por "abrir com")
+    if (lnk && t.empty() && aumid.empty()) return false;
+    if (lnk && !t.empty() && (GetFileAttributesW(target.c_str()) & FILE_ATTRIBUTE_DIRECTORY) && GetFileAttributesW(target.c_str()) != INVALID_FILE_ATTRIBUTES) return false;
+    if (t.size() >= 12 && t.substr(t.size() - 12) == L"explorer.exe") return false;  // o Finder já está no Dock
+    std::wstring id = !aumid.empty() ? L"aumid:" + Lower(aumid) : (!t.empty() ? t : low);
+    // já está no Dock (fixo ou aberto): só fixa
+    for (auto& a : list) {
+        if (a.finder) continue;
+        if (a.id == id || (!t.empty() && Lower(a.exe) == t)) { if (!a.pinned) SetPinned(a, true); return true; }
+    }
+    App x;
+    x.id = id;
+    x.exe = t;
+    x.launch = path;
+    std::wstring file = path.substr(path.find_last_of(L'\\') + 1);
+    size_t dot = file.find_last_of(L'.');
+    x.name = exe ? ExeName(path) : (dot != std::wstring::npos ? file.substr(0, dot) : file);
+    x.pinned = true;
+    int pinnedEnd = 0;  // depois do Finder e dos fixos
+    for (int i = 0; i < (int)list.size(); i++) if (list[i].finder || list[i].pinned) pinnedEnd = i + 1;
+    int pos = at < 1 || at > pinnedEnd ? pinnedEnd : at;
+    list.insert(list.begin() + pos, x);
+    Save();
+    return true;
 }
 
 void apps::ForgetRecent(const std::wstring& id) {
