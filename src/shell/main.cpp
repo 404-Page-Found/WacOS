@@ -125,7 +125,11 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 if (g_winDown) {
                     g_winDown = false;
                     if (!g_winCombo && k->time - g_winAt <= 1000) PostMessageW(g_msg, WM_APP_LAUNCHPAD, 0, 0);  // sozinha: Launchpad/Spotlight
+                    // a tecla muda e o soltar do Win vão juntos, nesta ordem: deixando o soltar de verdade passar, a muda
+                    // (mandada daqui de dentro) chegava depois dele e o Iniciar abria
                     Inject(0xE8, false); Inject(0xE8, true);
+                    Inject(k->vkCode, true);
+                    return 1;
                 }
                 return CallNextHookEx(g_kbHook, code, w, l);
             } else if (k->vkCode == VK_TAB && down && !g_winDown && GetAsyncKeyState(VK_MENU) < 0 && GetAsyncKeyState(VK_CONTROL) >= 0) {

@@ -959,3 +959,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   5) #22 (índice): src\shell\indice.cpp: com o indice.db gravado há menos de 15 min (o Shell só reiniciou), sem a varredura completa; vai direto para o vigia das pastas. A melhoria dos ícones de Apps carregados antes ficou de fora (não é bug).
   Compilados Shell e Ajustes; instalados só os dois (a DLL das janelas na pasta tem trabalho em andamento da sessão da barra). NÃO conferidos: AltSnap, tarefa de logon (não mexi na do usuário), teclado coreano.
   Nada no registro do Windows. DESFAZER: reverter o commit.
+
+[2026-11-21 17:30] Revisão de bugs.
+  1) Tecla Win (src\shell\main.cpp): ao soltar, a tecla muda era mandada de dentro do gancho enquanto o soltar de verdade passava: ela chegava depois e o Iniciar podia abrir. Agora o soltar de verdade é segurado e os dois vão na ordem (muda, depois o Win).
+  2) Achado, sem mudança: neste PC o Shell não consegue gravar DisableLockWorkstation (log "ERRO ao ligar"): a chave HKCU\...\Policies é só leitura para o usuário (padrão do Windows). O Win+L vai para o bloqueio do Windows; o menu da maçã > Bloquear Tela usa o do WacOS. Mudar a permissão da chave é decisão do usuário.
+  3) Conferidos: a reserva do Dock termina no topo do vidro (janela maximizada encosta); Tempo com --meu-local abre com a busca aberta; o salvar volta ao caminho inteiro se a original não confirmar a pasta. Travamentos no log do Windows: só de builds de 20/11 (Ajustes e Shell antigos).
+  Compilado e instalado o Shell. DESFAZER: reverter o commit.
