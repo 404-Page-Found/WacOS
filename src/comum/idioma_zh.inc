@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"显示隐藏文件" },
 { L"Arquivos ocultos à mostra", L"已显示隐藏文件" },
 { L"Arquivos ocultos escondidos", L"已隐藏隐藏文件" },
+{ L"Modo do WacOS", L"WacOS 模式" },
+{ L"Completo", L"完整" },
+{ L"Só o Dock e a barra de menus", L"仅程序坞和菜单栏" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"仅程序坞和菜单栏：桌面、文件夹、Alt+Tab、Windows 键、截屏和标题栏都保留 Windows 的。" },

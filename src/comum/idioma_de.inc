@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"Unsichtbare Dateien einblenden" },
 { L"Arquivos ocultos à mostra", L"Unsichtbare Dateien eingeblendet" },
 { L"Arquivos ocultos escondidos", L"Unsichtbare Dateien ausgeblendet" },
+{ L"Modo do WacOS", L"WacOS-Modus" },
+{ L"Completo", L"Vollständig" },
+{ L"Só o Dock e a barra de menus", L"Nur Dock und Menüleiste" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"Nur Dock und Menüleiste: Schreibtisch, Ordner, Alt+Tab, Windows-Taste, Bildschirmfotos und Titelleisten bleiben bei Windows." },

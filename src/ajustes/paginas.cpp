@@ -635,6 +635,27 @@ Page Geral() {
                                       SetSetting(L"finder_padrao", on ? L"1" : L"0");
                                       RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --quieto --padrao " + (on ? L"on" : L"off"));
                                   }, L"Downloads do navegador, \"Mostrar na pasta\" e o Win+E também"),
+                           // Só o Dock e a barra de menus (modo=dock, shell::SoDock): o resto fica com o Windows. Pastas voltam ao
+                           // Explorador (o "Abrir pastas no Finder" de antes é guardado e volta no modo completo). Reinicia o Shell.
+                           Popup(L"Modo do WacOS", { L"Completo", L"Só o Dock e a barra de menus" },
+                                 [] { return Setting(L"modo", L"completo") == L"dock" ? 1 : 0; },
+                                 [](int i) {
+                                     bool dock = i == 1;
+                                     if (dock == (Setting(L"modo", L"completo") == L"dock")) return;
+                                     if (dock) {
+                                         SetSetting(L"finder_padrao_antes", Setting(L"finder_padrao", L"1"));
+                                         SetSetting(L"finder_padrao", L"0");
+                                         RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --quieto --padrao off");
+                                     } else if (Setting(L"finder_padrao_antes", L"1") == L"1") {
+                                         SetSetting(L"finder_padrao", L"1");
+                                         RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --quieto --padrao on");
+                                     }
+                                     SetSetting(L"modo", dock ? L"dock" : L"completo");
+                                     static UINT msg = RegisterWindowMessageW(L"ShellReiniciar");
+                                     HWND sh = FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr);
+                                     if (!sh) sh = FindWindowW(L"ShellMensagens", nullptr);
+                                     if (sh) PostMessageW(sh, msg, 0, 0);
+                                 }),
                            // reinicia só o Shell (barra, Dock, mesa, vidro): o mesmo do "ShellReiniciar" que a atualização usa
                            Button(L"Reiniciar o WacOS", L"Reiniciar", [] {
                                static UINT msg = RegisterWindowMessageW(L"ShellReiniciar");
@@ -644,7 +665,8 @@ Page Geral() {
                                else ShellExecuteW(nullptr, L"open", (BinDir() + L"\\WacOSShell.exe").c_str(), nullptr, nullptr, SW_SHOWNORMAL);  // o Shell não está rodando: abre
                            }, L"Fecha e abre de novo a barra de menus, o Dock, a mesa e o vidro, sem sair do Windows. Os seus apps continuam abertos."),
                            Button(L"Parar de usar o WacOS", L"Desligar…", [] { TurnShellOff(); },
-                                  L"Fecha o Shell e devolve a barra de tarefas e o Explorador do Windows") }, L"WacOS"));
+                                  L"Fecha o Shell e devolve a barra de tarefas e o Explorador do Windows") }, L"WacOS",
+                         L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows."));
     return p;
 }
 

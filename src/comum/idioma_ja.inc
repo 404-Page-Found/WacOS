@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"不可視ファイルを表示" },
 { L"Arquivos ocultos à mostra", L"不可視ファイルを表示しました" },
 { L"Arquivos ocultos escondidos", L"不可視ファイルを隠しました" },
+{ L"Modo do WacOS", L"WacOSのモード" },
+{ L"Completo", L"フル" },
+{ L"Só o Dock e a barra de menus", L"Dockとメニューバーのみ" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"Dockとメニューバーのみ：デスクトップ、フォルダ、Alt+Tab、Windowsキー、スクリーンショット、タイトルバーはWindowsのままです。" },

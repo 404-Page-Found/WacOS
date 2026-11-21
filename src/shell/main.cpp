@@ -530,6 +530,8 @@ static LONG WINAPI OnCrash(EXCEPTION_POINTERS* ep) {
 // Finder reserva: um Arquivos.exe já inicializado e escondido. Abrir uma pasta, o Win+E ou a janela
 // de Abrir/Salvar entregam o pedido a ele (aparece na hora); quando é usado, preparamos outro.
 // Captura de Tela (WacOSScreenshot.exe) sempre aberta e escondida: a mira do Win+Shift+4 aparece na hora
+bool shell::SoDock() { static int v = -1; if (v < 0) v = shell::Setting(L"modo", L"completo") == L"dock" ? 1 : 0; return v == 1; }
+
 static void EnsureScreenshot() {
     static DWORD lastSpawn;
     if (!g_capturaExe || FindWindowW(L"SequoiaCapturaMsg", nullptr)) return;
@@ -820,7 +822,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
     }
     if (m == reload && reload) {  // o Ajustes do Sistema gravou ajustes.txt
-        g_macKeys = shell::Setting(L"atalhos_mac", L"1") == L"1";
+        g_macKeys = !shell::SoDock() && shell::Setting(L"atalhos_mac", L"1") == L"1";
         static int lastLiquid = -1;
         if (lastLiquid < 0) lastLiquid = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On();
         static int lastTheme = -1;  // 0 Sequoia, 1 Tahoe, 2 Golden Gate, 3 Leopard
@@ -1088,32 +1090,35 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     boot::Progress(0.2f);
 
     if (!menubar::Create(hi) || !dock::Create(hi) || !launchpad::Create(hi) || !missioncontrol::Create(hi) || !central::Create(hi) || !spotlight::Create(hi) || !alertas::Create(hi) || !sobre::Create(hi) || !seletor::Create(hi) || !som::Create(hi)) { Log(L"erro criando as janelas"); Restore(); return 1; }
+    // "Só Dock e barra de menus" (Reddit, anybody001): o que não é a barra nem o Dock fica de fora (ver shell::SoDock)
+    const bool soDock = shell::SoDock();
+    if (soDock) Log(L"modo: só Dock e barra de menus (a área de trabalho, o Alt+Tab, as pastas e as barras de título ficam com o Windows)");
     instalados::Start();  // programa instalado ou removido: o Spotlight e o Launchpad releem os apps
     indice::Start();  // índice de arquivos do Spotlight (thread de fundo)
-    revelar::Start();  // clique no vazio da área de trabalho mostra a mesa
-    ponteiro::Start();  // sacudir o mouse: o ponteiro cresce para achar
+    if (!soDock) revelar::Start();  // clique no vazio da área de trabalho mostra a mesa
+    if (!soDock) ponteiro::Start();  // sacudir o mouse: o ponteiro cresce para achar
     ponteiro::TemaLeopard(liquid::Leopard());  // tema Leopard: o cursor do Mac OS X (ou devolve o de antes)
     genio::Create(hi);  // efeito gênio ao minimizar
-    palco::Sync();  // Organizador Visual (Stage Manager), se ligado
-    widgets::Create(hi);  // widgets na mesa (abaixo de todas as janelas)
-    bloqueio::Create(hi);  // tela de bloqueio do Sequoia (Win+L)
+    if (!soDock) palco::Sync();  // Organizador Visual (Stage Manager), se ligado
+    if (!soDock) widgets::Create(hi);  // widgets na mesa (abaixo de todas as janelas)
+    if (!soDock) bloqueio::Create(hi);  // tela de bloqueio do Sequoia (Win+L)
     notificacoes::Create(hi);  // Central de Notificações (clique no relógio da barra de menus)
     ilha::Create(hi);  // Ilha Dinâmica (ajuste ilha=1)
-    notarapida::Create(hi);  // canto inferior direito: Nota Rápida
-    progresso::Create(hi);  // copiar/mover/apagar: a janela de progresso do Finder no lugar da do Windows
-    cantos::Start();         // Cantos Ativos (Mission Control, mesa, Launchpad... por canto)
+    if (!soDock) notarapida::Create(hi);  // canto inferior direito: Nota Rápida
+    if (!soDock) progresso::Create(hi);  // copiar/mover/apagar: a janela de progresso do Finder no lugar da do Windows
+    if (!soDock) cantos::Start();         // Cantos Ativos (Mission Control, mesa, Launchpad... por canto)
     jogo::Start();           // Modo Jogo: jogo na frente desliga o que mais pesa (vidro real, ganchos do mouse...)
     boot::Progress(0.7f);
     tray::Start([] { menubar::Update(); });
-    mesa::Start(hi, g_msg);  // ajuste explorer=0: a mesa é nossa e o explorer.exe sai
+    mesa::Start(hi, g_msg);  // ajuste explorer=0: a mesa é nossa e o explorer.exe sai (só Dock: a do Windows, mas o vigia fica)
     menus::Start();
-    dialogs::Start();
-    janelas::Start();
-    encaixe::Start();  // arrastar até a borda: metade, quarto, preencher (com a prévia)
-    memoria::Start();  // pressão de memória, soneca de apps (App Nap), memória descartável
-    pastas::Start();  // janelas de pasta do Explorador viram o Finder
+    if (!soDock) dialogs::Start();
+    if (!soDock) janelas::Start();
+    if (!soDock) encaixe::Start();  // arrastar até a borda: metade, quarto, preencher (com a prévia)
+    if (!soDock) memoria::Start();  // pressão de memória, soneca de apps (App Nap), memória descartável
+    if (!soDock) pastas::Start();  // janelas de pasta do Explorador viram o Finder
     limites::Start();  // janelas não cruzam a barra de menus nem o Dock
-    sombras::Start();
+    if (!soDock) sombras::Start();
     HideTaskbars();
     SecondaryTaskbarsOff();  // barra do Windows nos outros monitores: desligada enquanto o Shell roda
     shell::ApplyWorkArea();
@@ -1121,12 +1126,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     WM_SHELLHOOK = RegisterWindowMessageW(L"SHELLHOOK");
     RegisterShellHookWindow(g_msg);
     RegisterHotKey(g_msg, 1, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, VK_F12);  // era Q: fácil de apertar sem querer
-    g_fullHook = shell::Setting(L"tecla_windows_launchpad", L"1") == L"1";
-    g_macKeys = shell::Setting(L"atalhos_mac", L"1") == L"1";
-    g_capturaExe = GetFileAttributesW((shell::dir + L"\\" EXE_SCREENSHOT).c_str()) != INVALID_FILE_ATTRIBUTES;
-    EnsureScreenshot();
+    // só Dock: a tecla Windows, o Alt+Tab e a captura de tela ficam com o Windows (o gancho só deixa passar)
+    g_fullHook = !soDock && shell::Setting(L"tecla_windows_launchpad", L"1") == L"1";
+    g_macKeys = !soDock && shell::Setting(L"atalhos_mac", L"1") == L"1";
+    g_capturaExe = !soDock && GetFileAttributesW((shell::dir + L"\\" EXE_SCREENSHOT).c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (!soDock) EnsureScreenshot();
     g_volumeKeys = shell::Setting(L"volume_mac", L"1") == L"1";
-    if (g_fullHook || g_volumeKeys || shell::Setting(L"bloqueio", L"1") != L"0") std::thread(KeyThread).detach();  // sem o Launchpad: só barra teclas com a tela travada
+    if (g_fullHook || g_volumeKeys || (!soDock && shell::Setting(L"bloqueio", L"1") != L"0")) std::thread(KeyThread).detach();  // sem o Launchpad: só barra teclas com a tela travada
     SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT);
     jogo::GanchoPosicao(OnWinEvent, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);  // sai no modo jogo (jogo.cpp)
     SetTimer(g_msg, 1, 1000, nullptr);

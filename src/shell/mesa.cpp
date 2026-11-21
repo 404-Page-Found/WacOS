@@ -1619,6 +1619,7 @@ void Tick() {
     // Sem nenhum Explorador na sessão o Windows não liga o desfoque (transparência): o vidro do Dock, da barra e
     // dos painéis saía preto (13/11/2026, PC ligado direto no Shell). Com o Explorador escondido no fundo, volta.
     std::wstring opt = shell::Setting(L"explorer", L"");
+    if (shell::SoDock()) opt = L"1";  // só Dock e barra de menus: a área de trabalho e os ícones são os do Windows
     bool registered = WinlogonIsOurs();
     bool want0 = opt == L"0";
     g_fundo = opt == L"fundo" || (opt.empty() && registered);
@@ -1719,7 +1720,7 @@ void Tick() {
     if (!g_explorerGoneAt) g_explorerGoneAt = now;
     // explorer=1 com o Shell registrado como shell do Windows (no login o Explorador não abre): abre ele
     static DWORD lastStart;
-    if ((registered || g_fundo) && now - g_explorerGoneAt > 2000 && (!lastStart || now - lastStart > 30000)) {
+    if ((registered || g_fundo || shell::SoDock()) && now - g_explorerGoneAt > 2000 && (!lastStart || now - lastStart > 30000)) {  // só Dock: a área de trabalho é a dele
         lastStart = now;
         if (DeskExists()) DestroyDesk();
         StartExplorer(L"explorer=1 com o Shell registrado");

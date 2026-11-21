@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"Gizli dosyaları göster" },
 { L"Arquivos ocultos à mostra", L"Gizli dosyalar gösteriliyor" },
 { L"Arquivos ocultos escondidos", L"Gizli dosyalar gizlendi" },
+{ L"Modo do WacOS", L"WacOS modu" },
+{ L"Completo", L"Tam" },
+{ L"Só o Dock e a barra de menus", L"Yalnızca Dock ve menü çubuğu" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"Yalnızca Dock ve menü çubuğu: masaüstü, klasörler, Alt+Tab, Windows tuşu, ekran görüntüleri ve başlık çubukları Windows'ta kalır." },

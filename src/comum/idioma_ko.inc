@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"숨김 파일 보기" },
 { L"Arquivos ocultos à mostra", L"숨김 파일 표시됨" },
 { L"Arquivos ocultos escondidos", L"숨김 파일 숨겨짐" },
+{ L"Modo do WacOS", L"WacOS 모드" },
+{ L"Completo", L"전체" },
+{ L"Só o Dock e a barra de menus", L"Dock과 메뉴 막대만" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"Dock과 메뉴 막대만: 데스크탑, 폴더, Alt+Tab, Windows 키, 스크린샷, 제목 막대는 Windows 그대로입니다." },

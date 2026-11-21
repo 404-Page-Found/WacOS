@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"Показывать скрытые файлы" },
 { L"Arquivos ocultos à mostra", L"Скрытые файлы показаны" },
 { L"Arquivos ocultos escondidos", L"Скрытые файлы скрыты" },
+{ L"Modo do WacOS", L"Режим WacOS" },
+{ L"Completo", L"Полный" },
+{ L"Só o Dock e a barra de menus", L"Только Dock и строка меню" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"Только Dock и строка меню: рабочий стол, папки, Alt+Tab, клавиша Windows, снимки экрана и заголовки окон остаются от Windows." },

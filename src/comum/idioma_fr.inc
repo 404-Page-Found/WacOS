@@ -1566,3 +1566,7 @@
 { L"Mostrar Arquivos Ocultos", L"Afficher les fichiers masqués" },
 { L"Arquivos ocultos à mostra", L"Fichiers masqués affichés" },
 { L"Arquivos ocultos escondidos", L"Fichiers masqués cachés" },
+{ L"Modo do WacOS", L"Mode de WacOS" },
+{ L"Completo", L"Complet" },
+{ L"Só o Dock e a barra de menus", L"Dock et barre des menus uniquement" },
+{ L"Só o Dock e a barra de menus: a área de trabalho, as pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de título ficam com o Windows.", L"Dock et barre des menus uniquement : le bureau, les dossiers, Alt+Tab, la touche Windows, les captures et les barres de titre restent ceux de Windows." },

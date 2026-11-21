@@ -599,6 +599,11 @@ namespace shell {
 // barra do Windows (ela é nossa), sem Shell_TrayWnd falsa, sem mesa própria, sem ganchos com DLL nos outros
 // programas, sem TerminateProcess/filtro de falhas (o processo é o explorer).
 extern bool nativo;
+// Modo "Só Dock e barra de menus" (ajuste modo=dock; Ajustes > Geral): só a barra de menus (com Central de Controle,
+// Notificações e Spotlight), o Dock (com Launchpad, gênio e Mission Control). O resto fica com o Windows: a área de
+// trabalho e os ícones dele, o Explorador nas pastas, o Alt+Tab, a tecla Windows, a captura de tela e as barras de
+// título dos outros apps. Lido na partida do Shell (trocar o modo reinicia o Shell).
+bool SoDock();
 // Tira a janela de minimizada. Numa janela de administrador o ShowWindow de fora e recusado pelo Windows (o explorer
 // nao e administrador); o pedido pelo menu de sistema dela (WM_SYSCOMMAND) passa.
 inline void Restaurar(HWND h) { ShowWindow(h, SW_RESTORE); if (IsIconic(h)) PostMessageW(h, WM_SYSCOMMAND, SC_RESTORE, 0); }
