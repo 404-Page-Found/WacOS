@@ -86,6 +86,13 @@ struct Info {
     // e por cima dos botões do app uma faixa da largura medida deles (MedirBarra)
     float patchR = 0;            // largura dos botões do app (pt); 0 = ainda não medida (PATCH_R)
     bool capas = false;          // capas dos cantos à mostra (CapasCantos): os cantos do Finder por cima dos 8 px do DWM
+    // Apps sem o gancho (Discord, Claude, VS Code: a barra é a página do app): o grupo de ícones do começo da linha, que
+    // os botões do Mac cobririam (as setas do Discord), aparece logo depois deles, como no Mac (MedirBarra/Paint); os
+    // cliques nele vão para o lugar de verdade. Posições em px a partir da borda esquerda visível (FrameRect).
+    std::vector<UINT32> chunk;   // a foto do grupo (BGRA, opaca), chunkW × chunkH
+    int chunkW = 0, chunkH = 0, chunkSrc = 0, chunkDst = 0, chunkTop = 0;
+    int barGlyph = 0;            // altura da barra pelo centro dos botões do app (px), quando a medida pela cor erra
+    int barCor = 0;              // a altura medida pela cor (SampleBar), sem a correção  // chunkTop: 1ª linha da foto, a partir do topo
     RECT capasVis{};             // retângulo da última foto do fundo dos cantos
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
@@ -240,6 +247,12 @@ void LightsLayout(Info* in, float& lx0, float& lpitch, float& lr) {
 }
 // largura (pt) da faixa da esquerda na barra própria: só até 6 pt depois do verde (cobre o mínimo do app)
 float PatchL(Info* in) { float lx0, lp, lr; LightsLayout(in, lx0, lp, lr); return lx0 + 2 * lp + lr + 6; }
+// a faixa da esquerda pintada: os botões e, quando há, o grupo movido para depois deles
+float PatchLeft(Info* in) {
+    float w = PatchL(in);
+    if (in->chunkW) w = std::max(w, (in->chunkDst + in->chunkW) / Scale(in->owner) + 4);
+    return w;
+}
 // onde a linha das abas começa (gancho do Chrome): no Chrome do Mac a 1ª aba (com o "pé" curvo) começa ~16 pt depois
 // do verde, a 88 pt da borda; o Chrome ainda põe uns 6 pt dele depois da área reservada (medido no 157 com o ˅ da busca
 // de abas desafixado: com 72 + 10 a aba começava em 94)
@@ -326,7 +339,7 @@ void Paint(Info* in) {
                 rt->FillGeometry(g, b);
                 g->Release();
             };
-            fill(in->leftColor, D2D1::RectF(0, 0, PatchL(in), H), true);
+            fill(in->leftColor, D2D1::RectF(0, 0, PatchLeft(in), H), true);
             fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
             if (in->capas && !IsZoomed(in->owner)) {  // o fio da borda do DWM, que as faixas cobrem nos lados (continua o das capas)
                 int fundo = (int)(INT_PTR)GetPropW(in->owner, L"MacJanelaFundo");
@@ -428,6 +441,17 @@ void Paint(Info* in) {
         b->Release();
         rt->EndDraw();
         rt->Release();
+    }
+    if (in->custom && in->chunkW && bits && !in->chunk.empty()) {  // o grupo de ícones movido para depois dos botões
+        RECT f = FrameRect(in->owner);
+        int ox = (f.left - r.left) + in->chunkDst;
+        auto* px = (UINT32*)bits;
+        int oy = (f.top - r.top) + in->chunkTop;
+        for (int y = 0; y < in->chunkH; y++)
+            for (int x = 0; x < in->chunkW; x++) {
+                int dx = ox + x, dy = oy + y;
+                if (dx >= 0 && dx < w && dy >= 0 && dy < h) px[(size_t)dy * w + dx] = in->chunk[(size_t)y * in->chunkW + x] | 0xFF000000;
+            }
     }
     POINT dst{ r.left, r.top }, src{ 0, 0 };
     SIZE sz{ w, h };
@@ -568,7 +592,8 @@ static bool g_golden;  // lido junto com o Tahoe (TemaTahoe)
 // barra_mac_propria (TemaTahoe). Desligado por padrão desde a build-25: os botões do Mac nos apps de barra própria
 // ainda estão em testes (sessão "macOS Title bar for all apps"); barra_mac_propria=1 liga
 static bool g_propria = false;
-bool BarraPropria() { TemaTahoe(); return g_propria; }
+bool ProvaAbas();  // mais abaixo: o Chrome de teste (--wacos-teste-abas)
+bool BarraPropria() { TemaTahoe(); return g_propria || ProvaAbas(); }  // (o Chrome de teste conta como ligado: as provas continuam)
 bool TemaGolden() { return TemaTahoe() && g_golden; }
 bool TemaTahoe(bool force) {
     static DWORD at; static bool on;
@@ -1217,6 +1242,21 @@ void SampleCaption(Info* in);
 void SampleBar(Info* in);
 void MedirBarra(Info* in);
 
+// clique no grupo movido (ponto na faixa): manda ao app no lugar de verdade do grupo. true = era no grupo
+bool RepassaGrupo(Info* in, POINT p, UINT msg) {
+    if (!in->chunkW) return false;
+    RECT r = BarRect(in), f = FrameRect(in->owner);
+    POINT s{ r.left + p.x, r.top + p.y };  // tela
+    int x0 = f.left + in->chunkDst;
+    if (s.x < x0 || s.x >= x0 + in->chunkW || s.y < f.top + in->chunkTop || s.y >= f.top + in->chunkTop + in->chunkH) return false;
+    POINT a{ s.x - in->chunkDst + in->chunkSrc, s.y };
+    ScreenToClient(in->owner, &a);
+    LPARAM lp = MAKELPARAM(a.x, a.y);
+    if (msg == WM_LBUTTONDOWN) PostMessageW(in->owner, WM_MOUSEMOVE, 0, lp);
+    PostMessageW(in->owner, msg, msg == WM_LBUTTONDOWN ? MK_LBUTTON : 0, lp);
+    return true;
+}
+
 LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Info* in = (Info*)GetWindowLongPtrW(h, GWLP_USERDATA);
     switch (m) {
@@ -1227,7 +1267,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
         if (in->custom) {  // só as duas faixas pintadas; o resto deixa o clique passar para a barra do app (abas, arrastar)
-            if (p.x / sc < PatchL(in)) return HTCLIENT;
+            if (p.x / sc < PatchLeft(in)) return HTCLIENT;
             if (p.x / sc > (r.right - r.left) / sc - PatchR(in)) return HTCLIENT;
             return HTTRANSPARENT;
         }
@@ -1251,7 +1291,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SampleBar(in);
                 // onde ficam os botões: logo ao pegar a janela, depois de mudar de tamanho/ativar, e a cada 8 s ativa
                 // (um grupo de abas novo no Chrome). A foto da faixa de cima custa alguns ms; não mais que isso.
-                if (!in->layoutAt || (in->active && GetTickCount() - in->layoutAt > 8000)) MedirBarra(in);
+                if (!in->layoutAt || (in->active && GetTickCount() - in->layoutAt > (in->chunkW ? 2500u : 8000u))) MedirBarra(in);
             } else SampleCaption(in);
             UpdateShadow(in);
             // logo depois de aparecer ou ativar: relê a cada quadro até a cor firmar; depois, devagar
@@ -1273,11 +1313,16 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     case WM_MOUSELEAVE: if (in) { in->hoverLights = false; in->press = -1; Paint(in); } RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); return 0;
-    case WM_LBUTTONDOWN: RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); if (in) { POINT p{ (short)LOWORD(l), (short)HIWORD(l) }; in->press = HitLight(in, p); SetCapture(h); } return 0;
+    case WM_LBUTTONDOWN: RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); if (in) {
+            POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
+            if (RepassaGrupo(in, p, WM_LBUTTONDOWN)) { in->press = 100; return 0; }
+            in->press = HitLight(in, p); SetCapture(h);
+        } return 0;
     case WM_LBUTTONUP: {
         ReleaseCapture();
         if (!in) return 0;
         POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
+        if (in->press == 100) { RepassaGrupo(in, p, WM_LBUTTONUP); in->press = -1; in->layoutAt = 0; SetTimer(h, 1, 350, nullptr); return 0; }
         int k = HitLight(in, p);
         if (k >= 0 && k == in->press) {
             if (k == 0) PostMessageW(in->owner, WM_SYSCOMMAND, SC_CLOSE, 0);
@@ -1466,6 +1511,8 @@ void SampleBar(Info* in) {
     SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem); ReleaseDC(nullptr, screen);
     UINT32 left = count.empty() ? right : std::max_element(count.begin(), count.end(), [](auto& a, auto& b) { return a.second < b.second; })->first;
     barH = std::clamp(barH, (int)(30 * sc), (int)(48 * sc));  // mínimo 30 pt: a barra preta do Discord media 20 e a faixa não cobria o pé dos botões dele
+    in->barCor = barH;
+    if (in->barGlyph) barH = in->barGlyph;  // a medida pelos botões do app vale mais (MedirBarra)
     COLORREF L = col(left), R = col(right);
     if (L == in->leftColor && R == in->rightColor && barH == in->barH) return;
     if (barH != in->barH) in->layoutAt = 0;  // outra altura de barra: mede de novo onde ficam os botões
@@ -1478,6 +1525,7 @@ void SampleBar(Info* in) {
 // decidir: (1) o canto esquerdo, onde iriam os botões do Mac, está vazio (só a cor da barra)? (2) qual a largura dos
 // três botões do app à direita (Chrome/Edge/Claude 46 pt cada, Discord ~36 pt)? A faixa da direita cobria 144 pt fixos
 // e escondia o "?" do Discord e o "Compartilhar" do Claude; a da esquerda escondia os grupos de abas do Chrome.
+static void** g_lpSlot;  // o gancho das abas do Chrome está posto (GanchoAbas, mais abaixo)
 static float g_ultimoPatch = 0;  // a última medida neste processo (a próxima janela do Chrome já nasce com ela)
 void MedirBarra(Info* in) {
     HWND h = in->owner;
@@ -1524,9 +1572,12 @@ void MedirBarra(Info* in) {
             std::vector<std::pair<int, int>> gr;  // [começo, fim] de cada grupo, da direita para a esquerda
             bool ink = false; int end = 0;
             int lim = std::max(x0, x1 - (int)(240 * sc));
+            // só nos 30 pt de cima: com a barra medida alta demais (48 pt no Discord) entrava o traço que separa a barra do
+            // conteúdo, de ponta a ponta, e os três botões viravam um grupo só
+            int yg = std::min(yb, y0 + (int)(30 * sc));
             for (int x = x1 - 2; x >= lim; x--) {
                 bool any = false;
-                for (int y = ya; y < yb && !any; y++) any = dist(at(x, y), bg) > 40;
+                for (int y = ya; y < yg && !any; y++) any = dist(at(x, y), bg) > 40;
                 if (any && !ink) { ink = true; end = x; }
                 else if (!any && ink) { ink = false; gr.push_back({ x + 1, end }); if (gr.size() == 3) break; }
             }
@@ -1534,9 +1585,52 @@ void MedirBarra(Info* in) {
             if (gr.size() == 3) {
                 float c0 = (gr[0].first + gr[0].second) / 2.f, c1 = (gr[1].first + gr[1].second) / 2.f, c2 = (gr[2].first + gr[2].second) / 2.f;
                 float p1 = c0 - c1, p2 = c1 - c2;
-                if (std::fabs(p1 - p2) <= 4 * sc && p1 >= 24 * sc && p1 <= 64 * sc) pr = ((x1 - c2) + p1 / 2) / sc + 2;
+                if (std::fabs(p1 - p2) <= 4 * sc && p1 >= 24 * sc && p1 <= 64 * sc) {
+                    pr = ((x1 - c2) + p1 / 2) / sc + 2;
+                    // a barra do app tem os botões dele no meio: o centro do desenho deles diz a altura da barra. A medida
+                    // pela cor (SampleBar) descia até 48 pt no Discord (o que vem embaixo da barra também é preto) e os
+                    // botões do Mac ficavam 8 px abaixo das setas dele
+                    int ymin = INT_MAX, ymax = -1;
+                    for (int x = gr[2].first; x <= gr[0].second; x++)
+                        for (int y = ya; y < yg; y++) if (dist(at(x, y), bg) > 40) { ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
+                    if (ymax >= 0) {
+                        int c = (ymin + ymax) / 2 - y0, want = std::max((int)(20 * sc), 2 * c + 1);
+                        int ref = in->barCor ? in->barCor : in->barH;
+                        int nb = std::abs(ref / 2 - c) > (int)(4 * sc) ? want : 0;
+                        if (nb != in->barGlyph) { in->barGlyph = nb; if (nb) in->barH = nb; PlaceOverlay(in); }
+                    }
+                }
             }
             if (pr > 0 && std::fabs(pr - in->patchR) >= 1) { in->patchR = pr; g_ultimoPatch = pr; PlaceOverlay(in); }
+            // (3) sem o gancho (a barra é a página do app): o grupo de ícones que começa debaixo dos botões do Mac e
+            // termina num vão de 24 pt anda para depois deles, se lá estiver vazio
+            int oldW = in->chunkW, oldDst = in->chunkDst;
+            std::vector<UINT32> oldChunk; oldChunk.swap(in->chunk);
+            in->chunkW = 0;
+            if (!g_lpSlot) {
+                // só numa faixa de ±10 pt em volta do centro dos botões: a barra medida (mín. 30 pt) pegava o topo da caixa de
+                // busca e do ícone do Discord, logo abaixo da barra dele, e o lugar de destino parecia ocupado
+                int cy = y0 + (int)(LightsY(in, bh / sc) * sc), ba = std::max(ya, cy - (int)(10 * sc)), bb = std::min(yb, cy + (int)(10 * sc));
+                auto ink = [&](int x) { for (int y = ba; y < bb; y++) if (dist(at(x, y), bg) > 40) return true; return false; };
+                int lights = (int)(PatchL(in) * sc), s0 = -1;
+                for (int x = x0 + 1; x < std::min(x1, x0 + lights); x++) if (ink(x)) { s0 = x; break; }
+                if (s0 >= 0) {
+                    int need = (int)(24 * sc), e0 = s0, gap = 0, x = s0;
+                    for (; x < std::min(x1, x0 + (int)(220 * sc)); x++) { if (ink(x)) { e0 = x; gap = 0; } else if (++gap >= need) break; }
+                    int cw = e0 - s0 + 1 + (int)(4 * sc);  // com uma folga em volta
+                    int src = std::max(x0, s0 - (int)(2 * sc)), dst = x0 + lights + (int)(2 * sc);
+                    // vazio só precisa estar o que fica além do fim do grupo (o lugar antigo a faixa cobre de qualquer jeito)
+                    bool livre = gap >= need && dst + cw + need / 2 < x1;
+                    for (int xx = std::max(dst, e0 + 1); livre && xx < dst + cw + need / 2; xx++) if (ink(xx)) livre = false;
+                    int ch = bb - ba;
+                    if (livre && ch > 0) {
+                        in->chunk.resize((size_t)cw * ch);
+                        for (int y = 0; y < ch; y++) for (int xx = 0; xx < cw; xx++) in->chunk[(size_t)y * cw + xx] = at(src + xx, ba + y);
+                        in->chunkW = cw; in->chunkH = ch; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ba - y0;
+                    }
+                }
+            }
+            if (in->chunkW != oldW || in->chunkDst != oldDst || in->chunk != oldChunk) PlaceOverlay(in);
         }
     }
     SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
@@ -1558,7 +1652,6 @@ static const GanchoChromium g_ganchos[] = {
 };
 using LayoutParamsFn = void* (__fastcall*)(void* self, void* out);
 static LayoutParamsFn g_lpOrig;
-static void** g_lpSlot;
 static volatile float g_leadW;  // largura (pt = DIP) dos botões do Mac no começo da linha
 // BrowserLayoutParams: gfx::Rect visual_client_area (0x00), leading_exclusion { SizeF content; float hpad, vpad } (0x10),
 // trailing_exclusion (0x20). Em floats: [4] largura e [5] altura do começo, [9] altura do fim.
@@ -1576,6 +1669,11 @@ static void* __fastcall LayoutParamsHook(void* self, void* out) {
     return r;
 }
 // liga (true) ou desfaz (false). true: o gancho está posto (agora ou antes)
+// O ˅ da busca de abas (TabStripComboButton) não muda de lado: na linha horizontal do Chrome 157 para Windows ele é o
+// primeiro filho da área das abas, numa ordem fixa na compilação (no Mac é compilado no fim). O tabs::GetTabSearchPosition
+// só diz se as abas estão na horizontal (0) ou na vertical (1) (testado 21/11/2026). Saída: desafixar (clique direito).
+bool ProvaAbas() { return wcsstr(GetCommandLineW(), L"--wacos-teste-abas") != nullptr; }  // PROVA: só no Chrome de teste
+
 bool GanchoAbas(bool on) {
     if (!on) {
         if (g_lpSlot && *g_lpSlot == (void*)&LayoutParamsHook) {
@@ -1590,7 +1688,7 @@ bool GanchoAbas(bool on) {
     }
     if (g_lpSlot) return *g_lpSlot == (void*)&LayoutParamsHook;
     // PROVA (21/11/2026): só no Chrome de teste aberto com --wacos-teste-abas; o Chrome do usuário fica como está
-    if (!wcsstr(GetCommandLineW(), L"--wacos-teste-abas")) return false;
+    if (!ProvaAbas()) return false;
     for (const auto& e : g_ganchos) {
         auto* base = (BYTE*)GetModuleHandleW(e.dll);
         if (!base) continue;
