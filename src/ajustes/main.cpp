@@ -1267,7 +1267,7 @@ const int H_SHOWALL = 1000;  // acerto do botão "Mostrar Todos" (fora do enum p
 struct LeoCat { const wchar_t* name; std::vector<std::wstring> ids; };
 const std::vector<LeoCat>& LeoCats() {
     static const std::vector<LeoCat> cats = {
-        { L"Pessoal", { L"aparencia", L"fundo", L"protetor", L"dock", L"central", L"geral", L"spotlight" } },
+        { L"Pessoal", { L"aparencia", L"fundo", L"protetor", L"dock", L"central", L"ilha", L"geral", L"spotlight" } },
         { L"Hardware", { L"telas", L"som", L"energia", L"teclado", L"mouse", L"trackpad", L"impressoras", L"bluetooth" } },
         { L"Internet e Rede", { L"rede", L"wifi", L"contas", L"nuvem", L"jogos" } },
         { L"Sistema", { L"usuarios", L"privacidade", L"senha", L"bloqueio", L"acessibilidade", L"inteligencia", L"notificacoes", L"foco", L"tempo" } },

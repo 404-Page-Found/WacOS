@@ -60,7 +60,7 @@ const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, T
 enum Style { S_NOTCH, S_ILHA, S_AVISO };
 enum Mode { M_HIDDEN, M_IDLE, M_MEDIA, M_TIMER, M_HUD, M_PEEK, M_OPEN };
 enum Tab { TAB_HOME, TAB_TIMER, TAB_CLIP, TAB_SHELF, TAB_STATS, TAB_N };
-enum HudKind { HUD_VOL, HUD_CAPS, HUD_BAT };
+enum HudKind { HUD_VOL, HUD_CAPS, HUD_BAT, HUD_COPY };
 
 // medidas em pt
 const float WMAX = 470, HMAX = 210;   // a janela: o maior tamanho (aberta) com folga para a mola e a sombra
@@ -88,7 +88,9 @@ struct Spr {
 
 HWND g_wnd;
 ui::GpuSurface g_s;
-bool g_on, g_notesOn, g_volOn, g_hoverOpen;
+bool g_on, g_notesOn, g_volOn, g_hoverOpen, g_copyOn;
+bool g_copyFiles;            // o aviso "Copiado" é de arquivos (CF_HDROP)
+DWORD g_copyAt;              // última vez que mostrou (apps que regravam a área de transferência em rajada)
 Style g_style = S_NOTCH;
 float g_barPt = 24;          // altura da barra de menus (pt)
 bool g_full;                 // app em tela cheia no monitor principal (ou tela travada): some
@@ -156,7 +158,7 @@ ULONGLONG g_lastIdle, g_lastKern, g_lastUser; double g_lastNetAt;
 
 // ---- interação
 enum HitId { H_NONE, H_TAB, H_GEAR, H_PREV, H_PLAY, H_NEXT, H_SHUF, H_OUT, H_SEEK, H_ART, H_PRESET, H_TPAUSE, H_TSTOP, H_TPLUS,
-             H_CLIP, H_CLIPCLR, H_SHELF, H_SHELFCLR };
+             H_CLIP, H_CLIPCLR, H_SHELF, H_SHELFCLR, H_TMINUS };
 struct Hit { HitId id; D2D1_RECT_F r; int arg = 0; };
 std::vector<Hit> g_hits;
 HitId g_hoverHit = H_NONE; int g_hoverArg = -1;
@@ -414,6 +416,14 @@ void PrivacyThread() {
         WaitForMultipleObjects(2, ev, FALSE, INFINITE);
         Sleep(150);  // o app grava início/fim em seguida: lê uma vez só
     }
+}
+
+// a vigia começa uma vez só: pela ilha (ligada) ou pela barra de menus (a bolinha entre a Central e o relógio)
+void StartPrivacy() {
+    static bool started;
+    if (started || !g_wnd) return;
+    started = true;
+    std::thread(PrivacyThread).detach();
 }
 
 // ================= downloads concluídos (pasta Downloads, ReadDirectoryChangesW)
@@ -719,15 +729,19 @@ Mode Want() {
 }
 
 struct Size { float w, h, rt, rb; };
+// Larguras com atividade (issue #8: "alarga demais"): no PC não há entalhe de verdade escondendo o meio, então o que
+// as asas mostravam (capa, barrinhas, tempo, volume) cabe dentro do corpo; a ilha cresce só uns pontos (antes +80 com
+// música/timer e +132 com o volume no notch; na pílula, de 112 para 232/244).
+const float WING_ACT = 12, WING_HUD = 18;
 Size SizeOf(Mode m) {
-    float priv = g_priv ? 24.f : 0.f;  // ponto verde/laranja na asa direita
+    float priv = g_priv ? 16.f : 0.f;  // ponto verde/laranja na ponta direita
     if (Notch()) {
         const float H = g_barPt;
         if (liquid::Leopard()) {  // o HUD do 10.5 pendurado reto da barra (sem as orelhas do entalhe moderno), cantos de painel 6/10
             switch (m) {
             case M_IDLE:  return { NOTCH_W + priv, H, 0, 6 };
-            case M_MEDIA: case M_TIMER: return { NOTCH_W + 2 * 40 + priv, H, 0, 6 };
-            case M_HUD:   return { NOTCH_W + 2 * 66, H, 0, 6 };
+            case M_MEDIA: case M_TIMER: return { NOTCH_W + 2 * WING_ACT + priv, H, 0, 6 };
+            case M_HUD:   return { NOTCH_W + 2 * WING_HUD, H, 0, 6 };
             case M_PEEK:  return { 320, H + 50, 0, 10 };
             case M_OPEN:  return { OPEN_W, H + BODY_H, 0, 10 };
             default:      return { NOTCH_W * 0.7f, H * 0.5f, 0, 4 };
@@ -735,8 +749,8 @@ Size SizeOf(Mode m) {
         }
         switch (m) {
         case M_IDLE:  return { NOTCH_W + priv, H, 6, 9 };
-        case M_MEDIA: case M_TIMER: return { NOTCH_W + 2 * 40 + priv, H, 6, 9 };
-        case M_HUD:   return { NOTCH_W + 2 * 66, H, 6, 9 };
+        case M_MEDIA: case M_TIMER: return { NOTCH_W + 2 * WING_ACT + priv, H, 6, 9 };
+        case M_HUD:   return { NOTCH_W + 2 * WING_HUD, H, 6, 9 };
         case M_PEEK:  return { 320 + 2 * 12, H + 50, 12, 20 };
         case M_OPEN:  return { OPEN_W + 2 * 19, H + BODY_H, 19, 24 };  // largura com as orelhas (Atoll: 19 em cima, 24 embaixo)
         default:      return { NOTCH_W * 0.7f, H * 0.5f, 4, 6 };
@@ -744,8 +758,8 @@ Size SizeOf(Mode m) {
     }
     switch (m) {
     case M_IDLE:  return { 112 + priv, PILL_H, 11, 11 };
-    case M_MEDIA: case M_TIMER: return { 232 + priv, PILL_H, 11, 11 };
-    case M_HUD:   return { 244, PILL_H, 11, 11 };
+    case M_MEDIA: case M_TIMER: return { 150 + priv, PILL_H, 11, 11 };
+    case M_HUD:   return { 176, PILL_H, 11, 11 };
     case M_PEEK:  return { 320, 54, 20, 20 };
     case M_OPEN: {  // cantos do cartão por tema: Golden Gate maiores (macOS 27), Leopard o HUD do 10.5
         float r = liquid::Golden() ? 30.f : liquid::Leopard() ? 12.f : 24.f;
@@ -1142,8 +1156,29 @@ void DrawTimer(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F b, 
     Sym(dc, br, L"timer", Around(c.x, c.y, 18, 18), ORANGE);
     float x = c.x + 44;
     Text(dc, br, Clock(left / 1000), g_tfBig, D2D1::RectF(x, y0 + 4, R, y0 + 42), g_tPaused ? GRAY : WHITE);
-    float by = y0 + 62;
-    D2D1_RECT_F rp = D2D1::RectF(x, by - 14, x + 28, by + 14), rs = D2D1::RectF(x + 36, by - 14, x + 64, by + 14), r1 = D2D1::RectF(x + 72, by - 13, x + 130, by + 13);
+    {   // embaixo do tempo: a que horas termina (como o Timer do iPhone) ou "Pausado"
+        std::wstring sub;
+        if (g_tPaused) sub = Tr(L"Pausado");
+        else {
+            SYSTEMTIME st; GetLocalTime(&st);
+            FILETIME ft; SystemTimeToFileTime(&st, &ft);
+            ULARGE_INTEGER u{ { ft.dwLowDateTime, ft.dwHighDateTime } };
+            u.QuadPart += (ULONGLONG)(left * 10000.0);
+            ft = { u.LowPart, u.HighPart };
+            SYSTEMTIME end; FileTimeToSystemTime(&ft, &end);
+            wchar_t hm[64] = {};
+            GetTimeFormatEx(idioma::Locale(), TIME_NOSECONDS, &end, nullptr, hm, 64);
+            wchar_t b2[160]; swprintf_s(b2, Tr(L"Termina às %ls"), hm);
+            sub = b2;
+        }
+        Text(dc, br, sub, g_tfSmall, D2D1::RectF(x + 2, y0 + 40, R, y0 + 52), g_tPaused ? ORANGE : GRAY);
+    }
+    float by = y0 + 70;
+    D2D1_RECT_F rp = D2D1::RectF(x, by - 14, x + 28, by + 14), rs = D2D1::RectF(x + 36, by - 14, x + 64, by + 14), r1 = D2D1::RectF(x + 128, by - 13, x + 180, by + 13);
+    D2D1_RECT_F rm = D2D1::RectF(x + 72, by - 13, x + 122, by + 13);
+    Chip(dc, br, rm, ChipR(26), Hover(H_TMINUS) ? 1.f : 0.f);
+    Text(dc, br, L"−1 min", g_tfChip, rm, left > 61000 ? WHITE : GRAY);
+    AddHit(H_TMINUS, rm);
     Chip(dc, br, rp, 14, Hover(H_TPAUSE) ? 1.f : 0.f);
     if (g_tPaused) Sym(dc, br, L"play.fill", Around(x + 15, by, 10, 11), ORANGE);
     else Sym(dc, br, L"pause.fill", Around(x + 14, by, 9, 11), ORANGE);
@@ -1273,8 +1308,12 @@ void DrawContent(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, Mode m, doubl
     case M_MEDIA:
     case M_TIMER: {
         if (m == M_MEDIA) DrawArt(dc, br, D2D1::RectF(wingL, cy - 8, wingL + 16, cy + 8), g_theme == TH_LEOPARD ? 2.5f : 4.f);
-        else Sym(dc, br, L"timer", D2D1::RectF(wingL, cy - 7.5f, wingL + 15, cy + 7.5f), ORANGE);
-        if (g_tRun) Text(dc, br, Clock(TimerLeft() / 1000), g_tfWingR, D2D1::RectF(wingR - 60, cy - 8, wingR, cy + 8), ORANGE);
+        else {  // fechada: o anel do que falta em volta do ícone do timer (a contagem anda à vista, não só os números)
+            Ring(dc, br, { wingL + 8, cy }, 8, g_tTotal > 0 ? (float)(TimerLeft() / g_tTotal) : 0, 1.6f);
+            if (g_tPaused) Sym(dc, br, L"pause.fill", D2D1::RectF(wingL + 5, cy - 3.5f, wingL + 11, cy + 3.5f), GRAY);
+            else Sym(dc, br, L"timer", D2D1::RectF(wingL + 3, cy - 5, wingL + 13, cy + 5), ORANGE);
+        }
+        if (g_tRun) Text(dc, br, Clock(TimerLeft() / 1000), g_tfWingR, D2D1::RectF(wingR - 60, cy - 8, wingR, cy + 8), g_tPaused ? GRAY : ORANGE);
         else DrawBars(dc, br, D2D1::RectF(wingR - 18, cy - 6, wingR, cy + 6));
         DrawPrivDot(dc, br, closedBox);
         break;
@@ -1285,10 +1324,13 @@ void DrawContent(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, Mode m, doubl
             const float v = g_mute ? 0 : g_vol;
             const wchar_t* s = g_mute || v < 0.001f ? L"speaker.slash.fill" : v < 0.34f ? L"speaker.wave.1.fill" : v < 0.67f ? L"speaker.wave.2.fill" : L"speaker.wave.3.fill";
             Sym(dc, br, s, D2D1::RectF(wingL + 2, cy - 5.5f, wingL + 19, cy + 5.5f), WHITE);
-            DrawProgressT(dc, br, D2D1::RectF(rr - 84, cy - 2, rr, cy + 2), v);
+            DrawProgressT(dc, br, D2D1::RectF(std::max(rr - 120, wingL + 28), cy - 2, rr, cy + 2), v);
         } else if (g_hud == HUD_CAPS) {
             Glyph(dc, br, 0xE765, g_tfIconS, D2D1::RectF(wingL, cy - 9, wingL + 22, cy + 9), g_caps ? GREEN : GRAY);
             Text(dc, br, g_caps ? L"Caps Lock" : Tr(L"Caps Lock desligado"), g_tfWingR, D2D1::RectF(rr - 130, cy - 8, rr, cy + 8), g_caps ? GREEN : GRAY);
+        } else if (g_hud == HUD_COPY) {  // "Copiado" (issue #8): o visto verde e o texto, rapidinho
+            Sym(dc, br, g_copyFiles ? L"folder.fill" : L"checkmark", D2D1::RectF(wingL + 2, cy - 6, wingL + 16, cy + 6), GREEN);
+            Text(dc, br, Tr(L"Copiado"), g_tfWingR, D2D1::RectF(rr - 120, cy - 8, rr, cy + 8), WHITE);
         } else {
             Sym(dc, br, g_batAC ? L"bolt.fill" : L"battery.50percent", D2D1::RectF(wingL + 2, cy - 6.5f, wingL + (g_batAC ? 12 : 24), cy + 6.5f), g_batAC ? GREEN : g_batPct <= 20 ? RED : WHITE);
             Text(dc, br, std::to_wstring(g_batPct) + L"%", g_tfWingR, D2D1::RectF(rr - 60, cy - 8, rr, cy + 8), g_batAC ? GREEN : g_batPct <= 20 ? RED : WHITE);
@@ -1596,7 +1638,7 @@ void SetTab(int t) {
 void ClickHit(const Hit& h, D2D1_POINT_2F p) {
     switch (h.id) {
     case H_TAB: SetTab(h.arg); break;
-    case H_GEAR: Close(); shell::OpenSettings(L"central"); break;
+    case H_GEAR: Close(); shell::OpenSettings(L"ilha"); break;  // a página própria da ilha (issue #8)
     case H_PLAY: g_m.playing = !g_m.playing; MediaCmd(1); break;  // já mostra o novo estado; o evento confirma
     case H_NEXT: MediaCmd(2); break;
     case H_PREV: MediaCmd(3); break;
@@ -1624,6 +1666,9 @@ void ClickHit(const Hit& h, D2D1_POINT_2F p) {
     case H_TPLUS:
         if (g_tPaused) g_tLeft += 60000; else g_tEnd += 60000;
         g_tTotal = std::max(g_tTotal, TimerLeft());
+        break;
+    case H_TMINUS:  // −1 min (só se sobra mais de um minuto: tirar até zero é o "parar")
+        if (TimerLeft() > 61000) { if (g_tPaused) g_tLeft -= 60000; else g_tEnd -= 60000; }
         break;
     case H_CLIP:
         if (h.arg < (int)g_clips.size()) { CopyText(g_clips[h.arg]); g_flashClip = h.arg; g_flashAt = anim::Now(); SetTimer(g_wnd, TM_TICK + 100, 1250, nullptr); }
@@ -1661,7 +1706,11 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_IL_PRIV:
-        if ((int)w != g_priv) { g_priv = (int)w; Log(L"ilha: microfone %d câmera %d", g_priv & 1, (g_priv >> 1) & 1); Update(); if (!g_running) Paint(); }
+        if ((int)w != g_priv) {
+            g_priv = (int)w; Log(L"ilha: microfone %d câmera %d", g_priv & 1, (g_priv >> 1) & 1);
+            menubar::Update();  // a bolinha da barra de menus (issue #8)
+            Update(); if (!g_running) Paint();
+        }
         return 0;
     case WM_IL_DOWN: {
         std::wstring* p = (std::wstring*)l;
@@ -1679,7 +1728,18 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_IL_CAPS: SetTimer(h, TM_CAPS, 40, nullptr); return 0;  // o Windows ainda não trocou o estado da tecla
     case WM_CLIPBOARDUPDATE:
         if (g_selfCopy) { g_selfCopy = false; return 0; }
-        if (g_on) { ReadClipboard(); if (g_mode == M_OPEN && g_tab == TAB_CLIP && !g_running) Paint(); }
+        if (g_on) {
+            ReadClipboard(); if (g_mode == M_OPEN && g_tab == TAB_CLIP && !g_running) Paint();
+            // aviso rápido "Copiado" (texto, imagem ou arquivos), menos quando a ilha está aberta ou mostrando outra coisa
+            // por cima (espiada); rajadas do mesmo app (alguns regravam várias vezes) contam uma vez só
+            bool any = IsClipboardFormatAvailable(CF_UNICODETEXT) || IsClipboardFormatAvailable(CF_HDROP) ||
+                       IsClipboardFormatAvailable(CF_DIB) || IsClipboardFormatAvailable(CF_BITMAP);
+            if (g_copyOn && any && !g_full && !g_peekOn && g_mode != M_OPEN && GetTickCount() - g_copyAt > 700) {
+                g_copyAt = GetTickCount();
+                g_copyFiles = IsClipboardFormatAvailable(CF_HDROP) != FALSE;
+                ShowHud(HUD_COPY, 1300);
+            }
+        }
         return 0;
     case WM_POWERBROADCAST:
         if (w == PBT_APMPOWERSTATUSCHANGE && g_on) {
@@ -1696,7 +1756,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         switch (w) {
         case TM_EQ: StepBars(); if (!g_running) Paint(); UpdateTimers(); break;
-        case TM_HOVER: KillTimer(h, TM_HOVER); if (g_hoverIn && g_mode != M_OPEN && g_mode != M_PEEK) { g_openOn = true; Update(); } break;
+        case TM_HOVER: KillTimer(h, TM_HOVER); if (g_hoverIn && g_mode != M_OPEN && g_mode != M_PEEK) { if (g_mode == M_TIMER) g_tab = TAB_TIMER; g_openOn = true; Update(); } break;
         case TM_LEAVE: KillTimer(h, TM_LEAVE); if (!g_hoverIn && !g_dragIn) { Log(L"ilha: ponteiro saiu, fecha"); Close(); if (g_peekOn) SetTimer(h, TM_PEEK, 1500, nullptr); } break;
         case TM_PEEK: KillTimer(h, TM_PEEK); if (g_hoverIn && g_mode == M_PEEK) break; g_peekOn = false; g_peek = {}; Update(); break;
         case TM_HUD: KillTimer(h, TM_HUD); g_hudOn = false; Update(); break;
@@ -1869,6 +1929,7 @@ void ilha::Reload() {
     Style ns = st == L"ilha" ? S_ILHA : st == L"notificacao" ? S_AVISO : S_NOTCH;
     g_notesOn = shell::Setting(L"ilha_notificacoes", L"1") != L"0";
     g_volOn = shell::Setting(L"ilha_volume", L"1") != L"0";
+    g_copyOn = shell::Setting(L"ilha_copiado", L"1") != L"0";
     g_hoverOpen = shell::Setting(L"ilha_passar", L"1") != L"0";
     if (Theme th = ThemeNow(); th != g_theme) { g_theme = th; MakeFonts(); Log(L"ilha: tema %d", (int)th); }
     if (g_on) {
@@ -1876,7 +1937,7 @@ void ilha::Reload() {
         static bool threads;
         if (!threads) {  // microfone/câmera, downloads e a área de transferência: só depois de ligar a ilha
             threads = true;
-            std::thread(PrivacyThread).detach();
+            StartPrivacy();
             std::thread(DownloadsThread).detach();
             AddClipboardFormatListener(g_wnd);
         }
@@ -1977,3 +2038,6 @@ bool ilha::Volume(float level, bool mute) {
 void ilha::CapsLock() { if (g_wnd && g_on) PostMessageW(g_wnd, WM_IL_CAPS, 0, 0); }
 
 bool ilha::On() { return g_on; }
+
+// microfone/câmera em uso (1 microfone, 2 câmera) para a barra de menus; a 1ª chamada começa a vigiar o registro
+int ilha::Privacidade() { StartPrivacy(); return g_priv; }

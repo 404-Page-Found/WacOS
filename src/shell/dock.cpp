@@ -30,6 +30,7 @@ int g_vidroCor = 0;          // dock_cor: 0 automática, 1 clara, 2 escura, 3 co
 bool g_mostraSep = true;     // dock_separador: a divisória antes de Downloads e da Lixeira
 bool g_mostraLaunchpad = true;  // dock_launchpad: o Launchpad logo depois do Finder
 int g_indicador = 0;         // dock_indicador: 0 ponto, 1 traço
+bool g_minNoIcone = false;   // dock_minimizar_no_icone (issue #8): minimizada vai para o ícone do app, sem miniatura no Dock
 bool g_rotulos = true;       // dock_rotulos: o nome do app ao passar o ponteiro
 bool g_sepHover, g_resizing;  // separador: arrastar para cima/baixo muda o tamanho (como no Mac)
 LONG g_resizeY;
@@ -320,6 +321,7 @@ void BuildItems() {
     for (HWND h : g_minOrder) if (inMins(h) >= 0 || g_leave.count(h)) keep.push_back(h);
     for (auto& [mh, ai] : mins) if (std::find(keep.begin(), keep.end(), mh) == keep.end()) keep.push_back(mh);
     g_minOrder = keep;
+    if (g_minNoIcone) g_minOrder.clear();  // no ícone do app: sem miniaturas (as que havia saem e soltam a miniatura do DWM)
     for (HWND h : g_minOrder) {
         int ai = inMins(h);
         Item it{ I_MINWIN, ai >= 0 ? ai : g_leave[h].second }; it.win = h; it.leaving = ai < 0;
@@ -607,11 +609,14 @@ ID2D1Bitmap* IconBitmap(ID2D1RenderTarget* rt, App& a) {
             }
         }
     }
+    // O cache é por id, mas o App pode ser novo (o app fechou e abriu de novo rapidinho: a lista dos abertos recria a
+    // entrada com a.mac = false e sem ícone). Sem reler, o desenho do pacote (que tem margem) saía na medida dos ícones
+    // do Windows (ART_WIN) e o ícone ficava pequeno até o próximo recarregar (issue #8). EnsureIcon antes acerta o a.mac.
+    if (a.icon.empty()) apps::EnsureIcon(a, (int)std::lround(std::min(256.f, g_large * Sc())));  // só a 1ª vez (ícone do Windows pequeno releria a cada quadro)
     bool jail = TAHOE_DOCK && !a.mac && !a.finder && shell::Setting(L"dock_icones_cinza", L"1") == L"1";
     std::wstring st = ui::IconStyle(), key = ui::IconStyleKey() + (jail ? L"|j:" : L":") + a.id;  // Tahoe: estilo dos ícones (Escuro, Transparente, Tingido)
     auto it = g_bmps.find(key);
     if (it != g_bmps.end()) return it->second;
-    apps::EnsureIcon(a, (int)std::lround(std::min(256.f, g_large * Sc())));
     ID2D1Bitmap* b = nullptr;
     std::vector<BYTE> base = a.icon;
     if (jail && !IsTileShaped(a.iw, a.ih, base)) base = Jail(a.iw, a.ih, base, st == L"escuro");
@@ -1275,9 +1280,9 @@ int ShowMenu(int itemIndex, const std::vector<ctxmenu::Item>& items) {
     float sc = Sc();
     POINT pt = ToScreen(g_items[itemIndex].cx, g_bg.top - 8);
     if (!Vert()) {
-        pt.x -= (LONG)std::lround(60 * sc);
-        // o menu abre para cima: ajusta pela altura aproximada
-        pt.y -= (LONG)std::lround(items.size() * 22 * sc + 12 * sc);
+        // embaixo: o menu abre para cima, centrado no ícone, com a borda de baixo a 8 pt do Dock (como no Mac). A altura
+        // de verdade vem do próprio menu (antes: 22 pt por linha contando os separadores, e o menu ficava alto demais)
+        ctxmenu::AboveNext();
     } else  // dos lados: ao lado do ícone, centrado nele (à direita o menu vira para a esquerda sozinho: não cabe)
         pt.y -= (LONG)std::lround((items.size() * 22 * sc + 12 * sc) / 2);
     SetForegroundWindow(g_owner);
@@ -1431,7 +1436,7 @@ void ContextMenu(int i) {
 void BackgroundMenu() {
     POINT c; GetCursorPos(&c);
     SetForegroundWindow(g_owner);
-    if (!Vert()) c.y -= 120;
+    if (!Vert()) { c.y = ToScreen(0, g_bg.top - 8).y; ctxmenu::AboveNext(); }  // como o menu dos ícones: logo acima do Dock
     std::wstring tema = shell::Setting(L"tema", L"auto");
     int id = ctxmenu::ShowItems(g_owner, c, { MI(Tr(L"Ativar Ocultação"), 1, g_autohide && !g_smart), MI(Tr(L"Ocultação Inteligente"), 7, g_smart),
                                                MI(Tr(L"Ativar Ampliação"), 2, g_magnify), MSep(),
@@ -1455,6 +1460,12 @@ void BackgroundMenu() {
     Paint();
 }
 
+// o quadrado do ícone de um item na tela (sem ampliação: a posição de descanso)
+RECT IconSlotRect(const Item& it) {
+    float s = g_tile, top = g_bg.top + PAD_TOP;
+    return ToScreenRect({ it.cx - s / 2, top, it.cx + s / 2, top + s });
+}
+
 void LeftClick(int i) {
     auto& it = g_items[i];
     if (it.kind == I_MINWIN) {  // volta para a tela pelo funil (gênio ao contrário) e sai do Dock
@@ -1474,6 +1485,13 @@ void LeftClick(int i) {
         bool front = false;
         for (auto& w : a.wins) if (w.hwnd == fg && !IsIconic(fg)) front = true;
         if (front && shell::Setting(L"dock_clique_oculta", L"1") == L"1") { apps::Hide(a); apps::Refresh(); BuildItems(); Paint(); return; }
+        if (g_minNoIcone && !a.wins.empty()) {  // minimizadas no ícone: tudo minimizado, a mais recente sai do ícone pelo funil
+            bool anyShown = false;
+            for (auto& w : a.wins) if (!w.minimized && !apps::IsHidden(w.hwnd)) anyShown = true;
+            HWND m = nullptr;
+            for (auto& w : a.wins) if (w.minimized && !apps::IsHidden(w.hwnd)) { m = w.hwnd; break; }
+            if (!anyShown && m && genio::Restore(m, IconSlotRect(it))) { apps::Refresh(); BuildItems(); Paint(); return; }
+        }
         apps::Activate(a); ui::FrameClock(g_icons, WM_DOCKFRAME, true); return;
     }
     if (it.kind == I_TRASH) { OpenFinder(L"shell:RecycleBinFolder"); return; }  // a Lixeira no Finder, não no Explorador
@@ -1783,7 +1801,9 @@ int dock::Posicao() { return Pos(); }
 
 int dock::ReservedHeight() {  // a espessura do Dock na borda dele (embaixo, à esquerda ou à direita: dock::Posicao)
     if (!g_icons || g_autohide) return 0;
-    return (int)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN) * Sc());
+    // + 4 pt de folga (issue #8, todos os temas): a janela maximizada não encosta no vidro do Dock. Na escala da tela;
+    // com o Dock oculto (automático ou inteligente) não há reserva nem folga
+    return (int)std::lround((g_tile + PAD_TOP + PAD_BOTTOM + MARGIN + 4) * Sc());
 }
 
 static void ReadSettings() {
@@ -1806,6 +1826,7 @@ static void ReadSettings() {
     g_mostraSep = shell::Setting(L"dock_separador", L"1") != L"0";
     g_mostraLaunchpad = shell::Setting(L"dock_launchpad", L"1") != L"0";
     g_indicador = shell::Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0;
+    g_minNoIcone = shell::Setting(L"dock_minimizar_no_icone", L"0") == L"1";
     g_rotulos = shell::Setting(L"dock_rotulos", L"1") != L"0";
     std::wstring pos = shell::Setting(L"dock_posicao", L"baixo");
     g_pos = pos == L"esquerda" ? 1 : pos == L"direita" ? 2 : 0;
@@ -1905,7 +1926,11 @@ bool dock::Create(HINSTANCE hi) {
     return true;
 }
 
-RECT dock::MinimizeTarget() {
+RECT dock::MinimizeTarget(HWND h) {
+    if (g_minNoIcone && h) {  // "no ícone do aplicativo": o gênio vai para o ícone do app dono da janela
+        if (App* a = apps::OfWindow(h))
+            for (auto& it : g_items) if (it.kind == I_APP && it.app >= 0 && it.app < (int)apps::list.size() && &apps::list[it.app] == a) return IconSlotRect(it);
+    }
     for (auto& it : g_items) if (it.kind == I_TRASH) {
         // o lugar logo antes da Lixeira (dos lados, o mesmo quadrado girado com o Dock)
         float cx = it.cx - SLOT / 2, s = g_tile, top = g_bg.top + PAD_TOP;

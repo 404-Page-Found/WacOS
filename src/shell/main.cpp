@@ -887,7 +887,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             auto* shi = (SHELLHOOKINFO*)l;
             RECT r{};
             if (shi && genio::OnMinRect(shi->hwnd, &r)) { shi->rc = r; return TRUE; }  // o gênio já começou, com a janela ainda na tela
-            r = dock::MinimizeTarget();
+            r = dock::MinimizeTarget(shi ? shi->hwnd : nullptr);
             if (shi && r.right > r.left) { shi->rc = r; SetTimer(g_msg, 7, 450, nullptr); return TRUE; }  // e o Dock se atualiza logo depois
             break;
         }

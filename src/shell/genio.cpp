@@ -659,7 +659,7 @@ void CALLBACK OnMinimize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD,
     if (revelar::Owns(h) || apps::IsHidden(h)) return;  // Ocultar: some sem o gênio
     if ((int)(g_pauseUntil - GetTickCount()) > 0) return;  // Win+D: sem o gênio
     if (g_running && g_a.target == h) { Log(L"gênio: aviso de minimizou %.1f ms depois do começo", anim::Now() - g_a.t0); return; }  // já começou pela pergunta do Windows
-    RECT slot = dock::MinimizeTarget();
+    RECT slot = dock::MinimizeTarget(h);
     Start(h, slot, false);
 }
 
@@ -703,7 +703,7 @@ void genio::Pause(DWORD ms) { g_pauseUntil = GetTickCount() + ms; }
 bool genio::OnMinRect(HWND h, RECT* out) {
     if (!g_ov || !Wanted(h) || revelar::Owns(h) || IsIconic(h) || apps::IsHidden(h) || (int)(g_pauseUntil - GetTickCount()) > 0) return false;
     if (g_running && g_a.target == h) { *out = g_a.slot; return true; }
-    RECT slot = dock::MinimizeTarget();
+    RECT slot = dock::MinimizeTarget(h);
     if (slot.right <= slot.left) return false;
     double t0 = anim::Now();
     Start(h, slot, false);

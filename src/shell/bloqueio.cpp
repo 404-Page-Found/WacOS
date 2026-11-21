@@ -7,6 +7,8 @@
 //  - embaixo: foto redonda de 53 pt (centro 164 pt acima da borda), nome em 13 pt negrito, campo em pílula
 //    de 120 × 20,5 ("Digite a Senha"), dica em 10 pt; no canto de cima à direita, teclado e botão de energia.
 // Senha: conferida com LogonUserW (nunca guardada; a cópia é zerada). Senha errada: o campo chacoalha.
+// Conta Microsoft: pelo nome "MicrosoftAccount\<e-mail>" (a senha atual da conta). PIN (só algarismos que não são a
+// senha): vai para o Windows Hello, que é quem confere o PIN (issue #8).
 // Segurança sem trancar o dono para fora (ver docs/problemas-conhecidos.md, "Tela de bloqueio"):
 //  - desbloquear o Windows de verdade (Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear, PIN/Windows Hello) também tira esta tela;
 //  - se o Shell sair ou cair com a tela travada, o Windows é bloqueado (LockWorkStation), também por um
@@ -23,6 +25,7 @@
 #include <winrt/Windows.Security.Credentials.UI.h>
 #include <UserConsentVerifierInterop.h>
 #include <algorithm>
+#include <tuple>
 #include <atomic>
 #include <cmath>
 #include <thread>
@@ -57,6 +60,7 @@ std::vector<Mon> g_mons;
 std::atomic<int> g_phase{ HIDDEN };
 double g_phaseAt;
 std::wstring g_user, g_display, g_avatarPath;
+std::wstring g_msa;               // e-mail da conta Microsoft ligada à conta do Windows (vazio = conta local)
 UINT g_aw, g_ah; std::vector<BYTE> g_apx;
 ID2D1Bitmap* g_avatar;
 std::wstring g_pw;                // só enquanto digita; zerado ao conferir/sair
@@ -148,6 +152,17 @@ void LoadUser() {
     GetUserNameW(u, &n);
     g_user = u;
     g_display = g_user;
+    // Conta Microsoft (issue #8: "a senha certa dá senha errada"): a senha de verdade é a da conta Microsoft, que o
+    // LogonUserW só confere com o nome "MicrosoftAccount\<e-mail>" (com o nome local, vale a cópia antiga da senha
+    // guardada no PC, que fica velha quando a senha muda na nuvem ou quando a pessoa só entra com PIN)
+    g_msa.clear();
+    USER_INFO_24* ui24 = nullptr;
+    if (NetUserGetInfo(nullptr, u, 24, (LPBYTE*)&ui24) == NERR_Success && ui24) {
+        if (ui24->usri24_internet_identity && ui24->usri24_internet_principal_name && *ui24->usri24_internet_principal_name)
+            g_msa = ui24->usri24_internet_principal_name;
+        NetApiBufferFree(ui24);
+    }
+    Log(L"bloqueio: conta %ls", g_msa.empty() ? L"local" : L"Microsoft");
     USER_INFO_2* ui2 = nullptr;
     if (NetUserGetInfo(nullptr, u, 2, (LPBYTE*)&ui2) == NERR_Success && ui2) {
         if (ui2->usri2_full_name && *ui2->usri2_full_name) g_display = ui2->usri2_full_name;
@@ -601,46 +616,62 @@ void Fail() {
     } else if (g_fails >= 2) g_msg = Tr(L"Senha incorreta. Esqueceu? Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear usa o PIN do Windows.");
 }
 
+// Windows Hello (o "Touch ID" daqui): rosto, digital ou o PIN, na janela do próprio Windows
+void StartHello(HWND h) {
+    if (!g_helloOk || g_helloBusy) return;
+    g_helloBusy = true;
+    std::thread([h] {
+        bool ok = false;
+        try {
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            namespace cui = winrt::Windows::Security::Credentials::UI;
+            auto interop = winrt::get_activation_factory<cui::UserConsentVerifier, IUserConsentVerifierInterop>();
+            winrt::Windows::Foundation::IAsyncOperation<cui::UserConsentVerificationResult> op{ nullptr };
+            winrt::hstring text = Tr(L"Desbloquear a tela");
+            winrt::check_hresult(interop->RequestVerificationForWindowAsync(h, (HSTRING)winrt::get_abi(text),
+                winrt::guid_of<decltype(op)>(), winrt::put_abi(op)));
+            ok = op.get() == cui::UserConsentVerificationResult::Verified;
+        } catch (...) {}
+        PostMessageW(h, WM_BQ_HELLO, ok, 0);
+    }).detach();
+}
+
 void Submit(HWND h) {
     if (g_checking || g_phase != LOCKED || g_preview) return;
     if (GetTickCount64() < g_waitUntil) { g_shakeAt = anim::Now(); return; }
-    if (g_pw.empty()) {
-        if (g_helloOk && !g_helloBusy) {  // Windows Hello (o "Touch ID" daqui)
-            g_helloBusy = true;
-            std::thread([h] {
-                bool ok = false;
-                try {
-                    winrt::init_apartment(winrt::apartment_type::multi_threaded);
-                    namespace cui = winrt::Windows::Security::Credentials::UI;
-                    auto interop = winrt::get_activation_factory<cui::UserConsentVerifier, IUserConsentVerifierInterop>();
-                    winrt::Windows::Foundation::IAsyncOperation<cui::UserConsentVerificationResult> op{ nullptr };
-                    winrt::hstring text = Tr(L"Desbloquear a tela");
-                    winrt::check_hresult(interop->RequestVerificationForWindowAsync(h, (HSTRING)winrt::get_abi(text),
-                        winrt::guid_of<decltype(op)>(), winrt::put_abi(op)));
-                    ok = op.get() == cui::UserConsentVerificationResult::Verified;
-                } catch (...) {}
-                PostMessageW(h, WM_BQ_HELLO, ok, 0);
-            }).detach();
-        }
-        return;
-    }
+    if (g_pw.empty()) { StartHello(h); return; }
     g_checking = true;
     std::wstring pw = g_pw;  // cópia só para a thread, zerada logo depois
     Wipe(g_pw);
-    std::wstring user = g_user;
-    std::thread([h, pw, user]() mutable {
+    std::wstring user = g_user, msa = g_msa;
+    std::thread([h, pw, user, msa]() mutable {
         int own = HasOwnPassword() ? CheckOwnPassword(pw) : -1;  // senha própria da tela, se definida
         BOOL ok = FALSE; DWORD err = 0;
-        if (own >= 0) { ok = own == 1; err = ok ? 0 : ERROR_LOGON_FAILURE; }
-        else {
+        auto logon = [&](const std::wstring& u, const wchar_t* dom) {
             HANDLE tok = nullptr;
-            ok = LogonUserW(user.c_str(), L".", pw.c_str(), LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &tok);
-            err = ok ? 0 : GetLastError();
+            BOOL r = LogonUserW(u.c_str(), dom, pw.c_str(), LOGON32_LOGON_INTERACTIVE, LOGON32_PROVIDER_DEFAULT, &tok);
+            DWORD e = r ? 0 : GetLastError();
             if (tok) CloseHandle(tok);
-        }
+            return std::make_pair(r, e);
+        };
+        if (own >= 0) { ok = own == 1; err = ok ? 0 : ERROR_LOGON_FAILURE; }
+        else if (!msa.empty()) {
+            // conta Microsoft: primeiro pelo e-mail (confere a senha atual da conta, também sem internet pela cópia
+            // em cache); só se o Windows não souber responder por esse caminho (erro que não é "senha errada"),
+            // tenta pelo nome local. Uma tentativa por Enter: cada erro conta para o bloqueio de conta do Windows.
+            auto [r, e] = logon(L"MicrosoftAccount\\" + msa, nullptr);
+            ok = r; err = e;
+            if (!ok && err != ERROR_LOGON_FAILURE && err != ERROR_ACCOUNT_LOCKED_OUT) {
+                Log(L"bloqueio: conta Microsoft pelo e-mail deu %lu; tentando pelo nome local", err);
+                std::tie(ok, err) = logon(user, L".");
+            }
+        } else std::tie(ok, err) = logon(user, L".");
         bool hadText = !pw.empty();
+        // parece um PIN (só algarismos): o PIN do Windows Hello não passa pelo LogonUserW; se não era a senha, o
+        // Windows Hello confere o PIN (em vez de "senha incorreta", que era o que acontecia)
+        bool pinLike = pw.size() >= 4 && pw.size() <= 32 && std::all_of(pw.begin(), pw.end(), [](wchar_t c) { return c >= L'0' && c <= L'9'; });
         Wipe(pw);
-        PostMessageW(h, WM_BQ_RESULT, ok ? 1 : 0, (LPARAM)err | (hadText ? 0x80000000 : 0));
+        PostMessageW(h, WM_BQ_RESULT, ok ? 1 : 0, (LPARAM)err | (hadText ? 0x80000000 : 0) | (pinLike ? 0x40000000 : 0));
     }).detach();
 }
 
@@ -683,8 +714,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_BQ_RESULT: {
         g_checking = false;
-        DWORD err = (DWORD)l & 0x7FFFFFFF; bool hadText = (l & 0x80000000) != 0;
+        DWORD err = (DWORD)l & 0x3FFFFFFF; bool hadText = (l & 0x80000000) != 0, pinLike = (l & 0x40000000) != 0;
         if (w) { Unlock(L"senha"); return 0; }
+        if (err == ERROR_LOGON_FAILURE && pinLike && g_helloOk && !g_helloBusy) {
+            Log(L"bloqueio: não era a senha e parece um PIN: Windows Hello");
+            g_msg = Tr(L"Para usar o PIN, confirme no Windows Hello.");
+            StartHello(h);
+            PaintAll();
+            return 0;
+        }
         if (err == ERROR_LOGON_FAILURE || (err == ERROR_ACCOUNT_RESTRICTION && !hadText)) { Log(L"bloqueio: senha incorreta"); Fail(); return 0; }
         if (err == ERROR_ACCOUNT_LOCKED_OUT) {
             Log(L"bloqueio: conta travada pelo Windows (1909)");

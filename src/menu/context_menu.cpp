@@ -419,6 +419,10 @@ static ctxmenu::Glass g_glass;
 static bool g_glassSet;  // o Shell passou o vidro; nos outros apps, o tema é lido do ajustes.txt
 static bool g_plainNext, g_plain;  // menu sem ícones automáticos (PlainNext)
 void ctxmenu::PlainNext() { g_plainNext = true; }
+// Menu do Dock (issue #8): o ponto é o meio da BORDA DE BAIXO do menu (abre para cima, centrado no ícone), com a
+// altura de verdade; antes o Dock adivinhava a altura (22 pt por linha, separadores inclusive) e o menu ficava alto demais.
+static bool g_aboveNext, g_above;
+void ctxmenu::AboveNext() { g_aboveNext = true; }
 static std::vector<ctxmenu::Item> g_extraNext;  // itens do app para o próximo Show (ExtraNext)
 void ctxmenu::ExtraNext(const std::vector<Item>& items) { g_extraNext = items; }
 void ctxmenu::SetGlass(const Glass& g) { g_glass = g; g_glassSet = true; }
@@ -811,6 +815,10 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     int x, top;
     if (!parentWin) {
         x = anchor.x + 1; top = anchor.y + 1;
+        if (g_above) {
+            x = anchor.x - w / 2; top = anchor.y - h; g_above = false;
+            Log(L"  menu acima do ponto %d,%d: %d,%d %dx%d", anchor.x, anchor.y, x, top, w, h);
+        }
         // só o Dock no caminho (caberia na tela sem ele): o menu sobe/anda só o que falta, como no Mac, em vez de virar
         // para o outro lado do ponto (o menu do próprio Dock, aberto em cima do ícone, pularia a altura inteira)
         if (x + w > wa.right) x = x + w <= mi.rcWork.right ? wa.right - w : anchor.x - w;
@@ -1311,6 +1319,7 @@ static LRESULT CALLBACK PopupProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 static MItem* RunMenu(HWND owner, std::vector<MItem>& items, POINT pt) {
     Session s; s.owner = owner; s.dark = IsDarkMode() && !Leopard();  // Leopard: menus sempre claros
     g_plain = g_plainNext; g_plainNext = false;
+    g_above = g_aboveNext; g_aboveNext = false;
     g_ses = &s;
     OpenLevel(s, &items, pt, nullptr, 0);
     if (g_demo) { s.levels[0].hover = 2; Invalidate(s.levels[0]); }

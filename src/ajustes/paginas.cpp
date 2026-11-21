@@ -1453,7 +1453,18 @@ Page CentralControle() {
                        [](bool v) { SetSetting(L"barra_todos_monitores", v ? L"1" : L"0"); },
                        L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.");
     todos.icon = 0xE7F4; todos.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, todos }));
+    // issue #8: a bolinha laranja (microfone) / verde (câmera) entre a Central de Controle e a data, como no macOS
+    Row priv = Toggle(L"Mostrar o uso do microfone e da câmera", [] { return Setting(L"barra_privacidade", L"1") != L"0"; },
+                      [](bool v) { SetSetting(L"barra_privacidade", v ? L"1" : L"0"); },
+                      L"Uma bolinha laranja (microfone) ou verde (câmera) aparece ao lado da data enquanto um app usa um deles.");
+    priv.icon = 0xE720; priv.iconColor = C_ORANGE;
+    p.groups.push_back(G({ clock, todos, priv }));
+    return p;
+}
+
+// ================= Ilha Dinâmica (issue #8: página própria; antes ficava no fim da Central de Controle)
+Page IlhaDinamica() {
+    Page p;
     // Ilha Dinâmica (src/shell/ilha.cpp): desligada por padrão; as outras opções só valem com ela ligada
     auto on = [](const wchar_t* k, const wchar_t* d) { std::wstring kk = k, dd = d; return std::function<bool()>([kk, dd] { return Setting(kk.c_str(), dd.c_str()) == L"1"; }); };
     auto set = [](const wchar_t* k) { std::wstring kk = k; return std::function<void(bool)>([kk](bool v) { SetSetting(kk.c_str(), v ? L"1" : L"0"); Rebuild(); }); };
@@ -1468,8 +1479,12 @@ Page CentralControle() {
         ilha.push_back(Toggle(L"Abrir ao passar o ponteiro", on(L"ilha_passar", L"1"), set(L"ilha_passar")));
         ilha.push_back(Toggle(L"Mostrar notificações na ilha", on(L"ilha_notificacoes", L"1"), set(L"ilha_notificacoes")));
         ilha.push_back(Toggle(L"Mostrar o volume na ilha", on(L"ilha_volume", L"1"), set(L"ilha_volume")));
+        ilha.push_back(Toggle(L"Avisar “Copiado” ao copiar", on(L"ilha_copiado", L"1"), set(L"ilha_copiado"),
+                              L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos."));
     }
     p.groups.push_back(G(ilha, L"Ilha Dinâmica"));
+    if (Setting(L"ilha", L"0") == L"1")
+        p.groups.push_back(G({ Note(L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).") }));
     return p;
 }
 
@@ -1594,11 +1609,14 @@ Page MesaDock() {
     Row hide = Popup(L"Ocultar o Dock", { L"Nunca", L"Automaticamente", L"Quando uma janela encostar nele" },
                      [] { std::wstring v = Setting(L"ocultar", L"0"); return v == L"1" ? 1 : v == L"inteligente" ? 2 : 0; },
                      [](int i) { SetSetting(L"ocultar", i == 1 ? L"1" : i == 2 ? L"inteligente" : L"0"); });
+    // issue #8 (macOS: "Minimizar janelas no ícone do aplicativo"): a janela minimizada vai para o ícone do app, sem a
+    // miniatura entre Downloads e a Lixeira; clicar no ícone traz de volta
+    Row minIcon = Toggle(L"Minimizar janelas no ícone do aplicativo", flag(L"dock_minimizar_no_icone", L"0"), setFlag(L"dock_minimizar_no_icone"));
     Row anim = Toggle(L"Animar aplicativos ao abrir", flag(L"animar_abertura", L"1"), setFlag(L"animar_abertura"));
     Row ind = Toggle(L"Mostrar indicadores de aplicativos abertos", flag(L"indicadores", L"1"), setFlag(L"indicadores"));
     Row dl = Toggle(L"Mostrar a pasta Downloads no Dock", flag(L"dock_downloads", L"1"), setFlag(L"dock_downloads"));
     Row pers = Link(L"Personalizar o Dock…", [] { Push(L"Personalizar o Dock", PersonalizarDock); });
-    p.groups.push_back(G({ size, mag, magSize, pos, monRow, hide, anim, ind, dl, pers }, L"Dock"));
+    p.groups.push_back(G({ size, mag, magSize, pos, monRow, hide, minIcon, anim, ind, dl, pers }, L"Dock"));
     // como no macOS 15/26 (Mesa e Dock > Área de Trabalho e Organizador Visual)
     // macOS 14+: "Mostrar Itens: Na Mesa" (o mesmo que o menu da mesa "Ocultar Ícones da Mesa")
     Row icons = Toggle(L"Mostrar ícones na mesa", [] { return Setting(L"mesa_icones", L"1") != L"0"; }, [](bool v) { SetSetting(L"mesa_icones", v ? L"1" : L"0"); });
@@ -2411,7 +2429,8 @@ std::vector<SideItem>& SidebarItems() {
         { L"Acessibilidade", 0xE776, C_BLUE, Acessibilidade, 1, L"narrador lupa legendas", L"acessibilidade" },
         { L"Aparência", 1, 0x1C1C1E, Aparencia, 1, L"tema escuro claro destaque cor", L"aparencia" },
         { L"Apple Intelligence e Siri", 0xE720, C_PURPLE, Inteligencia, 1, L"copilot fala voz assistente", L"inteligencia" },
-        { L"Central de Controle", 0xE9E9, C_GRAY, CentralControle, 1, L"barra de menus relógio ícones", L"central" },
+        { L"Central de Controle", 0xE9E9, C_GRAY, CentralControle, 1, L"barra de menus relógio ícones microfone câmera", L"central" },
+        { L"Ilha Dinâmica", 0xE7F4, 0x1C1C1E, IlhaDinamica, 1, L"notch ilha dinâmica música timer copiado estante", L"ilha" },
         { L"Mesa e Dock", 0xE7F4, 0x1C1C1E, MesaDock, 1, L"dock tamanho ampliação ocultar janelas", L"dock" },
         { L"Telas", 0xE706, C_BLUE, Telas, 1, L"monitor brilho resolução escala night shift", L"telas" },
         { L"Protetor de Tela", 0xE8B9, C_CYAN, Protetor, 1, L"proteção de tela", L"protetor" },
@@ -2443,6 +2462,7 @@ std::wstring SymbolFor(const std::wstring& label) {
         { L"Wi‑Fi", L"wifi" }, { L"Rede", L"globe" }, { L"Energia", L"bolt.fill" }, { L"Bateria", L"battery.100percent" },
         { L"Geral", L"gearshape.fill" }, { L"Acessibilidade", L"accessibility" }, { L"Aparência", L"circle.lefthalf.filled" },
         { L"Apple Intelligence e Siri", L"apple.intelligence" }, { L"Assistente e Fala", L"apple.intelligence" }, { L"Central de Controle", L"switch.2" },
+        { L"Ilha Dinâmica", L"menubar.dock.rectangle" }, { L"Mostrar o uso do microfone e da câmera", L"microphone.fill" },
         { L"Mesa e Dock", L"dock.rectangle" }, { L"Telas", L"sun.max.fill" }, { L"Protetor de Tela", L"photo.on.rectangle.angled" },
         { L"Spotlight", L"magnifyingglass" }, { L"Imagem de Fundo", L"camera.macro" }, { L"Notificações", L"bell.badge.fill" },
         { L"Som", L"speaker.wave.3.fill" }, { L"Foco", L"moon.fill" }, { L"Tempo de Uso", L"hourglass" }, { L"Tela Bloqueada", L"lock.fill" },

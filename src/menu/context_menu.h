@@ -38,6 +38,8 @@ void SetGlass(const Glass& g);
 wchar_t AutoIcon(const std::wstring& label);
 // O próximo menu sai sem ícones automáticos (o menu do Dock, que no Mac não tem)
 void PlainNext();
+// O próximo menu abre para cima, centrado: o ponto passado é o meio da borda de baixo (o menu do Dock, como no Mac)
+void AboveNext();
 
 bool IsOpen();
 // Fecha o menu aberto (ex.: a janela dona recebeu WM_ACTIVATEAPP com wParam = FALSE).
