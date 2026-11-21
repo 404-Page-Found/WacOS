@@ -85,6 +85,9 @@ struct Info {
     // Barra própria: os botões do Mac à esquerda, na própria linha do app (como o Chrome do Mac, sem barra a mais),
     // e por cima dos botões do app uma faixa da largura medida deles (MedirBarra)
     float patchR = 0;            // largura dos botões do app (pt); 0 = ainda não medida (PATCH_R)
+    bool capas = false;          // capas dos cantos à mostra (CapasCantos): os cantos do Finder por cima dos 8 px do DWM
+    RECT capasVis{};             // retângulo da última foto do fundo dos cantos
+    DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
     // janela de ferramenta com barra (plug-ins VST do Ableton e afins): barra escura compacta, como as janelas de
     // plug-in no Mac (botões menores, título cinza no meio), sem pegar a cor do app
@@ -296,7 +299,8 @@ void Paint(Info* in) {
                 g_d2d->CreatePathGeometry(&g);
                 ID2D1GeometrySink* sk = nullptr;
                 g->Open(&sk);
-                float R = IsZoomed(in->owner) ? 0.f : 8.f;  // maximizada: canto reto (o arco deixava ver um pedaço do app)
+                // maximizada: canto reto (o arco deixava ver um pedaço do app); com as capas, o raio do Finder
+                float R = IsZoomed(in->owner) ? 0.f : in->capas ? CornerRadius(in->owner) / sc : 8.f;
                 if (leftCorner) {
                     sk->BeginFigure({ rr.left, rr.bottom }, D2D1_FIGURE_BEGIN_FILLED);
                     sk->AddLine({ rr.left, rr.top + R });
@@ -565,7 +569,7 @@ Borda BordaDoTema(bool dark, float sc) {
     return { 1.f, dark ? 0.55f : 0.22f, 1.f, dark ? 0.16f : 0.f, TemaTahoe() ? 1 : 0 };
 }
 
-void HideCorners(Info* in) { for (HWND c : in->corner) if (c) ShowWindow(c, SW_HIDE); }
+void HideCorners(Info* in) { for (HWND c : in->corner) if (c) ShowWindow(c, SW_HIDE); if (in->capas) { in->capas = false; in->capasAt = 0; } }
 void KeepAbove(Info* in);  // mais abaixo
 
 // Moldura por cima da janela (uma janela em camadas, transparente para cliques, do tamanho da parte
@@ -680,12 +684,171 @@ void UpdateCorners(Info* in, RECT vis) {
 // nosso aparece em volta dela (título, botões, sombra e cantos piscavam no canto da tela)
 bool TakenByShell(HWND h) { return GetPropW(h, L"ShellDialogoPorFora") != nullptr; }
 
+// ---- Cantos do Finder nos apps de barra própria (Chrome, Discord, Electron)
+// O DWM arredonda essas janelas em 8 px e não deixa mais; o recorte não corta o que o Chromium desenha pela GPU. Então,
+// em vez de cortar, a DLL COBRE a sobra entre o arco de 8 px e o do Finder com o que está atrás da janela naquele
+// ponto: uma foto da janela de trás (PrintWindow, com o conteúdo da GPU; a área de trabalho do Shell ou outro app)
+// escurecida pela nossa sombra, e por cima o contorno do Mac no arco grande. A foto é refeita quando a janela muda
+// de lugar/tamanho e a cada 10 s; arrastando, as capas somem (voltam os 8 px) e reaparecem ao soltar.
+bool JanelaNossa(HWND w) {
+    wchar_t c[40] = {};
+    GetClassNameW(w, c, 40);
+    return !wcsncmp(c, L"MacJanela", 9);
+}
+// a primeira janela abaixo de h (ordem Z) que cobre o ponto p, fora as camadas transparentes (sombras, molduras)
+HWND JanelaAtras(HWND h, POINT p) {
+    for (HWND w = GetWindow(h, GW_HWNDNEXT); w; w = GetWindow(w, GW_HWNDNEXT)) {
+        if (!IsWindowVisible(w) || IsIconic(w) || JanelaNossa(w)) continue;
+        LONG ex = GetWindowLongW(w, GWL_EXSTYLE);
+        if ((ex & WS_EX_LAYERED) && (ex & WS_EX_TRANSPARENT)) continue;
+        BOOL cloaked = FALSE;
+        if (SUCCEEDED(DwmGetWindowAttribute(w, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) continue;
+        RECT r;
+        if (FAILED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) GetWindowRect(w, &r);
+        if (PtInRect(&r, p)) return w;
+    }
+    return nullptr;
+}
+// foto de um retângulo da tela tirada só da janela w (PrintWindow): BGRA, sem alfa útil
+bool FotoDe(HWND w, RECT box, std::vector<UINT32>& out) {
+    RECT wr; GetWindowRect(w, &wr);
+    int W = wr.right - wr.left, H = wr.bottom - wr.top;
+    if (W <= 0 || H <= 0 || W > 16384 || H > 16384) return false;
+    HDC mdc = CreateCompatibleDC(nullptr);
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(mdc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp) { DeleteDC(mdc); return false; }
+    HGDIOBJ old = SelectObject(mdc, bmp);
+    bool ok = PrintWindow(w, mdc, 2 /*PW_RENDERFULLCONTENT*/) != FALSE;
+    int bw = box.right - box.left, bh = box.bottom - box.top;
+    out.assign((size_t)bw * bh, 0);
+    if (ok) {
+        auto* px = (UINT32*)bits;
+        for (int y = 0; y < bh; y++)
+            for (int x = 0; x < bw; x++) {
+                int sx = box.left + x - wr.left, sy = box.top + y - wr.top;
+                if (sx >= 0 && sy >= 0 && sx < W && sy < H) out[(size_t)y * bw + x] = px[(size_t)sy * W + sx] & 0xFFFFFF;
+            }
+    }
+    SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
+    return ok;
+}
+
+void CapasCantos(Info* in, RECT vis) {
+    HWND h = in->owner;
+    static const bool prova = wcsstr(GetCommandLineW(), L"--wacos-teste-abas") != nullptr;  // PROVA: só no Chrome de teste
+    if (!prova) { HideCorners(in); return; }
+    float sc = Scale(h);
+    int r = CornerRadius(h), r0 = (int)std::lround((leopard::On() ? 4 : 8) * sc);  // o nosso raio / o do DWM
+    if (in->moving || in->transit || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h) || r <= r0 + 1 || TakenByShell(h)) {
+        HideCorners(in);
+        return;
+    }
+    // nada mudou de lugar e a foto é recente: as capas ficam como estão
+    if (in->capas && EqualRect(&vis, &in->capasVis) && GetTickCount() - in->capasAt < 10000) return;
+    int S = r + 2;
+    const int M = 1;  // margem para o contorno de fora
+    int W = vis.right - vis.left + 2 * M, H = vis.bottom - vis.top + 2 * M;
+    if (W <= 2 * S || H <= 2 * S || W > 16384 || H > 16384) { HideCorners(in); return; }
+    HWND& fw = in->corner[0];
+    if (fw && !IsWindow(fw)) fw = nullptr;
+    if (!fw) {
+        WNDCLASSW wc{};
+        if (!GetClassInfoW(g_mod, L"MacJanelaCanto", &wc)) {
+            wc.lpfnWndProc = CornerProc; wc.hInstance = g_mod; wc.lpszClassName = L"MacJanelaCanto";
+            RegisterClassW(&wc);
+        }
+        fw = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaCanto", L"",
+                             WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
+        if (!fw) return;
+        SetWindowLongPtrW(fw, GWLP_USERDATA, (LONG_PTR)h);
+        SetPropW(h, L"MacJanelaMoldura", fw);
+        SetTimer(fw, 1, 500, nullptr);
+    }
+    // fundo de cada canto: a janela de trás + a nossa sombra
+    RECT shR{}; GetWindowRect(in->shadow.wnd, &shR);
+    auto* shPx = (UINT32*)in->shadow.bits;
+    int shW = shR.right - shR.left, shH = shR.bottom - shR.top;
+    bool shOk = shPx && in->shadow.wnd && IsWindowVisible(in->shadow.wnd) && in->shadow.last.cx == shW && in->shadow.last.cy == shH;
+    std::vector<UINT32> bg[4];
+    RECT box[4];
+    bool have[4]{};
+    std::map<HWND, int> fotos;  // uma foto por janela de trás (a mesma janela costuma estar atrás de vários cantos)
+    for (int i = 0; i < 4; i++) {
+        bool right = i & 1, bottom = (i & 2) != 0;
+        int x0 = right ? vis.right - S : vis.left, y0 = bottom ? vis.bottom - S : vis.top;
+        box[i] = { x0, y0, x0 + S, y0 + S };
+        POINT p{ right ? vis.right - 2 : vis.left + 1, bottom ? vis.bottom - 2 : vis.top + 1 };  // o pixel do canto
+        HWND w = JanelaAtras(h, p);
+        if (!w || (fotos.count(w) && fotos[w] > 3)) continue;
+        fotos[w]++;
+        have[i] = FotoDe(w, box[i], bg[i]);
+    }
+    if (!have[0] && !have[1] && !have[2] && !have[3]) { HideCorners(in); return; }
+    HDC mem = CreateCompatibleDC(nullptr);
+    BITMAPINFO bi{};
+    bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);  // zerado (transparente)
+    if (!bmp) { DeleteDC(mem); return; }
+    auto* px = (UINT32*)bits;
+    // o fio da borda: o mesmo que o DWM desenha nos lados (CantoLeve), 1 px por dentro; o arco continua a borda reta
+    int fundo = (int)(INT_PTR)GetPropW(h, L"MacJanelaFundo");
+    bool dk = fundo ? fundo == 2 : Dark();
+    float bR = (dk ? 0x4A : 0xC2) / 255.f, bG = (dk ? 0x4A : 0xC2) / 255.f, bB = (dk ? 0x4D : 0xC5) / 255.f;
+    float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
+    auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };
+    auto sdf = [&](float x, float y, float rad) {
+        float qx = std::fabs(x - cxm) - (hw - rad), qy = std::fabs(y - cym) - (hh - rad);
+        return std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - rad;
+    };
+    for (int i = 0; i < 4; i++) {
+        if (!have[i]) continue;
+        int bw = box[i].right - box[i].left;
+        for (int y = 0; y < S; y++)
+            for (int x = 0; x < bw; x++) {
+                int sx = box[i].left + x, sy = box[i].top + y;          // tela
+                int lx = sx - vis.left + M, ly = sy - vis.top + M;       // na capa
+                float fx = lx + 0.5f, fy = ly + 0.5f;
+                float d = sdf(fx, fy, (float)r), d8 = sdf(fx, fy, (float)r0);
+                float A = std::clamp(cov(d8) - cov(d), 0.f, 1.f);       // o pedaço do app que o canto do Mac esconde
+                float R = 0, G = 0, B = 0, Aa = 0;  // pré-multiplicado
+                auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); Aa = a + Aa * (1 - a); };
+                if (A > 0) {
+                    UINT32 v = bg[i][(size_t)y * bw + x];
+                    float k = 1;
+                    if (shOk) {
+                        int qx = sx - shR.left, qy = sy - shR.top;
+                        if (qx >= 0 && qy >= 0 && qx < shW && qy < shH) k = 1 - (shPx[(size_t)qy * shW + qx] >> 24) / 255.f;
+                    }
+                    over(((v >> 16) & 255) / 255.f * k, ((v >> 8) & 255) / 255.f * k, (v & 255) / 255.f * k, A);
+                }
+                over(bR, bG, bB, std::clamp(cov(d) - cov(d + 1), 0.f, 1.f));  // o fio da borda no arco grande
+                if (Aa <= 0) continue;
+                if (lx < 0 || ly < 0 || lx >= W || ly >= H) continue;
+                px[(size_t)ly * W + lx] = (UINT32)std::lround(Aa * 255) << 24 | (UINT32)std::lround(R * 255) << 16 | (UINT32)std::lround(G * 255) << 8 | (UINT32)std::lround(B * 255);
+            }
+    }
+    HGDIOBJ old = SelectObject(mem, bmp);
+    POINT pos{ vis.left - M, vis.top - M }, zero{ 0, 0 };
+    SIZE size{ W, H };
+    BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+    UpdateLayeredWindow(fw, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA);
+    SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem);
+    memset(in->cornerKey, 0, sizeof(in->cornerKey));  // a moldura das janelas recortadas refaz do zero se voltar a ser usada
+    bool was = in->capas;
+    in->capas = true; in->capasVis = vis; in->capasAt = GetTickCount() | 1;
+    if (!IsWindowVisible(fw)) { ShowWindow(fw, SW_SHOWNOACTIVATE); KeepAbove(in); }
+    if (!was) Paint(in);  // a faixa dos botões passa a ter o arco do Finder
+}
+
 void UpdateShadow(Info* in) {
     if (in->transit) return;  // ampliando: nada em volta da janela escondida
     if (GetPropW(in->owner, L"MacJanelaPintando")) return;  // aparecendo: a sombra espera a janela pintar
     if (TakenByShell(in->owner)) { if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); return; }
     in->shadow.tahoe = TemaTahoe(); in->shadow.dark = Dark();  // Tahoe: sombra medida no macOS 26
-    if (in->custom) { RECT f = FrameRect(in->owner); in->shadow.Update(in->active, &f); HideCorners(in); return; }  // rente à parte visível
+    if (in->custom) { RECT f = FrameRect(in->owner); in->shadow.Update(in->active, &f); CapasCantos(in, f); return; }  // rente à parte visível
     if (!in->rgn.cx) { in->shadow.Update(in->active); HideCorners(in); return; }
     int l, t, rr, b;
     Insets(in, l, t, rr, b);
