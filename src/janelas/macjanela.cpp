@@ -1759,6 +1759,10 @@ void MedirBarra(Info* in) {
                     // vazio só precisa estar o que fica além do fim do grupo (o lugar antigo a faixa cobre de qualquer jeito)
                     bool livre = gap >= need && dst + cw + need / 2 < x1;
                     for (int xx = std::max(dst, e0 + 1); livre && xx < dst + cw + need / 2; xx++) if (ink(xx)) livre = false;
+                    // e o grupo tem de caber inteiro na faixa: tinta logo abaixo (ou acima) dela é um ícone que atravessa
+                    // o pé da barra (o sino do TeamSpeak, na linha de baixo), e ele andava cortado ao meio (21/11/2026)
+                    for (int xx = s0; livre && xx <= e0; xx++)
+                        if ((bb < H && dist(at(xx, bb), bg) > 40) || (ba > 0 && dist(at(xx, ba - 1), bg) > 40)) livre = false;
                     int ch = bb - ba;
                     if (livre && ch > 0) { in->chunkW = cw; in->chunkH = ch; in->chunkSrc = src - x0; in->chunkDst = dst - x0; in->chunkTop = ba - y0; }
                 }
