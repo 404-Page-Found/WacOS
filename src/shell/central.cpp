@@ -91,6 +91,10 @@ D2D1_RECT_F g_dragTrack{};
 // para 25 × 20 (raio 8 → 10) e vira vidro
 const float KN_W = 20, KN_H = 16, KN_LENS = 1.25f;
 float g_kPress[2], g_kStretch[2], g_kLastX[2] = { -1, -1 };
+// macOS 27: o botão de Tela e Som aparece com o ponteiro em cima (com um fade) e some ao sair (issue #20: aparecia e
+// sumia de repente, só ao clicar). 0 = escondido, 1 = à mostra
+float g_kHover[2];
+D2D1_POINT_2F g_ccHover{ -1, -1 };  // ponteiro na Central (-1: fora)
 double g_kFrame;
 bool StepKnobs() {  // true enquanto algum botão ainda mexe
     double now = anim::Now();
@@ -98,6 +102,13 @@ bool StepKnobs() {  // true enquanto algum botão ainda mexe
     g_kFrame = now;
     bool moving = false;
     for (int i = 0; i < 2; i++) {
+        bool em = false;  // ponteiro em cima da barra (a área de arrastar, um pouco mais alta)
+        for (auto& ht : g_hits)
+            if (ht.id == (i == 0 ? H_BRIGHT : H_VOLUME) && g_ccHover.x >= ht.r.left - 6 && g_ccHover.x <= ht.r.right + 6 && g_ccHover.y >= ht.r.top - 10 && g_ccHover.y <= ht.r.bottom + 10) em = true;
+        float hv = em || g_drag == (i == 0 ? H_BRIGHT : H_VOLUME) ? 1.f : 0.f;
+        g_kHover[i] += (hv - g_kHover[i]) * (1 - std::exp(-dt / (hv > 0 ? 70.f : 110.f)));
+        if (std::fabs(hv - g_kHover[i]) < 0.004f) g_kHover[i] = hv;
+        moving |= g_kHover[i] != hv;
         float target = g_drag == (i == 0 ? H_BRIGHT : H_VOLUME) ? 1.f : 0.f;
         g_kPress[i] += (target - g_kPress[i]) * (1 - std::exp(-dt / (target > 0 ? 55.f : 80.f)));
         if (std::fabs(target - g_kPress[i]) < 0.004f) g_kPress[i] = target;
@@ -1118,7 +1129,7 @@ int FocoModo(bool focus) { return focus ? std::clamp(_wtoi(shell::Setting(L"foco
 
 // Tahoe: o brilho especular dos cantos fica apagado em repouso e acende no bloco sob o ponteiro, com a luz vindo do
 // lado do ponteiro (guia, seções 3.2 e 29.1); apertar faz o vidro crescer um pouco (escala ~1,06, mola ágil)
-D2D1_POINT_2F g_ccHover{ -1, -1 };
+// g_ccHover: declarado lá em cima (o botão de Tela e Som também usa)
 vidro::LuzSegue g_ccLuz;   // a luz do brilho, atrás do ponteiro com a mola de 0,3 s
 double g_ccLuzAt;
 D2D1_POINT_2F g_ccPress{ -1, -1 };
@@ -1270,8 +1281,11 @@ void PaintTahoe() {
             dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tr.left, tr.top, std::max(kx, tr.left + 5), tr.bottom), 2.5f, 2.5f), br);
         };
         drawTrack();
-        // macOS 27 (captura Finder-Control-Center): Tela e Som sem o botão; ele só aparece arrastando (vira lente)
-        if (!liquid::Golden() || g_kPress[track == H_BRIGHT ? 0 : 1] > 0.001f) {   // o botão: pílula branca; arrastando vira lente (o mesmo do menu de som)
+        // macOS 27 (captura Finder-Control-Center): Tela e Som sem o botão em repouso; ele aparece com o ponteiro em cima
+        // (fade) e arrastando vira lente
+        const float kVis = liquid::Golden() ? std::max(g_kHover[track == H_BRIGHT ? 0 : 1], g_kPress[track == H_BRIGHT ? 0 : 1]) : 1.f;
+        if (kVis > 0.001f) {   // o botão: pílula branca; arrastando vira lente (o mesmo do menu de som)
+            if (kVis < 0.999f) dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), kVis), nullptr);
             int ki = track == H_BRIGHT ? 0 : 1;
             float pr = std::clamp(g_kPress[ki], 0.f, 1.f), grow = 1 + (KN_LENS - 1) * pr;
             float kw = KN_W * grow * (1 + g_kStretch[ki]), kh = KN_H * grow * (1 - g_kStretch[ki] * 0.35f), krad = kh / 2;
@@ -1303,6 +1317,7 @@ void PaintTahoe() {
                     geo->Release();
                 }
             }
+            if (kVis < 0.999f) dc->PopLayer();
         }
         // a área de arrastar (DragTo desconta meia pílula nas pontas)
         g_hits.push_back({ track, D2D1::RectF(tr.left - 2, cy - 14, tr.right + 2, cy + 14) });
@@ -2072,7 +2087,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         if (w == T_POLL && g_open && g_drag < 0) { ReadFast(); ReadMedia(); Paint(); }
         return 0;
-    case WM_MOUSELEAVE: g_ccHover = { -1, -1 }; if (Tahoe()) Paint(); return 0;
+    case WM_MOUSELEAVE: g_ccHover = { -1, -1 }; if (Tahoe()) { Paint(); ui::FrameClock(h, WM_CC_FRAME, true); } return 0;  // o botão de Tela/Som some com fade
     case WM_LBUTTONDOWN:
         if (Tahoe() && !g_editing) { g_ccPress = Pt(l); g_ccPressAt = anim::Now(); ui::FrameClock(h, WM_CC_FRAME, true); }
         Click(Pt(l)); return 0;
