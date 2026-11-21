@@ -8,6 +8,7 @@
 // com mola e o sumir o DWM faz sozinho, na placa de vídeo. Ajuste: launchpad_motor=composicao (padrão)
 // ou antigo (quadro a quadro).
 #include "shell.h"
+#include "../comum/composicao.h"  // teclados com composição (coreano, japonês, chinês)
 
 // Tahoe: o estilo dos ícones (Escuro, Transparente, Tingido) também no Launchpad, como no Dock
 static ID2D1Bitmap* StyledBitmap(ID2D1RenderTarget* rt, UINT w, UINT h, const std::vector<BYTE>& px) {
@@ -739,7 +740,10 @@ void CompAnimate(bool closing) {
     ui::Comp()->Commit();
 }
 
+Composicao g_ime;   // sílaba ainda em composição no fim da busca (composicao.h)
+
 void Close() {
+    g_ime.Cancela(g_wnd, g_query);
     if (!g_open || g_closing) return;
     g_closing = true;
     g_closingAt = anim::Now();
@@ -990,6 +994,13 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         Paint();
         return 0;
+    case WM_IME_SETCONTEXT: l &= ~ISC_SHOWUICOMPOSITIONWINDOW; break;  // a composição aparece no próprio campo
+    case WM_IME_STARTCOMPOSITION: case WM_IME_COMPOSITION: case WM_IME_ENDCOMPOSITION: {
+        bool mudou = false;
+        if (!g_ime.Trata(h, m, l, g_query, mudou)) break;
+        if (mudou) { { std::lock_guard<std::mutex> lk(g_mu); g_page = 0; Filter(); } g_apScroll = 0; Paint(); }
+        return 0;
+    }
     case WM_CHAR:
         if (w == 8) { if (!g_query.empty()) g_query.pop_back(); }
         else if (w >= 32) g_query += (wchar_t)w;

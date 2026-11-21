@@ -469,10 +469,27 @@ void indice::Start() {
             // junto com o boot por ~3 minutos, disputando disco com o Windows e os apps)
             Sleep(GetTickCount64() < 10 * 60 * 1000 ? 4 * 60 * 1000 : 30 * 1000);
         }
-        while (jogo::Ativo()) Sleep(5000);  // a varredura da abertura (disco inteiro) espera o jogo fechar
-        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
-        Rebuild();  // atualiza o que mudou enquanto o Shell estava fechado
-        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+        // O Shell só reiniciou (o índice foi gravado há pouco pelo vigia das pastas): quase nada mudou com ele fechado,
+        // e a varredura do disco inteiro sai cara (milhões de itens, segundos de CPU, o dobro da memória do índice
+        // enquanto monta, e o arquivo todo gravado de novo). Vai direto para o vigia. Fechado por mais tempo, ou sem
+        // o arquivo, a varredura roda como antes (PR #22 apontou, 21/11/2026).
+        bool recente = false;
+        if (loaded) {
+            WIN32_FILE_ATTRIBUTE_DATA fa{};
+            if (GetFileAttributesExW(g_file.c_str(), GetFileExInfoStandard, &fa)) {
+                FILETIME agora; GetSystemTimeAsFileTime(&agora);
+                ULONGLONG a = ((ULONGLONG)agora.dwHighDateTime << 32) | agora.dwLowDateTime;
+                ULONGLONG f = ((ULONGLONG)fa.ftLastWriteTime.dwHighDateTime << 32) | fa.ftLastWriteTime.dwLowDateTime;
+                recente = a > f && a - f < 15ULL * 60 * 10000000;  // gravado há menos de 15 min (antes da espera acima)
+            }
+        }
+        if (recente) Log(L"índice: gravado há pouco (o Shell só reiniciou): sem a varredura completa");
+        else {
+            while (jogo::Ativo()) Sleep(5000);  // a varredura da abertura (disco inteiro) espera o jogo fechar
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+            Rebuild();  // atualiza o que mudou enquanto o Shell estava fechado
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+        }
         Watcher();
     }).detach();
 }

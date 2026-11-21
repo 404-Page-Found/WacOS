@@ -559,14 +559,29 @@ static void SetShellAutoStartAsync(bool on) {
 }
 static void SetShellAutoStart(bool on) {
     if (!on) { RunHidden(L"schtasks.exe /Delete /TN WacOS /F"); return; }
+    // texto entre aspas simples do PowerShell: a aspa simples dobra (pasta de um usuário como O'Brien)
+    auto lit = [](std::wstring s) { for (size_t i = 0; (i = s.find(L'\'', i)) != std::wstring::npos; i += 2) s.insert(i, 1, L'\''); return L"'" + s + L"'"; };
     std::wstring exe = BinDir() + L"\\WacOSShell.exe";
     // ao fazer logon, só para este usuário, sem administrador (o schtasks /SC ONLOGON pediria administrador)
-    std::wstring ps = L"$u=\"$env:USERDOMAIN\\$env:USERNAME\"; Register-ScheduledTask -TaskName WacOS -Force "
-                      L"-Action (New-ScheduledTaskAction -Execute '" + exe + L"' -WorkingDirectory '" + BinDir() + L"') "
+    std::wstring ps = L"$u = $env:USERDOMAIN + '\\' + $env:USERNAME; Register-ScheduledTask -TaskName WacOS -Force "
+                      L"-Action (New-ScheduledTaskAction -Execute " + lit(exe) + L" -WorkingDirectory " + lit(BinDir()) + L") "
                       L"-Trigger (New-ScheduledTaskTrigger -AtLogOn -User $u) "
                       L"-Settings (New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -Priority 4 -MultipleInstances IgnoreNew) "
                       L"-Principal (New-ScheduledTaskPrincipal -UserId $u -LogonType Interactive -RunLevel Limited) | Out-Null";
-    RunHidden(L"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"" + ps + L"\"", 30000);
+    // O comando vai codificado (-EncodedCommand: UTF-16 em base64), sem aspas na linha de comando. Antes ia em
+    // -Command "...", e as aspas duplas de dentro ($u="...") fechavam o argumento no meio: erro de sintaxe, a tarefa
+    // nunca era criada e "Abrir ao entrar no Windows" voltava a desligado sem aviso (PR #17 apontou, 21/11/2026).
+    static const char* B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string bytes;
+    for (wchar_t c : ps) { bytes += (char)(c & 0xFF); bytes += (char)((c >> 8) & 0xFF); }
+    std::wstring enc;
+    for (size_t i = 0; i < bytes.size(); i += 3) {
+        unsigned v = (unsigned char)bytes[i] << 16 | (i + 1 < bytes.size() ? (unsigned char)bytes[i + 1] << 8 : 0) | (i + 2 < bytes.size() ? (unsigned char)bytes[i + 2] : 0);
+        enc += (wchar_t)B64[(v >> 18) & 63]; enc += (wchar_t)B64[(v >> 12) & 63];
+        enc += i + 1 < bytes.size() ? (wchar_t)B64[(v >> 6) & 63] : L'=';
+        enc += i + 2 < bytes.size() ? (wchar_t)B64[v & 63] : L'=';
+    }
+    RunHidden(L"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + enc, 30000);
 }
 static void TurnShellOff() {
     int r = MessageBoxW(GetActiveWindow(),

@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <deque>
 #include "../comum/simbolos.h"
+#include "../comum/composicao.h"  // teclados com composição (coreano, japonês, chinês)
 #include <shlobj.h>
 #include <shellapi.h>
 #include <dwmapi.h>
@@ -2013,8 +2014,11 @@ void Grab(HWND w) {
     if (attached) AttachThreadInput(me, fgThread, FALSE);
 }
 
+Composicao g_comp;  // sílaba ainda em composição no fim da busca (composicao.h)
+
 void Close(bool restore = false) {
     if (!g_open) return;
+    g_comp.Cancela(g_wnd, g_query);
     g_open = false;
     menubar::SoundChanged(false);  // a cápsula da lupa da barra sai
     g_edit = g_dragging = false; g_press = -1; g_cellAt.clear();
@@ -2311,6 +2315,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (g_press >= 0 && !g_edit && CanArrange()) StartEdit();
         }
         return 0;
+    case WM_IME_SETCONTEXT: l &= ~ISC_SHOWUICOMPOSITIONWINDOW; break;  // a composição aparece no próprio campo
+    case WM_IME_STARTCOMPOSITION: case WM_IME_COMPOSITION: case WM_IME_ENDCOMPOSITION: {
+        bool mudou = false;
+        if (g_selAll && m == WM_IME_STARTCOMPOSITION) { g_query.clear(); g_selAll = false; mudou = true; }
+        if (!g_comp.Trata(h, m, l, g_query, mudou)) break;
+        if (g_query.size() > 200) g_query.resize(200);
+        if (mudou) QueryChanged();
+        return 0;
+    }
     case WM_CHAR: {
         wchar_t c = (wchar_t)w;
         if (c < 32 || c == 127) return 0;  // Backspace, Enter, Esc e Ctrl+letra vêm pelo WM_KEYDOWN
