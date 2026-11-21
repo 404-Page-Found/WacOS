@@ -814,8 +814,7 @@ bool FotoDe(HWND w, RECT box, std::vector<UINT32>& out) {
 
 void CapasCantos(Info* in, RECT vis) {
     HWND h = in->owner;
-    static const bool prova = wcsstr(GetCommandLineW(), L"--wacos-teste-abas") != nullptr;  // PROVA: só no Chrome de teste
-    if (!prova) { HideCorners(in); return; }
+    // (era só no Chrome de teste; desde a build-25 a barra própria inteira só liga com barra_mac_propria=1)
     // A forma é a parte visível que o DWM desenha: o fio da borda dele fica 1 px por fora da área do app (dos lados e
     // embaixo). Rente à área do app, o arco de 8 px do DWM sobrava 1 px por fora da capa (o risquinho no cantinho) e o
     // fio do arco grande ficava 1 px para dentro do fio reto. Vale o retângulo do DWM quando ele difere da área do
@@ -1290,6 +1289,9 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         if (in) {
             if (in->custom) {
+                // barra_mac_propria desligado com a janela já pega: solta (antes ficava até o app fechar; reiniciar o
+                // Shell com a mesma DLL também não soltava). O modo leve volta sozinho na próxima varredura.
+                if (!BarraPropria() && g_msgUndo) { KillTimer(h, 1); PostMessageW(in->owner, g_msgUndo, 0, 0); return 0; }
                 SampleBar(in);
                 // onde ficam os botões: logo ao pegar a janela, depois de mudar de tamanho/ativar, e a cada 8 s ativa
                 // (um grupo de abas novo no Chrome). A foto da faixa de cima custa alguns ms; não mais que isso.
@@ -1593,14 +1595,18 @@ void MedirBarra(Info* in) {
                 bool any = false;
                 for (int y = ya; y < yg && !any; y++) any = dist(at(x, y), bg) > 40;
                 if (any && !ink) { ink = true; end = x; }
-                else if (!any && ink) { ink = false; gr.push_back({ x + 1, end }); if (gr.size() == 3) break; }
+                else if (!any && ink) { ink = false; gr.push_back({ x + 1, end }); if (gr.size() == 4) break; }
             }
             float pr = 0;
-            if (gr.size() == 3) {
+            if (gr.size() >= 3) {
                 float c0 = (gr[0].first + gr[0].second) / 2.f, c1 = (gr[1].first + gr[1].second) / 2.f, c2 = (gr[2].first + gr[2].second) / 2.f;
                 float p1 = c0 - c1, p2 = c1 - c2;
                 if (std::fabs(p1 - p2) <= 4 * sc && p1 >= 24 * sc && p1 <= 64 * sc) {
                     pr = ((x1 - c2) + p1 / 2) / sc + 2;
+                    // um traço fino logo antes dos botões (o separador do Discord antes do —): no Mac, sem os botões do
+                    // Windows, ele não existe; a faixa cobre ele também (sobrava um traço solto depois do "?")
+                    if (gr.size() == 4 && gr[3].second - gr[3].first <= (int)(2 * sc) && gr[2].first - gr[3].second <= (int)(24 * sc))
+                        pr = std::max(pr, (x1 - gr[3].first) / sc + 4);
                     // a barra do app tem os botões dele no meio: o centro do desenho deles diz a altura da barra. A medida
                     // pela cor (SampleBar) descia até 48 pt no Discord (o que vem embaixo da barra também é preto) e os
                     // botões do Mac ficavam 8 px abaixo das setas dele
@@ -1704,7 +1710,8 @@ bool GanchoAbas(bool on) {
     }
     if (g_lpSlot) return *g_lpSlot == (void*)&LayoutParamsHook;
     // PROVA (21/11/2026): só no Chrome de teste aberto com --wacos-teste-abas; o Chrome do usuário fica como está
-    if (!ProvaAbas()) return false;
+    // (era só no Chrome de teste; desde a build-25 a barra própria inteira só liga com barra_mac_propria=1, e sem o
+    // gancho os botões do Mac cobriam o ˅ e o grupo de abas no Chrome do usuário)
     for (const auto& e : g_ganchos) {
         auto* base = (BYTE*)GetModuleHandleW(e.dll);
         if (!base) continue;
@@ -1727,8 +1734,28 @@ bool GanchoAbas(bool on) {
 // o Chrome refaz a barra com a área nova (o mesmo caminho de quando a moldura muda)
 // (o SWP_FRAMECHANGED e um WM_SIZE de mentira não bastavam: só uma mudança de tamanho de verdade refaz a linha das
 // abas; 1 px a mais e de volta, só ao ligar/desligar o gancho)
+// Maximizada, o Chrome não muda de tamanho (nem com SWP_NOSENDCHANGING, nem com WM_SIZE, WM_THEMECHANGED ou
+// WM_DWMCOMPOSITIONCHANGED): a linha das abas só se refaz trocando o estado. Restaurar e maximizar de novo com a janela
+// escondida (cloak, só vale no próprio processo); ela reaparece 150 ms depois, já no layout novo. Sem estar na frente,
+// espera a próxima ativação (LeveProc), para não roubar o foco. Testado no Chrome do usuário (21/11/2026).
+void CALLBACK RefazMostra(HWND h, UINT, UINT_PTR id, DWORD) {
+    KillTimer(h, id);
+    BOOL off = FALSE; DwmSetWindowAttribute(h, 13 /*DWMWA_CLOAK*/, &off, sizeof(off));
+}
+void RefazMaximizada(HWND h) {
+    if (!IsZoomed(h) || IsIconic(h)) return;
+    BOOL on = TRUE; DwmSetWindowAttribute(h, 13 /*DWMWA_CLOAK*/, &on, sizeof(on));
+    ShowWindow(h, SW_RESTORE);
+    ShowWindow(h, SW_MAXIMIZE);
+    SetTimer(h, 0x4D5A, 150, RefazMostra);
+}
 void RefazBarra(HWND h) {
     if (IsIconic(h) || !IsWindowVisible(h)) return;
+    if (IsZoomed(h)) {
+        if (GetForegroundWindow() == h) RefazMaximizada(h);
+        else SetPropW(h, L"MacJanelaRefazer", (HANDLE)1);  // na próxima ativação (LeveProc)
+        return;
+    }
     RECT wr; GetWindowRect(h, &wr);
     const UINT f = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
     SetWindowPos(h, nullptr, 0, 0, wr.right - wr.left + 1, wr.bottom - wr.top, f);
@@ -2226,6 +2253,11 @@ bool ProcessoChromium() {
 
 LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR) {
     static UINT msgShow = RegisterWindowMessageW(L"MacJanelaMostrar");
+    if (m == WM_ACTIVATE && LOWORD(w) != WA_INACTIVE && RemovePropW(h, L"MacJanelaRefazer")) {  // RefazBarra esperando a ativação
+        LRESULT r = DefSubclassProc(h, m, w, l);
+        RefazMaximizada(h);
+        return r;
+    }
     if (m == g_msgUndo && g_msgUndo && g_proprio) return DefSubclassProc(h, m, w, l);
     if (m == g_msgUndo && g_msgUndo) CantoLeveDesfazer(h);
     if (m == WM_NCDESTROY) RemovePropW(h, PROP_CANTO);
