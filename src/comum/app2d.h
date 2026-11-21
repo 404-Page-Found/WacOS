@@ -23,6 +23,7 @@
 #include "idioma.h"
 #include "semaforo.h"  // semaforo::Aqua(): tema macOS Golden Gate
 #include "barra_mac.h"  // a WacOSWindow.dll carregada pelo próprio app (barra do Mac sem o Shell)
+#include "simbolos.h"   // SF Symbols (icones\simbolos): o ícone da barra lateral igual ao do Notas e do Finder
 #include <commctrl.h>
 #include <shellapi.h>
 #pragma comment(lib, "comctl32.lib")
@@ -162,8 +163,17 @@ inline void GlassField(D2D1_RECT_F r, bool dark) {
     rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), rad - 0.25f, rad - 0.25f), br, 0.5f);
 }
 // ícone de "barra lateral" (retângulo com a coluna da esquerda e três tracinhos) e lupa, desenhados
+// o botão "barra lateral": o SF Symbol sidebar.left (18 × 14, o peso normal do Mac, o mesmo do Notas). O desenho
+// antigo, de traço 1,5, parecia em negrito ao lado dos outros apps (issue #8: Fotos, Contatos, Tempo); fica só
+// se o .svg não estiver na instalação
 inline void IconSidebar(D2D1_POINT_2F c, D2D1_COLOR_F col) {
     br->SetColor(col);
+    if (simbolo::Dir().empty()) {
+        wchar_t exe[MAX_PATH] = {}; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring d = exe; d = d.substr(0, d.find_last_of(L'\\'));  // ...\bin
+        simbolo::Dir() = d.substr(0, d.find_last_of(L'\\')) + L"\\icones\\simbolos";
+    }
+    if (simbolo::Draw(rt, L"sidebar.left", D2D1::RectF(c.x - 9, c.y - 7, c.x + 9, c.y + 7), br)) return;
     D2D1_RECT_F r = D2D1::RectF(c.x - 9, c.y - 7, c.x + 9, c.y + 7);
     rt->DrawRoundedRectangle(D2D1::RoundedRect(r, 3, 3), br, 1.5f);
     rt->DrawLine({ c.x - 3, r.top }, { c.x - 3, r.bottom }, br, 1.5f);

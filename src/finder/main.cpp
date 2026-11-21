@@ -44,6 +44,7 @@
 #include "../comum/abrircom.h"  // áudio abre no Música
 #include "../comum/semaforo.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra metálica unificada
+#include "../comum/dica.h"  // dica (tooltip) dos botões do Quick Look
 
 #pragma comment(linker, "\"/manifestdependency:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
@@ -325,12 +326,18 @@ static D2D1_RECT_F Inflate(D2D1_RECT_F r, float d) { return { r.left - d, r.top 
 
 enum class View { Icons, List, Columns, Gallery };
 enum SortCol { SORT_NAME, SORT_SIZE, SORT_KIND, SORT_DATE, SORT_CREATED };
-enum GroupBy { GROUP_NONE, GROUP_KIND, GROUP_DATE, GROUP_SIZE };
+enum GroupBy { GROUP_NONE, GROUP_KIND, GROUP_DATE, GROUP_SIZE, GROUP_ADDED };
 
 static View g_view = View::Icons;
 static SortCol g_sortCol = SORT_NAME;
 static bool g_sortAsc = true;
 static GroupBy g_groupBy = GROUP_NONE;
+// Downloads, como no Mac: agrupada por "Data de Adição" (Hoje, Ontem, Últimos 7/30 Dias, os meses do ano e os anos)
+// até o usuário escolher outro grupo ali; essa escolha fica só para a Downloads (grupoDownloads em opcoes.txt) e as
+// outras pastas seguem com o grupo de sempre (issue #8)
+static GroupBy g_groupMain = GROUP_NONE;  // o grupo das outras pastas
+static int g_groupDl = -1;                // o da Downloads (-1: o padrão do Mac, Data de Adição)
+static bool g_inDownloads;
 
 // Colunas: as pastas à esquerda da ativa são fotografias (pasta, conteúdo, qual subpasta está
 // aberta, rolagem). A coluna ativa é a pasta aberta de verdade (g_folder / g_items). À direita
@@ -448,6 +455,28 @@ static std::pair<int, std::wstring> GroupOf(const Entry& e) {
         if (days < 30) return { 3, Tr(L"Últimos 30 dias") };
         if (days < 365) return { 4, Tr(L"Este ano") };
         return { 5, Tr(L"Mais antigos") };
+    }
+    if (g_groupBy == GROUP_ADDED) {  // a data em que o arquivo chegou na pasta (criação; sem ela, a modificação)
+        ULONGLONG t = e.ctime ? e.ctime : e.mtime;
+        FILETIME ft{ (DWORD)t, (DWORD)(t >> 32) }, lf;
+        SYSTEMTIME st{}, now{};
+        FileTimeToLocalFileTime(&ft, &lf); FileTimeToSystemTime(&lf, &st); GetLocalTime(&now);
+        auto day = [](SYSTEMTIME s) {  // número do dia no calendário local (o "Hoje" vira à meia-noite, não 24 h depois)
+            s.wHour = s.wMinute = s.wSecond = s.wMilliseconds = 0;
+            FILETIME f{}; SystemTimeToFileTime(&s, &f);
+            return (long long)((((ULONGLONG)f.dwHighDateTime << 32) | f.dwLowDateTime) / 864000000000ULL);
+        };
+        long long d = day(now) - day(st);
+        if (d <= 0) return { 0, Tr(L"Hoje") };
+        if (d == 1) return { 1, Tr(L"Ontem") };
+        if (d < 7) return { 2, Tr(L"Últimos 7 Dias") };
+        if (d < 30) return { 3, Tr(L"Últimos 30 Dias") };
+        if (st.wYear == now.wYear) {  // este ano: um grupo por mês ("Outubro"), o mais novo primeiro
+            std::wstring m = idioma::MonthName(st.wMonth);
+            if (!m.empty()) m[0] = towupper(m[0]);
+            return { 4 + (now.wMonth - st.wMonth), m };
+        }
+        return { 100 + (now.wYear - st.wYear), std::to_wstring(st.wYear) };  // anos anteriores: "2025"
     }
     if (g_groupBy == GROUP_SIZE) {
         if (e.dir) return { 0, Tr(L"Pastas") };
@@ -829,11 +858,13 @@ static D2D1_RECT_F ToolRect(int k) {
         float sw = std::min(307.f, std::max(160.f, (s.width - Lay::SIDEBAR_W) * 0.35f));
         D2D1_RECT_F search = SearchExpanded() ? D2D1_RECT_F{ right - sw, cy - B / 2, right, cy + B / 2 } : bx(right, 36);
         if (k == TB_SEARCH) return search;
-        D2D1_RECT_F action = bx(search.left - G, 37);
+        // ⋯ leva a setinha ▾ (o círculo fica 7,5 à esquerda do meio): ele ganha a largura e Compartilhar/Etiquetas
+        // ficam com 33, para os três ícones ficarem a distâncias parecidas (Compartilhar parecia longe da etiqueta)
+        D2D1_RECT_F action = bx(search.left - G, 41);
         if (k == TB_ACTION) return action;
-        D2D1_RECT_F tag = bx(action.left, 37);
+        D2D1_RECT_F tag = bx(action.left, 33);
         if (k == TB_TAG) return tag;
-        D2D1_RECT_F share = bx(tag.left, 37);
+        D2D1_RECT_F share = bx(tag.left, 33);
         if (k == TB_SHARE) return share;
         D2D1_RECT_F group = bx(share.left - G, 47);
         if (k == TB_GROUP) return group;
@@ -853,11 +884,11 @@ static D2D1_RECT_F ToolRect(int k) {
         float sw = std::min(307.f, std::max(160.f, (s.width - Lay::SIDEBAR_W) * 0.35f));
         D2D1_RECT_F search = SearchExpanded() ? D2D1_RECT_F{ right - sw, cy - B / 2, right, cy + B / 2 } : D2D1_RECT_F{ right - 39, cy - 19, right, cy + 19 };
         if (k == TB_SEARCH) return search;
-        D2D1_RECT_F action = bx(search.left - G, B);
+        D2D1_RECT_F action = bx(search.left - G, B + 4);  // como no Golden Gate: o ⋯ com a setinha é mais largo
         if (k == TB_ACTION) return action;
-        D2D1_RECT_F tag = bx(action.left, B);
+        D2D1_RECT_F tag = bx(action.left, B - 2);
         if (k == TB_TAG) return tag;
-        D2D1_RECT_F share = bx(tag.left, B);
+        D2D1_RECT_F share = bx(tag.left, B - 2);
         if (k == TB_SHARE) return share;
         D2D1_RECT_F group = bx(share.left - G, B);
         if (k == TB_GROUP) return group;
@@ -1117,6 +1148,20 @@ static void Reload() {
 static int g_navMs;  // tempo da última leitura de pasta (medição)
 
 // keepColumns: navegação feita pelas próprias colunas (não recomeça a fileira de colunas).
+// Entrando ou saindo da Downloads: troca para o grupo dela (Data de Adição, ou o que o usuário escolheu ali) e volta
+// para o das outras pastas ao sair. Chamado logo depois de g_folder mudar, antes de ler a pasta.
+static std::wstring KnownFolder(REFKNOWNFOLDERID id);
+static void ApplyFolderGroup() {
+    static std::wstring dl = KnownFolder(FOLDERID_Downloads);
+    bool in = !dl.empty() && !g_folder.empty() && SamePath(g_folder, dl);
+    if (in == g_inDownloads) return;
+    g_inDownloads = in;
+    g_groupBy = in ? (g_groupDl < 0 ? GROUP_ADDED : (GroupBy)g_groupDl) : g_groupMain;
+    g_rowsDirty = true;
+}
+// a escolha de grupo atual vale para a pasta em que ela foi feita (Downloads ou as outras)
+static void NoteGroupChoice() { if (g_inDownloads) g_groupDl = (int)g_groupBy; else g_groupMain = g_groupBy; }
+
 static void Navigate(const std::wstring& path, bool push = true, const std::wstring& selectName = L"", bool keepColumns = false) {
     DWORD a = GetFileAttributesW(path.c_str());
     // raiz de unidade recém-conectada (pendrive, HD externo): o Windows ainda está montando o volume e a primeira leitura
@@ -1138,6 +1183,7 @@ static void Navigate(const std::wstring& path, bool push = true, const std::wstr
     g_galleryX = 0;
     g_renameIdx = -1;
     g_folder = p;
+    ApplyFolderGroup();
     g_search.SetText(L"", false);
     g_searchFocus = false;
     g_gen++;
@@ -1990,13 +2036,33 @@ static void DrawToolIcon(ID2D1DeviceContext* dc, int k, D2D1_RECT_F r, ID2D1Brus
         dc->DrawEllipse(D2D1::Ellipse(P(-2.5f, 0), 1.3f, 1.3f), b, 1.2f);
         break;
     }
-    case TB_SHARE:  // caixa aberta com seta para cima
-        Line(dc, b, cx - 3, cy - 2, cx - 6, cy - 2); Line(dc, b, cx - 6, cy - 2, cx - 6, cy + 8);
-        Line(dc, b, cx - 6, cy + 8, cx + 6, cy + 8); Line(dc, b, cx + 6, cy + 8, cx + 6, cy - 2);
-        Line(dc, b, cx + 6, cy - 2, cx + 3, cy - 2);
-        Line(dc, b, cx, cy + 3, cx, cy - 9);
-        Line(dc, b, cx - 3.5f, cy - 5.5f, cx, cy - 9); Line(dc, b, cx, cy - 9, cx + 3.5f, cy - 5.5f);
+    case TB_SHARE: {  // caixa aberta com seta para cima (square.and.arrow.up): cantos redondos e o traço de 1,4 dos
+        // outros botões, centrada na altura como a etiqueta. Antes era um retângulo de cantos vivos, mais alto e de
+        // traço 1,5, e destoava dos vizinhos (issue #8)
+        const float L = cx - 6, R = cx + 6, T = cy - 2.5f, B = cy + 7.5f, rr = 2.2f, gap = 2.6f;
+        ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+        ID2D1PathGeometry* g = nullptr;
+        if (f && SUCCEEDED(f->CreatePathGeometry(&g))) {
+            ID2D1GeometrySink* s = nullptr;
+            if (SUCCEEDED(g->Open(&s))) {
+                auto arc = [&](float x, float y) { s->AddArc(D2D1::ArcSegment({ x, y }, { rr, rr }, 0, D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE, D2D1_ARC_SIZE_SMALL)); };
+                s->BeginFigure({ cx - gap, T }, D2D1_FIGURE_BEGIN_HOLLOW);
+                s->AddLine({ L + rr, T }); arc(L, T + rr);
+                s->AddLine({ L, B - rr }); arc(L + rr, B);
+                s->AddLine({ R - rr, B }); arc(R, B - rr);
+                s->AddLine({ R, T + rr }); arc(R - rr, T);
+                s->AddLine({ cx + gap, T });
+                s->EndFigure(D2D1_FIGURE_END_OPEN);
+                s->Close(); s->Release();
+                dc->DrawGeometry(g, b, 1.4f, g_round);
+            }
+            g->Release();
+        }
+        if (f) f->Release();
+        Line(dc, b, cx, cy + 2.5f, cx, cy - 8.5f, 1.4f);
+        Line(dc, b, cx - 3.3f, cy - 5.2f, cx, cy - 8.5f, 1.4f); Line(dc, b, cx, cy - 8.5f, cx + 3.3f, cy - 5.2f, 1.4f);
         break;
+    }
     case TB_ACTION: {  // círculo com reticências + seta (Leopard: a engrenagem ▾)
         if (!g_tahoe && tahoe::Leopard()) {
             float gx = cx - 6, gr = 5.2f;
@@ -3577,6 +3643,23 @@ static bool IsMediaFile(const Entry& e, bool* video = nullptr) {
 static std::wstring g_qlMediaPath, g_qlMediaTitle, g_qlMediaArtist;
 static DWORD g_qlMouseAt;     // controles do vídeo somem ~2,5 s depois do último movimento
 static bool g_qlSeekDrag;
+// Zoom da foto no Quick Look (issue #8): a roda amplia em volta do ponteiro (1 a 8×); ampliada, arrastar move a foto
+static float g_qlZoom = 1, g_qlPanX, g_qlPanY, g_qlPanX0, g_qlPanY0;
+static bool g_qlPanning, g_qlZoomFill;
+static D2D1_POINT_2F g_qlPanFrom;
+static D2D1_RECT_F g_qlBody;     // onde a foto foi desenhada (DIP), para o zoom saber o ponto sob o mouse
+static UINT g_qlZoomW, g_qlZoomH;
+static std::wstring g_qlZoomPath;
+static void QlZoomReset() { g_qlZoom = 1; g_qlPanX = g_qlPanY = 0; g_qlPanning = false; }
+static D2D1_RECT_F QlPhotoRect(D2D1_RECT_F body, UINT iw, UINT ih, bool fill) {
+    float bw = body.right - body.left, bh = body.bottom - body.top;
+    if (!iw || !ih || bw <= 0 || bh <= 0) return body;
+    float k = (fill ? std::max(bw / iw, bh / ih) : std::min(bw / iw, bh / ih)) * g_qlZoom, w = iw * k, h = ih * k;
+    float mx = std::max(0.f, (w - bw) / 2), my = std::max(0.f, (h - bh) / 2);
+    g_qlPanX = std::clamp(g_qlPanX, -mx, mx); g_qlPanY = std::clamp(g_qlPanY, -my, my);
+    float x = body.left + (bw - w) / 2 + g_qlPanX, y = body.top + (bh - h) / 2 + g_qlPanY;
+    return D2D1::RectF(x, y, x + w, y + h);
+}
 
 // Abre/fecha o player conforme o item do Quick Look (chamado antes de cada quadro).
 static void QlSyncMedia() {
@@ -3735,11 +3818,22 @@ static void QlSyncShell() {  // a seleção mudou com o Quick Look do Shell aber
     QlSend(g_items[i].path);  // vídeo e música também tocam no Quick Look do Shell
 }
 
+// PDF, SVG, Word/PowerPoint/Excel e fontes: o painel daqui só teria a miniatura (ou nem isso); o Quick Look do Shell
+// desenha a página do PDF, o SVG e a prévia do Office (preview handler do Windows) em qualquer tema (issue #8)
+static bool QlNeedsShell(const Entry& e) {
+    if (e.dir) return false;
+    std::wstring x = ExtOf(e);
+    for (auto v : { L"pdf", L"svg", L"svgz", L"doc", L"docx", L"docm", L"dot", L"dotx", L"odt", L"ppt", L"pptx", L"pptm", L"pps", L"ppsx", L"odp",
+                    L"xls", L"xlsx", L"xlsm", L"ods", L"vsd", L"vsdx", L"pub", L"ttf", L"otf", L"ttc" })
+        if (x == v) return true;
+    return false;
+}
+
 static void QlToggle() {
     if (!g_qlExtPath.empty() && QlShellWnd()) { QlSend(L""); return; }
     if (g_ql) { QlClose(); return; }
     if (QlItem() < 0) return;
-    if (Golden() && QlSend(g_items[QlItem()].path)) return;  // tudo no Quick Look do Shell (vídeo e música também)
+    if ((Golden() || QlNeedsShell(g_items[QlItem()])) && QlSend(g_items[QlItem()].path)) return;  // tudo no Quick Look do Shell (vídeo e música também)
     g_ql = true;
     g_qlClosing = false;
     g_qlFrom = IconDoc(QlItem());
@@ -3994,10 +4088,10 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
         ID2D1Layer* cl = nullptr; dc->CreateLayer(nullptr, &cl);
         dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), clip), cl);
         auto sz = bmp->GetPixelSize();
-        float k = gg ? std::max((body.right - body.left) / sz.width, (body.bottom - body.top) / sz.height)  // macOS 27: a foto preenche a moldura
-                     : std::min((body.right - body.left) / sz.width, (body.bottom - body.top) / sz.height);
-        float w = sz.width * k, h = sz.height * k, cx = (body.left + body.right) / 2, cy = (body.top + body.bottom) / 2;
-        DrawBigIcon(dc, e, D2D1::RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), br);
+        // macOS 27: a foto preenche a moldura; nos outros, cabe nela. Com zoom (roda do mouse), amplia e o arrasto move
+        if (g_qlZoomPath != e.path) { QlZoomReset(); g_qlZoomPath = e.path; }
+        g_qlBody = body; g_qlZoomFill = gg; g_qlZoomW = sz.width; g_qlZoomH = sz.height;
+        DrawBigIcon(dc, e, QlPhotoRect(body, sz.width, sz.height, gg), br);
         dc->PopLayer(); cl->Release(); clip->Release(); f->Release();
     } else if (text) {  // texto: folha clara com fonte monoespaçada
         LoadQlText(e.path);
@@ -4077,10 +4171,40 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
     dc->SetTransform(old);
 }
 
+// a foto do Quick Look aberta agora (não texto, vídeo, ícone): a roda amplia
+static bool QlZoomable() {
+    if (!g_ql || g_qlClosing || (!g_tahoe && tahoe::Leopard())) return false;
+    int i = QlItem();
+    if (i < 0) return false;
+    const Entry& e = g_items[i];
+    return !e.dir && !IsTextFile(e) && !QlMediaOn(e) && !IsMediaFile(e) && QlImage(e) && g_qlZoomPath == e.path && g_qlZoomW && g_qlBody.right > g_qlBody.left;
+}
+static bool QlWheel(D2D1_POINT_2F p, int delta) {  // true: a roda foi do zoom
+    if (!QlZoomable() || !In(QlPanel(), p)) return false;
+    float z0 = g_qlZoom, z1 = std::clamp(z0 * std::pow(1.0018f, (float)delta), 1.f, 8.f);
+    if (z1 == z0) return true;
+    D2D1_RECT_F a = QlPhotoRect(g_qlBody, g_qlZoomW, g_qlZoomH, g_qlZoomFill);
+    float fx = (p.x - a.left) / std::max(1.f, a.right - a.left), fy = (p.y - a.top) / std::max(1.f, a.bottom - a.top);
+    g_qlZoom = z1;
+    D2D1_RECT_F b = QlPhotoRect(g_qlBody, g_qlZoomW, g_qlZoomH, g_qlZoomFill);  // o ponto sob o mouse fica parado
+    g_qlPanX += (p.x - fx * (b.right - b.left)) - b.left;
+    g_qlPanY += (p.y - fy * (b.bottom - b.top)) - b.top;
+    if (g_qlZoom <= 1.001f) QlZoomReset();
+    dica::Esconde();
+    Invalidate();
+    return true;
+}
+
 // Clique com o Quick Look aberto: true quando o clique foi no painel (consumido).
 static bool QlClick(D2D1_POINT_2F p) {
     if (!g_ql) return false;
     if (!In(QlPanel(), p)) return false;  // fora do painel: o Arquivos segue normal (como no Mac)
+    dica::Esconde();
+    if (QlZoomable() && g_qlZoom > 1.001f && In(g_qlBody, p)) {  // ampliada: arrastar move a foto
+        g_qlPanning = true; g_qlPanFrom = p; g_qlPanX0 = g_qlPanX; g_qlPanY0 = g_qlPanY;
+        SetCapture(g_hwnd);
+        return true;
+    }
     int i = QlItem();
     if (i >= 0 && QlMediaOn(g_items[i]) && !In(D2D1::RectF(QlPanel().left, QlPanel().top, QlPanel().right, QlPanel().top + QL_TITLE_H), p)) {
         bool vid = QlVideoOn(g_items[i]);
@@ -4958,7 +5082,7 @@ static void SetIconSizeFromSlider(float x) {
 
 // Reordena depois de trocar coluna, sentido ou grupo, mantendo a seleção.
 static void ResortImpl();
-static void Resort() { ResortImpl(); if (!g_reserva) SaveOptions(); }
+static void Resort() { NoteGroupChoice(); ResortImpl(); if (!g_reserva) SaveOptions(); }
 static void ResortImpl() {
     SortItems();
     g_rowsDirty = true;
@@ -5001,7 +5125,8 @@ static POINT BelowTool(int k) {  // canto de baixo à esquerda do botão, em pix
 static std::vector<ctxmenu::Item> GroupItems(int base) {
     auto it = [&](const wchar_t* t, GroupBy g) { ctxmenu::Item m; m.label = t; m.id = base + g; m.checked = g_groupBy == g; return m; };
     ctxmenu::Item sep; sep.separator = true;
-    return { it(Tr(L"Nenhum"), GROUP_NONE), sep, it(Tr(L"Tipo"), GROUP_KIND), it(Tr(L"Data de Modificação"), GROUP_DATE), it(Tr(L"Tamanho"), GROUP_SIZE) };
+    return { it(Tr(L"Nenhum"), GROUP_NONE), sep, it(Tr(L"Tipo"), GROUP_KIND), it(Tr(L"Data de Modificação"), GROUP_DATE),
+             it(Tr(L"Data de Adição"), GROUP_ADDED), it(Tr(L"Tamanho"), GROUP_SIZE) };
 }
 
 // Menu ⋯ sem seleção: o do próprio Finder (com seleção, continua o menu dos itens).
@@ -5087,10 +5212,11 @@ static void SaveOptions() {
     if (_wfopen_s(&f, OptionsFile().c_str(), L"w, ccs=UTF-8") || !f) return;
     fwprintf(f, L"visao=%d\nordem=%d\nascendente=%d\ngrupo=%d\nicone=%g\ntextoIcones=%g\ntextoLista=%g\nprevia=%d\n"
                 L"listaGrande=%d\ncolTamanho=%d\ncolTipo=%d\ncolData=%d\ncolCriacao=%d\ndatasRelativas=%d\ncolunasIcones=%d\ncolunasPrevia=%d\nbarraCaminho=%d\n",
-             (int)g_defaultView, (int)g_sortCol, g_sortAsc, (int)g_groupBy, g_icon, g_labelSize, g_rowTextSize, g_showThumbs,
+             (int)g_defaultView, (int)g_sortCol, g_sortAsc, (int)g_groupMain, g_icon, g_labelSize, g_rowTextSize, g_showThumbs,
              g_listLarge, g_colSize, g_colKind, g_colDate, g_colCreated, g_relDates, g_colIcons, g_colPreview, g_pick.on ? g_pathBarUser : g_pathBar);
     if (g_sideWidthSet) fwprintf(f, L"larguraLateral=%g\n", Lay::SIDEBAR_W);
     fwprintf(f, L"ocultos=%d\n", g_showHidden ? 1 : 0);
+    if (g_groupDl >= 0) fwprintf(f, L"grupoDownloads=%d\n", g_groupDl);
     if (g_hwnd && !g_reserva && !g_pick.on && IsWindowVisible(g_hwnd)) {
         // retângulo de tela de verdade (o da colocação é relativo à área de trabalho: vinha 24 px acima)
         if (!IsZoomed(g_hwnd) && !IsIconic(g_hwnd)) GetWindowRect(g_hwnd, &g_savedWin);
@@ -5118,7 +5244,8 @@ static void LoadOptions() {
         if (k == L"visao") g_view = g_defaultView = (View)std::clamp((int)v, 0, 3);
         else if (k == L"ordem") g_sortCol = (SortCol)std::clamp((int)v, 0, (int)SORT_CREATED);
         else if (k == L"ascendente") g_sortAsc = v != 0;
-        else if (k == L"grupo") g_groupBy = (GroupBy)std::clamp((int)v, 0, (int)GROUP_SIZE);
+        else if (k == L"grupo") g_groupBy = g_groupMain = (GroupBy)std::clamp((int)v, 0, (int)GROUP_ADDED);
+        else if (k == L"grupoDownloads") g_groupDl = std::clamp((int)v, 0, (int)GROUP_ADDED);
         else if (k == L"icone") g_icon = std::clamp((float)v, Lay::ICON_MIN, Lay::ICON_MAX);
         else if (k == L"textoIcones") g_labelSize = std::clamp((float)v, 10.f, 16.f);
         else if (k == L"textoLista") g_rowTextSize = std::clamp((float)v, 10.f, 16.f);
@@ -5153,6 +5280,7 @@ static const wchar_t* GroupName(GroupBy g) {
     case GROUP_KIND: return Tr(L"Tipo");
     case GROUP_DATE: return Tr(L"Data de Modificação");
     case GROUP_SIZE: return Tr(L"Tamanho");
+    case GROUP_ADDED: return Tr(L"Data de Adição");
     default: return Tr(L"Nenhum");
     }
 }
@@ -6200,7 +6328,25 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_tahoe && (ht >= 0 || g_hoverTool >= 0)) { g_toolMouse = p; Invalidate(); }
         if (hs != g_hoverSide || ht != g_hoverTool || hl != g_hoverLights) { g_hoverSide = hs; g_hoverTool = ht; g_hoverLights = hl; Invalidate(); }
         if (g_ql && In(QlPanel(), p)) g_qlMouseAt = GetTickCount();  // mostra os controles do vídeo
-        if (g_qlSeekDrag) {
+        {   // dica do botão do Quick Look sob o mouse (issue #8)
+            std::wstring tip;
+            int qi = g_ql && !g_qlClosing && !g_qlPanning ? QlItem() : -1;
+            if (qi >= 0) {
+                const Entry& e = g_items[qi];
+                if (In(QlCloseRect(), p)) tip = Tr(L"Fechar");
+                else if (In(QlShareRect(), p)) tip = Tr(L"Compartilhar");
+                else if (In(QlOpenRect(), p)) { std::wstring app = DefaultAppName(e); tip = e.dir || app.empty() ? std::wstring(Tr(L"Abrir")) : std::wstring(Tr(L"Abrir com ")) + app; }
+                else if (QlMediaOn(e) && In(QlCtlBar(), p) && (!QlVideoOn(e) || QlControlsVisible())) {
+                    if (In(QlPlayRect(), p)) tip = media::Paused() ? Tr(L"Reproduzir") : Tr(L"Pausar");
+                    else if (In(QlMuteRect(), p)) tip = media::Muted() ? Tr(L"Ativar Som") : Tr(L"Silenciar");
+                }
+            }
+            dica::Quer(h, tip, g_dark);
+        }
+        if (g_qlPanning) {
+            g_qlPanX = g_qlPanX0 + (p.x - g_qlPanFrom.x); g_qlPanY = g_qlPanY0 + (p.y - g_qlPanFrom.y);
+            Invalidate();
+        } else if (g_qlSeekDrag) {
             QlSeekAt(p.x);
         } else if (g_optSliderDrag) {
             OptSlider(p.x);
@@ -6224,6 +6370,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_MOUSELEAVE:
+        dica::Esconde();
         if (g_scrollHover) { g_scrollHover = false; g_scrollShownAt = GetTickCount(); SetTimer(h, T_SCROLLBAR, 50, nullptr); Invalidate(); }
         if (g_hoverSide >= 0 || g_hoverTool >= 0 || g_hoverLights) { g_hoverSide = g_hoverTool = -1; g_hoverLights = false; Invalidate(); }
         return 0;
@@ -6349,6 +6496,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_sideResize) { g_sideResize = false; ReleaseCapture(); g_sideWidthSet = true; SaveOptions(); return 0; }
         if (g_scrollDrag) { g_scrollDrag = false; ReleaseCapture(); g_scrollShownAt = GetTickCount(); SetTimer(h, T_SCROLLBAR, 50, nullptr); Invalidate(); return 0; }
         if (g_optSliderDrag) { g_optSliderDrag = false; ReleaseCapture(); return 0; }
+        if (g_qlPanning) { g_qlPanning = false; ReleaseCapture(); return 0; }
         if (g_qlSeekDrag) { g_qlSeekDrag = false; ReleaseCapture(); return 0; }
         if (g_sidePress >= 0) {
             int row = g_sidePress;
@@ -6430,6 +6578,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int delta = GET_WHEEL_DELTA_WPARAM(w);
         POINT mp{ GET_X_LPARAM(l), GET_Y_LPARAM(l) };  // em coordenadas de tela
         ScreenToClient(h, &mp);
+        if (QlWheel(ToDip(mp.x, mp.y), delta)) return 0;  // foto do Quick Look: zoom
         if (ToDip(mp.x, mp.y).x < Lay::SIDEBAR_W) {  // sobre a barra lateral: rola só ela
             g_sideScroll = std::clamp(g_sideScroll - delta / (float)WHEEL_DELTA * 52.f, 0.f, SideMaxScroll());
             Invalidate();
@@ -6525,7 +6674,8 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         case T_MEDIA: {  // quadros do vídeo; tempo da música ~5x por segundo
             static DWORD last;
-            if (!media::Active()) { KillTimer(h, T_MEDIA); break; }
+            // sem player, ou o vídeo não abriu (sem codec): o timer para (antes seguia redesenhando a janela à toa)
+            if (!media::Active() || media::Failed()) { KillTimer(h, T_MEDIA); Invalidate(); break; }
             bool fresh = media::UpdateFrame();
             if (fresh || GetTickCount() - last > 200) { last = GetTickCount(); Render(); }
             break;
@@ -6931,7 +7081,7 @@ static void ParseLaunch(int argc, wchar_t** argv, Launch& L) {
         if (!_wcsicmp(argv[a], L"--lista")) g_view = View::List;
         else if (!_wcsicmp(argv[a], L"--colunas")) g_view = View::Columns;
         else if (!_wcsicmp(argv[a], L"--galeria")) g_view = View::Gallery;
-        else if (!_wcsicmp(argv[a], L"--grupos")) g_groupBy = GROUP_KIND;
+        else if (!_wcsicmp(argv[a], L"--grupos")) g_groupBy = g_groupMain = GROUP_KIND;
         else if (!_wcsicmp(argv[a], L"--opcoes")) g_viewOpts = true;  // abre as Opções de Visualização
         else if (!_wcsicmp(argv[a], L"--info")) L.info = true;  // Obter Informações da pasta aberta
         else if (!_wcsicmp(argv[a], L"--aba") && a + 1 < argc) L.extraTabs.push_back(argv[++a]);  // abre outra aba

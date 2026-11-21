@@ -14,6 +14,16 @@
 #include <thread>
 #include "../comum/idioma.h"
 #include "../comum/barra_video.h"
+#include "../comum/dica.h"
+#include <d2d1_3.h>
+#include <wincodec.h>
+#include <shcore.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Data.Pdf.h>
+#include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Storage.Streams.h>
+#pragma comment(lib, "windowsapp.lib")
+#pragma comment(lib, "windowscodecs.lib")
 #include <mfplay.h>
 #include <mfapi.h>
 #pragma comment(lib, "mfplay.lib")
@@ -41,6 +51,23 @@ HWND g_back;
 bool g_glass, g_hoverShare, g_hoverFull, g_hoverRot, g_hoverMark;
 bool g_full;                         // botão de tela cheia: a prévia ocupa o monitor
 D2D1_RECT_F g_fullR, g_rotR, g_markR;
+// Zoom das fotos (issue #8): a roda do mouse amplia em volta do ponteiro (1 = a foto cabe no painel, até 8×) e,
+// ampliada, arrastar move a foto em vez do painel
+float g_zoom = 1, g_panX, g_panY;
+bool g_panning; POINT g_panFrom; float g_panX0, g_panY0;
+D2D1_RECT_F g_bodyR;                 // onde a foto foi desenhada por último (DIP da janela)
+bool g_bodyFill;                     // a foto preenche a moldura (Golden Gate fora da tela cheia) ou cabe nela
+// o retângulo da foto no corpo, com o zoom e o deslocamento (que fica preso: a foto não sai da moldura)
+D2D1_RECT_F PhotoRect(D2D1_RECT_F body, UINT iw, UINT ih, bool fill) {
+    float bw = body.right - body.left, bh = body.bottom - body.top;
+    if (!iw || !ih || bw <= 0 || bh <= 0) return body;
+    float k = (fill ? std::max(bw / iw, bh / ih) : std::min(bw / iw, bh / ih)) * g_zoom, w = iw * k, h = ih * k;
+    float mx = std::max(0.f, (w - bw) / 2), my = std::max(0.f, (h - bh) / 2);
+    g_panX = std::clamp(g_panX, -mx, mx); g_panY = std::clamp(g_panY, -my, my);
+    float x = body.left + (bw - w) / 2 + g_panX, y = body.top + (bh - h) / 2 + g_panY;
+    return D2D1::RectF(x, y, x + w, y + h);
+}
+void ZoomReset() { g_zoom = 1; g_panX = g_panY = 0; g_panning = false; }
 bool g_dragging; POINT g_dragFrom, g_dragOrg;  // arrastar o painel
 // Vídeo e música (Golden Gate, como no Mac): o MFPlay toca numa janela própria por cima do vidro (g_vid, na moldura
 // de 5, cantos 15) e a barra do QuickTime (barra_video.h) fica numa janela em camadas (g_ctl) com o vidro fosco
@@ -48,7 +75,7 @@ bool g_dragging; POINT g_dragFrom, g_dragOrg;  // arrastar o painel
 // a barra sempre visível embaixo.
 IMFPMediaPlayer* g_mp;
 HWND g_vid, g_ctl, g_ctlBack;
-bool g_media, g_hasVideo, g_scrub, g_ended;
+bool g_media, g_hasVideo, g_scrub, g_ended, g_mpVideo;
 float g_vol = 1;
 DWORD g_ctlMoveAt;
 std::vector<barravideo::Hit> g_vhits;
@@ -98,7 +125,7 @@ void MediaStop() {
     if (g_vid) ShowWindow(g_vid, SW_HIDE);
     if (g_ctl) ShowWindow(g_ctl, SW_HIDE);
     if (g_ctlBack) ShowWindow(g_ctlBack, SW_HIDE);
-    if (g_wnd) KillTimer(g_wnd, 7);
+    if (g_wnd) { KillTimer(g_wnd, 7); KillTimer(g_wnd, 11); }
 }
 const float GG_R = 20;               // cantos do painel (a foto: 15, concêntrica com a moldura de 5)
 bool g_isIcon;                       // sem prévia (pasta, arquivo sem miniatura): ícone grande e informações
@@ -188,6 +215,142 @@ std::wstring ReadText(const std::wstring& p) {
     return w;
 }
 
+// ---- PDF e SVG (issue #8): o Mac mostra a página/o desenho no Quick Look; aqui eles viram a "foto" da prévia
+std::wstring LowerExt(const std::wstring& p) {
+    std::wstring x = PathFindExtensionW(p.c_str());
+    for (auto& c : x) c = towlower(c);
+    return x;
+}
+bool IsPdf(const std::wstring& p) { return LowerExt(p) == L".pdf"; }
+bool IsSvg(const std::wstring& p) { std::wstring x = LowerExt(p); return x == L".svg" || x == L".svgz"; }
+
+// PNG/BMP de um IStream -> BGRA pré-multiplicado
+bool DecodeStream(IStream* st, UINT& w, UINT& h, std::vector<BYTE>& px) {
+    IWICImagingFactory* wic = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) || !wic) return false;
+    IWICBitmapDecoder* dec = nullptr; IWICBitmapFrameDecode* fr = nullptr; IWICFormatConverter* cv = nullptr;
+    bool ok = SUCCEEDED(wic->CreateDecoderFromStream(st, nullptr, WICDecodeMetadataCacheOnDemand, &dec)) && SUCCEEDED(dec->GetFrame(0, &fr)) &&
+              SUCCEEDED(wic->CreateFormatConverter(&cv)) &&
+              SUCCEEDED(cv->Initialize(fr, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom)) &&
+              SUCCEEDED(cv->GetSize(&w, &h)) && w && h;
+    if (ok) { px.resize((size_t)w * h * 4); ok = SUCCEEDED(cv->CopyPixels(nullptr, w * 4, (UINT)px.size(), px.data())); }
+    if (cv) cv->Release(); if (fr) fr->Release(); if (dec) dec->Release(); wic->Release();
+    return ok;
+}
+
+// 1ª página do PDF pelo Windows.Data.Pdf (o mesmo da Pré-Visualização), com o lado maior em maxSide px, fundo branco.
+// O WinRT espera com .get(): roda numa thread MTA própria (a do Quick Look é STA)
+bool LoadPdf(const std::wstring& path, UINT maxSide, UINT& w, UINT& h, std::vector<BYTE>& px, UINT& pages) {
+    bool ok = false;
+    std::thread([&] {
+        try {
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            namespace wdp = winrt::Windows::Data::Pdf;
+            namespace wss = winrt::Windows::Storage::Streams;
+            auto file = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(path).get();
+            auto doc = wdp::PdfDocument::LoadFromFileAsync(file).get();
+            pages = doc.PageCount();
+            if (!pages) return;
+            auto page = doc.GetPage(0);
+            auto s = page.Size();
+            wss::InMemoryRandomAccessStream ms;
+            wdp::PdfPageRenderOptions opt;
+            if (s.Width >= s.Height) opt.DestinationWidth(maxSide); else opt.DestinationHeight(maxSide);
+            opt.BackgroundColor(winrt::Windows::UI::Color{ 255, 255, 255, 255 });
+            page.RenderToStreamAsync(ms, opt).get();
+            ms.Seek(0);
+            IStream* st = nullptr;
+            if (SUCCEEDED(CreateStreamOverRandomAccessStream(winrt::get_unknown(ms), IID_PPV_ARGS(&st))) && st) {
+                CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+                ok = DecodeStream(st, w, h, px);
+                st->Release();
+            }
+        } catch (...) { ok = false; }
+    }).join();
+    return ok;
+}
+
+// SVG pelo SVG do Direct2D (ID2D1DeviceContext5), desenhado num bitmap WIC com o lado maior em maxSide px
+bool LoadSvg(const std::wstring& path, UINT maxSide, UINT& w, UINT& h, std::vector<BYTE>& px) {
+    IStream* st = nullptr;
+    if (FAILED(SHCreateStreamOnFileEx(path.c_str(), STGM_READ | STGM_SHARE_DENY_NONE, 0, FALSE, nullptr, &st)) || !st) return false;
+    IWICImagingFactory* wic = nullptr;
+    ID2D1Factory* fac = nullptr;
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &fac);
+    bool ok = false;
+    // o tamanho: viewBox, ou width/height; sem nada, 512 × 512
+    auto measure = [&](float& vw, float& vh) {
+        vw = vh = 512;
+        IWICBitmap* b1 = nullptr; ID2D1RenderTarget* rt1 = nullptr; ID2D1DeviceContext5* dc = nullptr; ID2D1SvgDocument* doc = nullptr;
+        if (wic && fac && SUCCEEDED(wic->CreateBitmap(8, 8, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &b1)) &&
+            SUCCEEDED(fac->CreateWicBitmapRenderTarget(b1, D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &rt1)) &&
+            SUCCEEDED(rt1->QueryInterface(IID_PPV_ARGS(&dc))) && SUCCEEDED(dc->CreateSvgDocument(st, D2D1::SizeF(512, 512), &doc))) {
+            ID2D1SvgElement* root = nullptr; doc->GetRoot(&root);
+            if (root) {
+                D2D1_SVG_VIEWBOX vb{};
+                if (SUCCEEDED(root->GetAttributeValue(L"viewBox", D2D1_SVG_ATTRIBUTE_POD_TYPE_VIEWBOX, &vb, sizeof(vb))) && vb.width > 0 && vb.height > 0) { vw = vb.width; vh = vb.height; }
+                else {
+                    D2D1_SVG_LENGTH lw{}, lh{};
+                    if (SUCCEEDED(root->GetAttributeValue(L"width", D2D1_SVG_ATTRIBUTE_POD_TYPE_LENGTH, &lw, sizeof(lw))) && lw.units == D2D1_SVG_LENGTH_UNITS_NUMBER && lw.value > 0 &&
+                        SUCCEEDED(root->GetAttributeValue(L"height", D2D1_SVG_ATTRIBUTE_POD_TYPE_LENGTH, &lh, sizeof(lh))) && lh.units == D2D1_SVG_LENGTH_UNITS_NUMBER && lh.value > 0) { vw = lw.value; vh = lh.value; }
+                }
+                root->Release();
+            }
+            ok = true;
+        }
+        if (doc) doc->Release(); if (dc) dc->Release(); if (rt1) rt1->Release(); if (b1) b1->Release();
+    };
+    float vw = 512, vh = 512;
+    measure(vw, vh);
+    if (ok) {
+        ok = false;
+        LARGE_INTEGER z{}; st->Seek(z, STREAM_SEEK_SET, nullptr);
+        float k = maxSide / std::max(vw, vh);
+        w = std::max(1u, (UINT)std::lround(vw * k)); h = std::max(1u, (UINT)std::lround(vh * k));
+        IWICBitmap* b = nullptr; ID2D1RenderTarget* rt = nullptr; ID2D1DeviceContext5* dc = nullptr; ID2D1SvgDocument* doc = nullptr;
+        if (SUCCEEDED(wic->CreateBitmap(w, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &b)) &&
+            SUCCEEDED(fac->CreateWicBitmapRenderTarget(b, D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &rt)) &&
+            SUCCEEDED(rt->QueryInterface(IID_PPV_ARGS(&dc))) && SUCCEEDED(dc->CreateSvgDocument(st, D2D1::SizeF((float)w, (float)h), &doc))) {
+            dc->BeginDraw();
+            dc->Clear(D2D1::ColorF(0, 0, 0, 0));
+            dc->DrawSvgDocument(doc);
+            ok = SUCCEEDED(dc->EndDraw());
+        }
+        if (ok) { px.resize((size_t)w * h * 4); ok = SUCCEEDED(b->CopyPixels(nullptr, w * 4, (UINT)px.size(), px.data())); }
+        if (doc) doc->Release(); if (dc) dc->Release(); if (rt) rt->Release(); if (b) b->Release();
+    }
+    if (fac) fac->Release(); if (wic) wic->Release(); st->Release();
+    return ok;
+}
+
+// ---- Word, PowerPoint, Excel (e fontes): o "preview handler" do Windows, se o PC tiver um para o tipo (o Office
+// instala os dele). Ele desenha numa janela comum por cima do vidro (g_ph), como o vídeo; sem handler, fica o ícone.
+IPreviewHandler* g_ph;
+HWND g_phWnd;
+bool g_handler;  // a prévia atual é de um preview handler
+bool g_skipHandler;  // o handler falhou no DoPreview: carrega de novo sem ele (ícone)
+bool WantsHandler(const std::wstring& p, CLSID* out) {
+    std::wstring x = LowerExt(p);
+    bool want = false;
+    for (auto e : { L".doc", L".docx", L".docm", L".dot", L".dotx", L".odt", L".rtf", L".ppt", L".pptx", L".pptm", L".pps", L".ppsx", L".odp",
+                    L".xls", L".xlsx", L".xlsm", L".ods", L".vsd", L".vsdx", L".pub", L".ttf", L".otf", L".ttc" })
+        if (x == e) want = true;
+    if (!want) return false;
+    wchar_t s[64] = {}; DWORD n = 64;
+    if (FAILED(AssocQueryStringW(ASSOCF_INIT_DEFAULTTOSTAR, ASSOCSTR_SHELLEXTENSION, x.c_str(), L"{8895b1c6-b41f-4c1c-a562-0d564250836f}", s, &n)) || !s[0]) return false;
+    return SUCCEEDED(CLSIDFromString(s, out));
+}
+void HandlerStop() {
+    if (g_ph) { g_ph->Unload(); g_ph->Release(); g_ph = nullptr; }
+    if (g_phWnd) ShowWindow(g_phWnd, SW_HIDE);
+    g_handler = false;
+}
+LRESULT CALLBACK PhProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_ERASEBKGND) { RECT r; GetClientRect(h, &r); FillRect((HDC)w, &r, (HBRUSH)GetStockObject(WHITE_BRUSH)); return 1; }
+    return DefWindowProcW(h, m, w, l);
+}
+
 // os apps do Mac do projeto para o tipo (como no Mac: Pré-Visualização abre imagens e PDF, TextEdit o texto)
 std::wstring g_openExe;
 std::wstring OwnApp(const std::wstring& p, std::wstring& name) {
@@ -225,10 +388,12 @@ SIZE PanelSize(float sc) {
     float W = (mi.rcWork.right - mi.rcWork.left) / sc * 0.62f, H = (mi.rcWork.bottom - mi.rcWork.top) / sc * 0.72f - BAR;
     float w = 560, h = 420;
     if (!g_text.empty()) { w = std::min(W, 720.f); h = std::min(H, 760.f); }
+    else if (g_handler) { w = std::min(W, 760.f); h = std::min(H, 580.f); }  // Word/PowerPoint: folha de tamanho fixo
     else if (g_iw && g_ih) {
         float k = std::min(W / g_iw, H / g_ih);
         k = std::min(k, 1.6f / sc);  // imagem pequena não estoura
-        w = std::max(360.f, g_iw * k); h = std::max(240.f, g_ih * k);
+        // vídeo: pelo menos 420 de largura, para a barra do QuickTime caber (vídeo em pé deixava o painel estreito)
+        w = std::max(g_media ? 420.f : 360.f, g_iw * k); h = std::max(240.f, g_ih * k);
     }
     if (liquid::Golden() && g_isIcon && g_media) return { 540, 520 };  // música: o ícone e a barra embaixo
     if (liquid::Golden() && g_isIcon) return { 540, 440 };  // medido na captura do usuário (19/11/2026)
@@ -324,7 +489,18 @@ void DrawGolden(ID2D1RenderTarget* rt, float W, float H, bool dark, bool glass) 
         D2D1_POINT_2F fc{ 38, cy };
         g_fullR = D2D1::RectF(fc.x - 10, fc.y - 10, fc.x + 10, fc.y + 10);
         roundBtn(fc, g_hoverFull);
-        rt->DrawLine({ fc.x - 2.6f, fc.y + 2.6f }, { fc.x + 2.6f, fc.y - 2.6f }, br, 2.4f);  // a barra em diagonal
+        // arrow.up.left.and.arrow.down.right (o SF Symbol do Mac): duas setinhas em diagonal, as pontas em "L" nos
+        // cantos; em tela cheia, viradas para dentro (arrow.down.right.and.arrow.up.left). Antes era uma barra só
+        ID2D1StrokeStyle* ss = nullptr;
+        fac->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND), nullptr, 0, &ss);
+        for (int s = -1; s <= 1; s += 2) {  // -1: a de cima à esquerda; 1: a de baixo à direita
+            float fora = 3.3f * s, perto = 0.9f * s;  // ponta e base da seta, a partir do centro
+            float tip = g_full ? perto : fora, base = g_full ? fora : perto, d = 2.3f * (g_full ? -s : s);
+            rt->DrawLine({ fc.x + base, fc.y + base }, { fc.x + tip, fc.y + tip }, br, 1.25f, ss);
+            rt->DrawLine({ fc.x + tip, fc.y + tip }, { fc.x + tip - d, fc.y + tip }, br, 1.25f, ss);
+            rt->DrawLine({ fc.x + tip, fc.y + tip }, { fc.x + tip, fc.y + tip - d }, br, 1.25f, ss);
+        }
+        if (ss) ss->Release();
     }
     // "Abrir com <app>": cápsula de 24 a 7,5 da borda, texto normal de 13 com 12,5 de cada lado
     static IDWriteTextFormat* tfBtn = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -413,8 +589,8 @@ void DrawGolden(ID2D1RenderTarget* rt, float W, float H, bool dark, bool glass) 
     }
     if (g_bmpRt != rt && g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
     if (!g_bmp && !g_px.empty()) { g_bmp = ui::Bitmap(rt, g_iw, g_ih, g_px); g_bmpRt = rt; }
-    if (g_hasVideo) {  // vídeo: a moldura preta; o MFPlay desenha na janela g_vid por cima
-        br->SetColor(D2D1::ColorF(0, 0, 0, 1));
+    if (g_hasVideo || g_handler) {  // vídeo: a moldura preta (o MFPlay desenha em g_vid por cima); Office: a folha branca
+        br->SetColor(g_handler ? D2D1::ColorF(1, 1, 1, 1) : D2D1::ColorF(0, 0, 0, 1));
         rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(M, BAR, W - M, H - M), RR - M, RR - M), br);
         br->Release(); fac->Release();
         return;
@@ -450,11 +626,10 @@ void DrawGolden(ID2D1RenderTarget* rt, float W, float H, bool dark, bool glass) 
         br->SetColor(text);
         rt->DrawTextW(g_text.c_str(), (UINT32)std::min<size_t>(g_text.size(), 20000), g_tfText, D2D1::RectF(body.left + 18, body.top + 14, body.right - 18, body.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     } else if (g_bmp) {  // a foto preenche a moldura
-        float bwid = body.right - body.left, bh = body.bottom - body.top;
-        // tela cheia: a foto inteira (o vidro aparece nas sobras); normal: o painel já tem a proporção da foto
-        float k = g_full ? std::min(bwid / g_iw, bh / g_ih) : std::max(bwid / g_iw, bh / g_ih), w = g_iw * k, h = g_ih * k;
-        float x = body.left + (bwid - w) / 2, y = body.top + (bh - h) / 2;
-        rt->DrawBitmap(g_bmp, D2D1::RectF(x, y, x + w, y + h), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        // tela cheia: a foto inteira (o vidro aparece nas sobras); normal: o painel já tem a proporção da foto.
+        // Com zoom, amplia em volta do ponteiro e o arrasto move (PhotoRect)
+        g_bodyR = body; g_bodyFill = !g_full;
+        rt->DrawBitmap(g_bmp, PhotoRect(body, g_iw, g_ih, !g_full), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
     }
     if (clip) { rt->PopLayer(); clip->Release(); }
     br->Release();
@@ -486,6 +661,7 @@ void PaintGolden(ID2D1RenderTarget* rt, RECT wr, int wpx, int hpx, float sc, boo
 }
 
 void PaintCtl();
+bool g_ctlRestack = true;  // a barra precisa voltar para cima do vídeo (o painel mexeu): só aí mexe na ordem das janelas
 // o vídeo e a barra ficam por cima do painel no mesmo "sempre visível" dele (por cima do Finder, o painel é
 // sempre visível; um HWND_TOP comum deixava o vídeo atrás do painel, só com a moldura preta à vista)
 UINT PlaceOver(HWND x) {
@@ -495,8 +671,24 @@ UINT PlaceOver(HWND x) {
     return 0;
 }
 HWND OverAfter() { return (GetWindowLongW(g_wnd, GWL_EXSTYLE) & WS_EX_TOPMOST) ? HWND_TOPMOST : HWND_TOP; }
+void PlaceHandler() {  // a folha do Word/PowerPoint por cima do corpo do painel (como o vídeo)
+    if (!g_handler || !g_phWnd || !g_wnd || !IsWindowVisible(g_wnd)) return;
+    float sc = Sc();
+    RECT wr; GetWindowRect(g_wnd, &wr);
+    bool gg = liquid::Golden();
+    int m = gg ? (int)std::lround(5 * sc) : 0, top = (int)std::lround(BAR * sc);
+    int w = wr.right - wr.left - 2 * m, h = wr.bottom - wr.top - top - m;
+    if (w <= 0 || h <= 0) return;
+    int rr = (int)std::lround(2 * ((gg ? GG_R : R) - (gg ? 5 : 0)) * sc);
+    SetWindowRgn(g_phWnd, CreateRoundRectRgn(0, 0, w + 1, h + 1, gg ? rr : 0, gg ? rr : 0), FALSE);
+    PlaceOver(g_phWnd);
+    SetWindowPos(g_phWnd, OverAfter(), wr.left + m, wr.top + top, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (g_ph) { RECT rc{ 0, 0, w, h }; g_ph->SetRect(&rc); }
+}
 void PlaceMedia() {
+    PlaceHandler();
     if (!g_media || !g_wnd || !IsWindowVisible(g_wnd)) return;
+    g_ctlRestack = true;
     float sc = Sc();
     RECT wr; GetWindowRect(g_wnd, &wr);
     int m = (int)std::lround(5 * sc), top = (int)std::lround(BAR * sc);
@@ -559,12 +751,17 @@ void PaintCtl() {
     BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     UpdateLayeredWindow(g_ctl, screen, &dst, &sz, mem, &src, 0, &bf, ULW_ALPHA);
     SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem); ReleaseDC(nullptr, screen);
-    if (g_ctlBack) {  // o vidro fosco de trás, 4,5 pt para dentro (o acrílico não aceita recorte)
-        int in = (int)std::lround(4.5f * sc);
-        SetWindowPos(g_ctlBack, HWND_TOP, x + in, y + in, w - 2 * in, h - 2 * in, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // A ordem das janelas só muda quando a barra aparece ou o painel mexeu. Antes ia para cima a cada quadro (15×/s),
+    // e cada troca de ordem fazia o Shell remontar o vidro real e as sombras: CPU alta com o vídeo aberto (issue #8)
+    if (!IsWindowVisible(g_ctl) || g_ctlRestack) {
+        g_ctlRestack = false;
+        if (g_ctlBack) {  // o vidro fosco de trás, 4,5 pt para dentro (o acrílico não aceita recorte)
+            int in = (int)std::lround(4.5f * sc);
+            SetWindowPos(g_ctlBack, HWND_TOP, x + in, y + in, w - 2 * in, h - 2 * in, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+        PlaceOver(g_ctl);
+        SetWindowPos(g_ctl, OverAfter(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
-    PlaceOver(g_ctl);
-    SetWindowPos(g_ctl, OverAfter(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
 
 void Paint() {
@@ -611,10 +808,8 @@ void Paint() {
             if (g_bmpRt != rt && g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
             if (!g_bmp && !g_px.empty()) { g_bmp = ui::Bitmap(rt, g_iw, g_ih, g_px); g_bmpRt = rt; }
             if (g_bmp) {
-                float bwid = body.right - body.left, bh = body.bottom - body.top;
-                float k = std::min(bwid / g_iw, bh / g_ih), w = g_iw * k, h = g_ih * k;
-                float x = body.left + (bwid - w) / 2, y = body.top + (bh - h) / 2;
-                rt->DrawBitmap(g_bmp, D2D1::RectF(x, y, x + w, y + h), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                g_bodyR = body; g_bodyFill = false;
+                rt->DrawBitmap(g_bmp, PhotoRect(body, g_iw, g_ih, false), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             } else {
                 br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));
                 const wchar_t* t = g_loading ? Tr(L"Carregando…") : Tr(L"Sem prévia");
@@ -661,11 +856,12 @@ void Paint() {
     } else {
         if (g_bmpRt != rt && g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
         if (!g_bmp && !g_px.empty()) { g_bmp = ui::Bitmap(rt, g_iw, g_ih, g_px); g_bmpRt = rt; }
-        if (g_bmp) {
-            float bwid = body.right - body.left, bh = body.bottom - body.top;
-            float k = std::min(bwid / g_iw, bh / g_ih), w = g_iw * k, h = g_ih * k;
-            float x = body.left + (bwid - w) / 2, y = body.top + (bh - h) / 2;
-            rt->DrawBitmap(g_bmp, D2D1::RectF(x, y, x + w, y + h), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        if (g_handler) {  // Office: a folha branca (o preview handler desenha por cima, em g_phWnd)
+            br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+            rt->FillRectangle(body, br);
+        } else if (g_bmp) {
+            g_bodyR = body; g_bodyFill = false;
+            rt->DrawBitmap(g_bmp, PhotoRect(body, g_iw, g_ih, false), 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         } else {
             br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.45f) : D2D1::ColorF(0, 0, 0, 0.45f));
             const wchar_t* t = g_loading ? Tr(L"Carregando…") : Tr(L"Sem prévia");
@@ -701,6 +897,9 @@ void Place() {
 void MediaStart(const std::wstring& path);
 void Load(const std::wstring& path) {
     MediaStop();
+    HandlerStop();
+    ZoomReset();
+    dica::Esconde();
     g_path = path;
     g_name = path.substr(path.find_last_of(L"\\/") + 1);
     g_app = DefaultAppName(path);
@@ -712,7 +911,37 @@ void Load(const std::wstring& path) {
     bool dir = at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY);
     // Golden Gate: o que não tem miniatura (pasta, arquivo comum) mostra o ícone grande; sabe antes de abrir
     g_isIcon = false;
-    if (liquid::Golden() && !IsTextFile(path)) {
+    // Vídeo e música não passam por aqui: pedir a miniatura de um vídeo decodifica um quadro e, nesta thread (a da
+    // interface do Shell), travava a Dock e a barra por segundos com a CPU alta, e o vídeo demorava a abrir ou nem
+    // abria (issue #8). PDF e SVG têm a prévia própria (abaixo)
+    bool mediaFile = IsMediaPath(path), ownPreview = !dir && (IsPdf(path) || IsSvg(path));
+    CLSID phClsid{};
+    if (!g_skipHandler && !dir && !mediaFile && !ownPreview && WantsHandler(path, &phClsid)) {  // Word/PowerPoint/Excel com o handler do Windows
+        if (!g_phWnd) {
+            HINSTANCE hi = GetModuleHandleW(nullptr);
+            WNDCLASSW pc{}; pc.lpfnWndProc = PhProc; pc.hInstance = hi; pc.lpszClassName = L"ShellQuickLookPrevia"; pc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+            RegisterClassW(&pc);
+            g_phWnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, pc.lpszClassName, L"", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 10, 10, g_wnd, nullptr, hi, nullptr);
+            if (g_phWnd) apps::ours.push_back(g_phWnd);
+        }
+        IPreviewHandler* ph = nullptr;
+        HRESULT hr = g_phWnd ? CoCreateInstance(phClsid, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&ph)) : E_FAIL;
+        if (FAILED(hr) && g_phWnd) hr = CoCreateInstance(phClsid, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&ph));
+        if (SUCCEEDED(hr) && ph) {
+            IInitializeWithFile* iwf = nullptr; IInitializeWithStream* iws = nullptr;
+            if (SUCCEEDED(ph->QueryInterface(IID_PPV_ARGS(&iwf))) && iwf) { hr = iwf->Initialize(path.c_str(), STGM_READ); iwf->Release(); }
+            else if (SUCCEEDED(ph->QueryInterface(IID_PPV_ARGS(&iws))) && iws) {
+                IStream* st = nullptr;
+                hr = SHCreateStreamOnFileEx(path.c_str(), STGM_READ | STGM_SHARE_DENY_NONE, 0, FALSE, nullptr, &st);
+                if (SUCCEEDED(hr)) { hr = iws->Initialize(st, STGM_READ); st->Release(); }
+                iws->Release();
+            } else hr = E_NOINTERFACE;
+            if (SUCCEEDED(hr)) { g_ph = ph; g_handler = true; } else ph->Release();
+        }
+        Log(L"quick look: preview handler %ls (0x%08X)", g_handler ? L"ok" : L"falhou", (unsigned)hr);
+        if (g_handler) { g_loading = false; return; }  // Toggle mostra a janela e chama StartHandler
+    }
+    if (liquid::Golden() && !IsTextFile(path) && !mediaFile && !ownPreview) {
         g_isIcon = true;
         IShellItemImageFactory* f = nullptr;
         HBITMAP hb = nullptr;
@@ -744,11 +973,15 @@ void Load(const std::wstring& path) {
             if (ext == e) photo = true;
     }
     UINT screen = (UINT)std::max({ GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), 1600 });
-    std::thread([path, gen, w, px, icon, dir, photo, screen] {
+    bool pdf = ownPreview && IsPdf(path), svg = ownPreview && IsSvg(path);
+    std::thread([path, gen, w, px, icon, dir, photo, screen, pdf, svg] {
         HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         auto* r = new std::tuple<int, UINT, UINT, std::vector<BYTE>>(gen, 0, 0, std::vector<BYTE>{});
         auto& [g, iw, ih, px2] = *r;
         bool got = photo && ui::LoadPhoto(path, screen, iw, ih, px2);  // sem codec (HEIC sem a extensão): a miniatura
+        UINT pages = 0;
+        if (!got && pdf) { got = LoadPdf(path, std::min(screen, 2400u), iw, ih, px2, pages); if (!got) Log(L"quick look: PDF não abriu (%ls)", path.c_str()); }
+        if (!got && svg) { got = LoadSvg(path, std::min(screen, 2400u), iw, ih, px2); if (!got) Log(L"quick look: SVG não abriu (%ls)", path.c_str()); }
         if (icon && dir && GetFileAttributesW((path + L"\\desktop.ini").c_str()) == INVALID_FILE_ATTRIBUTES) {  // a pasta do Mac (pacote de ícones)
             std::wstring png = ui::PackIcon(L"folder default");
             got = !png.empty() && ui::LoadPng(png, iw, ih, px2);
@@ -761,6 +994,9 @@ void Load(const std::wstring& path) {
         if (!PostMessageW(w, WM_QL_READY, 0, (LPARAM)r)) delete r;
     }).detach();
 }
+
+// foto na prévia (não ícone, texto, vídeo nem Office): a roda do mouse amplia
+bool Zoomable() { return g_bmp && g_text.empty() && !g_media && !g_handler && !g_isIcon && g_iw && g_ih && g_bodyR.right > g_bodyR.left; }
 
 LRESULT CALLBACK VidProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
@@ -779,10 +1015,27 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_MOUSEMOVE: {
         g_ctlMoveAt = GetTickCount();
-        if (g_scrub) { float x = GET_X_LPARAM(l) / sc; for (auto& ht : g_vhits) if (ht.id == barravideo::SCRUB) MSeek(barravideo::PosicaoEm(ht.r, x) * MLen()); PaintCtl(); }
+        if (g_scrub) { float x = GET_X_LPARAM(l) / sc; for (auto& ht : g_vhits) if (ht.id == barravideo::SCRUB) MSeek(barravideo::PosicaoEm(ht.r, x) * MLen()); PaintCtl(); return 0; }
+        float x = GET_X_LPARAM(l) / sc, y = GET_Y_LPARAM(l) / sc;
+        std::wstring tip;
+        for (auto& ht : g_vhits) {
+            if (x < ht.r.left || x >= ht.r.right || y < ht.r.top || y >= ht.r.bottom) continue;
+            switch (ht.id) {
+            case barravideo::VOL: tip = Tr(L"Volume"); break;
+            case barravideo::BACK: tip = Tr(L"Voltar 15 Segundos"); break;
+            case barravideo::PLAY: tip = MPlaying() ? Tr(L"Pausar") : Tr(L"Reproduzir"); break;
+            case barravideo::FWD: tip = Tr(L"Avançar 15 Segundos"); break;
+            case barravideo::FULL: tip = g_full ? Tr(L"Sair da Tela Cheia") : Tr(L"Tela Cheia"); break;
+            }
+            break;
+        }
+        dica::Quer(h, tip, ui::Dark());
+        TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 }; TrackMouseEvent(&t);
         return 0;
     }
+    case WM_MOUSELEAVE: dica::Esconde(); return 0;
     case WM_LBUTTONDOWN: {
+        dica::Esconde();
         float x = GET_X_LPARAM(l) / sc, y = GET_Y_LPARAM(l) / sc;
         for (auto& ht : g_vhits) {
             if (x < ht.r.left || x >= ht.r.right || y < ht.r.top || y >= ht.r.bottom) continue;
@@ -824,7 +1077,9 @@ void MediaStart(const std::wstring& path) {
     g_mp->SetVolume(g_vol);
     g_mp->SetBorderColor(RGB(0, 0, 0));
     g_ctlMoveAt = GetTickCount();
+    g_ctlRestack = true;
     SetTimer(g_wnd, 7, 66, nullptr);  // a barra acompanha o vídeo (o desfoque de trás anda junto)
+    if (IsMediaPath(path, &g_mpVideo) && g_mpVideo) SetTimer(g_wnd, 11, 8000, nullptr);  // vídeo que não abre: desiste (WM_TIMER 11)
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -839,13 +1094,25 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 g_px.clear(); if (g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
                 g_iw = vs.cx; g_ih = vs.cy; g_loading = false;
             }
+            KillTimer(h, 11);
             g_mp->Play();
             Place(); Paint(); SyncBack();
         } else if (w == 2) { g_ended = true; PaintCtl(); }
-        else if (w == 1 || w == 3) { g_hasVideo = false; PaintCtl(); }  // não deu para tocar: fica a prévia
+        else if (w == 1 || w == 3) {  // não deu para tocar (sem o codec, arquivo estragado): para o player e fica a prévia
+            Log(L"quick look: o vídeo não abriu (0x%08X) %ls", (unsigned)l, g_path.c_str());
+            bool icon = !g_hasVideo && g_px.empty();
+            MediaStop();
+            if (icon && liquid::Golden()) g_isIcon = true;
+            Place(); Paint(); SyncBack();
+        }
         return 0;
     case WM_TIMER:
         if (w == 7) { if (g_media) PaintCtl(); return 0; }
+        if (w == 11) {  // o Media Foundation não respondeu em 8 s: desiste (antes ficava girando, com a CPU alta)
+            KillTimer(h, 11);
+            if (g_mp && !g_hasVideo) { Log(L"quick look: o vídeo não abriu em 8 s %ls", g_path.c_str()); MediaStop(); Place(); Paint(); SyncBack(); }
+            return 0;
+        }
         if (w == 8) { KeepTop(); return 0; }
         if (w == T_QLANIM) { AnimStep(); return 0; }
         break;
@@ -867,7 +1134,33 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (y < BAR && !(x >= g_closeR.left && x < g_closeR.right) && !(x >= g_openR.left && x < g_openR.right)) return HTCAPTION;
         return HTCLIENT;
     }
+    case WM_MOUSEWHEEL: {  // zoom da foto em volta do ponteiro (issue #8)
+        if (!Zoomable()) return 0;
+        POINT p{ (short)LOWORD(l), (short)HIWORD(l) }; ScreenToClient(h, &p);
+        float sc = Sc(), x = p.x / sc, y = p.y / sc;
+        float z0 = g_zoom, z1 = std::clamp(z0 * std::pow(1.0018f, (float)GET_WHEEL_DELTA_WPARAM(w)), 1.f, 8.f);
+        if (z1 == z0) return 0;
+        D2D1_RECT_F a = PhotoRect(g_bodyR, g_iw, g_ih, g_bodyFill);
+        float fx = (x - a.left) / std::max(1.f, a.right - a.left), fy = (y - a.top) / std::max(1.f, a.bottom - a.top);
+        g_zoom = z1;
+        D2D1_RECT_F b = PhotoRect(g_bodyR, g_iw, g_ih, g_bodyFill);  // tamanho novo; o ponto sob o mouse fica parado
+        g_panX += (x - fx * (b.right - b.left)) - b.left;
+        g_panY += (y - fy * (b.bottom - b.top)) - b.top;
+        if (g_zoom <= 1.001f) ZoomReset();
+        dica::Esconde();
+        Paint();
+        return 0;
+    }
     case WM_LBUTTONDOWN:
+        dica::Esconde();
+        {   // foto ampliada: arrastar move a foto
+            float sc = Sc(), x = (short)LOWORD(l) / sc, y = (short)HIWORD(l) / sc;
+            if (Zoomable() && g_zoom > 1.001f && x >= g_bodyR.left && x < g_bodyR.right && y >= g_bodyR.top && y < g_bodyR.bottom) {
+                GetCursorPos(&g_panFrom); g_panX0 = g_panX; g_panY0 = g_panY;
+                g_panning = true; SetCapture(h);
+                return 0;
+            }
+        }
         // como no Mac: arrasta por qualquer ponto do painel que não seja botão
         if (liquid::Golden() && !g_full && !g_hoverClose && !g_hoverOpen && !g_hoverShare && !g_hoverFull && !g_hoverRot && !g_hoverMark) {
             GetCursorPos(&g_dragFrom);
@@ -875,8 +1168,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_dragging = true; SetCapture(h);
         }
         return 0;
-    case WM_CAPTURECHANGED: g_dragging = false; return 0;
+    case WM_CAPTURECHANGED: g_dragging = g_panning = false; return 0;
     case WM_MOUSEMOVE: {
+        if (g_panning) {
+            POINT p; GetCursorPos(&p);
+            float sc = Sc();
+            g_panX = g_panX0 + (p.x - g_panFrom.x) / sc; g_panY = g_panY0 + (p.y - g_panFrom.y) / sc;
+            Paint();
+            return 0;
+        }
         if (g_dragging) {
             POINT p; GetCursorPos(&p);
             SetWindowPos(h, nullptr, g_dragOrg.x + p.x - g_dragFrom.x, g_dragOrg.y + p.y - g_dragFrom.y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
@@ -890,18 +1190,24 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (hc != g_hoverClose || ho != g_hoverOpen || hs != g_hoverShare || hf != g_hoverFull || hr != g_hoverRot || hm != g_hoverMark) {
             g_hoverClose = hc; g_hoverOpen = ho; g_hoverShare = hs; g_hoverFull = hf; g_hoverRot = hr; g_hoverMark = hm; Paint();
         }
+        // dica do botão parado sob o mouse, como no Mac
+        std::wstring tip = hc ? Tr(L"Fechar") : hf ? (g_full ? Tr(L"Sair da Tela Cheia") : Tr(L"Tela Cheia")) : hs ? Tr(L"Compartilhar")
+                         : hr ? Tr(L"Girar para a Esquerda") : hm ? Tr(L"Marcação") : ho ? (g_app.empty() ? std::wstring(Tr(L"Abrir")) : std::wstring(Tr(L"Abrir com ")) + g_app) : L"";
+        dica::Quer(h, tip, ui::Dark());
         TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 }; TrackMouseEvent(&t);
         return 0;
     }
     case WM_MOUSELEAVE:
+        dica::Esconde();
         if (g_hoverClose || g_hoverOpen || g_hoverShare || g_hoverFull || g_hoverRot || g_hoverMark) {
             g_hoverClose = g_hoverOpen = g_hoverShare = g_hoverFull = g_hoverRot = g_hoverMark = false; Paint();
         }
         return 0;
     case WM_LBUTTONUP:
+        if (g_panning) { g_panning = false; ReleaseCapture(); return 0; }
         if (g_dragging) { g_dragging = false; ReleaseCapture(); return 0; }
         if (g_hoverClose) { quicklook::Close(); return 0; }
-        if (g_hoverFull) { g_full = !g_full; Place(); Paint(); SyncBack(); return 0; }
+        if (g_hoverFull) { g_full = !g_full; ZoomReset(); Place(); Paint(); SyncBack(); return 0; }
         if (g_hoverRot && g_iw && g_ih && g_px.size() >= (size_t)g_iw * g_ih * 4) {  // gira 90° para a esquerda, como o Mac
             std::vector<BYTE> o(g_px.size());
             for (UINT y = 0; y < g_ih; y++)
@@ -909,6 +1215,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     memcpy(&o[((size_t)(g_iw - 1 - x) * g_ih + y) * 4], &g_px[((size_t)y * g_iw + x) * 4], 4);
             g_px.swap(o); std::swap(g_iw, g_ih);
             if (g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
+            ZoomReset();
             Place(); Paint(); SyncBack();
             return 0;
         }
@@ -926,7 +1233,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     case WM_KEYDOWN:
-        if (w == VK_ESCAPE && g_full) { g_full = false; Place(); Paint(); SyncBack(); return 0; }
+        if (w == VK_ESCAPE && g_full) { g_full = false; ZoomReset(); Place(); Paint(); SyncBack(); return 0; }
         if (w == VK_ESCAPE || w == VK_SPACE) { quicklook::Close(); return 0; }
         if (w == VK_RETURN) { std::wstring p = g_path; quicklook::Close(); OpenPath(p); return 0; }
         return 0;
@@ -981,6 +1288,9 @@ void CloseNow() {
     if (!g_wnd) return;
     KillTimer(g_wnd, T_QLANIM); g_qlAnimT0 = -1; g_qlAnimOut = false; g_qlOp = g_qlSc = 1;
     MediaStop();
+    HandlerStop();
+    ZoomReset();
+    dica::Esconde();
     KillTimer(g_wnd, 8);
     SetWindowPos(g_wnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     ShowWindow(g_wnd, SW_HIDE);
@@ -997,6 +1307,8 @@ void quicklook::Close() {
     if (g_qlAnimOut) return;  // já fechando
     if (IsWindowVisible(g_wnd) && g_glass && liquid::Golden()) {  // some animado; o vídeo para já
         MediaStop();
+        HandlerStop();
+        dica::Esconde();
         AnimStart(true);
         return;
     }
@@ -1020,6 +1332,17 @@ void quicklook::Toggle(const std::wstring& path, bool activate) {
     if (activate) SetForegroundWindow(g_wnd);
     Paint();
     SyncBack();
+    if (g_handler && g_ph) {  // Word/PowerPoint: o handler desenha na folha por cima do corpo (PlaceHandler)
+        RECT rc{}; GetClientRect(g_phWnd, &rc);
+        HRESULT hr = g_ph->SetWindow(g_phWnd, &rc);
+        if (SUCCEEDED(hr)) hr = g_ph->DoPreview();
+        if (FAILED(hr)) {  // não desenhou: fica o ícone grande, como antes
+            Log(L"quick look: DoPreview 0x%08X", (unsigned)hr);
+            std::wstring p = g_path;
+            g_skipHandler = true; Load(p); g_skipHandler = false;
+            Place(); Paint(); SyncBack();
+        }
+    }
     if (opening && g_glass && liquid::Golden()) AnimStart(false);
     Log(L"quick look: %ls", path.c_str());
 }
