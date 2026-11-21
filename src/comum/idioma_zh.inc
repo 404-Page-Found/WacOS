@@ -751,6 +751,7 @@
 { L"Mais ações", L"更多操作" },
 { L"Mostrar todas as opções", L"显示所有选项" },
 { L"Cinza", L"灰色" },
+{ L"Preto", L"黑色" },
 { L"Comprimento", L"长度" },
 { L"Metros", L"米" },
 { L"Quilômetros", L"千米" },

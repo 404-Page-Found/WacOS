@@ -162,16 +162,19 @@ void Reveal(Level& l, int i) {
 void Measure(Level& l) {
     Formats(l.scale);
     float maxL = 0, maxS = 0;
-    bool anySub = false, anyIcon = false;
+    bool anySub = false, anyIcon = false, anyCheck = false;
     for (auto& it : l.items) {
         if (it.sep) continue;
+        anyCheck |= it.checked;
         it.icon = backdrop::Liquid() && (!GoldenMenus() || GoldenIcon(it.label)) ? ctxmenu::AutoIcon(it.label) : 0;  // Tahoe: símbolo em cada item
         anyIcon |= it.icon != 0;
         maxL = std::max(maxL, ui::TextWidth(g_tf, it.label));
         if (!it.shortcut.empty()) maxS = std::max(maxS, ui::TextWidth(g_tf, it.shortcut));
         anySub |= it.sub;
     }
-    l.textL = GoldenMenus() ? (anyIcon ? 41.f : 16.f) : anyIcon ? 34.f : TEXTL;
+    // Golden Gate: o texto a 16 só quando nenhum item tem ✓; com ✓ (o + do Relógio, as fontes do TextEdit) o texto ia
+    // a 16 e o ✓ (8–16,5) ficava colado nele. Com ✓, 26: o mesmo do menu próprio (context_menu.cpp)
+    l.textL = GoldenMenus() ? (anyIcon ? 41.f : anyCheck ? 26.f : 16.f) : anyIcon ? 34.f : TEXTL;
     l.w = std::max(160.f, l.textL + maxL + (maxS > 0 ? 30 + maxS : 0) + (anySub ? 22 : 0) + TEXTR);
     bool tahoe = backdrop::Liquid();  // medidas do menu do Tahoe: linhas de 20, separador de 9, 6 de folga
     bool golden = GoldenMenus();

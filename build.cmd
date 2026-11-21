@@ -131,7 +131,7 @@ cl %CFLAGS% /Fo:bin\obj\lembretes\ src\lembretes\main.cpp %RES%\WacOSReminders.r
 if not exist bin\obj\calendario mkdir bin\obj\calendario
 cl %CFLAGS% /Fo:bin\obj\calendario\ src\calendario\main.cpp %RES%\WacOSCalendar.res /Fe:bin\WacOSCalendar.exe %LFLAGS% || exit /b 1
 if not exist bin\obj\textedit mkdir bin\obj\textedit
-cl %CFLAGS% /Fo:bin\obj\textedit\ src\textedit\main.cpp %RES%\WacOSTextEdit.res /Fe:bin\WacOSTextEdit.exe %LFLAGS% || exit /b 1
+cl %CFLAGS% /Fo:bin\obj\textedit\ src\textedit\main.cpp bin\obj\context_menu.obj %RES%\WacOSTextEdit.res /Fe:bin\WacOSTextEdit.exe %LFLAGS% windowscodecs.lib || exit /b 1
 if not exist bin\obj\relogio mkdir bin\obj\relogio
 cl %CFLAGS% /Fo:bin\obj\relogio\ src\relogio\main.cpp %RES%\WacOSClock.res /Fe:bin\WacOSClock.exe %LFLAGS% || exit /b 1
 if not exist bin\obj\clima mkdir bin\obj\clima

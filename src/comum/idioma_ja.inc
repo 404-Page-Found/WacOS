@@ -751,6 +751,7 @@
 { L"Mais ações", L"その他のアクション" },
 { L"Mostrar todas as opções", L"すべてのオプションを表示" },
 { L"Cinza", L"グレイ" },
+{ L"Preto", L"ブラック" },
 { L"Comprimento", L"長さ" },
 { L"Metros", L"メートル" },
 { L"Quilômetros", L"キロメートル" },

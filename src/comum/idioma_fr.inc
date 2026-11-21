@@ -751,6 +751,7 @@
 { L"Mais ações", L"Plus d’actions" },
 { L"Mostrar todas as opções", L"Afficher toutes les options" },
 { L"Cinza", L"Gris" },
+{ L"Preto", L"Noir" },
 { L"Comprimento", L"Longueur" },
 { L"Metros", L"Mètres" },
 { L"Quilômetros", L"Kilomètres" },

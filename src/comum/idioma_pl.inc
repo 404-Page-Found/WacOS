@@ -751,6 +751,7 @@
 { L"Mais ações", L"Więcej czynności" },
 { L"Mostrar todas as opções", L"Pokaż wszystkie opcje" },
 { L"Cinza", L"Szary" },
+{ L"Preto", L"Czarny" },
 { L"Comprimento", L"Długość" },
 { L"Metros", L"Metry" },
 { L"Quilômetros", L"Kilometry" },

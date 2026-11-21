@@ -157,6 +157,7 @@ struct MItem {
     int special = 0;  // 1 = abrir o menu clássico do Windows
     std::vector<MItem> sub;
     wchar_t icon = 0;
+    UINT32 swatch = 0;    // amostra de cor na coluna do ícone (ctxmenu::Item::swatch)
     std::vector<ctxmenu::Dot> dots;
     HMENU src = nullptr;  // submenu original, relido ao abrir (extensões que completam depois)
 };
@@ -780,11 +781,11 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     L.tf = MakeFormat(M::FONT * sc, DWRITE_FONT_WEIGHT_NORMAL);
     L.tfHdr = MakeFormat(M::HDR_FONT * sc, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     if (Tahoe() && !g_plain)
-        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
+        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && !m.swatch && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
     bool hasCheck = false, hasSub = false, hasIcon = false;
     float maxW = 0, maxShort = 0;
     for (auto& m : *items) {
-        hasCheck |= m.checked; hasSub |= HasSub(m); hasIcon |= m.icon != 0;
+        hasCheck |= m.checked; hasSub |= HasSub(m); hasIcon |= m.icon != 0 || m.swatch != 0;  // a amostra usa a coluna do ícone
         if (!m.sep) maxW = std::max(maxW, TextWidth(m.header ? L.tfHdr : L.tf, m.label));
         if (!m.dots.empty()) maxW = std::max(maxW, (m.dots.size() * DOT_PITCH + 4) * sc);
         if (!m.shortcut.empty()) maxShort = std::max(maxShort, TextWidth(L.tf, m.shortcut));
@@ -1109,6 +1110,24 @@ static void DrawLevel(Session& s, int li) {
         if (m.icon && !m.checked && L.tfIcon) {  // ícone do Tahoe na coluna da esquerda
             wchar_t g[2] = { m.icon, 0 };
             rt->DrawTextW(g, 1, L.tfIcon, D2D1::RectF((IconCx() - 10) * sc, r.top, (IconCx() + 10) * sc, r.bottom), fg);
+        }
+        if (m.swatch && !m.checked) {  // amostra de cor: quadradinho de 12 com canto 3 e contorno fino
+            D2D1_ROUNDED_RECT sw{ D2D1::RectF((IconCx() - 6) * sc, cy - 6 * sc, (IconCx() + 6) * sc, cy + 6 * sc), 3 * sc, 3 * sc };
+            ID2D1SolidColorBrush* c = nullptr;
+            UINT32 v = m.swatch;
+            rt->CreateSolidColorBrush(v == ctxmenu::SWATCH_AUTO ? D2D1::ColorF(0, 0, 0) : D2D1::ColorF(((v >> 16) & 255) / 255.f, ((v >> 8) & 255) / 255.f, (v & 255) / 255.f), &c);
+            if (c) {
+                rt->FillRoundedRectangle(sw, c);
+                if (v == ctxmenu::SWATCH_AUTO) {  // "Automática": metade de baixo branca (segue o tema do texto)
+                    c->SetColor(D2D1::ColorF(1, 1, 1));
+                    rt->PushAxisAlignedClip(D2D1::RectF(sw.rect.left, cy, sw.rect.right, sw.rect.bottom), D2D1_ANTIALIAS_MODE_ALIASED);
+                    rt->FillRoundedRectangle(sw, c);
+                    rt->PopAxisAlignedClip();
+                }
+                c->SetColor(hot && !m.disabled ? D2D1::ColorF(1, 1, 1, 0.85f) : D2D1::ColorF(0.5f, 0.5f, 0.5f, 0.55f));
+                rt->DrawRoundedRectangle(sw, c, 0.75f * sc);
+                c->Release();
+            }
         }
         if (m.checked) {
             float x = M::INSET * sc + 7 * sc;
@@ -1525,6 +1544,7 @@ static std::vector<MItem> ToMItems(const std::vector<ctxmenu::Item>& in) {
         m.disabled = it.disabled;
         m.shortcut = it.shortcut;
         m.icon = it.icon;
+        m.swatch = it.swatch;
         m.dots = it.dots;
         m.sub = ToMItems(it.sub);
         out.push_back(std::move(m));

@@ -219,8 +219,11 @@ void Card(D2D1_RECT_F r) { Fill(r, Rgb(255, 255, 255, 0.14f), 14); }
 const wchar_t* CondText(int c);
 const wchar_t* CondEmoji(int c, bool day);
 // ---- macOS 27 (captura Weather do 512 Pixels, 2x, medida em pt): o céu ocupa a janela toda (a barra é
-// transparente); lateral de 270 com o céu escurecido, o botão de "barra lateral" (244, 26) e a busca em cápsula
-// (9–262, 63–97); o "+" redondo fica no conteúdo (297, 26). No meio: cidade (20), temperatura fina (64), condição e
+// transparente); lateral de 270, o botão de "barra lateral" (244, 26) e a busca em cápsula (9–262, 63–97); o "+"
+// redondo fica no conteúdo (297, 26). A lateral segue o tema como nos outros apps (claro/escuro/automático pelo
+// Windows, app2d::Dark): cor cheia da barra lateral (SidebarColor), botões e busca de vidro (GlassButton/GlassField,
+// os mesmos do Contatos e do Música) e cada cidade num cartão com o céu dela, como no Tempo do Mac. Antes a lateral era
+// sempre o céu escurecido: no tema claro o app abria escuro, e o campo de busca ficava com um fundo azul chapado. No meio: cidade (20), temperatura fina (64), condição e
 // máx./mín. Embaixo uma grade de 622 de largura, centrada: dois quadros de 143 e um largo de 304 por linha (141 de
 // altura, 16 entre eles), vidro claro com cantos 18 e o título em maiúsculas pequenas.
 float g_gScroll;
@@ -254,30 +257,43 @@ void PaintGoldenWx() {
     Wx sky = have && pl.wx.ok ? pl.wx : Wx{};
     if (!have || !pl.wx.ok) { sky.day = true; sky.code = 1; }
     SkyFill(D2D1::RectF(0, 0, sz.width, sz.height), sky, 0);
-    // ---- lateral (escondida: o botão dela fica na barra, logo depois dos três botões da janela)
+    // ---- lateral (escondida: o botão dela fica na barra, logo depois dos três botões da janela, sobre o céu)
     if (!g_side) {
         D2D1_RECT_F tb = D2D1::RectF(84, 8, 120, 44);
         Fill(tb, Rgb(255, 255, 255, 0.16f), 18); IconSidebar({ 102, 26 }, white); BarButton(tb);
         g_hits.push_back({ 3, 0, tb });
     } else {
-    SkyFill(D2D1::RectF(0, 0, SBG, sz.height), sky, 0.28f);
-    Fill(D2D1::RectF(SBG - 0.5f, 0, SBG, sz.height), Rgb(0, 0, 0, 0.18f));
+    const bool dark = Dark();
+    const D2D1_COLOR_F text = dark ? Rgb(245, 245, 247) : Rgb(29, 29, 31), gray = dark ? Rgb(152, 152, 157) : Rgb(134, 134, 139);
+    Fill(D2D1::RectF(0, 0, SBG, sz.height), SidebarColor());
+    Fill(D2D1::RectF(SBG - 0.5f, 0, SBG, sz.height), dark ? Rgb(0, 0, 0, 0.5f) : Rgb(0, 0, 0, 0.12f));
     D2D1_RECT_F tb = D2D1::RectF(244 - 18, 8, 244 + 18, 44);
-    Fill(tb, Rgb(255, 255, 255, 0.16f), 18); IconSidebar({ 244, 26 }, white); BarButton(tb);
+    GlassButton(tb, dark); IconSidebar({ 244, 26 }, text); BarButton(tb);
     g_hits.push_back({ 3, 0, tb });
     D2D1_RECT_F sr = D2D1::RectF(9, 63, 262, 97);
-    Fill(sr, Rgb(255, 255, 255, 0.16f), 17);
-    br->SetColor(Rgb(255, 255, 255, 0.22f)); rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(sr.left + 0.25f, sr.top + 0.25f, sr.right - 0.25f, sr.bottom - 0.25f), 16.75f, 16.75f), br, 0.5f);
-    IconSearch({ 25, 80 }, dim, 0.9f);
-    Text(Tr(L"Buscar"), g_tfSearchG, D2D1::RectF(38, sr.top, sr.right - 10, sr.bottom), dim);
+    GlassField(sr, dark);
+    IconSearch({ 27, 80 }, gray, 0.9f);
+    if (!field.h) Text(Tr(L"Buscar"), g_tfSearchG, D2D1::RectF(40, sr.top, sr.right - 10, sr.bottom), gray);
     g_hits.push_back({ 2, 0, sr });
     float y = 108;
+    rt->PushAxisAlignedClip(D2D1::RectF(0, 100, SBG, sz.height), D2D1_ANTIALIAS_MODE_ALIASED);
     for (int i = 0; i < (int)g_places.size(); i++) {
         auto& p = g_places[i];
         D2D1_RECT_F r = D2D1::RectF(9, y, 262, y + 70);
-        if (i == g_sel) Fill(r, Rgb(255, 255, 255, 0.18f), 14);
-        Text(i == 0 ? std::wstring(Tr(L"Meu Local")) : p.name, g_tfSide, D2D1::RectF(r.left + 12, r.top + 8, r.right - 60, r.top + 30), white);
-        if (i == 0) Text(p.name, g_tfSmall, D2D1::RectF(r.left + 12, r.top + 28, r.right - 60, r.top + 46), dim);
+        // o cartão com o céu da cidade (cinza enquanto carrega); a escolhida com o contorno na cor de destaque
+        if (p.wx.ok) {
+            D2D1_COLOR_F a, b; Sky(p.wx, a, b);
+            D2D1_GRADIENT_STOP gs[2] = { { 0, a }, { 1, b } };
+            ID2D1GradientStopCollection* st = nullptr; rt->CreateGradientStopCollection(gs, 2, &st);
+            ID2D1LinearGradientBrush* lg = nullptr;
+            if (st) rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ r.left, r.top }, { r.right, r.bottom }), st, &lg);
+            if (lg) { rt->FillRoundedRectangle(D2D1::RoundedRect(r, 14, 14), lg); lg->Release(); }
+            if (st) st->Release();
+        } else Fill(r, dark ? Rgb(255, 255, 255, 0.08f) : Rgb(0, 0, 0, 0.05f), 14);
+        if (i == g_sel) { br->SetColor(semaforo::Aqua() ? Rgb(0, 136, 255) : Rgb(10, 132, 255)); rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 1, r.top + 1, r.right - 1, r.bottom - 1), 13, 13), br, 2); }
+        D2D1_COLOR_F tc = p.wx.ok ? white : text, tdim = p.wx.ok ? dim : gray;
+        Text(i == 0 ? std::wstring(Tr(L"Meu Local")) : p.name, g_tfSide, D2D1::RectF(r.left + 12, r.top + 8, r.right - 60, r.top + 30), tc);
+        if (i == 0) Text(p.name, g_tfSmall, D2D1::RectF(r.left + 12, r.top + 28, r.right - 60, r.top + 46), tdim);
         if (p.wx.ok) {
             Text(CondText(p.wx.code), g_tfSmall, D2D1::RectF(r.left + 12, r.bottom - 24, r.right - 60, r.bottom - 6), dim);
             wchar_t t[16]; swprintf_s(t, L"%d°", (int)std::lround(p.wx.temp));
@@ -286,7 +302,8 @@ void PaintGoldenWx() {
         g_hits.push_back({ 1, i, r });
         y += 76;
     }
-    if (!g_status.empty()) Text(g_status, g_tfSmall, D2D1::RectF(12, sz.height - 30, SBG - 10, sz.height - 8), dim);
+    rt->PopAxisAlignedClip();
+    if (!g_status.empty()) Text(g_status, g_tfSmall, D2D1::RectF(12, sz.height - 30, SBG - 10, sz.height - 8), gray);
     }  // g_side
     // "+" no conteúdo
     float addX = g_side ? 297.f : 146.f;
@@ -430,7 +447,7 @@ void Paint() {
     rt->Clear(dark ? Rgb(30, 30, 30) : Rgb(242, 242, 245));
     const float SB = g_side ? SB_W : 0.f;
     D2D1_RECT_F tog = D2D1::RectF(10, 10, 38, 38);  // mostrar/esconder a lateral
-    auto toggle = [&](D2D1_COLOR_F c) { wchar_t sg[2] = { 0xE700, 0 }; Text(sg, g_tfIcon, tog, c); g_hits.push_back({ 3, 0, tog }); };
+    auto toggle = [&](D2D1_COLOR_F c) { IconSidebar({ (tog.left + tog.right) / 2, (tog.top + tog.bottom) / 2 }, c); g_hits.push_back({ 3, 0, tog }); };  // sidebar.left (antes o "hambúrguer" E700 do Windows)
     // ---- cidades
     if (g_side) {
     Fill(D2D1::RectF(0, 0, SB, sz.height), dark ? Rgb(40, 40, 42) : Rgb(236, 236, 240));
@@ -559,7 +576,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_DPICHANGED: OnDpi(w, l); return 0;
     case WM_SETTINGCHANGE: InvalidateRect(h, nullptr, FALSE); return 0;
     case WM_CTLCOLOREDIT:
-        if (BAR > 0) { LRESULT r = FieldColors((HDC)w, RGB(60, 110, 170)); SetTextColor((HDC)w, RGB(255, 255, 255)); return r; }
+        if (BAR > 0) {  // macOS 27: o EDIT fica dentro da cápsula de vidro (GlassField): o fundo dele é a cor dela
+            if (!Dark()) return FieldColors((HDC)w, RGB(249, 250, 251));
+            D2D1_COLOR_F c = SidebarColor();  // escuro: branco a 8% sobre a cor da barra lateral
+            auto m = [](float v) { return (int)std::lround((v + (1 - v) * 0.08f) * 255); };
+            return FieldColors((HDC)w, RGB(m(c.r), m(c.g), m(c.b)));
+        }
         return FieldColors((HDC)w, Dark() ? RGB(40, 40, 42) : RGB(236, 236, 240));
     case WM_FIELDLOST: if (field.h && GetFocus() != field.h) FieldEnd(0); return 0;
     case WM_DATA: {
@@ -589,8 +611,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (ht.kind == 3) { g_side = !g_side; InvalidateRect(h, nullptr, FALSE); return 0; }
             if (ht.kind == 2) {
                 if (!g_side) { g_side = true; Paint(); }  // a busca fica na lateral
-                D2D1_RECT_F fr = BAR > 0 ? D2D1::RectF(38, 71, 256, 89) : D2D1::RectF(12, 12, SB_W - 46, 36);
-                FieldOpen(fr, L"", 13, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) Search(t); });
+                D2D1_RECT_F fr = BAR > 0 ? D2D1::RectF(40, 71, 252, 89) : D2D1::RectF(12, 12, SB_W - 46, 36);
+                FieldOpen(fr, L"", BAR > 0 ? 14.f : 13.f, false, [](const std::wstring& t, int key) { if (key == VK_RETURN) Search(t); });
+                InvalidateRect(h, nullptr, FALSE);  // tira o "Buscar" de baixo do campo
                 return 0;
             }
             if (ht.kind == 1) {

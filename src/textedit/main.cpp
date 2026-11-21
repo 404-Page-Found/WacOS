@@ -3,6 +3,7 @@
 // Ctrl+N novo (outra janela), Ctrl+O abrir, Ctrl+S salvar, Ctrl+Shift+S salvar como, Ctrl+Shift+T texto simples
 // / formatado, Ctrl+B/I/U, Ctrl+W fechar (pergunta se há alterações). Título: nome — Editado.
 #include "../comum/app2d.h"
+#include "../menu/context_menu.h"
 #include <richedit.h>
 #include <shobjidl.h>
 #include <shellapi.h>
@@ -181,23 +182,33 @@ void TogglePlain() {
     Layout(); SetTitle();
 }
 
+// Os menus da barra de formatação saem no menu próprio do Mac (src/menu/context_menu): o ✓ com o espaço certo antes do
+// nome (no menu nativo trocado pelo Shell o texto ficava colado no ✓ no Golden Gate), a amostra de cor ao lado do nome
+// das cores, e o visual do Mac mesmo sem o Shell aberto (modo só apps).
+int Pop(POINT scr, const std::vector<ctxmenu::Item>& items) { return ctxmenu::ShowItems(wnd, scr, items); }
+ctxmenu::Item MItem(const std::wstring& label, int id, bool checked = false) { ctxmenu::Item it; it.label = label; it.id = id; it.checked = checked; return it; }
+
 void FontMenu(POINT scr) {
     const wchar_t* fonts[] = { L"Helvetica", L"SF Pro Text", L"Arial", L"Georgia", L"Times New Roman", L"Courier New", L"Menlo", L"Segoe UI", L"Verdana" };
-    HMENU m = CreatePopupMenu();
     CHARFORMAT2W cf = CurChar();
+    std::vector<ctxmenu::Item> items;
     int id = 1;
-    for (auto f : fonts) { if (HasFont(f)) AppendMenuW(m, MF_STRING | (!_wcsicmp(cf.szFaceName, f) ? MF_CHECKED : 0), id, f); id++; }
-    int c = TrackPopupMenu(m, TPM_RETURNCMD, scr.x, scr.y, 0, wnd, nullptr);
-    DestroyMenu(m);
+    for (auto f : fonts) { if (HasFont(f)) items.push_back(MItem(f, id, !_wcsicmp(cf.szFaceName, f))); id++; }
+    int c = Pop(scr, items);
     if (c > 0) { CHARFORMAT2W n{ sizeof(n) }; n.dwMask = CFM_FACE; wcscpy_s(n.szFaceName, fonts[c - 1]); SetChar(n); }
 }
 void ColorMenu(POINT scr) {
     struct C { const wchar_t* n; COLORREF c; } cols[] = { { L"Automática", 0xFFFFFFFF }, { L"Preto", RGB(0, 0, 0) }, { L"Cinza", RGB(142, 142, 147) }, { L"Vermelho", RGB(255, 59, 48) },
         { L"Laranja", RGB(255, 149, 0) }, { L"Amarelo", RGB(255, 204, 0) }, { L"Verde", RGB(52, 199, 89) }, { L"Azul", RGB(0, 122, 255) }, { L"Roxo", RGB(175, 82, 222) }, { L"Rosa", RGB(255, 45, 85) } };
-    HMENU m = CreatePopupMenu();
-    for (int i = 0; i < 10; i++) AppendMenuW(m, MF_STRING, i + 1, Tr(cols[i].n));
-    int c = TrackPopupMenu(m, TPM_RETURNCMD, scr.x, scr.y, 0, wnd, nullptr);
-    DestroyMenu(m);
+    std::vector<ctxmenu::Item> items;
+    for (int i = 0; i < 10; i++) {
+        ctxmenu::Item it = MItem(Tr(cols[i].n), i + 1);
+        COLORREF c = cols[i].c;
+        it.swatch = c == 0xFFFFFFFF ? ctxmenu::SWATCH_AUTO : 0xFF000000u | ((UINT32)GetRValue(c) << 16) | ((UINT32)GetGValue(c) << 8) | GetBValue(c);
+        items.push_back(it);
+        if (i == 0) { ctxmenu::Item sep; sep.separator = true; items.push_back(sep); }
+    }
+    int c = Pop(scr, items);
     if (c > 0) { CHARFORMAT2W n{ sizeof(n) }; n.dwMask = CFM_COLOR; if (cols[c - 1].c == 0xFFFFFFFF) n.dwEffects = CFE_AUTOCOLOR; else n.crTextColor = cols[c - 1].c; SetChar(n); }
 }
 
@@ -217,28 +228,30 @@ void Action(int id, POINT scr) {
     case B_STRIKE: Toggle(CFM_STRIKEOUT, CFE_STRIKEOUT); break;
     case B_CLEAR: { CHARFORMAT2W n{ sizeof(n) }; n.dwMask = CFM_BOLD | CFM_ITALIC | CFM_UNDERLINE | CFM_STRIKEOUT | CFM_COLOR; n.dwEffects = CFE_AUTOCOLOR; SetChar(n); break; }
     case B_STYLE: {
-        HMENU m = CreatePopupMenu();
         const wchar_t* st[4] = { L"Normal", L"Negrito", L"Itálico", L"Negrito Itálico" };
-        for (int i = 0; i < 4; i++) AppendMenuW(m, MF_STRING, i + 1, Tr(st[i]));
-        int c = TrackPopupMenu(m, TPM_RETURNCMD, scr.x, scr.y, 0, wnd, nullptr);
-        DestroyMenu(m);
+        CHARFORMAT2W cf = CurChar();
+        bool b = (cf.dwMask & CFM_BOLD) && (cf.dwEffects & CFE_BOLD), itl = (cf.dwMask & CFM_ITALIC) && (cf.dwEffects & CFE_ITALIC);
+        int cur = b && itl ? 4 : itl ? 3 : b ? 2 : 1;
+        std::vector<ctxmenu::Item> items;
+        for (int i = 0; i < 4; i++) items.push_back(MItem(Tr(st[i]), i + 1, cur == i + 1));
+        int c = Pop(scr, items);
         if (c > 0) { CHARFORMAT2W n{ sizeof(n) }; n.dwMask = CFM_BOLD | CFM_ITALIC; n.dwEffects = (c == 2 || c == 4 ? CFE_BOLD : 0) | (c >= 3 ? CFE_ITALIC : 0); SetChar(n); }
         break;
     }
     case B_SIZE: if (app2d::BAR > 0) {
-        HMENU m = CreatePopupMenu();
         static const int steps[] = { 9, 10, 11, 12, 13, 14, 18, 24, 36, 48, 64, 72 };
-        for (int i = 0; i < 12; i++) AppendMenuW(m, MF_STRING, i + 1, std::to_wstring(steps[i]).c_str());
-        int c = TrackPopupMenu(m, TPM_RETURNCMD, scr.x, scr.y, 0, wnd, nullptr);
-        DestroyMenu(m);
+        CHARFORMAT2W cf = CurChar();
+        int pt = cf.yHeight > 0 ? cf.yHeight / 20 : 12;
+        std::vector<ctxmenu::Item> items;
+        for (int i = 0; i < 12; i++) items.push_back(MItem(std::to_wstring(steps[i]), i + 1, steps[i] == pt));
+        int c = Pop(scr, items);
         if (c > 0) { CHARFORMAT2W n{ sizeof(n) }; n.dwMask = CFM_SIZE; n.yHeight = steps[c - 1] * 20; SetChar(n); }
     } break;
     case B_SPACING: {
-        HMENU m = CreatePopupMenu();
         const float v[4] = { 1.0f, 1.15f, 1.5f, 2.0f };
-        for (int i = 0; i < 4; i++) { wchar_t b[16]; swprintf_s(b, i == 1 ? L"%.2f" : L"%.1f", v[i]); AppendMenuW(m, MF_STRING | (g_spacing == v[i] ? MF_CHECKED : 0), i + 1, b); }
-        int c = TrackPopupMenu(m, TPM_RETURNCMD, scr.x, scr.y, 0, wnd, nullptr);
-        DestroyMenu(m);
+        std::vector<ctxmenu::Item> items;
+        for (int i = 0; i < 4; i++) { wchar_t b[16]; swprintf_s(b, i == 1 ? L"%.2f" : L"%.1f", v[i]); items.push_back(MItem(b, i + 1, g_spacing == v[i])); }
+        int c = Pop(scr, items);
         if (c > 0) {
             g_spacing = v[c - 1];
             PARAFORMAT2 n{}; n.cbSize = sizeof(n); n.dwMask = PFM_LINESPACING; n.bLineSpacingRule = 5; n.dyLineSpacing = (LONG)std::lround(g_spacing * 20);
@@ -255,7 +268,7 @@ void Action(int id, POINT scr) {
 // ícone do documento + nome em negrito cinza a 88; linha de formatação com o meio a 50 (controles de 20 de altura,
 // cápsulas cinza claras): B|I|U|S (8–93), cor (99–118), limpar (123–144), fonte (149–228), estilo (234–312),
 // tamanho (318–369, campo branco com a seta), alinhamento (374–469, o escolhido em azul), lista (475–520) e
-// espaçamento (526–569); divisa a 68, régua de 68 a 100 (polegadas de 72 pt, número em cada uma, marcas de tabulação
+// espaçamento (525,5–576,5, a seta a 11,5 da borda; 9 até a borda da janela); divisa a 68, régua de 68 a 100 (polegadas de 72 pt, número em cada uma, marcas de tabulação
 // a cada meia), divisa a 100 e o texto logo abaixo.
 const float G_TITLE = 32, G_ROW_Y = 50, G_RULER0 = 68, G_RULER1 = 100;
 IDWriteTextFormat *g_tfTitleG, *g_tfCtl, *g_tfCtlB, *g_tfCtlI, *g_tfRuler;
@@ -395,10 +408,12 @@ void PaintGolden() {
     // espaçamento
     {
         wchar_t b[16]; swprintf_s(b, L"%.1f", g_spacing);
-        D2D1_RECT_F r = D2D1::RectF(526, y0, 569, y1);
+        // (antes 526–569 com a seta a 9 da borda: a pílula era estreita e, como a janela de 586 tinha só ~570 de área
+        // útil (as bordas de redimensionar do Windows comem os lados), encostava na borda direita da janela)
+        D2D1_RECT_F r = D2D1::RectF(525.5f, y0, 576.5f, y1);
         Fill(r, pill, 6);
-        Text(b, g_tfCtl, D2D1::RectF(r.left + 8, r.top, r.right - 15, r.bottom), text);
-        Chevron(r.right - 9, G_ROW_Y, text, true);
+        Text(b, g_tfCtl, D2D1::RectF(r.left + 6, r.top, r.right - 22, r.bottom), text);
+        Chevron(r.right - 11.5f, G_ROW_Y, text, true);
         reg(B_SPACING, r);
     }
     for (auto& b : g_btns) BarButton(b.r);
@@ -487,6 +502,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_SIZE: OnSize(l); if (g_edit) Layout(); return 0;
     case WM_DPICHANGED: OnDpi(w, l); Layout(); return 0;
     case WM_SETFOCUS: if (g_edit) SetFocus(g_edit); return 0;
+    case WM_GETMINMAXINFO: if (app2d::BAR > 0) {  // macOS 27: a barra de formatação tem 586 de largura fixa; mais estreita, cortava a direita
+        auto* mm = (MINMAXINFO*)l;
+        RECT wr, cr; GetWindowRect(h, &wr); GetClientRect(h, &cr);
+        mm->ptMinTrackSize.x = std::max<LONG>(mm->ptMinTrackSize.x, (LONG)std::lround(586 * Sc()) + (wr.right - wr.left) - cr.right);
+        mm->ptMinTrackSize.y = std::max<LONG>(mm->ptMinTrackSize.y, (LONG)std::lround(200 * Sc()));
+    } return 0;
     case WM_SETTINGCHANGE: ApplyTheme(); InvalidateRect(h, nullptr, FALSE); InvalidateRect(g_edit, nullptr, TRUE); return 0;
     case WM_NOTIFY: {
         auto* n = (NMHDR*)l;
@@ -537,6 +558,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     g_tfRuler = Fmt(9.5f);
     barWanted = 32;  // macOS 27: a barra de título é do app (o nome à esquerda, com o ícone)
     if (!CreateMain(hi, L"TextEditJanela", Tr(L"Sem Título"), Proc, semaforo::Aqua() ? 586 : 760, semaforo::Aqua() ? 488 : 860)) return 1;
+    ctxmenu::Init(hi, nullptr);
+    if (app2d::BAR > 0) {  // a medida da captura (586) é a área do app: soma as bordas de redimensionar à janela
+        RECT wr, cr; GetWindowRect(wnd, &wr); GetClientRect(wnd, &cr);
+        int want = (int)std::lround(586 * Sc());
+        if (cr.right < want) SetWindowPos(wnd, nullptr, wr.left - (want - cr.right) / 2, wr.top, (wr.right - wr.left) + want - cr.right, wr.bottom - wr.top, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     g_edit = CreateWindowExW(0, MSFTEDIT_CLASS, L"", WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL | ES_WANTRETURN,
                              0, 0, 10, 10, wnd, nullptr, hi, nullptr);
     if (!g_edit) return 1;

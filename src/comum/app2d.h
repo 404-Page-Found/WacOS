@@ -58,7 +58,18 @@ inline bool Init() {
     return true;
 }
 
+// --tema claro|escuro (teste, com o --foto): força o tema sem mexer no do Windows. -1 = segue o Windows
+inline int TemaTeste() {
+    static int v = -2;
+    if (v != -2) return v;
+    v = -1;
+    int n = 0; LPWSTR* a = CommandLineToArgvW(GetCommandLineW(), &n);
+    for (int i = 1; a && i + 1 < n; i++) if (!wcscmp(a[i], L"--tema")) v = !wcscmp(a[i + 1], L"escuro") ? 1 : !wcscmp(a[i + 1], L"claro") ? 0 : -1;
+    if (a) LocalFree(a);
+    return v;
+}
 inline bool Dark() {
+    if (TemaTeste() >= 0) return TemaTeste() == 1;
     DWORD v = 1, cb = sizeof(v);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &cb);
     return v == 0;
@@ -161,13 +172,29 @@ inline void GlassField(D2D1_RECT_F r, bool dark) {
     br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.08f));
     rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.25f, r.top + 0.25f, r.right - 0.25f, r.bottom - 0.25f), rad - 0.25f, rad - 0.25f), br, 0.5f);
 }
-// ícone de "barra lateral" (retângulo com a coluna da esquerda e três tracinhos) e lupa, desenhados
+// ícone de "barra lateral" (SF Symbol sidebar.left: retângulo com a coluna da esquerda e três tracinhos) e lupa, desenhados.
+// Medido na captura do Contatos do macOS 27 (2x): 19 × 15 pt, moldura ~1,5 pt, divisa a 6,5 pt da borda, tracinhos de
+// 2,5 pt. A 100% de escala, 1,5 px de traço cai entre dois pixels e vira uma faixa cinza de 2–3 px (o "negrito" da
+// issue #8 no Contatos/Tempo). Agora cada traço tem um número inteiro de pixels (1 px a 100%, 2 px a 150/200%) e fica
+// alinhado à grade: o peso fica igual ao dos símbolos do Finder e do Mac em qualquer escala.
 inline void IconSidebar(D2D1_POINT_2F c, D2D1_COLOR_F col) {
     br->SetColor(col);
-    D2D1_RECT_F r = D2D1::RectF(c.x - 9, c.y - 7, c.x + 9, c.y + 7);
-    rt->DrawRoundedRectangle(D2D1::RoundedRect(r, 3, 3), br, 1.5f);
-    rt->DrawLine({ c.x - 3, r.top }, { c.x - 3, r.bottom }, br, 1.5f);
-    for (int i = 0; i < 3; i++) rt->DrawLine({ c.x - 7, c.y - 3.5f + i * 2.5f }, { c.x - 5, c.y - 3.5f + i * 2.5f }, br, 1.1f);
+    float s = GetDpiForWindow(wnd) / 96.f;
+    if (s <= 0) s = 1;
+    auto Px = [&](float v) { return std::round(v * s) / s; };       // na borda de um pixel
+    auto Stroke = [&](float pt) { return std::max(1.f, std::round(pt * s)) / s; };
+    auto Mid = [&](float w) { return std::fmod(std::round(w * s), 2.f) == 1.f ? 0.5f / s : 0.f; };  // traço ímpar: no meio do pixel
+    float w = Stroke(1.2f), h = Mid(w), wt = Stroke(1.0f), ht = Mid(wt);
+    float cx = Px(c.x), cy = Px(c.y);
+    D2D1_RECT_F r = D2D1::RectF(Px(cx - 9.5f) + h, Px(cy - 7.5f) + h, Px(cx + 9.5f) - h, Px(cy + 7.5f) - h);
+    rt->DrawRoundedRectangle(D2D1::RoundedRect(r, 3, 3), br, w);
+    float dx = Px(cx - 3) + h;
+    rt->DrawLine({ dx, r.top }, { dx, r.bottom }, br, w);
+    float step = std::max(2.f, std::round(2.5f * s)) / s;  // passo inteiro em pixels: os três tracinhos igualmente espaçados
+    for (int i = 0; i < 3; i++) {
+        float y = Px(cy - 3.5f) + i * step + ht;
+        rt->DrawLine({ Px(cx - 7.25f), y }, { Px(cx - 4.75f), y }, br, wt);
+    }
 }
 inline void IconPlus(D2D1_POINT_2F c, D2D1_COLOR_F col, float s = 7) {
     br->SetColor(col);

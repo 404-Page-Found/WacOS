@@ -582,7 +582,7 @@ void Paint() {
     Fill(D2D1::RectF(0, 0, sz.width, TB), dark ? Rgb(40, 40, 42) : Rgb(246, 246, 248));
     Fill(D2D1::RectF(0, TB - 1, sz.width, TB), dark ? Rgb(0, 0, 0, 0.5f) : Rgb(0, 0, 0, 0.1f));
     D2D1_RECT_F tog = D2D1::RectF(10, 18, 40, 44);  // mostrar/esconder a barra lateral
-    wchar_t sg[2] = { 0xE700, 0 }; Text(sg, g_tfIcon, tog, g_side ? Rgb(10, 132, 255) : text);
+    IconSidebar({ (tog.left + tog.right) / 2, (tog.top + tog.bottom) / 2 }, g_side ? Rgb(10, 132, 255) : text);  // sidebar.left (antes o "hambúrguer" E700)
     g_hits.push_back({ 5, 0, 0, tog });
     rt->SetTransform(D2D1::Matrix3x2F::Translation(36, 0));
     size_t t0 = g_hits.size();
