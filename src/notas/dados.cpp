@@ -2,6 +2,7 @@
 // e as Notas Matemáticas (expressões terminadas em "=" ganham o resultado; "nome = expr" cria variável).
 #include "notas.h"
 #include <shlobj.h>
+#include <shlwapi.h>
 #include <cwctype>
 #include <cmath>
 #include <algorithm>
@@ -19,10 +20,14 @@ ULONGLONG store::Now() { FILETIME f; GetSystemTimeAsFileTime(&f); return ((ULONG
 
 // ---------------------------------------------------------------------------
 // Note
+static std::wstring NoTabs(std::wstring s) {  // células da tabela na lista: separadas por espaços
+    for (auto& c : s) if (c == L'\t') c = L' ';
+    return s;
+}
 std::wstring Note::Title() const {
     for (auto& p : paras) {
         size_t a = p.text.find_first_not_of(L" \t");
-        if (a != std::wstring::npos) return p.text.substr(a, 200);
+        if (a != std::wstring::npos) return NoTabs(p.text.substr(a, 200));
     }
     return Tr(L"Nova Nota");
 }
@@ -32,7 +37,7 @@ std::wstring Note::Preview() const {
         size_t a = p.text.find_first_not_of(L" \t");
         if (a == std::wstring::npos) continue;
         if (first) { first = false; continue; }
-        return p.text.substr(a, 200);
+        return NoTabs(p.text.substr(a, 200));
     }
     return Tr(L"Nenhum texto adicional");
 }
@@ -69,12 +74,20 @@ static std::wstring Unesc(const std::wstring& s) {
     return o;
 }
 
+static std::wstring DataDir();
 std::wstring store::Serialize(const std::vector<Para>& ps) {
     std::wstring out;
     wchar_t b[64];
     for (auto& p : ps) {
-        swprintf_s(b, L"%d,%d,%d,%d,%d|", p.style, p.list, p.indent, p.checked ? 1 : 0, p.collapsed ? 1 : 0);
+        // 6º número = tipo (texto, linha de tabela, anexo); só escrito quando não é texto (notas comuns ficam iguais)
+        if (p.kind != K_TEXT) swprintf_s(b, L"%d,%d,%d,%d,%d,%d|", p.style, p.list, p.indent, p.checked ? 1 : 0, p.collapsed ? 1 : 0, p.kind);
+        else swprintf_s(b, L"%d,%d,%d,%d,%d|", p.style, p.list, p.indent, p.checked ? 1 : 0, p.collapsed ? 1 : 0);
         out += b;
+        if (p.kind == K_FILE) {  // anexo: o caminho no lugar do texto; dentro de Notas\anexos fica relativo (a pasta pode mudar)
+            std::wstring src = p.src, dir = DataDir() + L"\\";
+            if (_wcsnicmp(src.c_str(), dir.c_str(), dir.size()) == 0) src = src.substr(dir.size());
+            out += L"|"; out += Esc(src); out += L"\n"; continue;
+        }
         // atributos em corridas: "aa:n;" (hex do atributo, quantidade)
         size_t i = 0;
         while (i < p.at.size()) {
@@ -104,8 +117,9 @@ std::vector<Para> store::Deserialize(const std::wstring& s) {
         size_t b2 = line.find(L'|', b1 + 1);
         if (b2 == std::wstring::npos) continue;
         Para p;
-        int st = 3, li = 0, in = 0, ck = 0, co = 0;
-        swscanf_s(line.substr(0, b1).c_str(), L"%d,%d,%d,%d,%d", &st, &li, &in, &ck, &co);
+        int st = 3, li = 0, in = 0, ck = 0, co = 0, kd = 0;
+        swscanf_s(line.substr(0, b1).c_str(), L"%d,%d,%d,%d,%d,%d", &st, &li, &in, &ck, &co, &kd);
+        p.kind = (uint8_t)std::clamp(kd, 0, 2);
         p.style = (uint8_t)std::clamp(st, 0, 4); p.list = (uint8_t)std::clamp(li, 0, 4); p.indent = (uint8_t)std::clamp(in, 0, 8);
         p.checked = ck != 0; p.collapsed = co != 0;
         p.text = Unesc(line.substr(b2 + 1));
@@ -118,6 +132,7 @@ std::vector<Para> store::Deserialize(const std::wstring& s) {
             if (swscanf_s(runs.substr(r, semi - r).c_str(), L"%x:%zu", &v, &n) == 2) p.at.insert(p.at.end(), n, (uint8_t)v);
             r = semi + 1;
         }
+        if (p.kind == K_FILE) { p.src = PathIsRelativeW(p.text.c_str()) ? DataDir() + L"\\" + p.text : p.text; p.text.clear(); p.at.clear(); }
         p.at.resize(p.text.size(), 0);
         ps.push_back(std::move(p));
     }
@@ -233,6 +248,22 @@ bool store::Sync(const Note* keep) {
         else i++;
     }
     return changed;
+}
+
+std::wstring store::AttachDir() {
+    std::wstring d = DataDir() + L"\\anexos";
+    CreateDirectoryW(d.c_str(), nullptr);
+    return d;
+}
+
+// anexos ficam com a nota: o arquivo é copiado para Notas\anexos com um prefixo único (apagar o original não estraga a nota)
+std::wstring store::AddAttachment(const std::wstring& path) {
+    std::wstring name = path.substr(path.find_last_of(L"\\/") + 1);
+    wchar_t pre[32]; swprintf_s(pre, L"%llx-", (unsigned long long)Now());
+    std::wstring dst = AttachDir() + L"\\" + pre + name;
+    if (!CopyFileW(path.c_str(), dst.c_str(), TRUE)) { Log(L"anexo: falhou copiar %ls (%lu)", path.c_str(), GetLastError()); return L""; }
+    Log(L"anexo: %ls", dst.c_str());
+    return dst;
 }
 
 static std::wstring NotePath(const Note* n) { return DataDir() + L"\\" + n->id + L".nota"; }
