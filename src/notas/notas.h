@@ -19,11 +19,17 @@ inline int HiOf(uint8_t a) { return (a >> 4) & 7; }
 inline uint8_t WithHi(uint8_t a, int h) { return (uint8_t)((a & 0x0F) | ((h & 7) << 4)); }
 const int HI_COUNT = 5;  // roxo, rosa, laranja, menta, azul (Sequoia)
 
+// tipo do parágrafo: texto comum, linha de tabela (células separadas por TAB) ou anexo (arquivo/imagem/desenho em `src`,
+// sem texto). Gravado como 6º número do cabeçalho; versões antigas leem só 5 e mostram o anexo como o caminho.
+enum Kind : uint8_t { K_TEXT, K_ROW, K_FILE };
+
 struct Para {
     std::wstring text;
     std::vector<uint8_t> at;  // um por caractere
     uint8_t style = S_BODY, list = L_NONE, indent = 0;
     bool checked = false, collapsed = false;
+    uint8_t kind = K_TEXT;
+    std::wstring src;         // K_FILE: caminho do arquivo (cópia em Notasnexos)
 };
 
 struct Note {
@@ -67,6 +73,8 @@ std::wstring FolderName(const std::wstring& id);
 ULONGLONG Now();
 std::wstring Serialize(const std::vector<Para>& ps);
 std::vector<Para> Deserialize(const std::wstring& s);
+std::wstring AttachDir();                         // Notasnexos (criada se faltar)
+std::wstring AddAttachment(const std::wstring& path);  // copia para anexos; devolve o caminho novo ("" se falhou)
 }
 
 // ---- Notas Matemáticas: resultado depois de "=" e variáveis destacadas
@@ -109,6 +117,14 @@ int CurrentList();
 uint8_t CurrentAttrs();
 void SelectAll();
 void PlaceCaretAtEnd();
+// tabela, anexos e Ferramentas de Escrita (botões da barra do macOS 26/27)
+void InsertTable(int rows, int cols);
+void InsertAttachment(const std::wstring& path);
+enum Writing { W_PROOF, W_LIST, W_TABLE, W_UPPER, W_LOWER, W_TITLE };
+bool Transform(int kind);     // false: nada mudou
+bool InTable();
+enum TableOp { T_ADD_ROW, T_ADD_COL, T_DEL_ROW, T_DEL_COL, T_TO_TEXT };
+void Table(int op);           // com o cursor numa tabela
 void Undo();
 void Redo();
 void CaretScreenRect(D2D1_RECT_F& r);   // em DIPs (para o IME)

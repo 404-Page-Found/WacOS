@@ -8,6 +8,17 @@
 #include <cmath>
 #include "../comum/simbolos.h"
 #include "../comum/semaforo.h"  // tema Leopard: o papel amarelo pautado das Notas do 10.5
+#include <wincodec.h>
+#include <shellapi.h>
+#include <map>
+// Tabelas, anexos e Ferramentas de Escrita (botões da barra do macOS 26/27):
+// - tabela: cada linha é um parágrafo K_ROW com as células separadas por TAB; o layout usa uma parada de tabulação por
+//   coluna (largura da tabela / colunas), sem quebra de linha, e a grade é desenhada por cima. Tab/Shift+Tab andam de
+//   célula em célula, Enter abre uma linha nova e Enter numa linha vazia no fim sai da tabela.
+// - anexo: parágrafo K_FILE sem texto, com o arquivo em `src` (copiado para Notas\anexos). Imagens aparecem na nota
+//   (WIC -> bitmap do Direct2D, até 400 pt de altura); outros arquivos viram um cartão; clique duplo abre no programa
+//   padrão. O cursor fica à esquerda do anexo; Backspace/Delete apagam o anexo inteiro.
+// - Ferramentas de Escrita: transformações locais, sem IA (revisar espaços/pontuação/maiúsculas, lista, tabela, caixa).
 
 using editor::Pos;
 
@@ -27,7 +38,10 @@ int hoverChevron = -1;
 int clickMode;   // 1 caractere, 2 palavra, 3 parágrafo (arrastar estende nessa unidade)
 Pos clickA, clickB;
 
-struct PL { IDWriteTextLayout* tl = nullptr; float x = 0, y = 0, h = 0, w = 0, base = 0; bool hidden = false; int number = 0, resultAt = -1; };
+struct PL { IDWriteTextLayout* tl = nullptr; float x = 0, y = 0, h = 0, w = 0, base = 0; bool hidden = false; int number = 0, resultAt = -1;
+             float pad = 0;                       // linha de tabela: folga em cima e embaixo do texto
+             int cols = 0; float colW = 0, tableW = 0;  // linha de tabela
+             float imgW = 0, imgH = 0; };         // anexo: tamanho na nota
 std::vector<PL> pl;
 bool dirtyLayout = true;
 float layoutW = -1;
@@ -37,7 +51,7 @@ ID2D1DeviceContext* lastDc;
 ID2D1SolidColorBrush *brAccent, *brHi[HI_COUNT + 1];
 IDWriteTextFormat* fmt[5];
 
-const float MARGIN = 24, INDENT = 26, TOP_PAD = 34;
+const float MARGIN = 24, INDENT = 26, TOP_PAD = 34, CELL_PAD = 8, ROW_PAD = 7;
 
 // medidas de cada estilo (tamanho, altura da linha, espaço depois)
 struct StyleM { float size, line, after; DWRITE_FONT_WEIGHT w; };
@@ -70,10 +84,55 @@ Pos SelEnd() { return Less(caret, anchor) ? anchor : caret; }
 bool HasSel() { return !Same(caret, anchor); }
 Para& P(int i) { return N->paras[i]; }
 int Count() { return N ? (int)N->paras.size() : 0; }
-int Level(const Para& p) { return p.style <= S_SUBHEADING ? p.style : 99; }
+int Level(const Para& p) { return p.kind == K_TEXT && p.style <= S_SUBHEADING ? p.style : 99; }
+bool IsRow(int i) { return i >= 0 && i < Count() && P(i).kind == K_ROW; }
+bool IsFile(int i) { return i >= 0 && i < Count() && P(i).kind == K_FILE; }
+int Tabs(const std::wstring& s) { return (int)std::count(s.begin(), s.end(), L'\t'); }
+int TableCols(int i) {  // colunas do bloco de linhas que contém i (a linha mais larga manda)
+    int a = i, b = i, n = 1;
+    while (IsRow(a - 1)) a--;
+    while (IsRow(b + 1)) b++;
+    for (int k = a; k <= b; k++) n = std::max(n, Tabs(P(k).text) + 1);
+    return n;
+}
+float After(int i) { return IsFile(i) ? 10.f : IsRow(i) ? (IsRow(i + 1) ? 0.f : 10.f) : SM[P(i).style].after; }
+bool IsImageFile(const std::wstring& path) {
+    std::wstring e = path.substr(path.find_last_of(L'.') + 1);
+    for (auto& c : e) c = towlower(c);
+    return e == L"png" || e == L"jpg" || e == L"jpeg" || e == L"gif" || e == L"bmp" || e == L"tif" || e == L"tiff" || e == L"webp" || e == L"heic" || e == L"ico";
+}
+// nome mostrado: sem o prefixo único que o AddAttachment põe ("1dd7...-foto.png" -> "foto.png")
+std::wstring ShownName(const std::wstring& path) {
+    std::wstring n = path.substr(path.find_last_of(L"\\/") + 1);
+    size_t d = n.find(L'-');
+    if (d != std::wstring::npos && d >= 8 && n.find_first_not_of(L"0123456789abcdef") == d) n = n.substr(d + 1);
+    return n;
+}
+
+// imagens dos anexos (por contexto do Direct2D; nullptr guardado = não é imagem ou não abriu)
+std::map<std::wstring, ID2D1Bitmap*> imgs;
+IWICImagingFactory* wic;
+void ReleaseImages() { for (auto& k : imgs) if (k.second) k.second->Release(); imgs.clear(); }
+ID2D1Bitmap* Img(ID2D1DeviceContext* dc, const std::wstring& path) {
+    auto it = imgs.find(path);
+    if (it != imgs.end()) return it->second;
+    ID2D1Bitmap* bmp = nullptr;
+    if (IsImageFile(path)) {
+        if (!wic) CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+        IWICBitmapDecoder* dec = nullptr; IWICBitmapFrameDecode* fr = nullptr; IWICFormatConverter* cv = nullptr;
+        if (wic && SUCCEEDED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) &&
+            SUCCEEDED(dec->GetFrame(0, &fr)) && SUCCEEDED(wic->CreateFormatConverter(&cv)) &&
+            SUCCEEDED(cv->Initialize(fr, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeMedianCut)))
+            dc->CreateBitmapFromWicBitmap(cv, nullptr, &bmp);
+        if (cv) cv->Release(); if (fr) fr->Release(); if (dec) dec->Release();
+    }
+    imgs[path] = bmp;
+    return bmp;
+}
 
 void ReleaseLayouts() { for (auto& l : pl) if (l.tl) l.tl->Release(); pl.clear(); dirtyLayout = true; }
 void ReleaseBrushes() {
+    ReleaseImages();
     if (brAccent) brAccent->Release(); brAccent = nullptr;
     for (auto& b : brHi) { if (b) b->Release(); b = nullptr; }
 }
@@ -124,9 +183,28 @@ void BuildLayouts(ID2D1DeviceContext* dc, float width) {
             else counters[std::min<int>(p.indent, 9)] = 0;
         }
         float base = MARGIN + p.indent * INDENT;
-        float lead = p.list == L_CHECK ? 28.f : p.list != L_NONE ? 24.f : 0.f;
-        l.x = base + lead; l.base = base;
-        l.w = std::max(40.f, width - l.x - MARGIN);
+        if (p.kind == K_FILE) {  // anexo: imagem na largura possível (até 400 de altura) ou cartão de 52
+            l.x = l.base = base; l.w = std::max(40.f, width - base - MARGIN);
+            gfx::dw->CreateTextLayout(L"", 0, fmt[S_BODY], l.w, 10000, &l.tl);
+            if (l.tl) l.tl->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, SM[S_BODY].line, SM[S_BODY].line * 0.8f);
+            if (ID2D1Bitmap* b = Img(dc, p.src)) {
+                D2D1_SIZE_U px = b->GetPixelSize();
+                // desenhos do Notas são gravados em 2x; o resto, 1 pixel = 1 pt
+                float k = ShownName(p.src).rfind(L"desenho-", 0) == 0 || p.src.find(L"\\desenho-") != std::wstring::npos ? 0.5f : 1.f;
+                float w = std::min(l.w, std::max(1.f, px.width * k)), h = w * px.height / std::max(1u, px.width);
+                if (h > 400) { w *= 400 / h; h = 400; }
+                l.imgW = w; l.imgH = h;
+            } else { l.imgW = std::min(l.w, 320.f); l.imgH = 52; }
+            l.h = l.imgH; l.y = y; y += l.h + After(i);
+            continue;
+        }
+        if (p.kind == K_ROW) {  // linha de tabela: uma parada de tabulação por coluna, sem quebra
+            l.cols = TableCols(i); l.base = base;
+            l.tableW = std::max(120.f, width - base - MARGIN); l.colW = l.tableW / l.cols;
+            l.x = base + CELL_PAD; l.w = l.tableW - CELL_PAD; l.pad = ROW_PAD;
+        }
+        float lead = p.kind == K_ROW ? 0.f : p.list == L_CHECK ? 28.f : p.list != L_NONE ? 24.f : 0.f;
+        if (p.kind != K_ROW) { l.x = base + lead; l.base = base; l.w = std::max(40.f, width - l.x - MARGIN); }
         std::wstring s = p.text;
         int resultAt = -1;
         if (i < (int)math.size() && !math[i].result.empty()) {
@@ -138,6 +216,7 @@ void BuildLayouts(ID2D1DeviceContext* dc, float width) {
         gfx::dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), fmt[p.style], l.w, 10000, &l.tl);
         if (!l.tl) continue;
         l.tl->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, m.line, m.line * 0.8f);
+        if (p.kind == K_ROW) { l.tl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); l.tl->SetIncrementalTabStop(l.colW); }
         UINT32 n = (UINT32)p.text.size();
         for (UINT32 k = 0; k < n;) {  // corridas de atributos
             UINT32 j = k; uint8_t a = p.at[k];
@@ -155,15 +234,15 @@ void BuildLayouts(ID2D1DeviceContext* dc, float width) {
         if (resultAt >= 0) l.tl->SetDrawingEffect(brAccent, { (UINT32)resultAt, (UINT32)math[i].result.size() });
         DWRITE_TEXT_METRICS tm{}; l.tl->GetMetrics(&tm);
         l.h = std::max(tm.height, m.line);
-        l.y = y;
-        y += l.h + m.after;
+        l.y = y + l.pad;
+        y += l.h + 2 * l.pad + After(i);
     }
     ComputeHidden();
     // recolhidos não ocupam espaço
     y = TOP_PAD;
     for (int i = 0; i < Count(); i++) {
-        pl[i].y = y;
-        if (!pl[i].hidden) y += pl[i].h + SM[P(i).style].after;
+        pl[i].y = y + pl[i].pad;
+        if (!pl[i].hidden) y += pl[i].h + 2 * pl[i].pad + After(i);
     }
     contentH = y + 40;
 }
@@ -181,6 +260,7 @@ void Changed() {
 // cursor em coordenadas do conteúdo (antes da rolagem)
 D2D1_RECT_F CaretRectAt(Pos q) {
     if (q.p >= (int)pl.size() || !pl[q.p].tl) return { 0, 0, 0, 0 };
+    if (P(q.p).kind == K_FILE) return { pl[q.p].x - 4, pl[q.p].y, pl[q.p].x - 2, pl[q.p].y + pl[q.p].h };  // à esquerda do anexo
     float x, y; DWRITE_HIT_TEST_METRICS m;
     pl[q.p].tl->HitTestTextPosition((UINT32)q.o, FALSE, &x, &y, &m);
     return { pl[q.p].x + x, pl[q.p].y + m.top, pl[q.p].x + x + 2, pl[q.p].y + m.top + m.height };
@@ -193,7 +273,7 @@ Pos HitContent(float x, float y) {  // ponto no conteúdo -> posição
     for (int i = 0; i < Count(); i++) {
         if (pl[i].hidden) continue;
         best = i;
-        if (y < pl[i].y + pl[i].h + SM[P(i).style].after) break;
+        if (y < pl[i].y + pl[i].h + pl[i].pad + After(i)) break;
     }
     if (best < 0) return r;
     r.p = best;
@@ -240,8 +320,13 @@ void DeleteRange(Pos a, Pos b) {
     if (a.p == b.p) {
         pa.text.erase(a.o, b.o - a.o);
         pa.at.erase(pa.at.begin() + a.o, pa.at.begin() + b.o);
+    } else if (P(b.p).kind == K_FILE && b.o == 0) {  // a seleção para antes do anexo: ele fica inteiro
+        if (pa.kind == K_FILE) { N->paras.erase(N->paras.begin() + a.p, N->paras.begin() + b.p); caret = anchor = { a.p, 0 }; return; }
+        pa.text.resize(a.o); pa.at.resize(a.o);
+        N->paras.erase(N->paras.begin() + a.p + 1, N->paras.begin() + b.p);
     } else {
         Para& pb = P(b.p);
+        if (pa.kind == K_FILE) { pa.kind = pb.kind; pa.src = pb.src; pa.style = pb.style; pa.list = pb.list; pa.indent = pb.indent; pa.checked = pb.checked; }  // o anexo selecionado some
         pa.text = pa.text.substr(0, a.o) + pb.text.substr(b.o);
         std::vector<uint8_t> at(pa.at.begin(), pa.at.begin() + a.o);
         at.insert(at.end(), pb.at.begin() + b.o, pb.at.end());
@@ -376,6 +461,71 @@ void ToggleBlink() { blinkOn = !blinkOn; }
 void Invalidate() { dirtyLayout = true; }
 bool HasSelection() { return N && HasSel(); }
 
+// grade da tabela que começa no parágrafo i: contorno arredondado, linhas entre as linhas e entre as colunas
+void DrawTableGrid(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, int i, float ox, float oy) {
+    int j = i;
+    while (IsRow(j + 1)) j++;
+    PL& a = pl[i]; PL& b = pl[j];
+    float L = ox + a.base, R = L + a.tableW, T = oy + a.y - a.pad, B = oy + b.y + b.h + b.pad;
+    br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.20f) : D2D1::ColorF(0, 0, 0, 0.16f));
+    for (int k = i; k < j; k++) { if (pl[k].hidden) continue; float y = oy + pl[k].y + pl[k].h + pl[k].pad; dc->DrawLine({ L, y }, { R, y }, br, 1); }
+    for (int c = 1; c < a.cols; c++) { float x = L + c * a.colW; dc->DrawLine({ x, T }, { x, B }, br, 1); }
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(L + 0.5f, T + 0.5f, R - 0.5f, B - 0.5f), 6, 6), br, 1);
+}
+
+// anexo: a imagem (cantos de 8) ou um cartão com a folha, o nome e o tamanho; clique duplo abre
+void DrawFile(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Para& p, const PL& l, float ox, float oy, bool inSel, D2D1_COLOR_F accent) {
+    D2D1_RECT_F r = D2D1::RectF(ox + l.x, oy + l.y, ox + l.x + l.imgW, oy + l.y + l.imgH);
+    ID2D1Factory* f = nullptr; dc->GetFactory(&f);
+    if (ID2D1Bitmap* b = imgs.count(p.src) ? imgs[p.src] : nullptr) {
+        ID2D1RoundedRectangleGeometry* g = nullptr;
+        if (f) f->CreateRoundedRectangleGeometry(D2D1::RoundedRect(r, 8, 8), &g);
+        if (g) dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), g), nullptr);
+        dc->DrawBitmap(b, r, 1, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        if (g) { dc->PopLayer(); g->Release(); }
+        br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.10f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 7.5f, 7.5f), br, 1);
+    } else {
+        br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.07f) : D2D1::ColorF(0, 0, 0, 0.035f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, 10, 10), br);
+        br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.12f) : D2D1::ColorF(0, 0, 0, 0.10f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.5f, r.top + 0.5f, r.right - 0.5f, r.bottom - 0.5f), 9.5f, 9.5f), br, 1);
+        // folha com a ponta dobrada
+        float fx = r.left + 14, fy = r.top + 11, fw = 22, fh = 30, d = 7;
+        ID2D1PathGeometry* g = nullptr;
+        if (f && SUCCEEDED(f->CreatePathGeometry(&g))) {
+            ID2D1GeometrySink* k = nullptr; g->Open(&k);
+            k->BeginFigure({ fx, fy }, D2D1_FIGURE_BEGIN_FILLED);
+            k->AddLine({ fx + fw - d, fy }); k->AddLine({ fx + fw, fy + d }); k->AddLine({ fx + fw, fy + fh }); k->AddLine({ fx, fy + fh });
+            k->EndFigure(D2D1_FIGURE_END_CLOSED); k->Close(); k->Release();
+            br->SetColor(dark ? D2D1::ColorF(0.30f, 0.30f, 0.32f) : D2D1::ColorF(1, 1, 1));
+            dc->FillGeometry(g, br);
+            br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.45f) : D2D1::ColorF(0, 0, 0, 0.35f));
+            dc->DrawGeometry(g, br, 1);
+            dc->DrawLine({ fx + fw - d, fy }, { fx + fw - d, fy + d }, br, 1); dc->DrawLine({ fx + fw - d, fy + d }, { fx + fw, fy + d }, br, 1);
+            g->Release();
+        }
+        std::wstring name = ShownName(p.src), info;
+        WIN32_FILE_ATTRIBUTE_DATA fa{};
+        if (GetFileAttributesExW(p.src.c_str(), GetFileExInfoStandard, &fa)) {
+            double kb = (((ULONGLONG)fa.nFileSizeHigh << 32) | fa.nFileSizeLow) / 1024.0;
+            wchar_t b[64];
+            if (kb < 1024) swprintf_s(b, L"%.0f KB", std::max(1.0, kb)); else swprintf_s(b, L"%.1f MB", kb / 1024);
+            info = b;
+        } else info = Tr(L"Arquivo não encontrado");
+        std::wstring ext = name.substr(name.find_last_of(L'.') + 1);
+        if (ext.size() < name.size() && ext.size() <= 5) { for (auto& c : ext) c = towupper(c); info = ext + L" · " + info; }
+        IDWriteTextFormat *t1 = nullptr, *t2 = nullptr;
+        gfx::dw->CreateTextFormat(family.c_str(), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13, L"pt-br", &t1);
+        gfx::dw->CreateTextFormat(family.c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11, L"pt-br", &t2);
+        DWRITE_TRIMMING tr{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+        if (t1) { t1->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); t1->SetTrimming(&tr, nullptr); br->SetColor(TextColor()); dc->DrawTextW(name.c_str(), (UINT32)name.size(), t1, D2D1::RectF(r.left + 48, r.top + 9, r.right - 10, r.top + 27), br); t1->Release(); }
+        if (t2) { br->SetColor(Text2()); dc->DrawTextW(info.c_str(), (UINT32)info.size(), t2, D2D1::RectF(r.left + 48, r.top + 28, r.right - 10, r.top + 44), br); t2->Release(); }
+    }
+    if (f) f->Release();
+    if (inSel) { br->SetColor(D2D1::ColorF(accent.r, accent.g, accent.b, focused ? 0.38f : 0.18f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 8, 8), br); }
+}
+
 void Draw(ID2D1DeviceContext* dc, D2D1_RECT_F a) {
     area = a;
     if (!N) return;
@@ -424,6 +574,9 @@ void Draw(ID2D1DeviceContext* dc, D2D1_RECT_F a) {
         if (py > a.bottom || py + l.h < a.top) continue;
         Para& p = P(i);
         float px = ox + l.x;
+        bool inSel = sel && i >= ss.p && i <= se.p && !(i == se.p && se.o == 0 && se.p > ss.p);
+        if (p.kind == K_FILE) { DrawFile(dc, br, p, l, ox, oy, inSel, accent); continue; }
+        if (p.kind == K_ROW && !IsRow(i - 1)) DrawTableGrid(dc, br, i, ox, oy);
         auto rangeRects = [&](int from, int len, D2D1_COLOR_F c, float pad) {
             if (len <= 0) return;
             UINT32 cnt = 0;
@@ -476,7 +629,7 @@ void Draw(ID2D1DeviceContext* dc, D2D1_RECT_F a) {
                 br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.38f) : D2D1::ColorF(0, 0, 0, 0.30f));
                 dc->DrawEllipse(D2D1::Ellipse(c, 8, 8), br, 1.1f);
             }
-        } else if (p.list != L_NONE) {
+        } else if (p.list != L_NONE && p.kind == K_TEXT) {
             std::wstring mk = p.list == L_BULLET ? L"•" : p.list == L_DASH ? L"–" : std::to_wstring(l.number) + L".";
             IDWriteTextLayout* ml = nullptr;
             gfx::dw->CreateTextLayout(mk.c_str(), (UINT32)mk.size(), fmt[p.style], 40, 100, &ml);
@@ -592,6 +745,13 @@ void OnMouseDown(D2D1_POINT_2F p, bool shift, int clicks) {
     }
     Pos q = HitContent(cx, cy);
     typingSet = false; desiredX = -1;
+    if (P(q.p).kind == K_FILE) {  // anexo: clique põe o cursor nele; clique duplo abre no programa padrão
+        caret = q; if (!shift) anchor = q;
+        clickMode = 1;
+        if (clicks == 2) ShellExecuteW(nullptr, L"open", P(q.p).src.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        RequestPaint();
+        return;
+    }
     const std::wstring& t = P(q.p).text;
     if (clicks == 2) {
         int a = q.o, b = q.o;
@@ -682,6 +842,203 @@ void Redo() {
     Clamp(); Changed();
 }
 
+bool InTable() { return N && IsRow(caret.p); }
+
+void InsertTable(int rows, int cols) {
+    if (!N) return;
+    Checkpoint(3);
+    DeleteSel();
+    Para row; row.kind = K_ROW; row.text.assign(std::max(1, cols) - 1, L'\t'); row.at.assign(row.text.size(), 0);
+    int i = caret.p, first;
+    if (P(i).kind == K_TEXT && P(i).text.empty()) { P(i) = row; first = i; }
+    else {
+        if (P(i).kind == K_TEXT && caret.o > 0 && caret.o < (int)P(i).text.size()) { SplitPara(); i = caret.p - 1; }
+        else if (P(i).kind == K_TEXT && caret.o == 0 && !P(i).text.empty()) i--;  // no começo do parágrafo: a tabela vem antes
+        N->paras.insert(N->paras.begin() + i + 1, row);
+        first = i + 1;
+    }
+    for (int k = 1; k < rows; k++) N->paras.insert(N->paras.begin() + first + k, row);
+    int last = first + rows - 1;
+    if (last + 1 >= Count() || P(last + 1).kind != K_TEXT) N->paras.insert(N->paras.begin() + last + 1, Para{});
+    caret = anchor = { first, 0 };
+    typingSet = false;
+    Changed();
+}
+
+// linha/coluna a mais ou a menos e "Converter em Texto" (menu do botão da tabela com o cursor dentro dela)
+void Table(int op) {
+    if (!N || !IsRow(caret.p)) return;
+    Checkpoint(3);
+    anchor = caret;
+    int a = caret.p, b = caret.p;
+    while (IsRow(a - 1)) a--;
+    while (IsRow(b + 1)) b++;
+    int col = (int)std::count(P(caret.p).text.begin(), P(caret.p).text.begin() + caret.o, L'\t');
+    int cols = TableCols(caret.p);
+    auto cellEnd = [](const std::wstring& t, int c) {  // posição do fim da célula c (onde fica o TAB seguinte)
+        size_t k = 0;
+        for (int n = 0; n < c; n++) { k = t.find(L'\t', k); if (k == std::wstring::npos) return t.size(); k++; }
+        size_t e = t.find(L'\t', k);
+        return e == std::wstring::npos ? t.size() : e;
+    };
+    auto cellStart = [](const std::wstring& t, int c) {
+        size_t k = 0;
+        for (int n = 0; n < c; n++) { k = t.find(L'\t', k); if (k == std::wstring::npos) return t.size(); k++; }
+        return k;
+    };
+    switch (op) {
+    case T_ADD_ROW: {
+        Para nr; nr.kind = K_ROW; nr.text.assign(cols - 1, L'\t'); nr.at.assign(nr.text.size(), 0);
+        N->paras.insert(N->paras.begin() + caret.p + 1, nr);
+        caret = anchor = { caret.p + 1, 0 };
+        break;
+    }
+    case T_ADD_COL:
+        for (int i = a; i <= b; i++) {
+            Para& p = P(i);
+            while (Tabs(p.text) < cols - 1) { p.text += L'\t'; p.at.push_back(0); }  // linhas curtas completam
+            size_t e = cellEnd(p.text, col);
+            p.text.insert(e, 1, L'\t'); p.at.insert(p.at.begin() + e, 0);
+        }
+        caret = anchor = { caret.p, (int)cellEnd(P(caret.p).text, col) + 1 };
+        break;
+    case T_DEL_ROW:
+        if (a == b) { P(a).kind = K_TEXT; P(a).text.clear(); P(a).at.clear(); caret = anchor = { a, 0 }; break; }
+        N->paras.erase(N->paras.begin() + caret.p);
+        caret.p = std::min(caret.p, b - 1); caret.o = 0; anchor = caret;
+        break;
+    case T_DEL_COL:
+        if (cols <= 1) break;
+        for (int i = a; i <= b; i++) {
+            Para& p = P(i);
+            size_t s = cellStart(p.text, col), e = cellEnd(p.text, col);
+            if (s > p.text.size()) continue;
+            // leva junto um TAB: o do fim (ou o de antes, na última coluna)
+            if (e < p.text.size()) e++; else if (s > 0) s--;
+            p.text.erase(s, e - s); p.at.erase(p.at.begin() + s, p.at.begin() + e);
+        }
+        caret = anchor = { caret.p, 0 };
+        break;
+    case T_TO_TEXT:
+        for (int i = a; i <= b; i++) P(i).kind = K_TEXT;
+        break;
+    }
+    Clamp();
+    Changed();
+}
+
+void InsertAttachment(const std::wstring& path) {
+    if (!N || path.empty()) return;
+    Checkpoint(3);
+    DeleteSel();
+    Para f; f.kind = K_FILE; f.src = path;
+    int i = caret.p, at;
+    if (P(i).kind == K_TEXT && P(i).text.empty() && P(i).list == L_NONE) { P(i) = f; at = i; }
+    else {
+        if (P(i).kind == K_TEXT && caret.o > 0 && caret.o < (int)P(i).text.size()) { SplitPara(); i = caret.p - 1; }
+        else if (P(i).kind == K_TEXT && caret.o == 0 && !P(i).text.empty()) i--;
+        N->paras.insert(N->paras.begin() + i + 1, f);
+        at = i + 1;
+    }
+    if (at + 1 >= Count() || P(at + 1).kind != K_TEXT) N->paras.insert(N->paras.begin() + at + 1, Para{});
+    caret = anchor = { at + 1, 0 };
+    typingSet = false;
+    Changed();
+}
+
+// Revisar (sem IA): espaços repetidos, espaço antes de pontuação, espaço depois de , ; ! ? (e de . antes de maiúscula),
+// maiúscula no começo do parágrafo e depois de . ! ?, "i" sozinho vira "I" em inglês. Os atributos andam junto.
+static bool Proof(Para& p) {
+    const std::wstring& s = p.text;
+    std::wstring t; std::vector<uint8_t> at;
+    bool row = p.kind == K_ROW;
+    auto punct = [](wchar_t c) { return c == L',' || c == L'.' || c == L';' || c == L':' || c == L'!' || c == L'?' || c == L')'; };
+    bool capNext = !row;
+    for (size_t i = 0; i < s.size(); i++) {
+        wchar_t c = s[i];
+        uint8_t a = i < p.at.size() ? p.at[i] : 0;
+        wchar_t nx = i + 1 < s.size() ? s[i + 1] : 0;
+        if (c == L' ') {
+            if (t.empty() || t.back() == L' ' || t.back() == L'\t' || nx == 0 || nx == L'\t' || (punct(nx) && nx != L')')) continue;
+            t += c; at.push_back(a); continue;
+        }
+        if (c == L'\t') { while (!t.empty() && t.back() == L' ') { t.pop_back(); at.pop_back(); } t += c; at.push_back(a); continue; }
+        if (iswalpha(c)) {
+            if (capNext) c = towupper(c);
+            capNext = false;
+            if (idioma::En() && c == L'i' && (t.empty() || t.back() == L' ') && (nx == 0 || nx == L' ' || nx == L'\'' || nx == L'\u2019' || punct(nx))) c = L'I';
+        } else if (iswdigit(c)) capNext = false;
+        t += c; at.push_back(a);
+        if (c == L'.' || c == L'!' || c == L'?') {
+            bool sentence = c != L'.' || (nx == L' ' || nx == 0);
+            if (!row && sentence) capNext = true;
+        }
+        if ((c == L',' || c == L';' || c == L'!' || c == L'?') && iswalpha(nx)) { t += L' '; at.push_back(a); }
+        else if (c == L'.' && iswupper(nx) && !(i > 0 && iswupper(s[i - 1]))) { t += L' '; at.push_back(a); if (!row) capNext = true; }
+    }
+    while (!t.empty() && t.back() == L' ') { t.pop_back(); at.pop_back(); }
+    if (t == s) return false;
+    p.text = t; p.at = at;
+    return true;
+}
+
+bool Transform(int kind) {
+    if (!N) return false;
+    Checkpoint(3);
+    size_t undoN = N->undo.size();
+    bool sel = HasSel();
+    Pos ss = SelStart(), se = SelEnd();
+    int a, b;
+    if (kind == W_LIST || kind == W_TABLE || sel) SelParas(a, b); else { a = 0; b = Count() - 1; }
+    bool changed = false;
+    for (int i = a; i <= b; i++) {
+        Para& p = P(i);
+        if (p.kind == K_FILE) continue;
+        int from = 0, to = (int)p.text.size();
+        if (sel && (kind == W_UPPER || kind == W_LOWER || kind == W_TITLE)) { if (i == ss.p) from = ss.o; if (i == se.p) to = se.o; }
+        switch (kind) {
+        case W_UPPER: case W_LOWER: case W_TITLE: {
+            bool start = true;
+            for (int k = from; k < to; k++) {
+                wchar_t c = p.text[k], n = c;
+                if (kind == W_UPPER) n = towupper(c);
+                else if (kind == W_LOWER) n = towlower(c);
+                else { n = start ? towupper(c) : towlower(c); }
+                start = !iswalnum(c) && c != L'\'' && c != L'\u2019';
+                if (n != c) { p.text[k] = n; changed = true; }
+            }
+            break;
+        }
+        case W_LIST:
+            if (p.kind == K_TEXT && !p.text.empty() && p.list != L_BULLET) { p.list = L_BULLET; if (p.style <= S_SUBHEADING) p.style = S_BODY; changed = true; }
+            break;
+        case W_TABLE: {
+            if (p.kind != K_TEXT || p.text.empty()) break;
+            // separador: TAB, senão ";", "|" ou ","; os espaços em volta somem
+            wchar_t sep = 0;
+            for (wchar_t c : { L'\t', L';', L'|', L',' }) if (p.text.find(c) != std::wstring::npos) { sep = c; break; }
+            std::wstring t; std::vector<uint8_t> at;
+            for (size_t k = 0; k < p.text.size(); k++) {
+                wchar_t c = p.text[k] == sep ? L'\t' : p.text[k];
+                if (c == L' ' && (t.empty() || t.back() == L'\t' || (k + 1 < p.text.size() && p.text[k + 1] == sep))) continue;
+                t += c; at.push_back(k < p.at.size() ? p.at[k] : 0);
+            }
+            p.text = t; p.at = at; p.kind = K_ROW; p.list = L_NONE; p.style = S_BODY; p.collapsed = false;
+            changed = true;
+            break;
+        }
+        case W_PROOF:
+            if (Proof(p)) changed = true;
+            break;
+        }
+    }
+    if (!changed) { if (N->undo.size() > undoN - 1 && N->undo.size() == undoN) N->undo.pop_back(); return false; }
+    if (kind == W_TABLE && (b + 1 >= Count() || P(b + 1).kind != K_TEXT)) N->paras.insert(N->paras.begin() + b + 1, Para{});
+    Clamp();
+    Changed();
+    return true;
+}
+
 int CurrentStyle() { return N ? P(caret.p).style : S_BODY; }
 int CurrentList() { return N ? P(caret.p).list : L_NONE; }
 uint8_t CurrentAttrs() {
@@ -734,6 +1091,7 @@ void ToggleList(int kind) {
     bool all = true;
     for (int i = a; i <= b; i++) if (P(i).list != kind) all = false;
     for (int i = a; i <= b; i++) {
+        if (P(i).kind != K_TEXT) continue;
         P(i).list = all ? (uint8_t)L_NONE : (uint8_t)kind;
         if (!all && P(i).style != S_MONO) P(i).style = P(i).style <= S_SUBHEADING && P(i).text.empty() ? (uint8_t)S_BODY : P(i).style;
         P(i).checked = false;
@@ -759,6 +1117,24 @@ void ToggleChecked() {
 
 void OnChar(wchar_t c) {
     if (!N || !focused) return;
+    if ((c == L'\r' || c == L'\n') && !HasSel() && (IsFile(caret.p) || IsRow(caret.p))) {
+        Checkpoint(3);
+        int i = caret.p;
+        if (IsFile(i)) { N->paras.insert(N->paras.begin() + i + 1, Para{}); caret = anchor = { i + 1, 0 }; }
+        else {
+            Para& r = P(i);
+            bool empty = r.text.find_first_not_of(L'\t') == std::wstring::npos;
+            if (empty && !IsRow(i + 1) && IsRow(i - 1)) { r.kind = K_TEXT; r.text.clear(); r.at.clear(); caret = anchor = { i, 0 }; }  // sai da tabela
+            else {
+                Para nr; nr.kind = K_ROW; nr.text.assign(TableCols(i) - 1, L'\t'); nr.at.assign(nr.text.size(), 0);
+                N->paras.insert(N->paras.begin() + i + 1, nr);
+                caret = anchor = { i + 1, 0 };
+            }
+        }
+        typingSet = false;
+        Changed();
+        return;
+    }
     if (c == L'\r' || c == L'\n') {
         Checkpoint(3);
         DeleteSel();
@@ -777,6 +1153,11 @@ void OnChar(wchar_t c) {
     if (c == L'\t') return;  // tratado em OnKey
     if (c < 32 || c == 127) return;
     Checkpoint(1);
+    if (!HasSel() && IsFile(caret.p)) {  // digitou com o cursor no anexo: o texto vai num parágrafo novo depois dele
+        Checkpoint(3);
+        N->paras.insert(N->paras.begin() + caret.p + 1, Para{});
+        caret = anchor = { caret.p + 1, 0 };
+    }
     uint8_t at = AttrAtCaret();
     DeleteSel();
     Para& p = P(caret.p);
@@ -787,7 +1168,7 @@ void OnChar(wchar_t c) {
         else if (p.text == L"-" || p.text == L"–") kind = L_DASH;
         else if (p.text == L"1." || p.text == L"1)") kind = L_NUMBER;
         else if (p.text == L"[]" || p.text == L"[ ]") kind = L_CHECK;
-        if (kind >= 0) {
+        if (kind >= 0 && p.kind == K_TEXT) {
             Checkpoint(3);
             p.text.clear(); p.at.clear(); p.list = (uint8_t)kind; caret.o = 0; anchor = caret;
             if (p.style <= S_SUBHEADING) p.style = S_BODY;
@@ -845,6 +1226,66 @@ bool OnKey(UINT vk) {
         }
     }
     Para& p = P(caret.p);
+    auto jump = [&](Pos q) { caret = anchor = q; desiredX = -1; typingSet = false; wantReveal = true; };
+    auto eraseFile = [&](int i) {  // apaga o anexo inteiro (fica pelo menos um parágrafo)
+        Checkpoint(3);
+        if (Count() == 1) { P(0) = Para{}; caret = anchor = { 0, 0 }; }
+        else { N->paras.erase(N->paras.begin() + i); int k = std::min(i, Count() - 1); caret = anchor = { k, k < i ? (int)P(k).text.size() : 0 }; }
+        Changed();
+    };
+    if (!HasSel() && !ctrl) {
+        // tabela: Tab/Shift+Tab de célula em célula (Tab na última célula abre uma linha nova)
+        if (vk == VK_TAB && IsRow(caret.p)) {
+            const std::wstring& t = p.text;
+            if (!shift) {
+                size_t k = t.find(L'\t', caret.o);
+                if (k != std::wstring::npos) jump({ caret.p, (int)k + 1 });
+                else if (IsRow(caret.p + 1)) jump({ caret.p + 1, 0 });
+                else {
+                    Checkpoint(3);
+                    Para nr; nr.kind = K_ROW; nr.text.assign(TableCols(caret.p) - 1, L'\t'); nr.at.assign(nr.text.size(), 0);
+                    N->paras.insert(N->paras.begin() + caret.p + 1, nr);
+                    jump({ caret.p + 1, 0 });
+                    Changed();
+                }
+            } else {
+                int s0 = caret.o == 0 ? 0 : (int)(t.rfind(L'\t', caret.o - 1) == std::wstring::npos ? 0 : t.rfind(L'\t', caret.o - 1) + 1);
+                if (s0 > 0) { size_t k = s0 >= 2 ? t.rfind(L'\t', s0 - 2) : std::wstring::npos; jump({ caret.p, k == std::wstring::npos ? 0 : (int)k + 1 }); }
+                else if (IsRow(caret.p - 1)) { const std::wstring& u = P(caret.p - 1).text; size_t k = u.rfind(L'\t'); jump({ caret.p - 1, k == std::wstring::npos ? 0 : (int)k + 1 }); }
+            }
+            return true;
+        }
+        if (vk == VK_BACK || vk == VK_DELETE) {
+            if (IsFile(caret.p)) { eraseFile(caret.p); return true; }
+            if (IsRow(caret.p)) {
+                const std::wstring& t = p.text;
+                if (vk == VK_BACK && caret.o > 0 && t[caret.o - 1] == L'\t') { jump({ caret.p, caret.o - 1 }); return true; }  // não junta células
+                if (vk == VK_DELETE && (caret.o >= (int)t.size() || t[caret.o] == L'\t')) return true;
+                if (vk == VK_BACK && caret.o == 0) {
+                    if (t.find_first_not_of(L'\t') == std::wstring::npos) {  // linha vazia: some (a última vira texto)
+                        Checkpoint(3);
+                        if (IsRow(caret.p - 1) || IsRow(caret.p + 1)) {
+                            N->paras.erase(N->paras.begin() + caret.p);
+                            int k = std::max(0, caret.p - 1);
+                            caret = anchor = { k, (int)P(k).text.size() };
+                        } else { p.kind = K_TEXT; p.text.clear(); p.at.clear(); }
+                        Changed();
+                    }
+                    return true;
+                }
+            }
+            if (vk == VK_BACK && caret.o == 0 && caret.p > 0) {
+                int k = PrevVisible(caret.p);
+                if (IsFile(k)) { eraseFile(k); return true; }
+                if (IsRow(k)) { jump({ k, (int)P(k).text.size() }); return true; }
+            }
+            if (vk == VK_DELETE && caret.o == (int)p.text.size()) {
+                int k = NextVisible(caret.p);
+                if (IsFile(k)) { int keep = caret.p; eraseFile(k); caret = anchor = { keep, (int)P(keep).text.size() }; return true; }
+                if (IsRow(k)) return true;
+            }
+        }
+    }
     switch (vk) {
     case VK_LEFT:
         if (!shift && HasSel()) { move(SelStart()); return true; }

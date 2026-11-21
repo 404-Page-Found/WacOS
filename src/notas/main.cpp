@@ -54,6 +54,7 @@ bool g_active = true, g_hoverLights;
 std::wstring g_family = L"Segoe UI", g_mono = L"Consolas";
 D2D1_SIZE_F g_capSize{};   // modo captura
 bool g_capture, g_capListFocus;
+std::wstring g_capActions;  // --acoes=: comandos do editor rodados antes da foto (testar sem clicar nem SendInput)
 
 float g_sideW = 214, g_listW = 300;
 bool g_sideHidden;
@@ -78,6 +79,19 @@ int g_divDrag;  // 1 borda da barra lateral, 2 borda da lista
 // folha de confirmação
 struct Sheet { bool on = false; std::wstring title, msg, ok; std::function<void()> act; } g_sheet;
 D2D1_RECT_F g_sheetOk, g_sheetCancel;
+
+// folha de desenho (botão de marcação): uma tela branca para rabiscar com o mouse ou a caneta; "Inserir" grava um PNG
+// em 2x em Notas\anexos e põe na nota como anexo. Os pontos ficam relativos ao canto da tela (a janela pode mudar).
+struct Sketch {
+    struct Stroke { std::vector<D2D1_POINT_2F> pts; int color = 0; };
+    bool on = false, drawing = false;
+    std::vector<Stroke> strokes;
+    int color = 0;
+    D2D1_RECT_F panel{}, canvas{}, bUndo{}, bClear{}, bCancel{}, bInsert{}, sw[5]{};
+} g_sk;
+const D2D1_COLOR_F SK_COLORS[5] = { D2D1::ColorF(0.11f, 0.11f, 0.12f), D2D1::ColorF(0.0f, 0.48f, 1.0f), D2D1::ColorF(1.0f, 0.23f, 0.19f), D2D1::ColorF(0.20f, 0.78f, 0.35f), D2D1::ColorF(1.0f, 0.75f, 0.0f) };
+const float SK_PEN = 3.f;
+void FocusEditor();
 
 IDWriteTextFormat *g_f14b, *g_f13b, *g_f13, *g_f12, *g_f12b, *g_f11, *g_f11b, *g_fCount, *g_fCardT, *g_fCardD, *g_fThumbT, *g_fThumb, *g_f13c, *g_fFmt[5];
 ID2D1StrokeStyle* g_round;
@@ -903,6 +917,7 @@ void DrawDragGhost(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& 
     Text(dc, br, t, g_f13b, D2D1::RectF(r.left + 12, r.top, r.right - 8, r.bottom), pal.text);
 }
 
+void DrawSketch(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal);
 void Render(ID2D1DeviceContext* dc) {
     Pal pal = Colors();
     auto c = ClientDip();
@@ -952,6 +967,7 @@ void Render(ID2D1DeviceContext* dc) {
     DrawFormatPanel(dc, br, pal);
     DrawDragGhost(dc, br, pal);
     DrawSheet(dc, br, pal);
+    DrawSketch(dc, br, pal);
     br->Release();
 }
 
@@ -1269,8 +1285,6 @@ void UnavailableMenu(int b) {
     else if (b == B_COLLAB) items = { I(Tr(L"Colaborar requer iCloud"), 1, true) };
     else if (b == B_TABLE) items = { I(Tr(L"Tabelas ainda não disponíveis"), 1, true) };
     else if (b == B_AUDIO) items = { I(Tr(L"Gravar Áudio indisponível"), 1, true) };
-    else if (b == B_MARKUP) items = { I(Tr(L"Desenhos indisponíveis"), 1, true) };
-    else if (b == B_WRITING) items = { I(Tr(L"Ferramentas de Escrita indisponíveis"), 1, true) };
     else items = { I(Tr(L"Fotos e arquivos indisponíveis"), 1, true) };
     int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
     if (b == B_SHARE && editor::Current()) {
@@ -1287,6 +1301,205 @@ void SetGallery(bool on) {
     SaveSoon(); Invalidate();
 }
 
+// tabela: fora de uma tabela insere uma de 2 × 2 (como o Mac); dentro dela, o menu de linhas e colunas
+void TableCmd() {
+    if (!editor::Current()) return;
+    if (editor::InTable()) {
+        auto r = g_btn[B_TABLE].r;
+        std::vector<Item> items = { I(Tr(L"Adicionar Linha"), 1), I(Tr(L"Adicionar Coluna"), 2), Sep(), I(Tr(L"Apagar Linha"), 3), I(Tr(L"Apagar Coluna"), 4), Sep(), I(Tr(L"Converter em Texto"), 5) };
+        int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
+        const int ops[6] = { -1, editor::T_ADD_ROW, editor::T_ADD_COL, editor::T_DEL_ROW, editor::T_DEL_COL, editor::T_TO_TEXT };
+        if (id >= 1 && id <= 5) editor::Table(ops[id]);
+    } else editor::InsertTable(2, 2);
+    FocusEditor();
+}
+
+// anexo: Abrir do Windows (ou o do Finder, se o Abrir/Salvar do Mac estiver ligado); vários arquivos de uma vez
+void AttachCmd() {
+    if (!editor::Current()) return;
+    IFileOpenDialog* d = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&d)))) return;
+    DWORD o = 0; d->GetOptions(&o);
+    d->SetOptions(o | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
+    d->SetTitle(Tr(L"Anexar Arquivo"));
+    int n = 0;
+    if (SUCCEEDED(d->Show(g_hwnd))) {
+        IShellItemArray* arr = nullptr;
+        if (SUCCEEDED(d->GetResults(&arr))) {
+            DWORD cnt = 0; arr->GetCount(&cnt);
+            for (DWORD k = 0; k < cnt; k++) {
+                IShellItem* it = nullptr; PWSTR p = nullptr;
+                if (SUCCEEDED(arr->GetItemAt(k, &it)) && SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &p))) {
+                    std::wstring dst = store::AddAttachment(p);
+                    if (!dst.empty()) { editor::InsertAttachment(dst); n++; }
+                    CoTaskMemFree(p);
+                }
+                if (it) it->Release();
+            }
+            arr->Release();
+        }
+    }
+    d->Release();
+    Log(L"anexar: %d arquivo(s)", n);
+    FocusEditor();
+}
+
+// Ferramentas de Escrita: sem o Apple Intelligence, só o que dá para fazer aqui mesmo, sem IA e sem internet
+void WritingMenu() {
+    if (!editor::Current()) return;
+    auto r = g_btn[B_WRITING].r;
+    std::vector<Item> items = { I(Tr(L"Ferramentas de Escrita (no computador, sem IA)"), 0, true), Sep(), I(Tr(L"Revisar"), 1), Sep(),
+                                I(Tr(L"Converter em Lista"), 2), I(Tr(L"Converter em Tabela"), 3), Sep(),
+                                I(Tr(L"MAIÚSCULAS"), 4), I(Tr(L"minúsculas"), 5), I(Tr(L"Iniciais Maiúsculas"), 6) };
+    int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
+    const int kinds[7] = { -1, editor::W_PROOF, editor::W_LIST, editor::W_TABLE, editor::W_UPPER, editor::W_LOWER, editor::W_TITLE };
+    if (id >= 1 && id <= 6) { bool ch = editor::Transform(kinds[id]); Log(L"escrita %d: %ls", id, ch ? L"mudou" : L"nada a mudar"); }
+    FocusEditor();
+}
+
+// ---- folha de desenho
+void SketchLayout() {
+    auto c = ClientDip();
+    float W = std::min(c.width - 40, 640.f), H = std::min(c.height - 40, 480.f);
+    float x = (c.width - W) / 2, y = std::max(TOOLBAR_H, (c.height - H) / 2);
+    g_sk.panel = { x, y, x + W, y + H };
+    g_sk.canvas = { x + 16, y + 44, x + W - 16, y + H - 58 };
+    float by = y + H - 44;
+    for (int k = 0; k < 5; k++) g_sk.sw[k] = { x + 18 + k * 30.f, by + 2, x + 42 + k * 30.f, by + 26 };
+    float bx = x + 18 + 5 * 30.f + 10;
+    auto btn = [&](D2D1_RECT_F& r, float& from, const wchar_t* t, bool right) {
+        float w = TextW(g_f13, Tr(t)) + 26;
+        if (right) { r = { from - w, by, from, by + 28 }; from -= w + 8; }
+        else { r = { from, by, from + w, by + 28 }; from += w + 8; }
+    };
+    btn(g_sk.bUndo, bx, L"Desfazer", false);
+    btn(g_sk.bClear, bx, L"Limpar", false);
+    float rx = x + W - 16;
+    btn(g_sk.bInsert, rx, L"Inserir", true);
+    btn(g_sk.bCancel, rx, L"Cancelar", true);
+}
+
+void SketchStrokes(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, D2D1_POINT_2F o, float k) {
+    ID2D1Factory* f = nullptr; rt->GetFactory(&f);
+    ID2D1StrokeStyle* rs = nullptr;
+    if (f) f->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND), nullptr, 0, &rs);
+    for (auto& s : g_sk.strokes) {
+        br->SetColor(SK_COLORS[s.color]);
+        if (s.pts.size() == 1) { rt->FillEllipse(D2D1::Ellipse({ o.x + s.pts[0].x * k, o.y + s.pts[0].y * k }, SK_PEN * k / 2, SK_PEN * k / 2), br); continue; }
+        ID2D1PathGeometry* g = nullptr;
+        if (!f || FAILED(f->CreatePathGeometry(&g))) continue;
+        ID2D1GeometrySink* sk = nullptr; g->Open(&sk);
+        auto P = [&](size_t i) { return D2D1::Point2F(o.x + s.pts[i].x * k, o.y + s.pts[i].y * k); };
+        sk->BeginFigure(P(0), D2D1_FIGURE_BEGIN_HOLLOW);
+        for (size_t i = 1; i + 1 < s.pts.size(); i++) {  // curva suave pelos pontos médios
+            auto a = P(i), b = P(i + 1);
+            sk->AddQuadraticBezier(D2D1::QuadraticBezierSegment(a, D2D1::Point2F((a.x + b.x) / 2, (a.y + b.y) / 2)));
+        }
+        sk->AddLine(P(s.pts.size() - 1));
+        sk->EndFigure(D2D1_FIGURE_END_OPEN); sk->Close(); sk->Release();
+        rt->DrawGeometry(g, br, SK_PEN * k, rs);
+        g->Release();
+    }
+    if (rs) rs->Release();
+    if (f) f->Release();
+}
+
+void DrawSketch(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) {
+    if (!g_sk.on) return;
+    SketchLayout();
+    auto c = ClientDip();
+    br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.35f : 0.15f));
+    dc->FillRectangle(D2D1::RectF(0, 0, c.width, c.height), br);
+    auto& P = g_sk.panel;
+    for (int k = 6; k >= 1; k--) { br->SetColor(D2D1::ColorF(0, 0, 0, 0.04f)); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(P.left - k, P.top - k + 4, P.right + k, P.bottom + k + 6), 16.f + k, 16.f + k), br); }
+    br->SetColor(g_dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f) : D2D1::ColorF(0.965f, 0.965f, 0.97f));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(P, 16, 16), br);
+    Text(dc, br, Tr(L"Desenho"), g_f13c, D2D1::RectF(P.left, P.top + 12, P.right, P.top + 34), pal.text);
+    br->SetColor(D2D1::ColorF(1, 1, 1));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(g_sk.canvas, 8, 8), br);
+    br->SetColor(D2D1::ColorF(0, 0, 0, 0.12f));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(g_sk.canvas, 8, 8), br, 1);
+    dc->PushAxisAlignedClip(g_sk.canvas, D2D1_ANTIALIAS_MODE_ALIASED);
+    SketchStrokes(dc, br, { g_sk.canvas.left, g_sk.canvas.top }, 1);
+    dc->PopAxisAlignedClip();
+    if (g_sk.strokes.empty()) Text(dc, br, Tr(L"Desenhe aqui com o mouse ou a caneta"), g_f13c, g_sk.canvas, D2D1::ColorF(0, 0, 0, 0.30f));
+    for (int k = 0; k < 5; k++) {
+        D2D1_POINT_2F m{ (g_sk.sw[k].left + g_sk.sw[k].right) / 2, (g_sk.sw[k].top + g_sk.sw[k].bottom) / 2 };
+        br->SetColor(SK_COLORS[k]); dc->FillEllipse(D2D1::Ellipse(m, 9, 9), br);
+        if (k == g_sk.color) { br->SetColor(pal.text); dc->DrawEllipse(D2D1::Ellipse(m, 12, 12), br, 1.5f); }
+    }
+    auto button = [&](D2D1_RECT_F r, const wchar_t* t, bool primary, bool enabled) {
+        if (primary) br->SetColor(Accent()); else br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.07f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(r, 8, 8), br);
+        Text(dc, br, Tr(t), g_f13c, r, primary ? D2D1::ColorF(0, 0, 0, enabled ? 0.85f : 0.35f) : enabled ? pal.text : pal.text3);
+    };
+    bool any = !g_sk.strokes.empty();
+    button(g_sk.bUndo, L"Desfazer", false, any);
+    button(g_sk.bClear, L"Limpar", false, any);
+    button(g_sk.bCancel, L"Cancelar", false, true);
+    button(g_sk.bInsert, L"Inserir", true, any);
+}
+
+// grava o desenho (recortado em volta do que foi desenhado, com folga) como PNG em 2x e anexa na nota
+void SketchInsert() {
+    if (g_sk.strokes.empty()) { g_sk = Sketch{}; FocusEditor(); return; }
+    float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
+    for (auto& s : g_sk.strokes) for (auto& p : s.pts) { x0 = std::min(x0, p.x); y0 = std::min(y0, p.y); x1 = std::max(x1, p.x); y1 = std::max(y1, p.y); }
+    float m = 16, cw = g_sk.canvas.right - g_sk.canvas.left, ch = g_sk.canvas.bottom - g_sk.canvas.top;
+    x0 = std::max(0.f, x0 - m); y0 = std::max(0.f, y0 - m); x1 = std::min(cw, x1 + m); y1 = std::min(ch, y1 + m);
+    float W = std::max(40.f, x1 - x0), H = std::max(30.f, y1 - y0), sc = 2;
+    wchar_t name[64]; swprintf_s(name, L"\\desenho-%llx.png", (unsigned long long)store::Now());
+    std::wstring path = store::AttachDir() + name;
+    ID2D1Factory* f = nullptr; IWICImagingFactory* wic = nullptr; IWICBitmap* bmp = nullptr; ID2D1RenderTarget* rt = nullptr;
+    D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory), nullptr, (void**)&f);
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    bool ok = false;
+    if (f && wic && SUCCEEDED(wic->CreateBitmap((UINT)(W * sc), (UINT)(H * sc), GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bmp)) &&
+        SUCCEEDED(f->CreateWicBitmapRenderTarget(bmp, D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &rt))) {
+        ID2D1SolidColorBrush* br = nullptr; rt->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1), &br);
+        rt->BeginDraw();
+        rt->Clear(D2D1::ColorF(1, 1, 1));  // papel branco: o desenho aparece igual no claro e no escuro
+        SketchStrokes(rt, br, { -x0 * sc, -y0 * sc }, sc);
+        ok = SUCCEEDED(rt->EndDraw());
+        br->Release();
+        IWICStream* st = nullptr; IWICBitmapEncoder* enc = nullptr; IWICBitmapFrameEncode* fe = nullptr;
+        if (ok && SUCCEEDED(wic->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
+            SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) && SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) &&
+            SUCCEEDED(enc->CreateNewFrame(&fe, nullptr)) && SUCCEEDED(fe->Initialize(nullptr))) {
+            fe->SetSize((UINT)(W * sc), (UINT)(H * sc));
+            WICPixelFormatGUID pf = GUID_WICPixelFormat32bppPBGRA; fe->SetPixelFormat(&pf);
+            ok = SUCCEEDED(fe->WriteSource(bmp, nullptr)) && SUCCEEDED(fe->Commit()) && SUCCEEDED(enc->Commit());
+        } else ok = false;
+        if (fe) fe->Release(); if (enc) enc->Release(); if (st) st->Release();
+    }
+    if (rt) rt->Release(); if (bmp) bmp->Release(); if (wic) wic->Release(); if (f) f->Release();
+    Log(L"desenho: %ls %ls", path.c_str(), ok ? L"gravado" : L"FALHOU");
+    g_sk = Sketch{};
+    if (ok) editor::InsertAttachment(path);
+    FocusEditor();
+    Invalidate();
+}
+
+bool SketchMouse(UINT m, D2D1_POINT_2F p) {  // true: a folha de desenho tratou
+    if (!g_sk.on) return false;
+    SketchLayout();
+    D2D1_POINT_2F q{ p.x - g_sk.canvas.left, p.y - g_sk.canvas.top };
+    if (m == WM_LBUTTONDOWN) {
+        if (In(g_sk.canvas, p)) { Sketch::Stroke s; s.color = g_sk.color; s.pts.push_back(q); g_sk.strokes.push_back(s); g_sk.drawing = true; SetCapture(g_hwnd); }
+        else if (In(g_sk.bUndo, p)) { if (!g_sk.strokes.empty()) g_sk.strokes.pop_back(); }
+        else if (In(g_sk.bClear, p)) g_sk.strokes.clear();
+        else if (In(g_sk.bCancel, p)) { g_sk = Sketch{}; FocusEditor(); }
+        else if (In(g_sk.bInsert, p)) SketchInsert();
+        else for (int k = 0; k < 5; k++) if (In(g_sk.sw[k], p)) g_sk.color = k;
+    } else if (m == WM_MOUSEMOVE && g_sk.drawing && !g_sk.strokes.empty()) {
+        auto& v = g_sk.strokes.back().pts;
+        q.x = std::clamp(q.x, 0.f, g_sk.canvas.right - g_sk.canvas.left); q.y = std::clamp(q.y, 0.f, g_sk.canvas.bottom - g_sk.canvas.top);
+        if (std::hypot(q.x - v.back().x, q.y - v.back().y) >= 0.8f) v.push_back(q);
+    } else if (m == WM_LBUTTONUP) { g_sk.drawing = false; if (GetCapture() == g_hwnd) ReleaseCapture(); }
+    Invalidate();
+    return true;
+}
+
 void ClickButton(int b) {
     switch (b) {
     case B_SIDEBAR: ToggleSidebar(); break;
@@ -1297,6 +1510,10 @@ void ClickButton(int b) {
     case B_COMPOSE: NewNoteCmd(); break;
     case B_FORMAT: g_fmtOpen = !g_fmtOpen; if (g_fmtOpen) { g_focus = F_EDITOR; editor::Focus(true); } break;
     case B_CHECK: editor::ToggleList(L_CHECK); g_focus = F_EDITOR; editor::Focus(true); break;
+    case B_TABLE: TableCmd(); break;
+    case B_ATTACH: case B_MEDIA: AttachCmd(); break;
+    case B_MARKUP: if (editor::Current()) { g_sk = Sketch{}; g_sk.on = true; editor::Focus(false); } break;
+    case B_WRITING: WritingMenu(); break;
     case B_SEARCH: OpenSearch(); break;
     case B_FOLDER: NewFolderCmd(); break;
     case B_EDMORE: {  // macOS 26: o "⋯" do editor junta o que não coube na barra (fixar, cadeado, colaborar, áudio)
@@ -1497,6 +1714,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSEMOVE: {
         D2D1_POINT_2F p{ GET_X_LPARAM(l) / g_scale, GET_Y_LPARAM(l) / g_scale };
+        if (SketchMouse(m, p)) return 0;
         TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 }; TrackMouseEvent(&t);
         if (g_divDrag) {
             if (g_divDrag == 1) g_sideW = std::round(std::clamp(p.x, SIDE_MIN, SIDE_MAX));
@@ -1533,6 +1751,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSELEAVE: ampliacao::Verde(h, false); if (g_hoverBtn >= 0 || g_hoverLights) { g_hoverBtn = -1; g_hoverLights = false; Invalidate(); } return 0;
     case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: {
         D2D1_POINT_2F p{ GET_X_LPARAM(l) / g_scale, GET_Y_LPARAM(l) / g_scale };
+        if (SketchMouse(WM_LBUTTONDOWN, p)) return 0;
         POINT raw{ GET_X_LPARAM(l), GET_Y_LPARAM(l) };
         DWORD now = GetTickCount();
         if (now - g_lastClick <= GetDoubleClickTime() && std::abs(raw.x - g_lastClickPt.x) < 5 && std::abs(raw.y - g_lastClickPt.y) < 5) g_clicks++;
@@ -1631,6 +1850,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_LBUTTONUP: {
         D2D1_POINT_2F p{ GET_X_LPARAM(l) / g_scale, GET_Y_LPARAM(l) / g_scale };
+        if (SketchMouse(m, p)) return 0;
         if (GetCapture() == h) ReleaseCapture();
         if (g_divDrag) { g_divDrag = 0; SaveSoon(); return 0; }
         if (g_pressBtn >= 0) { int b = g_pressBtn; g_pressBtn = -1; if (HitBtn(p) == b) ClickButton(b); Invalidate(); return 0; }
@@ -1673,6 +1893,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_KEYDOWN: case WM_SYSKEYDOWN: {
         bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0, alt = GetKeyState(VK_MENU) < 0;
+        if (g_sk.on) {  // folha de desenho: Esc cancela, Enter insere, Ctrl+Z desfaz o último traço
+            if (w == VK_ESCAPE) { g_sk = Sketch{}; FocusEditor(); }
+            else if (w == VK_RETURN) SketchInsert();
+            else if (ctrl && w == 'Z' && !g_sk.strokes.empty()) g_sk.strokes.pop_back();
+            Invalidate();
+            return 0;
+        }
         if (g_sheet.on) {
             if (w == VK_ESCAPE) g_sheet = Sheet{};
             else if (w == VK_RETURN) { auto act = g_sheet.act; g_sheet = Sheet{}; if (act) act(); }
@@ -1751,7 +1978,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_CHAR:
-        if (g_sheet.on) return 0;
+        if (g_sheet.on || g_sk.on) return 0;
         if (g_focus == F_RENAME) { if (w >= 32) g_rename.OnChar((wchar_t)w); Invalidate(); return 0; }
         if (g_focus == F_SEARCH) { if (w >= 32 && w != 127) { g_search.OnChar((wchar_t)w); SearchChanged(); } Invalidate(); return 0; }
         if (g_focus == F_EDITOR) {
@@ -1907,6 +2134,58 @@ int Capture(const std::wstring& out, int noteIdx, bool aa) {
     else g_focus = g_capListFocus ? F_LIST : F_EDITOR;
     editor::Focus(g_focus == F_EDITOR);
     if (g_sel && g_focus == F_EDITOR) editor::PlaceCaretAtEnd();
+    // --acoes=a;b;c  (separadas por ;): tabela, linha, coluna, apaga-linha, apaga-coluna, texto (tabela->texto),
+    // revisar, lista, em-tabela, maiusc, minusc, iniciais, tudo (selecionar tudo), inicio, anexo:<arquivo>,
+    // digitar:<texto> ("\t" = Tab, "\n" = Enter, "\b" = Backspace), desenho:<n> (n traços de teste e Inserir)
+    for (size_t a = 0; a < g_capActions.size();) {
+        size_t e = g_capActions.find(L';', a); if (e == std::wstring::npos) e = g_capActions.size();
+        std::wstring c = g_capActions.substr(a, e - a); a = e + 1;
+        if (c == L"tabela") editor::InsertTable(2, 2);
+        else if (c == L"linha") editor::Table(editor::T_ADD_ROW);
+        else if (c == L"coluna") editor::Table(editor::T_ADD_COL);
+        else if (c == L"apaga-linha") editor::Table(editor::T_DEL_ROW);
+        else if (c == L"apaga-coluna") editor::Table(editor::T_DEL_COL);
+        else if (c == L"texto") editor::Table(editor::T_TO_TEXT);
+        else if (c == L"revisar") editor::Transform(editor::W_PROOF);
+        else if (c == L"lista") editor::Transform(editor::W_LIST);
+        else if (c == L"em-tabela") editor::Transform(editor::W_TABLE);
+        else if (c == L"maiusc") editor::Transform(editor::W_UPPER);
+        else if (c == L"minusc") editor::Transform(editor::W_LOWER);
+        else if (c == L"iniciais") editor::Transform(editor::W_TITLE);
+        else if (c == L"tudo") editor::SelectAll();
+        else if (c == L"gravar") store::SaveAllDirty();
+        else if (c == L"inicio") { editor::OnKey(VK_HOME); }
+        else if (c.rfind(L"anexo:", 0) == 0) editor::InsertAttachment(store::AddAttachment(c.substr(6)));
+        else if (c.rfind(L"folha:", 0) == 0) {  // a folha de desenho aberta com n traços (para a foto)
+            g_sk = Sketch{}; g_sk.on = true; SketchLayout();
+            for (int k = 0; k < _wtoi(c.substr(6).c_str()); k++) {
+                Sketch::Stroke s; s.color = k % 5;
+                for (int t = 0; t <= 50; t++) s.pts.push_back({ 30.f + t * 10.f, 50.f + k * 40 + 30 * std::sin(t / 5.f) });
+                g_sk.strokes.push_back(s);
+            }
+        }
+        else if (c.rfind(L"desenho:", 0) == 0) {
+            g_hwnd = nullptr; g_sk = Sketch{}; g_sk.on = true;
+            float W = g_capSize.width, H = g_capSize.height;
+            g_sk.canvas = { (W - 600) / 2, 100, (W + 600) / 2, H - 100 };
+            for (int k = 0; k < _wtoi(c.substr(8).c_str()); k++) {
+                Sketch::Stroke s; s.color = k % 5;
+                for (int t = 0; t <= 40; t++) s.pts.push_back({ 40.f + t * 9.f, 60.f + k * 30 + 25 * std::sin(t / 4.f) });
+                g_sk.strokes.push_back(s);
+            }
+            SketchInsert();
+        }
+        else if (c.rfind(L"digitar:", 0) == 0) {
+            std::wstring t = c.substr(8);
+            for (size_t k = 0; k < t.size(); k++) {
+                if (t[k] == L'\\' && k + 1 < t.size()) {
+                    wchar_t n = t[++k];
+                    if (n == L't') editor::OnKey(VK_TAB); else if (n == L'n') editor::OnChar(L'\r'); else if (n == L'b') editor::OnKey(VK_BACK);
+                } else editor::OnChar(t[k]);
+            }
+        }
+        Log(L"acao: %ls", c.c_str());
+    }
     dc->BeginDraw();
     // "papel de parede" + o acrílico da barra lateral (simulado)
     ID2D1GradientStopCollection* stops = nullptr;
@@ -1964,7 +2243,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
         else if (auto v5 = val(L"--nota="); v5 != L"\x01") capNote = _wtoi(v5.c_str());
         else if (s == L"--galeria") g_gallery = true;
         else if (s == L"--aa") capAa = true;
-        else if (s == L"--foco-lista") g_capListFocus = true;  // como na foto de referência: nota escolhida em amarelo
+        else if (s == L"--foco-lista") g_capListFocus = true;
+        else if (auto v8 = val(L"--acoes="); v8 != L"\x01") g_capActions = v8;  // como na foto de referência: nota escolhida em amarelo
         else if (auto v7 = val(L"--larguras="); v7 != L"\x01") swscanf_s(v7.c_str(), L"%f,%f", &g_sideW, &g_listW);
         else if (s == L"--sem-lateral") g_sideHidden = true;
         else if (s == L"--nota-rapida") g_quick = true;
