@@ -952,6 +952,8 @@
 { L"Colaborar requer iCloud", L"공동 작업하려면 iCloud가 필요합니다" },
 { L"Tabelas ainda não disponíveis", L"표는 아직 사용할 수 없음" },
 { L"Gravar Áudio indisponível", L"오디오 녹음을 사용할 수 없음" },
+{ L"Desenhos indisponíveis", L"그리기를 사용할 수 없음" },
+{ L"Ferramentas de Escrita indisponíveis", L"글쓰기 도구를 사용할 수 없음" },
 { L"Fotos e arquivos indisponíveis", L"사진 및 파일을 사용할 수 없음" },
 { L"Notas apagadas não podem ser editadas.", L"삭제된 메모는 편집할 수 없습니다." },
 { L"Para editar esta nota, recupere-a primeiro.", L"이 메모를 편집하려면 먼저 복구하십시오." },

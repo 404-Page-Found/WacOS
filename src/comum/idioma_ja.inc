@@ -952,6 +952,8 @@
 { L"Colaborar requer iCloud", L"共同制作にはiCloudが必要です" },
 { L"Tabelas ainda não disponíveis", L"表はまだ使用できません" },
 { L"Gravar Áudio indisponível", L"オーディオ録音は使用できません" },
+{ L"Desenhos indisponíveis", L"描画は使用できません" },
+{ L"Ferramentas de Escrita indisponíveis", L"作文ツールは使用できません" },
 { L"Fotos e arquivos indisponíveis", L"写真とファイルは使用できません" },
 { L"Notas apagadas não podem ser editadas.", L"削除したメモは編集できません。" },
 { L"Para editar esta nota, recupere-a primeiro.", L"このメモを編集するには、まず復元してください。" },

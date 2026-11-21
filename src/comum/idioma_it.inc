@@ -952,6 +952,8 @@
 { L"Colaborar requer iCloud", L"La collaborazione richiede iCloud" },
 { L"Tabelas ainda não disponíveis", L"Tabelle non ancora disponibili" },
 { L"Gravar Áudio indisponível", L"Registrazione audio non disponibile" },
+{ L"Desenhos indisponíveis", L"Disegni non disponibili" },
+{ L"Ferramentas de Escrita indisponíveis", L"Strumenti di scrittura non disponibili" },
 { L"Fotos e arquivos indisponíveis", L"Foto e file non disponibili" },
 { L"Notas apagadas não podem ser editadas.", L"Le note eliminate non possono essere modificate." },
 { L"Para editar esta nota, recupere-a primeiro.", L"Per modificare questa nota, recuperala prima." },

@@ -961,6 +961,8 @@
 { L"Colaborar requer iCloud", L"Collaborate requires iCloud" },
 { L"Tabelas ainda não disponíveis", L"Tables not available yet" },
 { L"Gravar Áudio indisponível", L"Record Audio unavailable" },
+{ L"Desenhos indisponíveis", L"Drawings unavailable" },
+{ L"Ferramentas de Escrita indisponíveis", L"Writing Tools unavailable" },
 { L"Fotos e arquivos indisponíveis", L"Photos and files unavailable" },
 { L"Notas apagadas não podem ser editadas.", L"Deleted notes can’t be edited." },
 { L"Para editar esta nota, recupere-a primeiro.", L"To edit this note, recover it first." },

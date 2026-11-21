@@ -952,6 +952,8 @@
 { L"Colaborar requer iCloud", L"Ortak çalışma iCloud gerektirir" },
 { L"Tabelas ainda não disponíveis", L"Tablolar henüz kullanılamıyor" },
 { L"Gravar Áudio indisponível", L"Ses Kaydı kullanılamıyor" },
+{ L"Desenhos indisponíveis", L"Çizimler kullanılamıyor" },
+{ L"Ferramentas de Escrita indisponíveis", L"Yazma Araçları kullanılamıyor" },
 { L"Fotos e arquivos indisponíveis", L"Fotoğraflar ve dosyalar kullanılamıyor" },
 { L"Notas apagadas não podem ser editadas.", L"Silinen notlar düzenlenemez." },
 { L"Para editar esta nota, recupere-a primeiro.", L"Bu notu düzenlemek için önce kurtarın." },
