@@ -929,3 +929,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   2) Risquinho no canto: o fio da borda do DWM fica 1 px por fora da área do app (dos lados e embaixo; DWMWA_EXTENDED_FRAME_BOUNDS). A capa usava a área do app como forma: o arco de 8 px do DWM sobrava por fora e o fio do arco grande ficava 1 px para dentro do fio reto. Agora a forma é o retângulo do DWM (quando ele difere da área do app só nesse fio).
   3) Em cima: a faixa dos botões também fica rente às capas e desenha nela o mesmo fio da borda (lado e arco), senão a linha sumia na altura da barra e sobrava um fio entre os dois arcos.
   Conferido ampliado (pixel a pixel) no Chrome de teste sobre as janelas do usuário: cima esq./dir. e baixo esq. com um arco só e o fundo no tom certo. Fotos mandadas e apagadas. Continua com a trava --wacos-teste-abas.
+
+[2026-11-21 15:50] Barra própria pelas medidas do Chrome do Mac (pixel a pixel).
+  Referência: print do usuário do Chrome no macOS 26 com o Finder no mesmo print como régua (Finder: 23 pt entre os botões = 27 px, 1 pt = 1,174 px). Chrome do Mac: 1º botão com centro a ~18,7 pt da borda, 23 pt entre eles, 14 pt; centro a ~19,6 pt numa linha de abas de ~39 pt; 1ª aba (com o pé curvo) a ~88 pt da borda, ~16 pt depois do verde; a busca de abas fica na ponta direita.
+  1) src\janelas\macjanela.cpp LightsLayout: na barra própria o 1º centro a 19 pt, 23 pt entre eles, 14 pt (antes 16 pt no Tahoe; nos outros temas já era 19).
+  2) LeadW: a área reservada do gancho = verde + 4 pt (o Chrome põe ~6 pt dele depois); com o ˅ da busca de abas desafixado a 1ª aba começa a 88 pt, igual ao Mac. O ˅ (Chrome 157 no Windows fica à esquerda): clique direito > "Unpin" (Desafixar); a busca continua no Ctrl+Shift+A.
+  3) RefazBarra: SWP_FRAMECHANGED e um WM_SIZE falso não refaziam a linha das abas; agora 1 px a mais e de volta (só ao ligar/desligar o gancho).
+  Medido no Chrome de teste (100%): botões a 19/42/65, centro a 20 numa linha de 40, 1ª aba a 88. Fotos mandadas e apagadas. Gancho e capas continuam com a trava --wacos-teste-abas; a posição dos botões (1) já vale em todos os apps de barra própria.

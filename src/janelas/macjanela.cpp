@@ -232,10 +232,17 @@ void LightsLayout(Info* in, float& lx0, float& lpitch, float& lr) {
     if (TemaTahoe()) { lx0 = in->tool ? 13.f : 16.f; lpitch = in->tool ? 17.f : 23.f; lr = in->tool ? 5.f : 7.f; }
     if (int u = UnifiedBar(in->owner)) { lx0 = u > 40 ? 26.f : 16.f; lpitch = 23; lr = 7; }  // macOS 27: com barra de ferramentas 26, 49, 72; só título 16, 39, 62
     if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
+    // Barra própria (Chrome e afins): como o Chrome do Mac, medido no print do usuário com o Finder do mesmo print como
+    // régua (23 pt entre os botões = 27 px): 1º centro a ~18,7 pt da borda, 23 pt entre eles, 14 pt (21/11/2026)
+    if (in->custom && !in->tool && !leopard::On()) { lx0 = 19; lpitch = 23; lr = 7; }
     lx0 += WinAppInset(in);
 }
 // largura (pt) da faixa da esquerda na barra própria: só até 6 pt depois do verde (cobre o mínimo do app)
 float PatchL(Info* in) { float lx0, lp, lr; LightsLayout(in, lx0, lp, lr); return lx0 + 2 * lp + lr + 6; }
+// onde a linha das abas começa (gancho do Chrome): no Chrome do Mac a 1ª aba (com o "pé" curvo) começa ~16 pt depois
+// do verde, a 88 pt da borda; o Chrome ainda põe uns 6 pt dele depois da área reservada (medido no 157 com o ˅ da busca
+// de abas desafixado: com 72 + 10 a aba começava em 94)
+float LeadW(Info* in) { float lx0, lp, lr; LightsLayout(in, lx0, lp, lr); return lx0 + 2 * lp + lr + 4; }
 // altura (pt) do centro dos botões: no meio da barra do app (a linha das abas no Chrome, como no Mac)
 float LightsY(Info* in, float H) {
     if (in->custom && in->barH) return in->barH / Scale(in->owner) / 2;
@@ -1589,10 +1596,14 @@ bool GanchoAbas(bool on) {
     return false;
 }
 // o Chrome refaz a barra com a área nova (o mesmo caminho de quando a moldura muda)
+// (o SWP_FRAMECHANGED e um WM_SIZE de mentira não bastavam: só uma mudança de tamanho de verdade refaz a linha das
+// abas; 1 px a mais e de volta, só ao ligar/desligar o gancho)
 void RefazBarra(HWND h) {
-    SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    RECT cr; GetClientRect(h, &cr);
-    SendMessageW(h, WM_SIZE, IsZoomed(h) ? SIZE_MAXIMIZED : SIZE_RESTORED, MAKELPARAM(cr.right, cr.bottom));
+    if (IsIconic(h) || !IsWindowVisible(h)) return;
+    RECT wr; GetWindowRect(h, &wr);
+    const UINT f = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+    SetWindowPos(h, nullptr, 0, 0, wr.right - wr.left + 1, wr.bottom - wr.top, f);
+    SetWindowPos(h, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top, f);
 }
 
 void Detach(HWND h, Info* in);
@@ -1922,7 +1933,7 @@ void Attach(HWND h, int mode) {
         in->dark = Dark();  // barra própria: os botões do Mac e a faixa por cima dos botões do app (BarRect/Paint)
         SetPropW(h, L"MacJanelaPropria", (HANDLE)1);
         in->patchR = g_ultimoPatch;
-        g_leadW = PatchL(in);
+        g_leadW = LeadW(in);
         if (GanchoAbas(true)) RefazBarra(h);  // Chrome medido: as abas começam depois dos botões do Mac
     }
     in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
