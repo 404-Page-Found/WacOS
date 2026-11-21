@@ -82,11 +82,8 @@ struct Info {
     // modo "barra própria" (Chrome, Discord, VS Code...): o app desenha a barra e os botões dele;
     // por cima vão os botões do Mac à esquerda e uma faixa da cor da barra sobre os botões do app
     bool custom = false;
-    // Barra própria: o canto de cima à esquerda quase sempre tem coisa do app (grupos de abas do Chrome, setas do
-    // Discord, menu do Claude e do VS Code). Com o canto vazio os botões do Mac ficam ali, na linha do app; senão a
-    // área do app desce (WM_NCCALCSIZE) e ganha em cima uma faixa de título do Mac, com os botões à esquerda (como uma
-    // barra de título do Mac por cima): nada do app fica escondido. Fica ligada enquanto a janela existir (sem pular).
-    bool topStrip = false;
+    // Barra própria: os botões do Mac à esquerda, na própria linha do app (como o Chrome do Mac, sem barra a mais),
+    // e por cima dos botões do app uma faixa da largura medida deles (MedirBarra)
     float patchR = 0;            // largura dos botões do app (pt); 0 = ainda não medida (PATCH_R)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
     // janela de ferramenta com barra (plug-ins VST do Ableton e afins): barra escura compacta, como as janelas de
@@ -178,15 +175,9 @@ RECT FrameRect(HWND h) {
     RECT cli{ c.x, c.y, c.x + cr.right, c.y + cr.bottom }, r;
     bool aware = GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(h)) != DPI_AWARENESS_UNAWARE;
     if (!aware || FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r)))) return cli;
-    // dos lados e embaixo, rente à área do app; em cima, o topo do DWM (com a faixa de título nossa a área do app
-    // começa mais abaixo, e a faixa faz parte da janela)
     RECT x{ std::max(r.left, cli.left), std::min(r.top, cli.top), std::min(r.right, cli.right), std::min(r.bottom, cli.bottom) };
     return x.right > x.left && x.bottom > x.top ? x : cli;
 }
-// altura da faixa de título do Mac por cima do app (px); 0 sem ela. 28 pt (Leopard 22), como a barra só de título do Mac
-int StripPx(HWND h) { return (int)std::lround((leopard::On() ? 22 : 28) * GetDpiForWindow(h) / 96.f); }
-int AppTop(HWND h) { POINT c{ 0, 0 }; ClientToScreen(h, &c); return c.y; }  // topo da área do app (tela)
-
 bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajustes.txt do Shell
 bool TemaGolden();                   // mais abaixo: macOS 27 Golden Gate (liquid_glass=1 + golden_gate=1)
 int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
@@ -240,9 +231,8 @@ void LightsLayout(Info* in, float& lx0, float& lpitch, float& lr) {
     if (leopard::On() && !in->tool && !UnifiedBar(in->owner)) { lx0 = 14.5f; lpitch = 21; lr = 7; }  // Leopard (medido: 14 px, 21 entre centros)
     lx0 += WinAppInset(in);
 }
-// altura (pt) do centro dos botões: no meio da faixa de título nossa, ou da barra do app
+// altura (pt) do centro dos botões: no meio da barra do app (a linha das abas no Chrome, como no Mac)
 float LightsY(Info* in, float H) {
-    if (in->custom && in->topStrip) { RECT f = FrameRect(in->owner); return (AppTop(in->owner) - f.top) / Scale(in->owner) / 2; }
     if (in->custom && in->barH) return in->barH / Scale(in->owner) / 2;
     return H / 2;
 }
@@ -269,7 +259,7 @@ RECT BarRect(Info* in) {
     RECT f = FrameRect(in->owner);
     float sc = Scale(in->owner);
     int h = in->barH ? in->barH : (int)(32 * sc);
-    return { f.left, f.top, f.right, std::max<LONG>(f.top, AppTop(in->owner)) + h };  // a faixa de título (se houver) e a barra do app
+    return { f.left, f.top, f.right, f.top + h };
 }
 
 // ---- desenho da faixa (janela em camadas, alfa por pixel)
@@ -304,7 +294,7 @@ void Paint(Info* in) {
                 g_d2d->CreatePathGeometry(&g);
                 ID2D1GeometrySink* sk = nullptr;
                 g->Open(&sk);
-                float R = 8;
+                float R = IsZoomed(in->owner) ? 0.f : 8.f;  // maximizada: canto reto (o arco deixava ver um pedaço do app)
                 if (leftCorner) {
                     sk->BeginFigure({ rr.left, rr.bottom }, D2D1_FIGURE_BEGIN_FILLED);
                     sk->AddLine({ rr.left, rr.top + R });
@@ -321,16 +311,8 @@ void Paint(Info* in) {
                 rt->FillGeometry(g, b);
                 g->Release();
             };
-            float S = (AppTop(in->owner) - r.top) / sc;  // faixa de título nossa (0 sem ela)
-            if (in->topStrip && S > 0) {  // faixa inteira na cor da barra do app (parece a mesma barra, mais alta)
-                fill(in->rightColor, D2D1::RectF(0, 0, W / 2 + 1, S), true);
-                fill(in->rightColor, D2D1::RectF(W / 2, 0, W, S), false);
-                b->SetColor(D2D1::ColorF(GetRValue(in->rightColor) / 255.f, GetGValue(in->rightColor) / 255.f, GetBValue(in->rightColor) / 255.f, 1));
-                rt->FillRectangle(D2D1::RectF(W - PatchR(in), S - 1, W, H), b);  // e os botões do app, na linha dele
-            } else {
-                fill(in->leftColor, D2D1::RectF(0, 0, PATCH_L, H), true);
-                fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
-            }
+            fill(in->leftColor, D2D1::RectF(0, 0, PATCH_L, H), true);
+            fill(in->rightColor, D2D1::RectF(W - PatchR(in), 0, W, H), false);
         }
         // Leopard: a barra de título padrão vira o metal cinza do 10.5 de ponta a ponta (com os cantos de cima da
         // janela); a barra própria dos apps (Chromium e afins) e as janelas de plug-in ficam como estão
@@ -996,9 +978,8 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         p.x -= r.left; p.y -= r.top;
         float sc = Scale(in->owner);
         if (in->custom) {  // só as duas faixas pintadas; o resto deixa o clique passar para a barra do app (abas, arrastar)
-            float S = (AppTop(in->owner) - r.top) / sc;  // faixa de título nossa: os botões; o resto arrasta (barra da janela)
-            if (p.x / sc < PATCH_L && (in->topStrip ? p.y / sc < S : true)) return HTCLIENT;
-            if (p.x / sc > (r.right - r.left) / sc - PatchR(in) && (!in->topStrip || p.y / sc >= S)) return HTCLIENT;
+            if (p.x / sc < PATCH_L) return HTCLIENT;
+            if (p.x / sc > (r.right - r.left) / sc - PatchR(in)) return HTCLIENT;
             return HTTRANSPARENT;
         }
         if (p.x / sc < (UnifiedBar(in->owner) > 40 ? 84 : 72) + WinAppInset(in)) return HTCLIENT;
@@ -1184,7 +1165,6 @@ void SampleCaption(Info* in) {
 void SampleBar(Info* in) {
     if (IsIconic(in->owner) || !IsWindowVisible(in->owner) || in->transit) return;
     RECT f = FrameRect(in->owner);
-    f.top = std::max<LONG>(f.top, AppTop(in->owner));  // a barra do app (abaixo da faixa de título nossa)
     float sc = Scale(in->owner);
     // Inativa também: o Chrome clareia a barra ao perder o foco e a faixa ficava na cor de ativa. Só lê se os pontos
     // lidos estão à mostra (nenhuma outra janela por cima deles).
@@ -1241,8 +1221,7 @@ void SampleBar(Info* in) {
     if (L == in->leftColor && R == in->rightColor && barH == in->barH) return;
     if (barH != in->barH) in->layoutAt = 0;  // outra altura de barra: mede de novo onde ficam os botões
     in->leftColor = L; in->rightColor = R; in->barH = barH;
-    COLORREF D = in->topStrip ? R : L;  // o fundo de onde estão os botões do Mac (a faixa de título tem a cor da direita)
-    in->dark = (GetRValue(D) * 299 + GetGValue(D) * 587 + GetBValue(D) * 114) / 1000 < 128;
+    in->dark = (GetRValue(L) * 299 + GetGValue(L) * 587 + GetBValue(L) * 114) / 1000 < 128;  // o fundo dos botões do Mac
     PlaceOverlay(in);
 }
 
@@ -1250,8 +1229,7 @@ void SampleBar(Info* in) {
 // decidir: (1) o canto esquerdo, onde iriam os botões do Mac, está vazio (só a cor da barra)? (2) qual a largura dos
 // três botões do app à direita (Chrome/Edge/Claude 46 pt cada, Discord ~36 pt)? A faixa da direita cobria 144 pt fixos
 // e escondia o "?" do Discord e o "Compartilhar" do Claude; a da esquerda escondia os grupos de abas do Chrome.
-static int g_ultimoLado = -1;    // a última medição neste processo (a próxima janela do Chrome já nasce com ela)
-static float g_ultimoPatch = 0;
+static float g_ultimoPatch = 0;  // a última medida neste processo (a próxima janela do Chrome já nasce com ela)
 void MedirBarra(Info* in) {
     HWND h = in->owner;
     if (!IsWindowVisible(h) || IsIconic(h) || Fullscreen(h) || in->moving || in->transit) return;
@@ -1259,7 +1237,7 @@ void MedirBarra(Info* in) {
     RECT f = FrameRect(h);
     float sc = Scale(h);
     int bh = in->barH ? in->barH : (int)(32 * sc);
-    int W = wr.right - wr.left, H = ((int)std::max<LONG>(f.top, AppTop(h)) - wr.top) + bh;
+    int W = wr.right - wr.left, H = (f.top - wr.top) + bh;
     if (W < 200 || W > 16384 || H < 16 || H > 1024) return;
     HDC mdc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
@@ -1273,7 +1251,7 @@ void MedirBarra(Info* in) {
     auto dist = [](UINT32 a, UINT32 b) {
         return std::abs((int)(a & 255) - (int)(b & 255)) + std::abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + std::abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255));
     };
-    int x0 = std::max(0, (int)(f.left - wr.left)), x1 = std::min(W, (int)(f.right - wr.left)), y0 = (int)std::max<LONG>(f.top, AppTop(h)) - wr.top;
+    int x0 = std::max(0, (int)(f.left - wr.left)), x1 = std::min(W, (int)(f.right - wr.left)), y0 = f.top - wr.top;
     int ya = y0 + (int)(3 * sc), yb = std::min(H, y0 + bh - (int)(3 * sc));
     bool done = false;
     if (ok && yb > ya && x1 - x0 > 200) {
@@ -1292,11 +1270,7 @@ void MedirBarra(Info* in) {
         for (int y = ya; y < yb && !drawn; y += 2) for (int x = x0; x < x1 && !drawn; x += 3) drawn = at(x, y) != 0;
         if (drawn) {
             done = true;
-            // (1) canto esquerdo, onde ficam os botões do Mac: alguns pixels soltos ainda contam como vazio
-            int busy = 0, lw = std::min(x1 - x0, (int)(PATCH_L * sc));
-            for (int y = ya; y < yb; y++) for (int x = x0 + 1; x < x0 + lw; x++) if (dist(at(x, y), bg) > 40) busy++;
-            bool right = busy > 3;
-            // (2) os três botões do app: os três grupos de colunas com desenho mais à direita (×, □ e —), com o mesmo
+            // os três botões do app: os três grupos de colunas com desenho mais à direita (×, □ e —), com o mesmo
             // passo entre eles; a faixa vai até meio passo antes do centro do "—"
             std::vector<std::pair<int, int>> gr;  // [começo, fim] de cada grupo, da direita para a esquerda
             bool ink = false; int end = 0;
@@ -1313,18 +1287,7 @@ void MedirBarra(Info* in) {
                 float p1 = c0 - c1, p2 = c1 - c2;
                 if (std::fabs(p1 - p2) <= 4 * sc && p1 >= 24 * sc && p1 <= 64 * sc) pr = ((x1 - c2) + p1 / 2) / sc + 2;
             }
-            right = right || in->topStrip;  // ligada fica ligada: a janela não pula de altura a cada grupo de abas
-            bool changed = right != in->topStrip || (pr > 0 && std::fabs(pr - in->patchR) >= 1);
-            bool strip = right && !in->topStrip;
-            in->topStrip = right;
-            if (strip) SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);  // a área do app desce
-            if (pr > 0) in->patchR = pr;
-            g_ultimoLado = right ? 1 : 0; g_ultimoPatch = in->patchR;
-            if (changed) {
-                COLORREF D = right ? in->rightColor : in->leftColor;
-                in->dark = (GetRValue(D) * 299 + GetGValue(D) * 587 + GetBValue(D) * 114) / 1000 < 128;
-                PlaceOverlay(in);
-            }
+            if (pr > 0 && std::fabs(pr - in->patchR) >= 1) { in->patchR = pr; g_ultimoPatch = pr; PlaceOverlay(in); }
         }
     }
     SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
@@ -1376,46 +1339,6 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         LRESULT r = DefSubclassProc(h, m, w, l);
         LONG want = wtop + (LONG)std::lround(22 * GetDpiForWindow(h) / 96.f);
         if (p->rgrc[0].top > want) p->rgrc[0].top = want;
-        return r;
-    }
-    // Barra própria com a faixa de título do Mac: a área do app começa StripPx mais abaixo (o app inteiro desce; nada
-    // fica escondido atrás dos botões). Só com a moldura de janela (WS_THICKFRAME): em tela cheia (F11, vídeo) o
-    // Chromium tira a moldura e a faixa some sozinha.
-    if (m == WM_NCCALCSIZE && w && in->custom && in->topStrip && (GetWindowLongW(h, GWL_STYLE) & WS_THICKFRAME) && !IsIconic(h)) {
-        auto* p = (NCCALCSIZE_PARAMS*)l;
-        LRESULT r = DefSubclassProc(h, m, w, l);
-        p->rgrc[0].top += StripPx(h);
-        if (p->rgrc[0].bottom < p->rgrc[0].top) p->rgrc[0].bottom = p->rgrc[0].top;
-        return r;
-    }
-    if (m == WM_NCHITTEST && in->custom && in->topStrip) {  // a faixa: arrasta a janela; a beirada de cima redimensiona
-        LRESULT r = DefSubclassProc(h, m, w, l);
-        POINT pt{ (short)LOWORD(l), (short)HIWORD(l) };
-        RECT f = FrameRect(h);
-        int top = AppTop(h);
-        if (pt.y >= top || pt.y < f.top - 8 || pt.x < f.left - 8 || pt.x >= f.right + 8) return r;
-        if (IsZoomed(h)) return HTCAPTION;
-        int e = (int)(5 * Scale(h)), c = (int)(16 * Scale(h));
-        if (pt.y < f.top + e) return pt.x < f.left + c ? HTTOPLEFT : pt.x >= f.right - c ? HTTOPRIGHT : HTTOP;
-        if (pt.x < f.left + e) return HTLEFT;
-        if (pt.x >= f.right - e) return HTRIGHT;
-        return HTCAPTION;
-    }
-    if (m == WM_NCLBUTTONDBLCLK && w == HTCAPTION && in->custom && in->topStrip && (short)HIWORD(l) < AppTop(h) && (in->style & WS_MAXIMIZEBOX)) {
-        ShowWindow(h, IsZoomed(h) ? SW_RESTORE : SW_MAXIMIZE);  // duplo clique na faixa: maximiza, como na barra do app
-        return 0;
-    }
-    if (m == WM_NCPAINT && in->custom && in->topStrip) {  // a faixa fica na cor da barra mesmo antes de a nossa camada chegar
-        LRESULT r = DefSubclassProc(h, m, w, l);
-        if (HDC dc = GetWindowDC(h)) {
-            RECT wr; GetWindowRect(h, &wr);
-            RECT f = FrameRect(h);
-            RECT s{ f.left - wr.left, f.top - wr.top, f.right - wr.left, AppTop(h) - wr.top };
-            HBRUSH b = CreateSolidBrush(in->rightColor);
-            FillRect(dc, &s, b);
-            DeleteObject(b);
-            ReleaseDC(h, dc);
-        }
         return r;
     }
     static UINT msgShow = RegisterWindowMessageW(L"MacJanelaMostrar");  // o Shell terminou a animação do ampliar
@@ -1697,8 +1620,7 @@ void Attach(HWND h, int mode) {
     } else {
         in->dark = Dark();  // barra própria: os botões do Mac e a faixa por cima dos botões do app (BarRect/Paint)
         SetPropW(h, L"MacJanelaPropria", (HANDLE)1);
-        if (g_ultimoLado >= 0) { in->topStrip = g_ultimoLado == 1; in->patchR = g_ultimoPatch; }
-        if (in->topStrip) SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);  // a área do app desce
+        in->patchR = g_ultimoPatch;
     }
     in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
     if (in->overlay) { SetWindowLongPtrW(in->overlay, GWLP_USERDATA, (LONG_PTR)in); in->fastUntil = GetTickCount() + 900; SetTimer(in->overlay, 1, 16, nullptr); }
@@ -1748,11 +1670,9 @@ void Detach(HWND h, Info* in) {
         DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &on, sizeof(on));
     }
     if (in->custom) {
-        bool strip = in->topStrip;
         RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaPropria");
         RemoveWindowSubclass(h, OwnerProc, SUBCLASS_ID);
         delete in;
-        if (strip) SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);  // o app volta ao topo
         return;
     }
     COLORREF defc = 0xFFFFFFFF;
