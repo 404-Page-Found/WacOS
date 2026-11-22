@@ -1243,3 +1243,11 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Teste no Electron descartável com cliques mandados à faixa sobre o minimizar e o fechar, normal e maximizada: antes, o clique sobre o minimizar tirou a janela maximizada do maximizado; depois, duas rodadas sem mudança nenhuma.
   NÃO conferido: arrastar e duplo clique com o mouse de verdade (sem SendInput no PC).
   DESFAZER: reverter o commit.
+
+[2026-11-22 20:40, hora do PC] Travadas: medidas, duas causas nossas corrigidas, barra própria experimental (commit 4a9001b).
+  - Medido em 10 min (caca.exe): fila do disco C: até 214; 26 paradas de 300 ms ou mais (Claude 19, total 36 s, pior 6,8 s, pilhas no sistema de arquivos e sem código nosso; Monitor de Atividade 5; Shell 1; Overlay NVIDIA 1). O C: gravou 6,1 GB em 4 min (média 25 MB/s, pico 132 MB/s); pastas mais gravadas: log da NVIDIA (ProgramData/NVIDIA Corporation/nvtopps), Chrome, Malwarebytes, a nossa compilação. C: com 59,6 GB livres de 954 (6%).
+  - src/comum/simbolos.h + src/shell/main.cpp: a parada do Shell (1,7 s) era simbolo::Load -> fread na thread da interface (Spotlight). Os SF Symbols são lidos todos numa thread ao abrir o Shell (Preload); desenhar não lê mais o disco.
+  - src/shell/indice.cpp: cada reinício do Shell mais de 15 min depois da última gravação do índice varria os ~940 mil itens de todos os discos (3,6 min). Marca indice.db.vivo (vigia a cada 60 s + última varredura completa): com o vigia vivo há menos de 15 min e varredura completa há menos de 24 h, o reinício não varre. Conferido: "sem a varredura completa" no reinício das 20:32.
+  - Barra própria experimental (pedido do usuário): desligada por padrão (barra_mac_propria=1 liga), "Experimental." na descrição dos Ajustes nos 11 idiomas. Neste PC ficou ligada (barra_mac_propria=1 enviado ao Shell).
+  - Barra própria: altura pelos botões do app só quando a cor não acha o fim da barra (Chrome voltou a 39-40 px, botões cobertos de 0 a 38); a cor não é lida nos 700 ms depois de mudar de tamanho.
+  DESFAZER: reverter o commit.
