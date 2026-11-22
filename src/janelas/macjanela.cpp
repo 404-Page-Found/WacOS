@@ -156,7 +156,8 @@ struct Info {
     // a última imagem da barra e da moldura (pré-multiplicadas): entram na foto da janela que o Window Wobble (mod do
     // Windhawk) tira com PrintWindow, onde as nossas janelas por cima não aparecem (issue #26)
     std::vector<UINT32> fotoBarra, fotoMoldura;
-    DWORD wobAte = 0;            // Wobbly Windows: a janela ainda balança depois de soltar; sombra e moldura esperam
+    DWORD wobAte = 0;
+    bool barraNoNC = false;      // Wobbly Windows: a barra vai desenhada na moldura da própria janela (balança junto)            // Wobbly Windows: a janela ainda balança depois de soltar; sombra e moldura esperam
     SIZE fotoBarraSz{}, fotoMolduraSz{};
 };
 
@@ -942,6 +943,24 @@ void PaintNC(Info* in) {
     RECT all{ 0, 0, wr.right - wr.left, wr.bottom - wr.top };
     FillRect(dc, &all, b);
     DeleteObject(b);
+    // Wobbly Windows: a faixa (janela nossa por cima) não deforma com a janela e ia na frente dela, "desfixada". No
+    // arraste a imagem da barra vai para a moldura da própria janela, que o compositor deforma junto.
+    if (in->barraNoNC && in->fotoBarraSz.cx > 0 && in->fotoBarra.size() == (size_t)in->fotoBarraSz.cx * in->fotoBarraSz.cy) {
+        RECT br = BarRect(in);
+        HDC mem = CreateCompatibleDC(dc);
+        BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), in->fotoBarraSz.cx, -in->fotoBarraSz.cy, 1, 32, BI_RGB };
+        void* bits = nullptr;
+        HBITMAP bmp = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (bmp && bits) {
+            memcpy(bits, in->fotoBarra.data(), in->fotoBarra.size() * 4);
+            HGDIOBJ old = SelectObject(mem, bmp);
+            BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+            GdiAlphaBlend(dc, br.left - wr.left, br.top - wr.top, in->fotoBarraSz.cx, in->fotoBarraSz.cy, mem, 0, 0, in->fotoBarraSz.cx, in->fotoBarraSz.cy, bf);
+            SelectObject(mem, old);
+        }
+        if (bmp) DeleteObject(bmp);
+        DeleteDC(mem);
+    }
     ReleaseDC(h, dc);
 }
 
@@ -1684,7 +1703,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
-        if (w == 21) { KillTimer(h, 21); if (in) { in->wobAte = 0; UpdateShadow(in); } return 0; }  // Wobbly Windows: a janela assentou
+        if (w == 21) { KillTimer(h, 21); if (in) { in->wobAte = 0; in->barraNoNC = false; PaintNC(in); PlaceOverlay(in); UpdateShadow(in); } return 0; }  // Wobbly Windows: a janela assentou
         if (w == 9) {  // o menu do ˅: levar para baixo do ˅ da direita (até 40 tentativas de 40 ms)
             int n = (int)(INT_PTR)GetPropW(h, L"MacSetaMenu") + 1;
             SetPropW(h, L"MacSetaMenu", (HANDLE)(INT_PTR)n);
@@ -1836,6 +1855,7 @@ void KeepAbove(Info* in) {
 
 void PlaceOverlay(Info* in) {
     if (!in->overlay || in->transit) return;
+    if (in->barraNoNC) { ShowWindow(in->overlay, SW_HIDE); return; }  // Wobbly Windows: a barra está na moldura até assentar
     if (GetPropW(in->owner, L"MacJanelaPintando")) return;  // aparecendo: a barra espera a janela pintar
     bool show = !(in->custom && in->recusa) && IsWindowVisible(in->owner) && !IsIconic(in->owner) && !Fullscreen(in->owner) && !controles::IsAlert(in->owner) && !TakenByShell(in->owner);
     if (!show) { ShowWindow(in->overlay, SW_HIDE); if (in->minis) ShowWindow(in->minis, SW_HIDE); return; }
@@ -2570,7 +2590,11 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_ENTERSIZEMOVE:
         in->moving = true;
         GetWindowRect(h, &in->moveStart);
-        if (WobblyAtivo()) { if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); }
+        if (WobblyAtivo()) {
+            if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE);
+            HideCorners(in);
+            if (!in->custom && in->overlay && !in->fotoBarra.empty()) { in->barraNoNC = true; ShowWindow(in->overlay, SW_HIDE); PaintNC(in); }
+        }
         else if (in->custom || !PintaBarraNaFaixa(h)) HideCorners(in);  // a moldura atrasaria um quadro atrás da janela (a "linha" que a seguia); volta no fim
         PatchWobble();
         break;
@@ -2604,7 +2628,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         if (!moved) in->tiled = false;  // redimensionou: deixa de estar encaixada
         if (moved) { in->lastStart = in->moveStart; in->lastStartAt = GetTickCount(); }  // o Shell pode encaixar logo depois (MacJanelaEncaixar)
         if (in->custom && in->overlay) { PlaceOverlay(in); in->fastUntil = GetTickCount() + 500; SetTimer(in->overlay, 1, 33, nullptr); }  // pinta de novo no lugar final
-        if (WobblyAtivo() && in->overlay) { in->wobAte = GetTickCount() + 900; SetTimer(in->overlay, 21, 950, nullptr); }  // ainda balança: volta depois
+        if ((WobblyAtivo() || in->barraNoNC) && in->overlay) { in->wobAte = GetTickCount() + 900; SetTimer(in->overlay, 21, 950, nullptr); }  // ainda balança: volta depois
         UpdateShadow(in);
         break;
     }

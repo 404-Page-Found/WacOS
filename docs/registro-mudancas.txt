@@ -1139,3 +1139,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 
 [2026-11-22 15:30] Wobbly Windows (mod do Windhawk dentro do dwm.exe; o usuário: "o bugado é o Wobbly Windows, o Window Wobble está normal"): a janela deforma no compositor e a sombra e a moldura (janelas nossas) ficavam paradas e retas, soltas dela. WobblyAtivo() (HKLM\SOFTWARE\Windhawk\Engine\Mods\wobbly-windows, Disabled = 0; lido a cada 3 s): no arraste a sombra e a moldura somem e voltam ~0,9 s depois de soltar (timer 21 da faixa), quando a janela assenta. A barra com as bolinhas fica. Não testado com arraste de verdade.
   DESFAZER: reverter o commit.
+
+[2026-11-22 15:45] Wobbly Windows, parte 2 (o usuário: "a nossa barra está indo antes e se desfixando do resto da janela"): a faixa com as bolinhas é uma janela nossa por cima e segue a posição real, enquanto o compositor atrasa a imagem da janela no balanço. No arraste (com o mod ligado) a imagem da barra (Info.fotoBarra) vai para a moldura da própria janela (PaintNC, barraNoNC) e a faixa some; volta quando a janela assenta. No GTK a moldura não aparece (é o caso do #26), então lá a barra fica sem as bolinhas durante o arraste.
+  Obs.: o usuário viu "algo crashando e travando o tempo todo": eram as reinstalações da DLL (o inst-so reinicia o Shell a cada vez; numa delas o Shell levou 13 s no vidro do menu e o vigia o reabriu) e o GIMP fechado e reaberto nos testes. Nenhum app caiu no log do Windows (só um AppHangTransient do WacOSShell nesse reinício).
+  DESFAZER: reverter o commit.
