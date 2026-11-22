@@ -1204,3 +1204,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src\menu\context_menu.*, src\shell\menubar.cpp: a lista » mostra o ícone de cada app.
   Conferido instalado: cinco buscas fotografadas; Device Manager, Adicionar ou remover programas e uma tarefa do Painel de Controle abrem; 13 ícones na lista da bandeja; ícone das tarefas.
   DESFAZER: reverter o commit.
+
+[2026-11-22 17:32, hora do PC] Barra própria (Electron/Chromium): cor da faixa, cantos e engasgo ao mover.
+  - Cor: a amostra de 200 pt caía no painel ao lado (Claude 25 em vez de 31); agora 24 pt, e os ícones copiados tiram o fundo do próprio recorte. Conferido: 31 em tudo, sem caixas.
+  - Cantos: as capas que imitavam o canto do Finder saíram (escolha do usuário: 8 px do Windows sem recorte). Teste num Electron descartável, sete fases (parado, cor de trás mudando, foco, arraste, soltar): 0 pixels com cor velha.
+  - Engasgo: as capas liam a tela 4 vezes (~23 ms) na thread do app a cada passo. Releitura da cor 33 -> 100 ms, foto da faixa 120 -> 250 ms. Medido no Electron de teste, antes -> depois (sem a barra): mover 22,2 -> 0,8 ms (0,4); redimensionar 54,4 -> 9,0 (1,3); pior troca de foco 98,8 -> 24,2 (1,8).
+  DESFAZER: reverter o commit.

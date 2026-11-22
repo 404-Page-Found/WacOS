@@ -57,6 +57,9 @@ UINT g_msgTile;  // "MacJanelaEncaixar": reaplica o encaixe logo depois do fim d
 // o "desfazer" do Shell (ao sair) não vale aqui
 bool g_proprio = false;
 UINT g_msgUndo, g_msgZoom;  // Zoom: "MacJanelaAmpliar" (o Shell manda no Win+↑/↓; a DLL usa para converter o maximizar)
+// Barra própria: ler a tela custa ~5,5 ms e a foto do app até ~30 ms, na thread da janela DELE. Com 33 e 120 ms
+// trocar o foco e passar o mouse na faixa engasgavam o Electron (medido em 22/11/2026). Não baixar sem medir.
+const UINT RELE_COR_MS = 100, REFOTO_MS = 250;
 ID2D1Factory* g_d2d;
 IDWriteFactory* g_dw;
 IDWriteTextFormat* g_tf;
@@ -89,7 +92,7 @@ struct Info {
     // Barra própria: os botões do Mac à esquerda, na própria linha do app (como o Chrome do Mac, sem barra a mais),
     // e por cima dos botões do app uma faixa da largura medida deles (MedirBarra)
     float patchR = 0;            // largura dos botões do app (pt); 0 = ainda não medida (PATCH_R)
-    bool capas = false;          // capas dos cantos à mostra (CapasCantos): os cantos do Finder por cima dos 8 px do DWM
+    bool capas = false;          // sempre false desde 22/11/2026: as capas dos cantos do Finder saíram (ver UpdateShadow)
     // Apps sem o gancho (Discord, Claude, VS Code: a barra é a página do app): o grupo de ícones do começo da linha, que
     // os botões do Mac cobririam (as setas do Discord), aparece logo depois deles, como no Mac (MedirBarra/Paint); os
     // cliques nele vão para o lugar de verdade. Posições em px a partir da borda esquerda visível (FrameRect).
@@ -627,7 +630,7 @@ void Paint(Info* in) {
                 ID2D1GeometrySink* sk = nullptr;
                 g->Open(&sk);
                 // maximizada: canto reto (o arco deixava ver um pedaço do app); com as capas, o raio do Finder
-                float R = IsZoomed(in->owner) ? 0.f : in->capas ? CornerRadius(in->owner) / sc : 8.f;
+                float R = IsZoomed(in->owner) ? 0.f : in->capas ? CornerRadius(in->owner) / sc : leopard::On() ? 4.f : 8.f;
                 bool sq = in->capas && R > 0;  // com as capas, o canto contínuo (o mesmo das capas); sem elas, o círculo do DWM
                 float E = sq ? SqExt(R, 1e6f, H) : R;
                 if (leftCorner) {
@@ -1142,144 +1145,15 @@ void UpdateCorners(Info* in, RECT vis) {
 // nosso aparece em volta dela (título, botões, sombra e cantos piscavam no canto da tela)
 bool TakenByShell(HWND h) { return GetPropW(h, L"ShellDialogoPorFora") != nullptr; }
 
-// ---- Cantos do Finder nos apps de barra própria (Chrome, Discord, Electron)
-// O DWM arredonda essas janelas em 8 px e não deixa mais; o recorte não corta o que o Chromium desenha pela GPU. Então,
-// em vez de cortar, a DLL COBRE a sobra entre o arco de 8 px e o canto contínuo com a cor da tela logo em volta da
-// janela (1 px por fora: a linha de cima/baixo e a coluna do lado, misturadas pela distância), e por cima o fio da
-// borda no canto contínuo. A sobra tem no máximo uns 3 px de espessura: a cor de fora (papel de parede, sombras, outra
-// janela) emenda sem costura. Antes era uma foto da janela de trás (PrintWindow), que vinha PRETA quando ela estava
-// tapada (o Chrome não desenha o que não aparece): sobrava uma cunha preta em cada canto (21/11/2026).
-// Refeita quando a janela muda de lugar/tamanho e a cada 10 s; arrastando, as capas somem (8 px) e voltam ao soltar.
-void CapasCantos(Info* in, RECT vis) {
-    HWND h = in->owner;
-    // (era só no Chrome de teste; desde a build-25 a barra própria inteira só liga com barra_mac_propria=1)
-    // A forma é a parte visível que o DWM desenha: o fio da borda dele fica 1 px por fora da área do app (dos lados e
-    // embaixo). Rente à área do app, o arco de 8 px do DWM sobrava 1 px por fora da capa (o risquinho no cantinho) e o
-    // fio do arco grande ficava 1 px para dentro do fio reto. Vale o retângulo do DWM quando ele difere da área do
-    // app só nesse fio (com o quadro desligado ele vinha com a borda invisível de 11 px: aí fica a área do app).
-    {
-        RECT e;
-        if (SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &e, sizeof(e))) && std::abs(e.left - vis.left) <= 2 &&
-            std::abs(e.top - vis.top) <= 2 && std::abs(e.right - vis.right) <= 2 && std::abs(e.bottom - vis.bottom) <= 2)
-            vis = e;
-    }
-    float sc = Scale(h);
-    int r = CornerRadius(h), r0 = (int)std::lround((leopard::On() ? 4 : 8) * sc);  // o nosso raio / o do DWM
-    if (in->moving || in->transit || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h) || r <= r0 + 1 || TakenByShell(h)) {
-        HideCorners(in);
-        return;
-    }
-    // nada mudou de lugar e a foto é recente: as capas ficam como estão
-    if (in->capas && EqualRect(&vis, &in->capasVis) && GetTickCount() - in->capasAt < 10000) return;
-    int S = (int)std::ceil(SqExt((float)r, (vis.right - vis.left) / 2.f, (vis.bottom - vis.top) / 2.f)) + 2;  // canto contínuo: a curva começa mais longe
-    const int M = 1;  // margem para o contorno de fora
-    int W = vis.right - vis.left + 2 * M, H = vis.bottom - vis.top + 2 * M;
-    if (W <= 2 * S || H <= 2 * S || W > 16384 || H > 16384) { HideCorners(in); return; }
-    HWND& fw = in->corner[0];
-    if (fw && !IsWindow(fw)) fw = nullptr;
-    if (!fw) {
-        WNDCLASSW wc{};
-        if (!GetClassInfoW(g_mod, L"MacJanelaCanto", &wc)) {
-            wc.lpfnWndProc = CornerProc; wc.hInstance = g_mod; wc.lpszClassName = L"MacJanelaCanto";
-            RegisterClassW(&wc);
-        }
-        fw = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaCanto", L"",
-                             WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
-        if (!fw) return;
-        SetWindowLongPtrW(fw, GWLP_USERDATA, (LONG_PTR)h);
-        SetPropW(h, L"MacJanelaMoldura", fw);
-        SetTimer(fw, 1, 500, nullptr);
-    }
-    // a tela em volta de cada canto (com 1 px a mais por fora da janela): de onde sai a cor da sobra
-    std::vector<UINT32> tela[4];
-    RECT box[4];
-    bool have[4]{};
-    HDC sdc = GetDC(nullptr);
-    for (int i = 0; i < 4; i++) {
-        bool right = i & 1, bottom = (i & 2) != 0;
-        int x0 = right ? vis.right - S : vis.left, y0 = bottom ? vis.bottom - S : vis.top;
-        box[i] = { x0 - 1, y0 - 1, x0 + S + 1, y0 + S + 1 };
-        int bw = box[i].right - box[i].left, bh = box[i].bottom - box[i].top;
-        tela[i].assign((size_t)bw * bh, 0);
-        HDC m2 = CreateCompatibleDC(sdc);
-        BITMAPINFO b2{}; b2.bmiHeader = { sizeof(BITMAPINFOHEADER), bw, -bh, 1, 32, BI_RGB };
-        void* tb = nullptr;
-        HBITMAP tbm = CreateDIBSection(m2, &b2, DIB_RGB_COLORS, &tb, nullptr, 0);
-        if (tbm) {
-            HGDIOBJ o2 = SelectObject(m2, tbm);
-            if (BitBlt(m2, 0, 0, bw, bh, sdc, box[i].left, box[i].top, SRCCOPY)) { memcpy(tela[i].data(), tb, tela[i].size() * 4); have[i] = true; }
-            SelectObject(m2, o2); DeleteObject(tbm);
-        }
-        DeleteDC(m2);
-    }
-    ReleaseDC(nullptr, sdc);
-    if (!have[0] && !have[1] && !have[2] && !have[3]) { HideCorners(in); return; }
-    HDC mem = CreateCompatibleDC(nullptr);
-    BITMAPINFO bi{};
-    bi.bmiHeader = { sizeof(BITMAPINFOHEADER), W, -H, 1, 32, BI_RGB };
-    void* bits = nullptr;
-    HBITMAP bmp = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);  // zerado (transparente)
-    if (!bmp) { DeleteDC(mem); return; }
-    auto* px = (UINT32*)bits;
-    // o fio da borda: o mesmo que o DWM desenha nos lados (CantoLeve), 1 px por dentro; o arco continua a borda reta
-    int fundo = (int)(INT_PTR)GetPropW(h, L"MacJanelaFundo");
-    bool dk = fundo ? fundo == 2 : Dark();
-    float bR = (dk ? 0x4A : 0xC2) / 255.f, bG = (dk ? 0x4A : 0xC2) / 255.f, bB = (dk ? 0x4D : 0xC5) / 255.f;
-    float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
-    auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };
-    auto sdf = [&](float x, float y, float rad) {  // o arco de círculo de 8 px do DWM (o que as capas cobrem)
-        float qx = std::fabs(x - cxm) - (hw - rad), qy = std::fabs(y - cym) - (hh - rad);
-        return std::hypot(std::max(qx, 0.f), std::max(qy, 0.f)) + std::min(std::max(qx, qy), 0.f) - rad;
-    };
-    for (int i = 0; i < 4; i++) {
-        if (!have[i]) continue;
-        bool right = i & 1, bottom = (i & 2) != 0;
-        int bw = box[i].right - box[i].left, bh = box[i].bottom - box[i].top;
-        // a linha de fora (em cima ou embaixo) e a coluna de fora (do lado do canto), 1 px fora da janela
-        int ry = bottom ? bh - 1 : 0, rx = right ? bw - 1 : 0;
-        auto tel = [&](int x, int y) { return tela[i][(size_t)y * bw + x] & 0xFFFFFF; };
-        for (int y = 0; y < bh; y++)
-            for (int x = 0; x < bw; x++) {
-                int sx = box[i].left + x, sy = box[i].top + y;          // tela
-                int lx = sx - vis.left + M, ly = sy - vis.top + M;       // na capa
-                float fx = lx + 0.5f, fy = ly + 0.5f;
-                float d = SqSdf(fx - cxm, fy - cym, hw, hh, (float)r), d8 = sdf(fx, fy, (float)r0);  // o nosso (contínuo) / o do DWM
-                // o pedaço do app que o canto do Mac esconde; o arco do DWM com 1 px de folga para fora (o pixel da borda,
-                // meio coberto, deixava ver um resto do fio do DWM: uma coluna 1 px mais clara junto da quina)
-                float A = std::clamp(cov(d8 - 1) - cov(d), 0.f, 1.f);
-                float R = 0, G = 0, B = 0, Aa = 0;  // pré-multiplicado
-                auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); Aa = a + Aa * (1 - a); };
-                if (A > 0) {  // a cor de fora mais perto: a da linha pesa mais perto dela, a da coluna perto da coluna
-                    UINT32 cr = tel(x, ry), cc = tel(rx, y);
-                    float dx = (float)std::abs(x - rx), dy = (float)std::abs(y - ry), wr = dx / std::max(dx + dy, 1.f), wc = 1 - wr;
-                    auto ch = [&](int sh) { return (((cr >> sh) & 255) * wr + ((cc >> sh) & 255) * wc) / 255.f; };
-                    over(ch(16), ch(8), ch(0), A);
-                }
-                over(bR, bG, bB, std::clamp(cov(d) - cov(d + 1), 0.f, 1.f));  // o fio da borda no arco grande
-                if (Aa <= 0) continue;
-                if (lx < 0 || ly < 0 || lx >= W || ly >= H) continue;
-                px[(size_t)ly * W + lx] = (UINT32)std::lround(Aa * 255) << 24 | (UINT32)std::lround(R * 255) << 16 | (UINT32)std::lround(G * 255) << 8 | (UINT32)std::lround(B * 255);
-            }
-    }
-    HGDIOBJ old = SelectObject(mem, bmp);
-    POINT pos{ vis.left - M, vis.top - M }, zero{ 0, 0 };
-    SIZE size{ W, H };
-    BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
-    UpdateLayeredWindow(fw, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA);
-    SelectObject(mem, old); DeleteObject(bmp); DeleteDC(mem);
-    memset(in->cornerKey, 0, sizeof(in->cornerKey));  // a moldura das janelas recortadas refaz do zero se voltar a ser usada
-    bool was = in->capas;
-    in->capas = true; in->capasVis = vis; in->capasAt = GetTickCount() | 1;
-    if (!IsWindowVisible(fw)) { ShowWindow(fw, SW_SHOWNOACTIVATE); KeepAbove(in); }
-    if (!was) Paint(in);  // a faixa dos botões passa a ter o arco do Finder
-}
-
+// Apps de barra própria (Chromium/Electron): o canto é o do DWM (8 px; Leopard 4), sem nada por cima. As capas que
+// imitavam o canto do Finder eram uma cópia da tela: ficavam velhas ao clicar, arrastar ou mudar o que está atrás e
+// sobrava um recorte em cada canto. Tiradas em 22/11/2026, escolha do usuário: não voltar a cobrir esses cantos.
 void UpdateShadow(Info* in) {
     if (in->transit) return;  // ampliando: nada em volta da janela escondida
     if (GetPropW(in->owner, L"MacJanelaPintando")) return;  // aparecendo: a sombra espera a janela pintar
     if (TakenByShell(in->owner)) { if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); return; }
     in->shadow.tahoe = TemaTahoe(); in->shadow.dark = Dark();  // Tahoe: sombra medida no macOS 26
-    if (in->custom) { RECT f = FrameRect(in->owner); in->shadow.Update(in->active, &f); CapasCantos(in, f); return; }  // rente à parte visível
+    if (in->custom) { RECT f = FrameRect(in->owner); in->shadow.Update(in->active, &f); HideCorners(in); return; }  // rente à parte visível
     if (!in->rgn.cx) { in->shadow.Update(in->active); HideCorners(in); return; }
     int l, t, rr, b;
     Insets(in, l, t, rr, b);
@@ -1699,10 +1573,10 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             } else SampleCaption(in);
             UpdateShadow(in);
             // logo depois de aparecer ou ativar: relê a cada quadro até a cor firmar; depois, devagar
-            // barra própria: relê a cor a cada 33 ms por um tempo depois de ativar, desativar ou soltar a janela (a cor de
+            // barra própria: relê a cor a cada RELE_COR_MS por um tempo depois de ativar, desativar ou soltar a janela (a cor de
             // inativa demorava até 4 s para vir, 21/11/2026)
             bool fast = GetTickCount() < in->fastUntil && (in->custom || in->needColor);
-            SetTimer(h, 1, fast ? (in->custom ? 33 : 16) : in->active ? 1500 : 4000, nullptr);
+            SetTimer(h, 1, fast ? (in->custom ? RELE_COR_MS : 16) : in->active ? 1500 : 4000, nullptr);
         }
         return 0;
     case WM_MOUSEMOVE:
@@ -1718,7 +1592,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (alvo != in->sobre) { if (in->sobre && !alvo) SaiDoGrupo(in); in->sobre = alvo; if (in->filho) Paint(in); }
             // o realce do app na cópia. Só liga o relógio se ainda não está correndo: o SetTimer a cada movimento do mouse
             // o reiniciava, e com o mouse andando a foto nunca era refeita
-            if (in->filho && alvo) { in->recapAte = GetTickCount() + 400; if (!in->recapOn) { in->recapOn = true; SetTimer(h, 11, 120, nullptr); } }
+            if (in->filho && alvo) { in->recapAte = GetTickCount() + 400; if (!in->recapOn) { in->recapOn = true; SetTimer(h, 11, REFOTO_MS, nullptr); } }
             bool grupo = alvo != 0;
             // os símbolos (× − +) só em cima dos botões do Mac, como no Mac (antes acendiam em qualquer ponto da faixa)
             bool luzes = !grupo && (!in->custom || p.x / Scale(in->owner) < PatchL(in));
@@ -1952,12 +1826,14 @@ void SampleBar(Info* in) {
     // altura da barra: desce ao lado dos botões enquanto a cor é a mesma
     int barH = h;
     for (int y = y0; y < h; y++) if (!near_(at(xr, y), right) && !near_(at(xr, y + 1), right)) { barH = y; break; }
-    // esquerda: a cor mais comum numa linha do topo, logo depois da faixa dos botões do Mac
+    // esquerda: a cor mais comum numa linha do topo, logo depois da faixa dos botões do Mac. Só 24 pt: eram 200, que
+    // atravessavam a lateral e caíam no painel ao lado (Claude: lateral 31, painel 25, e a faixa saía 25: um retângulo
+    // mais escuro em volta das bolinhas, 22/11/2026)
     std::vector<std::pair<UINT32, int>> count;
     // (depois da faixa da esquerda de verdade: com o grupo movido ela vai até ~260 pt e a leitura caía em cima dela mesma;
     // a cor nunca mudava, nem ao desativar a janela)
     int lx = in->custom ? (int)(PatchLeft(in) * sc) + 4 : (int)(PATCH_L * sc) + 4;
-    for (int x = lx; x < std::min(w, lx + (int)(200 * sc)); x += 2) {
+    for (int x = lx; x < std::min(w, lx + (int)(24 * sc)); x++) {
         UINT32 v = at(x, y0);
         auto it = std::find_if(count.begin(), count.end(), [&](auto& p) { return p.first == v; });
         if (it == count.end()) count.push_back({ v, 1 }); else it->second++;
@@ -2234,7 +2110,17 @@ void MedirBarra(Info* in) {
                         // sem o fundo: a cor da barra vira transparente e a borda suave do ícone é separada dela (alfa pela
                         // distância até o fundo; cor = (pixel - (1 - a) * fundo), pré-multiplicada). Antes a cópia levava o
                         // fundo do app junto e, ao lado da faixa (cor lida da tela), aparecia uma caixa em volta do ícone
-                        int bR = (bg >> 16) & 255, bG = (bg >> 8) & 255, bB = bg & 255;
+                        // o fundo daqui: a cor mais comum na borda do recorte (que tem folga em volta do desenho). O
+                        // fundo da barra inteira é o do painel maior: no Claude os botões vinham com uma caixa em volta
+                        std::vector<std::pair<UINT32, int>> bc;
+                        for (int y = 0; y < chh; y++)
+                            for (int x = 0; x < cw; x += (y == 0 || y == chh - 1) ? 1 : std::max(1, cw - 1)) {
+                                UINT32 v = px[(size_t)std::clamp(sy + y, 0, H - 1) * W + std::clamp(sx + x, 0, W - 1)] & 0xFFFFFF;
+                                auto it = std::find_if(bc.begin(), bc.end(), [&](auto& p) { return p.first == v; });
+                                if (it == bc.end()) bc.push_back({ v, 1 }); else it->second++;
+                            }
+                        const UINT32 bgc = bc.empty() ? bg : std::max_element(bc.begin(), bc.end(), [](auto& a, auto& b) { return a.second < b.second; })->first;
+                        int bR = (bgc >> 16) & 255, bG = (bgc >> 8) & 255, bB = bgc & 255;
                         for (int y = 0; y < chh; y++) for (int x = 0; x < cw; x++) {
                             int X = std::clamp(sx + x, 0, W - 1), Y = std::clamp(sy + y, 0, H - 1);
                             UINT32 v = px[(size_t)Y * W + X] & 0xFFFFFF;
@@ -2608,7 +2494,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         else if (in->custom && in->overlay) { in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 33, nullptr); }  // barra própria: a cor de inativa, logo que o app repintar
         // faixa filha: as cópias do ˅ e do grupo movido refeitas depois de o app repintar na cor nova (ficava um
         // quadradinho com a cor antiga em volta deles)
-        if (in->filho && in->overlay) { in->recapAte = GetTickCount() + 500; if (!in->recapOn) { in->recapOn = true; SetTimer(in->overlay, 11, 120, nullptr); } }
+        if (in->filho && in->overlay) { in->recapAte = GetTickCount() + 500; if (!in->recapOn) { in->recapOn = true; SetTimer(in->overlay, 11, REFOTO_MS, nullptr); } }
         break;
     case WM_SETTEXT: { LRESULT r = DefSubclassProc(h, m, w, l); PaintNC(in); Paint(in); return r; }
     case WM_DPICHANGED: { LRESULT r = DefSubclassProc(h, m, w, l); PlaceOverlay(in); return r; }
