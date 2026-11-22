@@ -403,15 +403,26 @@ bool apps::Refresh() {
         x.id = id;
         x.exe = exeOf[id];
         x.wins = found[id];
-        if (id.rfind(L"aumid:", 0) == 0) {
-            std::wstring aumid = AumidOfWindow(x.wins[0].hwnd);
-            x.launch = L"shell:AppsFolder\\" + aumid;
-            x.name = DisplayNameOf(x.launch);
-            if (x.name.empty()) x.name = ExeName(x.exe);
-        } else {
-            x.launch = ExeOfWindow(x.wins[0].hwnd);
-            x.name = ExeName(x.launch);
+        // o nome bonito (descrição do .exe, nome do pacote) vem de uma thread: o GetFileVersionInfo carrega o .exe do
+        // disco e segurou a interface 8 s neste tique de 1 s (pilha de 22/11/2026 19:59, issue #32). Até chegar, o do arquivo.
+        bool pacote = id.rfind(L"aumid:", 0) == 0;
+        if (pacote) x.launch = L"shell:AppsFolder\\" + AumidOfWindow(x.wins[0].hwnd);
+        else x.launch = ExeOfWindow(x.wins[0].hwnd);
+        {
+            std::wstring arq = OurName(pacote ? x.exe : x.launch);
+            if (arq.empty()) { arq = (pacote ? x.exe : x.launch); arq = arq.substr(arq.find_last_of(L'\\') + 1); if (arq.size() > 4) arq.resize(arq.size() - 4); }
+            x.name = arq;
         }
+        std::thread([id, pacote, launch = x.launch, exe = x.exe, provisorio = x.name] {
+            HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            std::wstring n = pacote ? DisplayNameOf(launch) : ExeName(launch);
+            if (n.empty()) n = ExeName(exe);
+            if (SUCCEEDED(ci)) CoUninitialize();
+            if (n.empty() || n == provisorio) return;
+            shell::NaInterface([id, n, provisorio] {
+                for (auto& a : apps::list) if (a.id == id && a.name == provisorio) { a.name = n; dock::Update(); break; }
+            });
+        }).detach();
         list.push_back(x);
         Log(L"dock: aberto %ls (%ls)", x.name.c_str(), x.id.c_str());
     }
@@ -979,30 +990,46 @@ static bool Heal(App& a) {
     return true;
 }
 
+// Abrir um app mexe com o disco (versão nova do .exe, manifesto do pacote, atalho .lnk, Electron ou não) e com o
+// ativador: tudo numa thread com uma cópia do app (issue #32: na thread da interface cada passo podia esperar o disco).
+static void LaunchNow(App a, const std::wstring& args);
 void apps::Launch(App& a, const std::wstring& args) {
     a.launchedAt = GetTickCount();
-    if (a.pinned && Heal(a)) Save();
+    AllowSetForegroundWindow(ASFW_ANY);  // o app aberto pela thread vem para a frente
+    std::thread([c = a, args] {
+        HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        LaunchNow(c, args);
+        if (SUCCEEDED(ci)) CoUninitialize();
+    }).detach();
+}
+static void LaunchNow(App a, const std::wstring& args) {
+    if (a.pinned) {
+        std::wstring id0 = a.id;
+        if (Heal(a)) shell::NaInterface([id0, id = a.id, exe = a.exe, launch = a.launch] {
+            for (auto& x : apps::list) if (x.id == id0) { x.id = id; x.exe = exe; x.launch = launch; apps::Save(); break; }
+        });
+    }
     for (const std::wstring* c : { &a.launch, &a.exe }) {
         std::wstring aumid = PackagedAumid(*c);
         if (aumid.empty()) continue;
         std::wstring target = L"shell:AppsFolder\\" + aumid;
         // Spotify e outros feitos sobre o Chromium: abertos sem a "oclusão" (senão param de desenhar quando a
         // janela nasce escondida para a animação de abrir e ficam parados)
-        if (LaunchNoOcclusion(target, args, a.exe.empty() ? *c : a.exe) || ActivatePackaged(target, args)) {
+        if (apps::LaunchNoOcclusion(target, args, a.exe.empty() ? *c : a.exe) || apps::ActivatePackaged(target, args)) {
             Log(L"dock: abrindo %ls (pacote %ls)", a.name.c_str(), aumid.c_str());
             return;
         }
     }
     if (shell::OpenCalculator(a.id + L"|" + a.launch + L"|" + a.exe)) return;  // a Calculadora do Windows fixada: abre a nossa
-    if (LaunchNoOcclusion(a.launch, args, a.exe)) return;
+    if (apps::LaunchNoOcclusion(a.launch, args, a.exe)) return;
     std::wstring lower = a.launch + L"|" + a.exe;
     for (auto& ch : lower) ch = towlower(ch);
     if (lower.find(L"immersivecontrolpanel") != std::wstring::npos || lower.find(L"systemsettings.exe") != std::wstring::npos) {
         shell::OpenSettings(L"");  // Ajustes do Windows fixado no Dock: abre o nosso
         return;
     }
-    if (ActivatePackaged(a.launch, args)) { Log(L"dock: abrindo %ls", a.name.c_str()); return; }  // empacotado: sem segurar a interface
-    ShellExecuteW(nullptr, L"open", a.launch.c_str(), args.empty() ? nullptr : args.c_str(), nullptr, SW_SHOWNORMAL);
+    if (apps::ActivatePackaged(a.launch, args)) { Log(L"dock: abrindo %ls", a.name.c_str()); return; }  // empacotado: sem segurar a interface
+    ShellExecuteW(nullptr, L"open", a.launch.c_str(), args.empty() ? nullptr : args.c_str(), nullptr, SW_SHOWNORMAL);  // já numa thread
     Log(L"dock: abrindo %ls", a.name.c_str());
 }
 
@@ -1032,7 +1059,7 @@ void apps::Activate(App& a) {
         std::vector<HWND> back;
         for (auto& w : a.wins) if (IsHidden(w.hwnd)) back.push_back(w.hwnd);
         if (!back.empty()) {
-            for (int i = (int)back.size() - 1; i >= 0; i--) { g_hiddenWins.erase(back[i]); ShowWindow(back[i], SW_SHOWNOACTIVATE); }
+            for (int i = (int)back.size() - 1; i >= 0; i--) { g_hiddenWins.erase(back[i]); ShowWindowAsync(back[i], SW_SHOWNOACTIVATE); }
             ForceForeground(back[0]);
             Log(L"dock: %ls volta (%zu janelas)", a.name.c_str(), back.size());
             return;
@@ -1046,7 +1073,7 @@ void apps::Activate(App& a) {
         return;
     }
     for (int i = (int)a.wins.size() - 1; i >= 0; i--)  // de trás para frente: a ordem entre elas se mantém
-        if (!a.wins[i].minimized) SetWindowPos(a.wins[i].hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        if (!a.wins[i].minimized) SetWindowPos(a.wins[i].hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     for (auto& w : a.wins) if (!w.minimized) { ForceForeground(w.hwnd); break; }
 }
 
@@ -1054,7 +1081,18 @@ void apps::Hide(App& a) {
     DWORD now = GetTickCount();
     std::vector<HWND> hs;
     for (auto& w : a.wins) if (!w.minimized && !IsIconic(w.hwnd)) { g_hiddenWins[w.hwnd] = now; hs.push_back(w.hwnd); }
-    for (HWND h : hs) ShowWindow(h, SW_MINIMIZE);  // somem na hora (a animação do Windows está desligada); a frente passa para o app de trás
+    // assíncrono: o ShowWindow numa janela de outro programa espera a thread dela (app ocupado = Shell parado, issue #32)
+    for (HWND h : hs) ShowWindowAsync(h, SW_MINIMIZE);  // somem na hora (a animação do Windows está desligada)
+    // a frente passa para a janela de cima de outro app, como no Mac. Minimizada por fora, a janela continuava sendo a
+    // "da frente" para o Windows (medido: minimizada e ainda em primeiro plano), com o teclado num app que sumiu.
+    struct Ctx { const std::vector<HWND>* hs; HWND next; } cx{ &hs, nullptr };
+    EnumWindows([](HWND h, LPARAM l) -> BOOL {
+        auto* c = (Ctx*)l;
+        if (std::find(c->hs->begin(), c->hs->end(), h) != c->hs->end() || IsIconic(h) || !IsTaskbarWindow(h)) return TRUE;
+        c->next = h;
+        return FALSE;
+    }, (LPARAM)&cx);
+    if (cx.next) SetForegroundWindow(cx.next);
     Log(L"dock: %ls oculto (%zu janelas)", a.name.c_str(), hs.size());
 }
 // Encerrar = como o "Finalizar tarefa": mata os processos das janelas do app na hora, sem perguntar.
@@ -1188,5 +1226,5 @@ void apps::ShowInFinder(const App& a) {
         std::wstring aumid; ReadLink(a.launch, target, aumid);
     }
     if (target.empty()) target = a.launch;
-    ShellExecuteW(nullptr, L"open", g_finderExe.c_str(), (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", g_finderExe.c_str(), (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
 }

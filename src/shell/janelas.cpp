@@ -17,6 +17,7 @@
 #include <shlobj.h>
 #include <map>
 #include <set>
+#include <thread>
 
 namespace {
 
@@ -441,12 +442,16 @@ void janelas::Start() {
     // programas de 32 bits: a DLL de 32 bits fica no rundll32.exe de 32 bits do Windows (entrada WacOSHost, ver
     // macjanela.cpp), que recebe os pedidos de gancho pela janela "MacJanela32Host" (e põe o gancho com a carregadora de 32)
     if (tem32 && !FindWindowExW(HWND_MESSAGE, nullptr, L"MacJanela32Host", nullptr) && !copy32.empty()) {
-        STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+        // numa thread: abrir o processo e esperar ele ficar pronto parou a interface 2,9 s ao iniciar com o disco
+        // ocupado (pilha de 22/11/2026 20:01, issue #32). Pronto o hospedeiro, as janelas de 32 bits já abertas são revistas.
         std::wstring cmd = L"\"" + std::wstring(wow) + L"\\rundll32.exe\" \"" + copy32 + L"\",WacOSHost";
-        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-            WaitForInputIdle(pi.hProcess, 2000);
+        std::thread([cmd]() mutable {
+            STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+            if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) return;
+            WaitForInputIdle(pi.hProcess, 5000);
             CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
-        }
+            shell::NaInterface([] { if (g_proc) EnumWindows([](HWND h, LPARAM) -> BOOL { Consider(h); return TRUE; }, 0); });
+        }).detach();
     }
     g_ev = SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnEvent, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     g_evCreate = SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_CREATE, nullptr, OnCreate, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);

@@ -551,6 +551,10 @@ bool CompInit() {
     return true;
 }
 
+// pixels do papel de parede lidos numa thread pelo Warm (o LoadPng na interface parou o Shell 15 e 21 s com o disco
+// ocupado; pilhas de 22/11/2026 20:02 e 20:11, issue #32). O CompWall usa e solta.
+std::mutex g_wcMx; std::wstring g_wcPath; UINT g_wcW, g_wcH; std::vector<BYTE> g_wcPx;
+
 // papel de parede (cobrindo a tela) numa superfície parada: desenhado uma vez por papel e tamanho
 void CompWall(const std::wstring& path) {
     g_blackSc->SetScaleX(W()); g_blackSc->SetScaleY(H());
@@ -560,7 +564,11 @@ void CompWall(const std::wstring& path) {
     g_wallSurf = ui::CompSurface((int)W(), (int)H(), [&](ID2D1DeviceContext* dc) {
         ID2D1Bitmap* wall = nullptr;
         UINT ww = 0, wh = 0; std::vector<BYTE> px;
-        if (!path.empty() && ui::LoadPng(path, ww, wh, px)) wall = ui::Bitmap(dc, ww, wh, px);
+        {
+            std::lock_guard<std::mutex> lk(g_wcMx);
+            if (g_wcPath == path && !g_wcPx.empty()) { wall = ui::Bitmap(dc, g_wcW, g_wcH, g_wcPx); g_wcPx.clear(); g_wcPx.shrink_to_fit(); g_wcPath.clear(); }
+        }
+        if (!wall && !path.empty() && ui::LoadPng(path, ww, wh, px)) wall = ui::Bitmap(dc, ww, wh, px);
         if (wall) {
             auto s = wall->GetSize();
             float k = std::max(W() / s.width, H() / s.height);
@@ -1036,7 +1044,27 @@ void missioncontrol::Warm() {
     SystemParametersInfoW(SPI_GETDESKWALLPAPER, MAX_PATH, path, 0);
     double t0 = anim::Now();
     LoadDeskWall(path);
-    if (shell::Setting(L"mc_motor", L"composicao") == L"composicao" && CompInit()) CompWall(path);
+    if (shell::Setting(L"mc_motor", L"composicao") == L"composicao" && CompInit()) {
+        std::wstring p = path;
+        std::thread([p] {  // ler e decodificar o arquivo fora da interface; desenhar na superfície, nela
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+            HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // WIC
+            UINT ww = 0, wh = 0; std::vector<BYTE> px;
+            double t1 = anim::Now();
+            bool ok = !p.empty() && ui::LoadPng(p, ww, wh, px);
+            if (SUCCEEDED(ci)) CoUninitialize();
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+            if (ok) { std::lock_guard<std::mutex> lk(g_wcMx); g_wcPath = p; g_wcW = ww; g_wcH = wh; g_wcPx = std::move(px); }
+            double lido = anim::Now() - t1;
+            shell::NaInterface([p, lido] {
+                if (g_open) return;
+                double t2 = anim::Now();
+                CompWall(p);
+                { std::lock_guard<std::mutex> lk(g_wcMx); g_wcPx.clear(); g_wcPx.shrink_to_fit(); g_wcPath.clear(); }  // já pronto: solta
+                Log(L"mission control: papel de parede lido em %.0f ms (fora da interface), desenhado em %.1f ms", lido, anim::Now() - t2);
+            });
+        }).detach();
+    }
     Log(L"mission control: preparado antes de abrir em %.1f ms", anim::Now() - t0);
 }
 

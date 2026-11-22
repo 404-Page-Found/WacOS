@@ -835,7 +835,7 @@ void Click(Widget& wd) {
     switch (wd.kind) {
     case K_WEATHER: case K_SUN: {
         std::wstring app = shell::dir + L"\\" EXE_WEATHER;  // como no Mac: o widget abre o app Tempo
-        if (GetFileAttributesW(app.c_str()) != INVALID_FILE_ATTRIBUTES) { ShellExecuteW(nullptr, L"open", app.c_str(), nullptr, shell::dir.c_str(), SW_SHOWNORMAL); return; }
+        if (GetFileAttributesW(app.c_str()) != INVALID_FILE_ATTRIBUTES) { shell::Abrir(L"open", app.c_str(), nullptr, shell::dir.c_str(), SW_SHOWNORMAL); return; }
         url = L"https://www.google.com/search?q=tempo+" + City();
         for (auto& c : url) if (c == L' ') c = L'+';
         target = url.c_str(); break;
@@ -843,7 +843,7 @@ void Click(Widget& wd) {
     case K_CLOCK: case K_WORLD: target = L"ms-clock:"; break;
     case K_CALENDAR: target = L"outlookcal:"; break;
     }
-    if (target) ShellExecuteW(nullptr, L"open", target, nullptr, nullptr, SW_SHOWNORMAL);
+    if (target) shell::Abrir(L"open", target, nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só ligar/desligar e organizar)
@@ -866,7 +866,7 @@ void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só 
     int id = ctxmenu::ShowItems(g_menuOwner, pt, items);
     if (id == 3) {
         std::wstring exe = shell::dir + L"\\" EXE_WEATHER;
-        ShellExecuteW(nullptr, L"open", exe.c_str(), L"--meu-local", shell::dir.c_str(), SW_SHOWNORMAL);
+        shell::Abrir(L"open", exe.c_str(), L"--meu-local", shell::dir.c_str(), SW_SHOWNORMAL);
     } else if (id == 1 && wd) { Show(*wd, false); shell::SetSetting((std::wstring(L"widget.") + wd->id + L".on").c_str(), L"0"); }
     else if (id == 2) {
         for (auto& w : g_w) w.rc = -1;

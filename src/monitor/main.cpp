@@ -48,7 +48,7 @@
 // Peças do Finder (src/finder): desenho com alfa real (Direct2D sobre DirectComposition), a janela do
 // Tahoe com cantos de 26 pt e vidro da Composição, e a sombra própria que segue o canto redondo. As mesmas
 // que o Ajustes do Sistema usa. Declaradas aqui (o finder.h traz o Finder inteiro).
-namespace gfx { bool Init(HWND hwnd); void Resize(UINT w, UINT h); ID2D1DeviceContext* Begin(float dpi); void End(); }
+namespace gfx { bool Init(HWND hwnd); void Resize(UINT w, UINT h); ID2D1DeviceContext* Begin(float dpi); void End(double* ms = nullptr); }
 namespace shadow { void Create(HWND main); void SetActive(bool active); void Update(); void Destroy(); void SetRadius(float dip); }
 namespace tahoe {
 float WindowR();  // 26 pt no Tahoe, 16 pt no Golden Gate

@@ -139,6 +139,32 @@ bool g_hidden = false;         // ocultação automática: escondido agora
 float g_reveal = 1;            // 0 = escondido, 1 = à mostra (animação)
 D2D1_RECT_F g_bg;              // fundo atual (pt, coordenadas da janela dos ícones)
 bool g_trashFull = false;
+
+// Lixeira cheia ou vazia, numa thread: o SHQueryRecycleBin passa pela lixeira de todos os discos (HD externo
+// dormindo, unidade de rede) e segurou a interface do Shell por 10,2 s a cada BuildItems (pilha de 22/11/2026
+// 19:54, issue #32: "o Shell inteiro congela"). Uma consulta por vez; pedido no meio dela refaz no fim.
+std::atomic<bool> g_lixeiraRodando{ false }, g_lixeiraDeNovo{ false };
+void Paint();
+void PedirLixeira() {
+    if (g_lixeiraRodando.exchange(true)) { g_lixeiraDeNovo = true; return; }
+    std::thread([] {
+        HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        bool cheia;
+        do {
+            g_lixeiraDeNovo = false;
+            DWORD t0 = GetTickCount();
+            SHQUERYRBINFO q{ sizeof(q) };
+            cheia = SUCCEEDED(SHQueryRecycleBinW(nullptr, &q)) && q.i64NumItems > 0;
+            if (DWORD ms = GetTickCount() - t0; ms > 500) Log(L"dock: a Lixeira levou %lu ms para responder (fora da interface)", ms);
+        } while (g_lixeiraDeNovo);
+        if (SUCCEEDED(ci)) CoUninitialize();
+        shell::NaInterface([cheia] {
+            g_lixeiraRodando = false;
+            if (g_lixeiraDeNovo.exchange(false)) PedirLixeira();
+            if (cheia != g_trashFull) { g_trashFull = cheia; Paint(); }
+        });
+    }).detach();
+}
 int g_dropHit = -1;
 
 void LeftClick(int i);
@@ -333,8 +359,7 @@ void BuildItems() {
         else ++it;
     }
     g_items.push_back({ I_TRASH, -1 });
-    SHQUERYRBINFO q{ sizeof(q) };
-    g_trashFull = SUCCEEDED(SHQueryRecycleBinW(nullptr, &q)) && q.i64NumItems > 0;
+    PedirLixeira();
     FitTile();
 }
 
@@ -1268,7 +1293,7 @@ int HitTest(float x, float y) {
 // ---- menus de botão direito
 void OpenFinder(const std::wstring& args) {
     if (shell::nativo) { shell::AbrirFinder(args); return; }
-    for (auto& a : apps::list) if (a.finder) { ShellExecuteW(nullptr, L"open", a.launch.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL); return; }
+    for (auto& a : apps::list) if (a.finder) { shell::Abrir(L"open", a.launch.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL); return; }
 }
 
 ctxmenu::Item MI(const std::wstring& l, int id, bool checked = false, bool disabled = false) {
@@ -1483,8 +1508,18 @@ void LeftClick(int i) {
         App& a = apps::list[it.app];
         // o app já está na frente: o clique oculta (as janelas somem e voltam no próximo clique)
         HWND fg = GetForegroundWindow();
+        HWND fgDono = fg ? GetAncestor(fg, GA_ROOTOWNER) : nullptr;  // diálogo ou janela de ferramenta do app: vale a dona
         bool front = false;
-        for (auto& w : a.wins) if (w.hwnd == fg && !IsIconic(fg)) front = true;
+        for (auto& w : a.wins) if ((w.hwnd == fg || w.hwnd == fgDono) && !IsIconic(w.hwnd)) front = true;
+        // a janela da frente é do app mas não está na lista do Dock (janela sem título, a "barra própria" de alguns
+        // apps, outra janela do mesmo processo): também conta (issue #29: "clicar no ícone não minimiza")
+        if (!front && fg && !IsIconic(fg) && !apps::IsShellWindow(fg) && !a.wins.empty() && apps::OfWindow(fgDono ? fgDono : fg) == &a) front = true;
+        if (!front && !a.wins.empty() && !(fg && IsIconic(fg))) {  // diagnóstico: por que o clique ativa em vez de ocultar (só classes, sem títulos)
+            wchar_t c1[64] = L"-", c2[64] = L"-";
+            if (fg) GetClassNameW(fg, c1, 64);
+            if (fgDono && fgDono != fg) GetClassNameW(fgDono, c2, 64);
+            Log(L"dock: clique em %ls ativa (frente: %ls, dona %ls; %zu janelas do app)", a.name.c_str(), c1, c2, a.wins.size());
+        }
         if (front && shell::Setting(L"dock_clique_oculta", L"1") == L"1") { apps::Hide(a); apps::Refresh(); BuildItems(); Paint(); return; }
         if (g_minNoIcone && !a.wins.empty()) {  // minimizadas no ícone: tudo minimizado, a mais recente sai do ícone pelo funil
             bool anyShown = false;
@@ -1511,7 +1546,7 @@ void LeftClick(int i) {
         m.push_back(MI(Tr(L"Abrir no Finder"), 30));
         int id = ShowMenu(i, m);
         if (id == 30) OpenFinder(L"shell:Downloads");
-        else if (id >= 5000 && id - 5000 < (int)files.size()) ShellExecuteW(nullptr, L"open", files[id - 5000].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else if (id >= 5000 && id - 5000 < (int)files.size()) shell::Abrir(L"open", files[id - 5000].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 }
 
@@ -1611,6 +1646,20 @@ struct DockDrop : IDropTarget {
 
 LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     float sc = Sc();
+    // teste (clicar no ícone sem mexer no mouse do PC): wParam = uma janela; devolve o meio do ícone do app dela em
+    // coordenadas desta janela (MAKELONG), ou -1. Quem testa posta WM_LBUTTONDOWN/UP ali.
+    static UINT testeIcone = RegisterWindowMessageW(L"ShellDockTesteIcone");
+    if (m == testeIcone && testeIcone) {
+        for (auto& it : g_items) {
+            if (it.kind != I_APP || it.app < 0 || it.app >= (int)apps::list.size()) continue;
+            for (auto& win : apps::list[it.app].wins)
+                if (win.hwnd == (HWND)w) {
+                    D2D1_POINT_2F p = ToWin(it.cx, g_bg.top + PAD_TOP + g_tile / 2);
+                    return MAKELONG((int)std::lround(p.x * sc), (int)std::lround(p.y * sc));
+                }
+        }
+        return -1;
+    }
     switch (m) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_SETCURSOR:

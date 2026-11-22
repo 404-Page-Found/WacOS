@@ -35,6 +35,29 @@ bool ui::Init() {
     for (auto f : { L"SF Pro Text", L"Inter", L"Segoe UI Variable Text", L"Segoe UI" }) if (HasFamily(f)) { family = f; break; }
     if (!HasFamily(L"Segoe Fluent Icons")) iconFamily = L"Segoe MDL2 Assets";
     Log(L"fonte: %ls, ícones: %ls", family.c_str(), iconFamily.c_str());
+    // Fontes carregadas numa thread logo no começo: o DirectWrite abre o arquivo de cada fonte no primeiro texto
+    // desenhado com ela, e com o disco ocupado a 1ª abertura da Estante da Ilha (ícones) parou a interface 2,9 s
+    // (pilha de 22/11/2026 19:55, issue #32). A fábrica é compartilhada: o que esta thread carrega fica no cache.
+    std::thread([fam = family, ic = iconFamily] {
+        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
+        DWORD t0 = GetTickCount();
+        for (const std::wstring& f : { fam, ic, std::wstring(L"SF Pro Display"), std::wstring(L"SF Pro Rounded"), std::wstring(L"Segoe UI") })
+            for (DWRITE_FONT_WEIGHT w : { DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_WEIGHT_BOLD }) {
+                IDWriteTextFormat* tf = nullptr;
+                if (FAILED(dw->CreateTextFormat(f.c_str(), nullptr, w, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13, L"", &tf)) || !tf) continue;
+                IDWriteTextLayout* tl = nullptr;
+                const wchar_t txt[] = L"Ag 0123 \xE7B8\xE8C8\xE73E\xE7C3";
+                if (SUCCEEDED(dw->CreateTextLayout(txt, (UINT32)wcslen(txt), tf, 400, 40, &tl)) && tl) {
+                    DWRITE_TEXT_METRICS m{}; tl->GetMetrics(&m);
+                    DWRITE_OVERHANG_METRICS o{}; tl->GetOverhangMetrics(&o);
+                    tl->Release();
+                }
+                tf->Release();
+                if (f == ic) break;  // ícones: um peso basta
+            }
+        Log(L"fontes: carregadas em %lu ms (fora da interface)", GetTickCount() - t0);
+        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+    }).detach();
     return true;
 }
 

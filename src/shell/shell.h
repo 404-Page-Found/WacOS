@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <atomic>
 #include "../comum/idioma.h"
 #include <cstdio>
 
@@ -645,6 +646,16 @@ bool OpenCalculator(const std::wstring& target);  // alvo é a Calculadora do Wi
 void OpenForceQuit(bool memory);  // Forçar Encerrar (Ctrl+Alt+Esc, menu da Apple); memory = "ficou sem memória"
 void OpenMonitor();  // Monitor de Atividade (Ctrl+Shift+Esc, menu da Apple)  // toca sons\mac\<name>.wav (sons do Mac), sem esperar
 void OpenSettings(const std::wstring& page);  // abre o Ajustes do Sistema (Ajustes.exe) na página  // grava em %APPDATA%\Shell\ajustes.txt
+// ShellExecute numa thread (com o disco ocupado ele segurou a interface 3,2 s; issue #32). Os textos são copiados na hora.
+void Abrir(const wchar_t* verb, const wchar_t* file, const wchar_t* args = nullptr, const wchar_t* dir = nullptr, int show = SW_SHOWNORMAL);
+// roda `f` na thread da interface (pela janela de mensagens): o resultado de um trabalho feito numa thread
+void NaInterface(std::function<void()> f);
+}
+
+namespace sentinela {  // sentinela.cpp: registra no shell.log onde a thread da interface ficou parada (1 s ou mais)
+void Start(HWND alvo);
+extern std::atomic<UINT> ultimaMsg;     // o laço principal anota a mensagem que vai tratar
+extern std::atomic<HWND> ultimaJanela;
 }
 
 namespace ampliar {  // animação do "ampliar" do Mac nas janelas de outros apps (ampliar.cpp; pedida pela MacJanela.dll)

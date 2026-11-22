@@ -347,7 +347,7 @@ int HitAt(LPARAM l) {
 
 void OpenDownloadsInFinder() {
     std::wstring finder = shell::dir + L"\\" EXE_FINDER;
-    ShellExecuteW(nullptr, L"open", finder.c_str(), g_apps ? L"shell:Programs" : L"shell:Downloads", nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", finder.c_str(), g_apps ? L"shell:Programs" : L"shell:Downloads", nullptr, SW_SHOWNORMAL);
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -380,7 +380,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring p;
             { std::lock_guard<std::mutex> lk(g_mx); if (hv < (int)g_files.size()) p = g_files[hv].path; }
             Hide();
-            if (!p.empty() && !AbrirNoAppMac(p)) ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            if (!p.empty() && !AbrirNoAppMac(p)) shell::Abrir(L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
         return 0;
     }
@@ -527,7 +527,7 @@ void ShowList(POINT anchor) {
     POINT pt = MenuPt(anchor, (int)std::lround((m.size() * 22 + 14) * Sc()));
     int id = ctxmenu::ShowItems(g_wnd, pt, m);
     if (id == 30) OpenDownloadsInFinder();
-    else if (id >= 5000 && id - 5000 < (int)files.size() && !AbrirNoAppMac(files[id - 5000])) ShellExecuteW(nullptr, L"open", files[id - 5000].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    else if (id >= 5000 && id - 5000 < (int)files.size() && !AbrirNoAppMac(files[id - 5000])) shell::Abrir(L"open", files[id - 5000].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 }  // namespace

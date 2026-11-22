@@ -104,7 +104,7 @@ void OpenQuickNote() {
     std::wstring exe = shell::dir + L"\\" EXE_NOTES;
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) { Log(L"nota rápida: " EXE_NOTES L" não encontrado"); return; }
     AllowSetForegroundWindow(ASFW_ANY);
-    ShellExecuteW(nullptr, L"open", exe.c_str(), L"--nota-rapida", shell::dir.c_str(), SW_SHOWNORMAL);
+    shell::Abrir(L"open", exe.c_str(), L"--nota-rapida", shell::dir.c_str(), SW_SHOWNORMAL);
     Log(L"nota rápida: aberta pelo canto");
 }
 

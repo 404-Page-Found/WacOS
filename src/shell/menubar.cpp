@@ -1185,12 +1185,12 @@ void Shutdown(UINT how) {
 
 void Open(const wchar_t* what, const wchar_t* args = nullptr) {
     if (!wcsncmp(what, L"ms-settings:", 12)) { shell::OpenSettings(what); return; }  // o nosso Ajustes do Sistema
-    ShellExecuteW(nullptr, L"open", what, args, nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", what, args, nullptr, SW_SHOWNORMAL);
 }
 
 void OpenFinder(const std::wstring& args) {
     if (shell::nativo) { shell::AbrirFinder(args); return; }
-    for (auto& a : apps::list) if (a.finder) { ShellExecuteW(nullptr, L"open", a.launch.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL); return; }
+    for (auto& a : apps::list) if (a.finder) { shell::Abrir(L"open", a.launch.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL); return; }
 }
 
 void Run(int id, App* app) {
@@ -1214,7 +1214,7 @@ void Run(int id, App* app) {
     case 107: bloqueio::Lock(); break;  // a nossa tela de bloqueio (o LockWorkStation fica desligado pela política enquanto o Shell roda: não fazia nada, issue #8)
     case 108: alertas::Confirm(Tr(L"Tem certeza de que deseja encerrar todos os aplicativos e sair agora?"), L"", Tr(L"Encerrar Sessão"), [] { ExitWindowsEx(EWX_LOGOFF, 0); }, IconePC()); break;
     case 109: shell::Quit(L"menu do logo"); break;
-    case 200: if (app && !app->exe.empty()) ShellExecuteW(nullptr, L"properties", app->exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
+    case 200: if (app && !app->exe.empty()) shell::Abrir(L"properties", app->exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
     case 201: if (app) apps::Hide(*app); break;
     case 202: for (auto& a : apps::list) if (&a != app) apps::Hide(a); break;
     case 203: for (auto& a : apps::list) for (auto& w : a.wins) if (w.minimized) ShowWindow(w.hwnd, SW_SHOWNOACTIVATE); break;
