@@ -339,6 +339,7 @@ void Toggle();
 bool IsOpen();
 void OpenMode(int mode);  // Tahoe: abre direto num modo (1 Aplicativos = o "Apps" do Dock, 2 Arquivos, 3 Ações); de novo fecha
 void Rescan();            // relê a lista de apps (um programa foi instalado ou removido)
+void ClickedDesktop();    // clique na mesa (gancho do revelar.cpp, outra thread): aberto, fecha
 }
 namespace dashboard {  // Dashboard do Leopard (dashboard.cpp): Win+F12 / ShellAbrirPainel 16
 bool Create(HINSTANCE hi);

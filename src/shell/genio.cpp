@@ -250,6 +250,10 @@ bool Snap(HWND h, bool show, std::vector<uint32_t>& px, int& w, int& hh) {
     if (w < 4 || hh < 4 || w > 16384 || hh > 16384) { HideCap(); return false; }
     BOOL cloak = show ? FALSE : TRUE;
     DwmSetWindowAttribute(g_cap, DWMWA_CLOAK, &cloak, sizeof(cloak));
+    // a janela da foto cobre a janela no instante de minimizar: sem isto ela era um retângulo de canto vivo e os cantos
+    // arredondados "ficavam pontudos" logo no começo do gênio (issue #28, 22/11/2026)
+    DWORD corner = g_a.maxed ? 1 : 2;  // DWMWCP_DONOTROUND / DWMWCP_ROUND
+    DwmSetWindowAttribute(g_cap, 33, &corner, sizeof(corner));
     SetWindowPos(g_cap, HWND_TOPMOST, g_a.win.left, g_a.win.top, w, hh, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     DWM_THUMBNAIL_PROPERTIES tp{};
     tp.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_RECTSOURCE | DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_SOURCECLIENTAREAONLY;

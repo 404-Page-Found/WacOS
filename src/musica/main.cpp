@@ -13,10 +13,14 @@
 #include <mutex>
 #include <thread>
 #include <random>
+#include <atomic>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.Core.h>
 #include <winrt/Windows.Media.Playback.h>
 #include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Storage.FileProperties.h>
+#include <winrt/Windows.Storage.Streams.h>
+#include <winrt/Windows.Media.h>
 #pragma comment(lib, "windowsapp.lib")
 #pragma comment(lib, "propsys.lib")
 #pragma comment(lib, "shlwapi.lib")
@@ -28,7 +32,7 @@ namespace wmc = winrt::Windows::Media::Core;
 namespace {
 
 float SB = 200, TB = 70, ROWH = 28;  // macOS 27: barra de 52 (o player vai para baixo)
-const UINT WM_SCAN = WM_APP + 3, WM_ART = WM_APP + 4, WM_ENDED = WM_APP + 6;
+const UINT WM_SCAN = WM_APP + 3, WM_ART = WM_APP + 4, WM_ENDED = WM_APP + 6, WM_SKIP = WM_APP + 7;
 
 struct Song { std::wstring path, title, artist, album; int track = 0; double secs = 0; FILETIME added{}; };
 std::vector<Song> g_songs;
@@ -133,12 +137,42 @@ void AskArt(const std::wstring& album, const std::wstring& file) {
 ID2D1Bitmap* Art(const Song& s) { auto it = g_art.find(s.album); if (it != g_art.end()) return it->second; AskArt(s.album, s.path); return nullptr; }
 
 // ---- reprodução
+// O "Tocando Agora" do Windows (Central de Controle, Ilha Dinâmica, teclas de mídia) lê o nome, o artista e a capa das
+// propriedades do item que o MediaPlayer toca. Sem preencher, a sessão existia mas vazia: a Central mostrava "Nada Tocando"
+// e a Ilha ignorava (issue #27, 22/11/2026). O DisplayUpdater direto não serve: o player o refaz ao abrir a mídia.
+// A capa vem da miniatura do arquivo, em outra thread.
+std::atomic<int> g_smtcGen;
+wmp::MediaPlaybackItem Item(const Song& s) {
+    wmp::MediaPlaybackItem item(wmc::MediaSource::CreateFromUri(winrt::Windows::Foundation::Uri(L"file:///" + s.path)));
+    try {
+        auto dp = item.GetDisplayProperties();
+        dp.Type(winrt::Windows::Media::MediaPlaybackType::Music);
+        auto mp = dp.MusicProperties();
+        mp.Title(s.title); mp.Artist(s.artist); mp.AlbumTitle(s.album);
+        item.ApplyDisplayProperties(dp);
+        int gen = ++g_smtcGen;
+        std::wstring path = s.path;
+        std::thread([item, path, gen] {
+            try {
+                winrt::init_apartment(winrt::apartment_type::multi_threaded);
+                auto f = winrt::Windows::Storage::StorageFile::GetFileFromPathAsync(path).get();
+                auto th = f.GetThumbnailAsync(winrt::Windows::Storage::FileProperties::ThumbnailMode::MusicView, 300).get();
+                if (th && th.Type() == winrt::Windows::Storage::FileProperties::ThumbnailType::Image && gen == g_smtcGen) {
+                    auto dp = item.GetDisplayProperties();
+                    dp.Thumbnail(winrt::Windows::Storage::Streams::RandomAccessStreamReference::CreateFromStream(th));
+                    item.ApplyDisplayProperties(dp);
+                }
+            } catch (...) {}
+        }).detach();
+    } catch (...) {}
+    return item;
+}
 void PlayIndex(int pos) {
     if (pos < 0 || pos >= (int)g_queue.size()) return;
     g_pos = pos;
     const Song& s = g_songs[g_queue[pos]];
     try {
-        g_player.Source(wmc::MediaSource::CreateFromUri(winrt::Windows::Foundation::Uri(L"file:///" + s.path)));
+        g_player.Source(Item(s));
         g_player.Play();
     } catch (...) {}
     SetWindowTextW(wnd, (s.title + L" — " + s.artist).c_str());
@@ -519,6 +553,11 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         delete d; InvalidateRect(h, nullptr, FALSE); return 0;
     }
     case WM_ENDED: if (g_repeat == 2) PlayIndex(g_pos); else Next(1); return 0;
+    case WM_SKIP:  // ⏭ / ⏮ da Central de Controle, da Ilha ou das teclas de mídia
+        if ((int)w < 0 && PosSecs() > 3) { try { g_player.PlaybackSession().Position(std::chrono::seconds(0)); } catch (...) {} }
+        else Next((int)w);
+        InvalidateRect(h, nullptr, FALSE);
+        return 0;
     case WM_COPYDATA: {  // outra abertura mandou um arquivo (o app tem uma janela só)
         auto* cd = (COPYDATASTRUCT*)l;
         if (cd->dwData == 0x4D555343 && cd->cbData >= 2) { std::wstring p((const wchar_t*)cd->lpData, cd->cbData / 2); while (!p.empty() && !p.back()) p.pop_back(); PlayFile(p); }
@@ -624,6 +663,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
         g_player = wmp::MediaPlayer();
         g_player.Volume(g_volume);
         g_player.MediaEnded([](auto&&, auto&&) { PostMessageW(wnd, WM_ENDED, 0, 0); });
+        // próxima/anterior de fora: sem isto os botões ficavam apagados no "Tocando Agora"
+        auto cm = g_player.CommandManager();
+        cm.NextBehavior().EnablingRule(wmp::MediaCommandEnablingRule::Always);
+        cm.PreviousBehavior().EnablingRule(wmp::MediaCommandEnablingRule::Always);
+        cm.NextReceived([](auto&&, wmp::MediaPlaybackCommandManagerNextReceivedEventArgs const& a) { a.Handled(true); PostMessageW(wnd, WM_SKIP, 1, 0); });
+        cm.PreviousReceived([](auto&&, wmp::MediaPlaybackCommandManagerPreviousReceivedEventArgs const& a) { a.Handled(true); PostMessageW(wnd, WM_SKIP, (WPARAM)-1, 0); });
     } catch (...) {}
     Scan();
     SetTimer(wnd, 1, 500, nullptr);

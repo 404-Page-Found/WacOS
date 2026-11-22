@@ -75,6 +75,7 @@ void Worker() {
             }
             g_down = pt;
             g_downOnDesk = IsDesktopWindow(WindowFromPoint(pt));
+            if (g_downOnDesk && spotlight::IsOpen()) spotlight::ClickedDesktop();
         } else if (msg.message == WM_RV_UP && g_downOnDesk) {
             g_downOnDesk = false;
             if (std::abs(pt.x - g_down.x) <= 4 && std::abs(pt.y - g_down.y) <= 4)  // clique, não arrasto de seleção

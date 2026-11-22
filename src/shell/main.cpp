@@ -46,6 +46,7 @@ static std::atomic<bool> g_altTab;  // seletor de apps aberto (Alt seguro desde 
 static HHOOK g_kbHook;
 static bool g_winDown, g_winCombo, g_winEaten, g_spaceHeld, g_tabHeld;  // eaten: a combinação foi nossa (Win+I)
 static DWORD g_winVk, g_winAt;  // At: quando a tecla Win desceu (ms do gancho)
+static bool g_winPassed;        // uma tecla de combinação foi para o Windows (Win+V, Win+.): ele não abre o Iniciar ao soltar
 
 
 static void Inject(DWORD vk, bool up) {
@@ -119,12 +120,16 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 if (down) {
                     if (!g_winDown) {
                         g_winDown = true; g_winCombo = mods(); g_winEaten = false; g_spaceHeld = false; g_tabHeld = false; g_winVk = k->vkCode; g_winAt = k->time;
+                        g_winPassed = false;
                     }
                     return CallNextHookEx(g_kbHook, code, w, l);
                 }
                 if (g_winDown) {
                     g_winDown = false;
                     if (!g_winCombo && k->time - g_winAt <= 1000) PostMessageW(g_msg, WM_APP_LAUNCHPAD, 0, 0);  // sozinha: Launchpad/Spotlight
+                    // Combinação que foi para o Windows (Win+V, Win+.): ele mesmo não abre o Iniciar, e a tecla muda chegava
+                    // ao painel que acabou de abrir: o histórico da Área de Transferência piscava e fechava (issue #27, 22/11/2026)
+                    if (g_winPassed && !g_winEaten) return CallNextHookEx(g_kbHook, code, w, l);
                     // a tecla muda e o soltar do Win vão juntos, nesta ordem: deixando o soltar de verdade passar, a muda
                     // (mandada daqui de dentro) chegava depois dele e o Iniciar abria
                     Inject(0xE8, false); Inject(0xE8, true);
@@ -261,6 +266,7 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
             } else if (g_winDown && down && !g_winCombo) {
                 // combinação do Windows: a tecla Win já foi para ele; esta segue também
                 g_winCombo = true;
+                g_winPassed = true;
             }
         }
     }

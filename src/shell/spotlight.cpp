@@ -68,7 +68,7 @@ void Metricas() {
     WIN_H = FIELD_H + 1 + GG_GAP + MAX_LIST_H;
 }
 const float LEO_ROW = 20, LEO_COL = 112;  // Leopard: linhas de 20 e a coluna das categorias
-const UINT WM_SP_FILES = WM_APP + 60, WM_SP_ICON = WM_APP + 61, WM_SP_APPS = WM_APP + 62, WM_SP_FRAME = WM_APP + 63, WM_SP_SUGG = WM_APP + 64;
+const UINT WM_SP_FILES = WM_APP + 60, WM_SP_ICON = WM_APP + 61, WM_SP_APPS = WM_APP + 62, WM_SP_FRAME = WM_APP + 63, WM_SP_SUGG = WM_APP + 64, WM_SP_FORA = WM_APP + 65;
 const UINT_PTR T_SEARCH = 1, T_CARET = 2, T_ICONS = 3, T_REGRAB = 4;
 
 enum Kind { K_APP, K_SETTING, K_DOC, K_FOLDER, K_IMAGE, K_MEDIA, K_OTHER, K_CALC, K_WEB };
@@ -839,6 +839,7 @@ int g_chip;          // filtro escolhido (0 = nenhum)
 float g_pill = -1;   // Tahoe: largura atual do vidro do campo (anima entre a cápsula e o painel inteiro)
 double g_listIn;     // quando o conteúdo do modo mudou (entra esmaecendo e subindo um pouco)
 void Place();
+D2D1_COLOR_F TintaGG();
 void ModeChanged() {
     g_listIn = anim::Now();
     float w0 = W;
@@ -1842,7 +1843,7 @@ void Paint() {
         // Tahoe (vídeo do macOS 26): vidro claro e leitoso que pega a cor do fundo (a cápsula fica azulada sobre o azul)
         // Tahoe: medido na tela (guia, seções 52 e 60): escuro 0,19 × fundo + 0,12 (81 % de 0,148); claro 0,26 × fundo
         // + 0,73 (74 % de 0,986): o Spotlight do macOS 26 é quase opaco, o "líquido" fica na borda
-        D2D1_COLOR_F tint = !liquid::On() ? p.tint : ui::Dark() ? D2D1::ColorF(0.148f, 0.148f, 0.155f, 0.81f) : D2D1::ColorF(0.986f, 0.986f, 0.99f, 0.74f);
+        D2D1_COLOR_F tint = gg ? TintaGG() : !liquid::On() ? p.tint : ui::Dark() ? D2D1::ColorF(0.148f, 0.148f, 0.155f, 0.81f) : D2D1::ColorF(0.986f, 0.986f, 0.99f, 0.74f);
         if (compact && backdrop::Real()) {  // cada peça com a lente dela; os círculos saem da cápsula (e encolhem até sumir)
             float cw = CapEnd(pw);
             std::vector<backdrop::Piece> pcs;
@@ -1865,7 +1866,7 @@ void Paint() {
             }
             backdrop::SetPieces(g_back, W * sc, H * sc, pcs, tint, 10.f);
         } else if (gg && backdrop::Real()) {  // Golden Gate: a barra e o painel em duas peças de vidro
-            tint = D2D1::ColorF(0.09f, 0.07f, 0.06f, 0.42f);  // tinta escura por cima do fundo bem desfocado (nunca transparente)
+            tint = TintaGG();  // tinta escura por cima do fundo bem desfocado (nunca transparente)
             const float fpw2 = std::min(W, GG_BAR_W), fx2 = (W - fpw2) / 2;
             std::vector<backdrop::Piece> pcs{ { D2D1::RectF(fx2 * sc, 0, (fx2 + fpw2) * sc, FIELD_H * sc), FIELD_H / 2 * sc } };
             if (H > FIELD_H + 1.5f) pcs.push_back({ D2D1::RectF(0, (FIELD_H + GG_GAP) * sc, W * sc, H * sc), 30 * sc });
@@ -1881,7 +1882,7 @@ void Paint() {
 }
 
 // As janelas ficam sempre do tamanho máximo; o que cresce e encolhe é o recorte do vidro e o desenho.
-void Place() {
+RECT PlaceRect() {
     float sc = Sc();
     int wpx = (int)std::lround(W * sc), hpx = (int)std::lround(WIN_H * sc);
     MONITORINFO mi{ sizeof(mi) };
@@ -1891,6 +1892,48 @@ void Place() {
     // no Mac (Sequoia) o campo fica a ~22% da altura da tela; no Tahoe a 30 % (guia, seção 39); o painel cresce para baixo
     int x = m.left + (m.right - m.left - wpx) / 2, y = m.top + (int)((m.bottom - m.top) * (liquid::On() ? 0.30f : 0.22f));
     if (liquid::Leopard()) { x = m.right - wpx - 2; y = m.top + menubar::Height(); }  // Leopard: desce da lupa, na ponta direita
+    return { x, y, x + wpx, y + hpx };
+}
+
+// Golden Gate: o texto do Spotlight é sempre branco (MEDIDAS, parte 3). Sobre uma janela branca o vidro desfocado
+// fica claro e os nomes do painel Apps sumiam (issue #26, 22/11/2026). Ao abrir (ainda escondido), mede o que vai
+// ficar atrás do painel; claro, a tinta escura fica mais forte.
+float g_fundoLum = 0;
+void MedeFundo() {
+    g_fundoLum = 0;
+    RECT r = PlaceRect();
+    r.top += (LONG)std::lround((FIELD_H + GG_GAP) * Sc());
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w <= 0 || h <= 0) return;
+    const int BW = 24, BH = 16;
+    HDC s = GetDC(nullptr); HDC m = CreateCompatibleDC(s);
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), BW, -BH, 1, 32, BI_RGB };
+    void* bits = nullptr;
+    HBITMAP b = CreateDIBSection(s, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (b && bits) {
+        HGDIOBJ o = SelectObject(m, b);
+        SetStretchBltMode(m, HALFTONE);
+        StretchBlt(m, 0, 0, BW, BH, s, r.left, r.top, w, h, SRCCOPY);
+        GdiFlush();
+        double soma = 0;
+        auto* px = (const BYTE*)bits;
+        for (int i = 0; i < BW * BH; i++) soma += (0.0722 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.2126 * px[i * 4 + 2]) / 255.0;
+        g_fundoLum = (float)(soma / (BW * BH));
+        SelectObject(m, o);
+    }
+    if (b) DeleteObject(b);
+    DeleteDC(m); ReleaseDC(nullptr, s);
+}
+
+// tinta do vidro no Golden Gate: a medida (0,09; 0,07; 0,06 a 42 %) e, com o fundo claro, até 78 %
+D2D1_COLOR_F TintaGG() {
+    float a = 0.42f + std::clamp((g_fundoLum - 0.35f) / 0.45f, 0.f, 1.f) * 0.36f;
+    return D2D1::ColorF(0.09f, 0.07f, 0.06f, a);
+}
+
+void Place() {
+    RECT pr = PlaceRect();
+    int x = pr.left, y = pr.top, wpx = pr.right - pr.left, hpx = pr.bottom - pr.top;
     SetWindowPos(g_wnd, HWND_TOPMOST, x, y, wpx, hpx, SWP_NOACTIVATE);
     SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
@@ -2608,6 +2651,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         Animate();
         return 0;
     }
+    case WM_SP_FORA:  // clique no papel de parede: nem sempre tira o foco (mesa do Explorador por baixo), e o Spotlight ficava aberto
+        if (g_open && !g_fileDrag) { Log(L"spotlight: clique na mesa, fechando"); Close(); }
+        return 0;
     case WM_ACTIVATE:
         if (LOWORD(w) == WA_INACTIVE && g_fileDrag) return 0;  // arrastando um arquivo para fora: o StartFileDrag decide
         if (LOWORD(w) == WA_INACTIVE) {
@@ -2689,6 +2735,9 @@ bool spotlight::Create(HINSTANCE hi) {
 
 void spotlight::Rescan() { ScanApps(); }
 
+// issue #27 (22/11/2026): clicar no papel de parede devia fechar o Spotlight, mas só o Win+Espaço fechava
+void spotlight::ClickedDesktop() { if (g_open && g_wnd) PostMessageW(g_wnd, WM_SP_FORA, 0, 0); }
+
 bool spotlight::IsOpen() { return g_open; }
 
 static void OpenWith(int mode);
@@ -2720,6 +2769,10 @@ static void OpenWith(int mode) {
     g_keyNav = false;
     const bool wasVisible = g_visible;
     if (!g_visible) { g_h = FIELD_H; g_scrollNow = 0; }  // nasce só com o campo; os resultados crescem dele
+    if (!g_visible && liquid::Golden()) {
+        MedeFundo();
+        Log(L"spotlight: fundo atrás do painel %.2f (tinta %.0f %%)", g_fundoLum, TintaGG().a * 100);
+    }
     g_visible = true;
     g_selTop = g_selBot = -1;
     g_selAll = !g_query.empty();  // como no Mac: reabre com a última busca, toda selecionada
