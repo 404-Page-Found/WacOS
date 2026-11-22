@@ -1231,3 +1231,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/mesa.cpp: mesa::Papel, a imagem da nossa mesa ou, com o Explorador de fundo (o padrão, sem a nossa mesa), o papel de parede do Windows montado numa thread.
   - Teste: mensagem ShellVidroMesaPreta (w=1 finge a mesa preta, só na memória). No Dock: normal RGB 47,48,69; mesa fingida preta 45,45,64; nenhum pixel escuro. NÃO reproduzido no PC do usuário da issue.
   DESFAZER: reverter o commit.
+
+[2026-11-22 19:40, hora do PC] Barra própria: a faixa crescia para 48 pt depois de minimizar ou maximizar e cobria o começo do app (Discord e Chrome).
+  - src/janelas/macjanela.cpp (MedirBarra): a altura pelos botões do app (barGlyph) só valia quando discordava da medida pela cor; lida da tela no meio de minimizar ou maximizar, a cor às vezes concordava por acaso e a altura pelos botões era zerada. Agora, achando os botões, vale sempre a altura por eles.
+  - Electron descartável, duas rodadas de normal / maximizada / restaurada / minimizada e de volta / max+min e de volta: faixa sempre 31 px (maximizada 31). Antes, uma rodada deu 48 depois de minimizar; outra, com o código antigo, deu 31: o erro aparece às vezes. Botões do Windows no canto direito: sempre debaixo da faixa nesse teste.
+  NÃO conferido: o caso do usuário em que ainda dá para clicar nos botões do Windows no canto do Chrome (não reproduzido; no Chrome dele maximizado os 136 px da direita são da faixa).
+  DESFAZER: reverter o commit.

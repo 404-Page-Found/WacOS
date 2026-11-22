@@ -2062,8 +2062,11 @@ void MedirBarra(Info* in) {
                         for (int y = ya; y < yg; y++) if (dist(at(x, y), bg) > 40) { ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
                     if (ymax >= 0) {
                         int c = (ymin + ymax) / 2 - y0, want = std::max((int)(20 * sc), 2 * c + 1);
-                        int ref = in->barCor ? in->barCor : in->barH;
-                        int nb = std::abs(ref / 2 - c) > (int)(4 * sc) ? want : 0;
+                        // Achou os botões: vale sempre a altura por eles. Antes só valia quando discordava da medida pela cor
+                        // (barCor), e essa medida, lida da tela no meio de minimizar ou maximizar, às vezes concordava por
+                        // acaso: a altura pelos botões era zerada e a faixa voltava a 48 pt pela cor, cobrindo o começo do
+                        // app (Discord e Chrome, 22/11/2026)
+                        int nb = want;
                         if (nb != in->barGlyph) { in->barGlyph = nb; if (nb) in->barH = nb; PlaceOverlay(in); }
                     }
                 }
