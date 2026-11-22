@@ -458,7 +458,8 @@ void DownloadsThread() {
                         WIN32_FILE_ATTRIBUTE_DATA fa{};
                         if (!GetFileAttributesExW(full.c_str(), GetFileExInfoStandard, &fa) || (fa.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) return;
                         if (!fa.nFileSizeHigh && !fa.nFileSizeLow) return;
-                        if (g_wnd) PostMessageW(g_wnd, WM_IL_DOWN, 0, (LPARAM)new std::wstring(full));
+                        auto* s = new std::wstring(full);
+                        if (!g_wnd || !PostMessageW(g_wnd, WM_IL_DOWN, 0, (LPARAM)s)) delete s;  // sem a ilha: não vaza
                     }).detach();
                 }
             }
