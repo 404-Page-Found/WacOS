@@ -2430,6 +2430,13 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
                 if (!(wp->flags & SWP_NOZORDER)) KeepAbove(in);
                 return r;
             }
+            // barra própria só mudando de ordem (cada troca de foco): a faixa é filha e já veio junto. Repintar aqui e
+            // de novo no WM_NCACTIVATE custava ~14 ms na thread do app a cada clique na janela
+            if (in->custom && in->filho && (wp->flags & SWP_NOSIZE) && !dx && !dy &&
+                !(wp->flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW | SWP_FRAMECHANGED)) && IsWindowVisible(in->overlay)) {
+                if (!(wp->flags & SWP_NOZORDER)) { UpdateShadow(in); KeepAbove(in); }
+                return r;
+            }
         }
         ApplyRegion(in); PlaceOverlay(in); UpdateShadow(in);
         if (!(((WINDOWPOS*)l)->flags & SWP_NOZORDER)) KeepAbove(in);
@@ -2462,7 +2469,10 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_SIZE: {
         LRESULT r = DefSubclassProc(h, m, w, l);
         if (w == SIZE_MAXIMIZED && g_msgZoom) PostMessageW(h, g_msgZoom, 1, 0);  // depois desta mensagem: vira "ampliar"
-        if (in->custom) in->layoutAt = 0;  // a barra do app se rearruma no tamanho novo: mede de novo
+        if (in->custom) {
+            in->layoutAt = 0;  // a barra do app se rearruma no tamanho novo: mede de novo
+            return r;          // faixa e sombra: o WM_WINDOWPOSCHANGED, que chama este, já refaz (eram duas vezes por passo)
+        }
         ApplyRegion(in);
         PlaceOverlay(in);
         UpdateShadow(in);

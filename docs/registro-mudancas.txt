@@ -1217,3 +1217,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Animações: src\shell\ui.cpp, um quadro por vez na fila (o mouse e o teclado não ficam atrás dos quadros a 174 Hz); Quick Look, Time Machine e a prévia do encaixe saíram do timer de 15,6 ms para o relógio da tela.
   Conferido instalado: 200 s de caça nos apps reais com 0 paradas (disco calmo nesse período); Spotlight, abrir tarefa, lista da bandeja. NÃO conferido na tela: Quick Look, Time Machine, prévia do encaixe; taxa de quadros não medida.
   DESFAZER: reverter o commit.
+
+[2026-11-22 17:51, hora do PC] Barra própria: sem trabalho em dobro ao trocar o foco e redimensionar.
+  - src\janelas\macjanela.cpp: só mudar de ordem não repinta a faixa; no tamanho, faixa e sombra uma vez por passo. Electron de teste: mover 0,7 ms, redimensionar 8,6, foco 10,2 (mediana); sem a barra 0,4 / 1,3 / 1,8. Cantos: 0 pixels com cor velha nas sete fases.
+  DESFAZER: reverter o commit.
