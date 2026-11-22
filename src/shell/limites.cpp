@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+#include <map>
 #include <thread>
 #include <mutex>
 
@@ -163,4 +164,30 @@ void limites::Stop() {
     if (g_show) { UnhookWinEvent(g_show); g_show = nullptr; }
     if (g_recheckTimer) { KillTimer(nullptr, g_recheckTimer); g_recheckTimer = 0; }
     g_rechecks.clear();
+}
+
+// Maximizada por cima da barra de menus e do Dock (issue #24, 21/11/2026): alguns apps calculam sozinhos o tamanho de
+// maximizada (o Bloco de Notas novo, apps WinUI de barra própria) e ocupam o monitor inteiro, sem olhar a área de
+// trabalho do Shell: o conteúdo de cima e de baixo ficava escondido atrás da barra e do Dock. A janela volta para a
+// área de trabalho, com as bordas invisíveis dela para fora (como uma maximizada comum). Só janelas com barra de título
+// (tela cheia de jogo/vídeo não tem) e no máximo 3 vezes por janela em 10 s, para não brigar com um app que insista.
+void limites::Maximizada(HWND h) {
+    if (!h || !IsWindowVisible(h) || !IsZoomed(h) || IsIconic(h) || apps::IsShellWindow(h)) return;
+    if ((GetWindowLongW(h, GWL_STYLE) & WS_CAPTION) != WS_CAPTION || GetPropW(h, L"MacJanela")) return;  // a da DLL usa o ampliar
+    HMONITOR hm = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+    RECT wa = shell::WorkAreaFor(hm), wr, fb;
+    if (!GetWindowRect(h, &wr)) return;
+    if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb)))) fb = wr;
+    if (fb.top >= wa.top - 1 && fb.bottom <= wa.bottom + 1) return;  // dentro da área: nada a fazer
+    static std::map<HWND, std::pair<ULONGLONG, int>> vezes;
+    ULONGLONG agora = GetTickCount64();
+    auto& v = vezes[h];
+    if (agora - v.first > 10000) v = { agora, 0 };
+    if (++v.second > 3) return;
+    if (vezes.size() > 64) vezes.clear();
+    int dl = fb.left - wr.left, dt = fb.top - wr.top, dr = wr.right - fb.right, db = wr.bottom - fb.bottom;
+    SetWindowPos(h, nullptr, wa.left - dl, wa.top - dt, (wa.right - wa.left) + dl + dr, (wa.bottom - wa.top) + dt + db,
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    wchar_t c[64] = {}; GetClassNameW(h, c, 64);
+    Log(L"limites: maximizada '%ls' por cima da barra/do Dock: volta para a área de trabalho", c);
 }

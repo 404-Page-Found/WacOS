@@ -298,6 +298,7 @@ bool Napping(DWORD pid);
 namespace limites {  // limites.cpp: janelas voltam para dentro da área (não cruzam a barra de menus nem o Dock)
 void Start();
 void Stop();
+void Maximizada(HWND h);  // a janela da frente mudou de lugar: maximizada por cima da barra/do Dock volta para a área
 }
 namespace pastas {  // pastas.cpp: janela de pasta do Explorador (Chrome "Mostrar na pasta", explorer /select) vira o Finder
 void Start();

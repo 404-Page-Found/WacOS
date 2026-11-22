@@ -660,6 +660,8 @@ static void CheckFullscreen() {
 }
 
 static void CALLBACK OnWinEvent(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
+    // maximizada por cima da barra/do Dock (issue #24): qualquer janela de topo (a conferência é barata e sai cedo)
+    if (ev == EVENT_OBJECT_LOCATIONCHANGE && obj == OBJID_WINDOW && !shell::nativo && h && GetAncestor(h, GA_ROOT) == h) limites::Maximizada(h);
     if (ev == EVENT_OBJECT_LOCATIONCHANGE && (obj != OBJID_WINDOW || h != GetForegroundWindow())) return;
     if (ev == EVENT_SYSTEM_FOREGROUND) { revelar::Foreground(h); jogo::Foreground(h); }
     CheckFullscreen();

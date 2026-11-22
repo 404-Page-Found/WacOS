@@ -1079,3 +1079,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Corrigido: src\shell\ilha.cpp: o caminho do download novo (new std::wstring) vazava se a janela da ilha já tivesse fechado (PostMessage falhava); agora é apagado nesse caso.
   O trabalho da barra própria (src\janelas\macjanela.cpp, outra sessão) ficou de fora da varredura.
   Compilado e instalado o Shell. DESFAZER: reverter o commit.
+
+[2026-11-21 22:53] Issue #24 ("application size glitch when maximizing", por causa do Dock).
+  Reproduzido: o Bloco de Notas novo (barra própria com abas, sem a DLL, estilo sem borda de redimensionar nem maximizar) maximizado ocupava o monitor inteiro (0,0-3440,1440), por baixo da barra de menus e do Dock; a área de trabalho é 0,30-3440,1342. Alguns apps calculam sozinhos o tamanho de maximizada sem olhar a área de trabalho. O Paint (com a barra do Mac) ficava certo (a DLL usa o ampliar).
+  src\shell\limites.cpp (limites::Maximizada) e main.cpp (OnWinEvent, EVENT_OBJECT_LOCATIONCHANGE de janelas de topo): janela maximizada com barra de título, sem a DLL, que passa da área de trabalho volta para ela, com as bordas invisíveis para fora; no máximo 3 vezes por janela em 10 s.
+  Conferido: Bloco de Notas maximizado ficou em 0,30-3440,1342 (log "limites: maximizada 'Notepad'..."). Compilado e instalado o Shell.
+  DESFAZER: reverter o commit.
