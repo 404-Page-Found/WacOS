@@ -3,6 +3,7 @@
 // Controle e relógio. Ver docs/dock-e-barra-de-menus.md.
 #include "shell.h"
 #include "../comum/simbolos.h"
+static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == L"macstudio" ? L"pack:macstudio" : L"sym:pc"; }
 #include "../menu/context_menu.h"
 #include <shellapi.h>
 #include <dwmapi.h>
@@ -1126,11 +1127,12 @@ void Run(int id, App* app) {
     case 102: Open(L"ms-windows-store:"); break;
     case 103: shell::OpenForceQuit(false); break;
     case 104: SetSuspendState(FALSE, FALSE, FALSE); break;
-    // como no Mac: alerta com o ícone do computador, Cancelar | Reiniciar/Desligar (antes era a caixa do Windows)
-    case 105: alertas::Confirm(Tr(L"Tem certeza de que deseja reiniciar o computador agora?"), L"", Tr(L"Reiniciar"), [] { Shutdown(EWX_REBOOT); }, L"pack:macstudio"); break;
-    case 106: alertas::Confirm(Tr(L"Tem certeza de que deseja desligar o computador agora?"), L"", Tr(L"Desligar"), [] { Shutdown(EWX_POWEROFF); }, L"pack:macstudio"); break;
+    // como no Mac: alerta com o ícone do computador, Cancelar | Reiniciar/Desligar (antes era a caixa do Windows). O ícone é
+    // o mesmo do Sobre Este Mac: o computador em alumínio (modo "este PC", o padrão) ou o Mac Studio
+    case 105: alertas::Confirm(Tr(L"Tem certeza de que deseja reiniciar o computador agora?"), L"", Tr(L"Reiniciar"), [] { Shutdown(EWX_REBOOT); }, IconePC()); break;
+    case 106: alertas::Confirm(Tr(L"Tem certeza de que deseja desligar o computador agora?"), L"", Tr(L"Desligar"), [] { Shutdown(EWX_POWEROFF); }, IconePC()); break;
     case 107: bloqueio::Lock(); break;  // a nossa tela de bloqueio (o LockWorkStation fica desligado pela política enquanto o Shell roda: não fazia nada, issue #8)
-    case 108: alertas::Confirm(Tr(L"Tem certeza de que deseja encerrar todos os aplicativos e sair agora?"), L"", Tr(L"Encerrar Sessão"), [] { ExitWindowsEx(EWX_LOGOFF, 0); }, L"pack:macstudio"); break;
+    case 108: alertas::Confirm(Tr(L"Tem certeza de que deseja encerrar todos os aplicativos e sair agora?"), L"", Tr(L"Encerrar Sessão"), [] { ExitWindowsEx(EWX_LOGOFF, 0); }, IconePC()); break;
     case 109: shell::Quit(L"menu do logo"); break;
     case 200: if (app && !app->exe.empty()) ShellExecuteW(nullptr, L"properties", app->exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL); break;
     case 201: if (app) apps::Hide(*app); break;

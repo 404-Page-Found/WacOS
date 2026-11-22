@@ -1085,3 +1085,29 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   src\shell\limites.cpp (limites::Maximizada) e main.cpp (OnWinEvent, EVENT_OBJECT_LOCATIONCHANGE de janelas de topo): janela maximizada com barra de título, sem a DLL, que passa da área de trabalho volta para ela, com as bordas invisíveis para fora; no máximo 3 vezes por janela em 10 s.
   Conferido: Bloco de Notas maximizado ficou em 0,30-3440,1342 (log "limites: maximizada 'Notepad'..."). Compilado e instalado o Shell.
   DESFAZER: reverter o commit.
+
+[2026-11-22 05:45] Issue #25 (brilho da Central de Controle não funciona).
+  O brilho só ia por DDC/CI (monitor externo); a tela embutida de notebook não fala DDC/CI e o controle ficava parado.
+  src\shell\central.cpp: sem DDC/CI, lê e grava pelo WMI (root\WMI: WmiMonitorBrightness e WmiMonitorBrightnessMethods.WmiSetBrightness), o mesmo do controle de brilho do Windows, sem administrador. A thread de gravação (BrightWorker) segue a mesma.
+  Conferido: compila; neste PC (monitor sem tela embutida) a leitura WMI não acha nada e fica como antes. Não testado num notebook.
+  DESFAZER: reverter o commit.
+
+[2026-11-22 05:45] Issue #15 de novo (Photoshop, Illustrator, Figma salvam no lugar errado), reproduzido com o Photoshop 2026 deste PC.
+  Causas achadas (src\shell\dialogs.cpp, troca do Abrir/Salvar por fora):
+   1. Depois de trocar de pasta a janela original do Photoshop fica ocupada; as mensagens com 300 ms de espera desistiam em silêncio: o nome escolhido não entrava no campo e o OK ia mesmo assim (o arquivo saía com o nome original, "teste-wacos.psd já existe" no teste). Agora Responde() espera a janela ficar livre, PoeTexto() escreve e confere (até 5 vezes) e as esperas são de segundos.
+   2. Pastas especiais (Mesa, Downloads, Documentos, Bibliotecas) aparecem na barra de endereço pelo nome ("Address: Área de Trabalho"), não pelo caminho: a pasta atual saía vazia, o Finder abria em Documentos em vez de onde o app estava e a entrada na pasta escolhida não se confirmava. KnownFolderByName() resolve pelo nome (o da pasta conhecida, o traduzido da própria pasta e o do disco; com o mesmo nome em duas, fica a do usuário).
+   3. Escolher pasta (Illustrator Exportar para Telas, Figma exportar várias): o "confirma a pasta atual" ia depois de 400 ms fixos; agora só quando a original está mesmo na pasta escolhida (ou depois de ~2,5 s).
+  Conferido no Photoshop (Salvar Como e Folder.selectDialog, resultado escolhido gravado e o Finder fechado com código 0): pasta comum e Mesa no OneDrive com nome novo saem certos em ~1 s; a janela de pasta devolve a pasta escolhida. Arquivos de teste apagados. (O Photoshop deste PC cai sozinho às vezes: estouro de pilha numa thread de rede dele, winhttp, sem nada do WacOS na pilha.)
+  DESFAZER: reverter o commit.
+
+[2026-11-22 05:45] Issue #24, ajuste: limites::Maximizada brigava 3 vezes com o Photoshop a cada maximizar (ele maximiza com a borda para fora, sem moldura do DWM, e volta). Agora até 3 correções por maximização, mas para quando a janela volta exatamente para onde estava antes da correção ("insistiu"). Bloco de Notas: 2 correções, fica em 0,30-3440,1342; Photoshop: 1 correção e fica como quer.
+  DESFAZER: reverter o commit.
+
+[2026-11-22 05:45] Issue #8 (comentário novo do carlosjrrr):
+  - Gênio ao restaurar pela Dock maior que a janela e "salto para dentro" no fim: src\shell\genio.cpp lembra (g_lembradas) onde a janela estava de verdade ao minimizar e volta para lá enquanto a posição normal do Windows for a mesma (encaixada/ajustada, a posição normal é a de antes, maior). Log "gênio: volta para onde a janela estava". Não testado com clique na Dock (sem SendInput).
+  - Quick Look com rolagem no texto: src\shell\quicklook.cpp (roda, setas, Page Up/Down, Home/End; barrinha fina; lê até 1 MB) e src\finder\main.cpp (painel dos outros temas: roda, até 20000 linhas). Conferido com foto só do painel: rola e a barrinha desce.
+  - Central de Notificações: o título "Central de Notificações" e os avisos soltos eram sempre brancos e sumiam sobre janela clara; MedeFundo() olha o topo da coluna antes de aparecer e, claro (> 0,62), escreve escuro. Log da medida.
+  - Alerta de Desligar/Reiniciar/Encerrar Sessão do menu da maçã: usava sempre a foto do Mac Studio; agora o mesmo ícone do Sobre Este Mac (o computador em alumínio no modo "este PC", sym:pc em alertas.cpp). O lugar do ícone (em cima à esquerda) continua o do alerta do macOS 26/27 medido.
+  - Apps lembram lugar e tamanho: src\comum\app2d.h (CreateMain) grava ao fechar em %APPDATA%\Shell\janela-<classe>.txt e restaura ao abrir (maximizada também), se ainda cair num monitor. Vale para Calendário, Clima, Contatos, Fotos, Lembretes, Música, Relógio, TextEdit, Time Machine e Forçar Encerrar. Conferido no Calendário: mudado para 300,200 1500x900, fechado e reaberto no mesmo lugar.
+  Compilados e instalados Shell, Finder e os apps.
+  DESFAZER: reverter o commit.

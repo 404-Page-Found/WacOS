@@ -8,6 +8,7 @@
 #include <cmath>
 #include <vector>
 #include <map>
+#include <set>
 #include <thread>
 #include <mutex>
 
@@ -172,19 +173,30 @@ void limites::Stop() {
 // área de trabalho, com as bordas invisíveis dela para fora (como uma maximizada comum). Só janelas com barra de título
 // (tela cheia de jogo/vídeo não tem) e no máximo 3 vezes por janela em 10 s, para não brigar com um app que insista.
 void limites::Maximizada(HWND h) {
-    if (!h || !IsWindowVisible(h) || !IsZoomed(h) || IsIconic(h) || apps::IsShellWindow(h)) return;
+    // Até 3 vezes a cada vez que ela é maximizada (o Bloco de Notas refaz o tamanho depois da primeira e só a segunda
+    // acerta). Quem volta exatamente para onde estava antes da correção insiste no lugar dele (o Photoshop maximiza com a
+    // borda de redimensionar para fora, sem moldura do DWM): fica como quer, sem briga.
+    static std::set<HWND> feitas;
+    static std::map<HWND, std::pair<RECT, int>> antes;  // onde estava antes da última correção, e quantas foram
+    if (!h) return;
+    if (!IsZoomed(h) || IsIconic(h)) { feitas.erase(h); antes.erase(h); return; }
+    if (!IsWindowVisible(h) || apps::IsShellWindow(h) || feitas.count(h)) return;
     if ((GetWindowLongW(h, GWL_STYLE) & WS_CAPTION) != WS_CAPTION || GetPropW(h, L"MacJanela")) return;  // a da DLL usa o ampliar
     HMONITOR hm = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
     RECT wa = shell::WorkAreaFor(hm), wr, fb;
     if (!GetWindowRect(h, &wr)) return;
     if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb)))) fb = wr;
     if (fb.top >= wa.top - 1 && fb.bottom <= wa.bottom + 1) return;  // dentro da área: nada a fazer
-    static std::map<HWND, std::pair<ULONGLONG, int>> vezes;
-    ULONGLONG agora = GetTickCount64();
-    auto& v = vezes[h];
-    if (agora - v.first > 10000) v = { agora, 0 };
-    if (++v.second > 3) return;
-    if (vezes.size() > 64) vezes.clear();
+    if (feitas.size() > 64) feitas.clear();
+    if (antes.size() > 64) antes.clear();
+    auto& a = antes[h];
+    if (a.second >= 3 || (a.second > 0 && EqualRect(&a.first, &wr))) {
+        feitas.insert(h);
+        wchar_t c[64] = {}; GetClassNameW(h, c, 64);
+        Log(L"limites: maximizada '%ls' fica onde o programa quer (insistiu)", c);
+        return;
+    }
+    a.first = wr; a.second++;
     int dl = fb.left - wr.left, dt = fb.top - wr.top, dr = wr.right - fb.right, db = wr.bottom - fb.bottom;
     SetWindowPos(h, nullptr, wa.left - dl, wa.top - dt, (wa.right - wa.left) + dl + dr, (wa.bottom - wa.top) + dt + db,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);

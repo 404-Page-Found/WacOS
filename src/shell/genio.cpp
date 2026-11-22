@@ -553,6 +553,13 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 // retângulo visível da janela na tela, mesmo minimizada (posição normal ou maximizada)
+// Onde a janela estava de verdade ao minimizar. Encaixada (meia tela, cantos) ou ajustada pelo Shell, a posição "normal"
+// do Windows é a de antes do encaixe, maior: ao restaurar pela Dock o gênio crescia até esse tamanho e, no fim, a janela
+// saltava para dentro, para o tamanho de verdade (issue #8, carlosjrrr, 22/11/2026; mais visível no Firefox). Vale enquanto
+// a posição normal for a mesma de quando ela minimizou.
+struct Lembrada { RECT normal, vis, src; int inset; };
+std::map<HWND, Lembrada> g_lembradas;
+
 bool WindowArea(HWND h, RECT& vis, RECT& src) {
     WINDOWPLACEMENT wp{ sizeof(wp) };
     if (!GetWindowPlacement(h, &wp)) return false;
@@ -580,6 +587,16 @@ bool WindowArea(HWND h, RECT& vis, RECT& src) {
         vis = fb;
         inset = fb.left - wr.left;
         src = { inset, fb.top - wr.top, (wr.right - wr.left) - (wr.right - fb.right), (wr.bottom - wr.top) - (wr.bottom - fb.bottom) };
+        if (g_lembradas.size() > 128) g_lembradas.clear();
+        g_lembradas[h] = { wp.rcNormalPosition, vis, src, inset };
+    } else if (!maxed && IsIconic(h)) {
+        auto it = g_lembradas.find(h);
+        if (it != g_lembradas.end() && EqualRect(&it->second.normal, &wp.rcNormalPosition)) {
+            if (!EqualRect(&vis, &it->second.vis))
+                Log(L"gênio: volta para onde a janela estava (%d,%d %dx%d), não para a posição normal (%d,%d %dx%d)", it->second.vis.left, it->second.vis.top,
+                    it->second.vis.right - it->second.vis.left, it->second.vis.bottom - it->second.vis.top, vis.left, vis.top, vis.right - vis.left, vis.bottom - vis.top);
+            vis = it->second.vis; src = it->second.src; inset = it->second.inset;
+        }
     }
     g_a.inset = inset; g_a.maxed = maxed;
     return vis.right > vis.left && vis.bottom > vis.top;

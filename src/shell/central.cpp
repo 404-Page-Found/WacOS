@@ -40,6 +40,8 @@
 
 #pragma comment(lib, "windowsapp.lib")
 #pragma comment(lib, "dxva2.lib")
+#include <wbemidl.h>
+#pragma comment(lib, "wbemuuid.lib")
 
 namespace wdr = winrt::Windows::Devices::Radios;
 namespace wmc = winrt::Windows::Media::Control;
@@ -492,16 +494,83 @@ template <class F> void WithMonitor(F f) {
     DestroyPhysicalMonitors(n, pm.data());
 }
 
+// Brilho da tela embutida de notebook (issue #25, 22/11/2026): ela não fala DDC/CI (só monitor externo fala), então o
+// controle ficava parado. O Windows expõe o brilho dela pelo WMI (root\WMI, WmiMonitorBrightness e o método
+// WmiSetBrightness), o mesmo que o controle de brilho do Windows usa; funciona sem administrador.
+static IWbemServices* WmiAbre() {
+    IWbemLocator* loc = nullptr; IWbemServices* sv = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_WbemLocator, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&loc)))) return nullptr;
+    BSTR ns = SysAllocString(L"ROOT\\WMI");
+    HRESULT hr = loc->ConnectServer(ns, nullptr, nullptr, nullptr, 0, nullptr, nullptr, &sv);
+    SysFreeString(ns); loc->Release();
+    if (FAILED(hr) || !sv) return nullptr;
+    CoSetProxyBlanket(sv, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, nullptr, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, nullptr, EOAC_NONE);
+    return sv;
+}
+static IWbemClassObject* WmiPrimeiro(IWbemServices* sv, const wchar_t* consulta) {
+    IEnumWbemClassObject* en = nullptr; IWbemClassObject* o = nullptr; ULONG n = 0;
+    BSTR lang = SysAllocString(L"WQL"), q = SysAllocString(consulta);
+    if (SUCCEEDED(sv->ExecQuery(lang, q, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, nullptr, &en)) && en) {
+        if (en->Next(3000, 1, &o, &n) != S_OK || !n) o = nullptr;
+        en->Release();
+    }
+    SysFreeString(lang); SysFreeString(q);
+    return o;
+}
+static float WmiBrilhoLe(IWbemServices* sv) {  // 0..1, ou -1 se não há tela embutida com brilho
+    float r = -1;
+    if (IWbemClassObject* o = WmiPrimeiro(sv, L"SELECT CurrentBrightness FROM WmiMonitorBrightness WHERE Active=TRUE")) {
+        VARIANT v; VariantInit(&v);
+        if (SUCCEEDED(o->Get(L"CurrentBrightness", 0, &v, nullptr, nullptr)) && SUCCEEDED(VariantChangeType(&v, &v, 0, VT_I4)))
+            r = std::clamp(v.lVal / 100.f, 0.f, 1.f);
+        VariantClear(&v); o->Release();
+    }
+    return r;
+}
+static bool WmiBrilhoGrava(IWbemServices* sv, float f) {
+    bool ok = false;
+    IWbemClassObject* o = WmiPrimeiro(sv, L"SELECT * FROM WmiMonitorBrightnessMethods WHERE Active=TRUE");
+    if (!o) return false;
+    VARIANT path; VariantInit(&path);
+    IWbemClassObject *cls = nullptr, *def = nullptr, *in = nullptr;
+    BSTR cn = SysAllocString(L"WmiMonitorBrightnessMethods"), mt = SysAllocString(L"WmiSetBrightness");
+    if (SUCCEEDED(o->Get(L"__PATH", 0, &path, nullptr, nullptr)) && path.vt == VT_BSTR &&
+        SUCCEEDED(sv->GetObject(cn, 0, nullptr, &cls, nullptr)) && cls &&
+        SUCCEEDED(cls->GetMethod(mt, 0, &def, nullptr)) && def && SUCCEEDED(def->SpawnInstance(0, &in)) && in) {
+        VARIANT t; VariantInit(&t); t.vt = VT_I4; t.lVal = 0;
+        VARIANT b; VariantInit(&b); b.vt = VT_UI1; b.bVal = (BYTE)std::lround(std::clamp(f, 0.f, 1.f) * 100);
+        in->Put(L"Timeout", 0, &t, 0);
+        in->Put(L"Brightness", 0, &b, 0);
+        ok = SUCCEEDED(sv->ExecMethod(path.bstrVal, mt, 0, nullptr, in, nullptr, nullptr));
+    }
+    if (in) in->Release();
+    if (def) def->Release();
+    if (cls) cls->Release();
+    SysFreeString(cn); SysFreeString(mt); VariantClear(&path); o->Release();
+    return ok;
+}
+
 // brilho (DDC/CI é lento): gravado numa thread que sempre usa o último valor pedido
 std::atomic<float> g_brightWant{ -1 };
 std::atomic<bool> g_brightBusy{ false };
+std::atomic<bool> g_brightWmi{ false };  // a tela é de notebook: o brilho vai pelo WMI
 void BrightWorker() {
+    HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    IWbemServices* sv = nullptr;
     float v;
-    while ((v = g_brightWant.exchange(-1)) >= 0)
+    while ((v = g_brightWant.exchange(-1)) >= 0) {
+        if (g_brightWmi) {
+            if (!sv) sv = WmiAbre();
+            if (sv) WmiBrilhoGrava(sv, v);
+            continue;
+        }
         WithMonitor([&](HANDLE h) {
             DWORD mn = 0, cur = 0, mx = 100;
             if (GetMonitorBrightness(h, &mn, &cur, &mx)) SetMonitorBrightness(h, mn + (DWORD)std::lround(v * (mx - mn)));
         });
+    }
+    if (sv) sv->Release();
+    if (SUCCEEDED(ci)) CoUninitialize();
     g_brightBusy = false;
 }
 
@@ -2199,6 +2268,12 @@ void central::Toggle() {
     std::thread([] {
         float b = -1;
         WithMonitor([&](HANDLE h) { DWORD mn = 0, cur = 0, mx = 100; if (GetMonitorBrightness(h, &mn, &cur, &mx) && mx > mn) b = (float)(cur - mn) / (mx - mn); });
+        if (b < 0) {  // sem DDC/CI: tela de notebook (WMI)
+            HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            if (IWbemServices* sv = WmiAbre()) { b = WmiBrilhoLe(sv); sv->Release(); }
+            if (SUCCEEDED(ci)) CoUninitialize();
+            g_brightWmi = b >= 0;
+        } else g_brightWmi = false;
         { std::lock_guard<std::mutex> l(g_mx); g_st.bright = b; }
         if (g_wnd) PostMessageW(g_wnd, WM_CC_UPDATE, 0, 0);
     }).detach();

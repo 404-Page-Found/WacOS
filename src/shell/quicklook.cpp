@@ -57,6 +57,44 @@ float g_zoom = 1, g_panX, g_panY;
 bool g_panning; POINT g_panFrom; float g_panX0, g_panY0;
 D2D1_RECT_F g_bodyR;                 // onde a foto foi desenhada por último (DIP da janela)
 bool g_bodyFill;                     // a foto preenche a moldura (Golden Gate fora da tela cheia) ou cabe nela
+// Texto com rolagem (issue #8, carlosjrrr, 22/11/2026: antes só a primeira tela do arquivo aparecia e a roda não
+// fazia nada): a roda, as setas e Page Up/Down rolam, com a barrinha fina do Mac à direita enquanto há mais texto.
+float g_textY;                       // quanto o texto subiu (DIP)
+IDWriteTextLayout* g_textLay; float g_textLayW, g_textH;
+void TextoSolta() { if (g_textLay) { g_textLay->Release(); g_textLay = nullptr; } g_textY = 0; g_textH = 0; }
+void DrawTexto(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, D2D1_RECT_F body, float px, float py, bool dark) {
+    float w = std::max(10.f, body.right - body.left - 2 * px), vis = body.bottom - body.top;
+    if (!g_textLay || std::fabs(g_textLayW - w) > 0.5f) {
+        if (g_textLay) { g_textLay->Release(); g_textLay = nullptr; }
+        ui::dw->CreateTextLayout(g_text.c_str(), (UINT32)std::min<size_t>(g_text.size(), 300000), g_tfText, w, 1e7f, &g_textLay);
+        g_textLayW = w; g_textH = 0;
+        if (g_textLay) {  // o formato pode vir centrado: aqui é do topo, à esquerda, quebrando nas palavras
+            g_textLay->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+            g_textLay->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            g_textLay->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        }
+        DWRITE_TEXT_METRICS tm{};
+        if (g_textLay && SUCCEEDED(g_textLay->GetMetrics(&tm))) g_textH = tm.height;
+    }
+    if (!g_textLay) return;
+    float maxY = std::max(0.f, g_textH + 2 * py - vis);
+    g_textY = std::clamp(g_textY, 0.f, maxY);
+    rt->DrawTextLayout({ body.left + px, body.top + py - g_textY }, g_textLay, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if (maxY > 0) {  // a barrinha de rolagem
+        float tot = g_textH + 2 * py, th = std::max(28.f, vis * vis / tot), ty = body.top + 3 + (vis - 6 - th) * (g_textY / maxY);
+        D2D1_COLOR_F old = br->GetColor();
+        br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.35f) : D2D1::ColorF(0, 0, 0, 0.30f));
+        rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(body.right - 8, ty, body.right - 3.5f, ty + th), 2.25f, 2.25f), br);
+        br->SetColor(old);
+    }
+}
+bool TextoRola(float dy) {  // true se andou
+    if (g_text.empty()) return false;
+    float y0 = g_textY;
+    g_textY = std::max(0.f, g_textY + dy);  // o teto é preso no desenho (depende do tamanho do painel)
+    return g_textY != y0 || dy > 0;
+}
+
 // o retângulo da foto no corpo, com o zoom e o deslocamento (que fica preso: a foto não sai da moldura)
 D2D1_RECT_F PhotoRect(D2D1_RECT_F body, UINT iw, UINT ih, bool fill) {
     float bw = body.right - body.left, bh = body.bottom - body.top;
@@ -202,9 +240,10 @@ bool IsTextFile(const std::wstring& p) {
 std::wstring ReadText(const std::wstring& p) {
     HANDLE f = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (f == INVALID_HANDLE_VALUE) return L"";
-    std::vector<char> b(64 * 1024);
+    std::vector<char> b(1024 * 1024);  // com rolagem dá para ver o arquivo inteiro (até 1 MB)
     DWORD n = 0; ReadFile(f, b.data(), (DWORD)b.size(), &n, nullptr);
     CloseHandle(f);
+    if (n == b.size()) { int k = 0; while (n > 0 && k < 4 && ((BYTE)b[n - 1] & 0x80)) { n--; k++; } }  // cortado no meio de uma letra UTF-8
     b.resize(n);
     if (n >= 2 && (BYTE)b[0] == 0xFF && (BYTE)b[1] == 0xFE) return std::wstring((wchar_t*)(b.data() + 2), (n - 2) / 2);
     int off = n >= 3 && (BYTE)b[0] == 0xEF && (BYTE)b[1] == 0xBB && (BYTE)b[2] == 0xBF ? 3 : 0;
@@ -641,7 +680,7 @@ void DrawGolden(ID2D1RenderTarget* rt, float W, float H, bool dark, bool glass) 
         br->SetColor(dark ? D2D1::ColorF(0.1f, 0.1f, 0.1f) : D2D1::ColorF(1, 1, 1));
         rt->FillRectangle(body, br);
         br->SetColor(text);
-        rt->DrawTextW(g_text.c_str(), (UINT32)std::min<size_t>(g_text.size(), 20000), g_tfText, D2D1::RectF(body.left + 18, body.top + 14, body.right - 18, body.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        DrawTexto(rt, br, body, 18, 14, dark);
     } else if (g_bmp) {  // a foto preenche a moldura
         // tela cheia: a foto inteira (o vidro aparece nas sobras); normal: o painel já tem a proporção da foto.
         // Com zoom, amplia em volta do ponteiro e o arrasto move (PhotoRect)
@@ -837,7 +876,7 @@ void Paint() {
             br->SetColor(D2D1::ColorF(1, 1, 1, 1));
             rt->FillRectangle(body, br);
             br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
-            rt->DrawTextW(g_text.c_str(), (UINT32)std::min<size_t>(g_text.size(), 20000), g_tfText, D2D1::RectF(body.left + 14, body.top + 10, body.right - 14, body.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            DrawTexto(rt, br, body, 14, 10, false);
         } else {
             if (g_bmpRt != rt && g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
             if (!g_bmp && !g_px.empty()) { g_bmp = ui::Bitmap(rt, g_iw, g_ih, g_px); g_bmpRt = rt; }
@@ -886,7 +925,7 @@ void Paint() {
     rt->PushAxisAlignedClip(body, D2D1_ANTIALIAS_MODE_ALIASED);
     if (!g_text.empty()) {
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.88f) : D2D1::ColorF(0, 0, 0, 0.88f));
-        rt->DrawTextW(g_text.c_str(), (UINT32)std::min<size_t>(g_text.size(), 20000), g_tfText, D2D1::RectF(body.left + 18, body.top + 14, body.right - 18, body.bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        DrawTexto(rt, br, body, 18, 14, dark);
     } else {
         if (g_bmpRt != rt && g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
         if (!g_bmp && !g_px.empty()) { g_bmp = ui::Bitmap(rt, g_iw, g_ih, g_px); g_bmpRt = rt; }
@@ -938,6 +977,7 @@ void Load(const std::wstring& path) {
     g_name = path.substr(path.find_last_of(L"\\/") + 1);
     g_app = DefaultAppName(path);
     g_text.clear(); g_px.clear(); g_iw = g_ih = 0;
+    TextoSolta();
     if (g_bmp) { g_bmp->Release(); g_bmp = nullptr; }
     int gen = ++g_gen;
     LoadInfo(path);
@@ -1171,6 +1211,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return HTCLIENT;
     }
     case WM_MOUSEWHEEL: {  // zoom da foto em volta do ponteiro (issue #8)
+        if (!g_text.empty()) { TextoRola(-GET_WHEEL_DELTA_WPARAM(w) * 0.6f); dica::Esconde(); Paint(); return 0; }  // texto: rola
         if (!Zoomable()) return 0;
         POINT p{ (short)LOWORD(l), (short)HIWORD(l) }; ScreenToClient(h, &p);
         float sc = Sc(), x = p.x / sc, y = p.y / sc;
@@ -1272,6 +1313,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (w == VK_ESCAPE && g_full) { g_full = false; ZoomReset(); Place(); Paint(); SyncBack(); return 0; }
         if (w == VK_ESCAPE || w == VK_SPACE) { quicklook::Close(); return 0; }
         if (w == VK_RETURN) { std::wstring p = g_path; quicklook::Close(); OpenPath(p); return 0; }
+        if (!g_text.empty()) {  // texto: setas, Page Up/Down, Home/End rolam
+            RECT cr; GetClientRect(h, &cr);
+            float pg = std::max(60.f, cr.bottom / Sc() - BAR - 40);
+            float dy = w == VK_DOWN ? 40.f : w == VK_UP ? -40.f : w == VK_NEXT ? pg : w == VK_PRIOR ? -pg : w == VK_END ? 1e7f : w == VK_HOME ? -1e7f : 0.f;
+            if (dy != 0) { TextoRola(dy); Paint(); }
+        }
         return 0;
     case WM_MOVE: Paint(); return 0;
     case WM_WINDOWPOSCHANGED: SyncBack(); break;

@@ -3550,6 +3550,9 @@ static bool g_ql;
 static DWORD g_qlOpenedAt;   // para a animação de abrir (zoom + fade)
 static std::wstring g_qlTextPath;
 static std::vector<std::wstring> g_qlLines;
+// texto com rolagem (issue #8, 22/11/2026): a roda rola a folha; antes só cabia a primeira tela (e no máximo 400 linhas)
+static float g_qlTextScroll, g_qlTextMax;
+static bool g_qlTextShown;  // o Quick Look desenhou uma folha de texto no último quadro
 static IDWriteTextFormat *g_tfMono, *g_tfQlTitle, *g_tfQlButton, *g_tfQlGlyph, *g_tfQlTime, *g_tfQlArtist;
 const DWORD QL_ANIM_MS = 240, QL_CLOSE_MS = 190;
 // Quick Look sai do ícone do arquivo e volta para ele ao fechar (como no Mac)
@@ -3571,12 +3574,14 @@ static void LoadQlText(const std::wstring& path) {
     if (path == g_qlTextPath) return;
     g_qlTextPath = path;
     g_qlLines.clear();
+    g_qlTextScroll = 0;
     HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (h == INVALID_HANDLE_VALUE) return;
-    std::vector<char> buf(65536);
+    std::vector<char> buf(1024 * 1024);
     DWORD n = 0;
     ReadFile(h, buf.data(), (DWORD)buf.size(), &n, nullptr);
     CloseHandle(h);
+    if (n == buf.size()) { int k = 0; while (n > 0 && k < 4 && ((BYTE)buf[n - 1] & 0x80)) { n--; k++; } }  // não corta uma letra UTF-8
     std::wstring text;
     if (n >= 2 && (BYTE)buf[0] == 0xFF && (BYTE)buf[1] == 0xFE) {
         text.assign((const wchar_t*)(buf.data() + 2), (n - 2) / 2);
@@ -3590,11 +3595,35 @@ static void LoadQlText(const std::wstring& path) {
     }
     std::wstring line;
     for (wchar_t c : text) {
-        if (c == L'\n') { g_qlLines.push_back(line); line.clear(); if (g_qlLines.size() >= 400) break; }
+        if (c == L'\n') { g_qlLines.push_back(line); line.clear(); if (g_qlLines.size() >= 20000) break; }
         else if (c == L'\t') line += L"    ";
         else if (c != L'\r') line += c;
     }
-    if (!line.empty() && g_qlLines.size() < 400) g_qlLines.push_back(line);
+    if (!line.empty() && g_qlLines.size() < 20000) g_qlLines.push_back(line);
+}
+
+// as linhas visíveis da folha, a partir da rolagem, e a barrinha fina à direita quando há mais texto
+static void QlTextLines(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F page, float top, float left, bool dark) {
+    const float LH = 17;
+    float vis = page.bottom - page.top;
+    g_qlTextMax = std::max(0.f, g_qlLines.size() * LH + top + 12 - vis);
+    g_qlTextScroll = std::clamp(g_qlTextScroll, 0.f, g_qlTextMax);
+    g_qlTextShown = true;
+    size_t first = (size_t)(g_qlTextScroll / LH);
+    float y = page.top + top - g_qlTextScroll + first * LH;
+    for (size_t i = first; i < g_qlLines.size(); i++) {
+        if (y > page.bottom) break;
+        auto& ln = g_qlLines[i];
+        dc->DrawTextW(ln.c_str(), (UINT32)ln.size(), g_tfMono, D2D1::RectF(page.left + left, y, page.right - 10, y + LH), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        y += LH;
+    }
+    if (g_qlTextMax > 0) {
+        float tot = vis + g_qlTextMax, th = std::max(28.f, vis * vis / tot), ty = page.top + 3 + (vis - 6 - th) * (g_qlTextScroll / g_qlTextMax);
+        D2D1_COLOR_F old = br->GetColor();
+        br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.35f) : D2D1::ColorF(0, 0, 0, 0.30f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(page.right - 12, ty, page.right - 7.5f, ty + th), 2.25f, 2.25f), br);
+        br->SetColor(old);
+    }
 }
 
 static int QlItem() {
@@ -3932,12 +3961,7 @@ static void DrawQuickLookLeopard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* b
         dc->FillRectangle(page, br);
         dc->PushAxisAlignedClip(Inflate(page, -8), D2D1_ANTIALIAS_MODE_ALIASED);
         br->SetColor(D2D1::ColorF(0, 0, 0, 0.9f));
-        float y = page.top + 10;
-        for (auto& ln : g_qlLines) {
-            if (y > page.bottom) break;
-            dc->DrawTextW(ln.c_str(), (UINT32)ln.size(), g_tfMono, D2D1::RectF(page.left + 12, y, page.right - 10, y + 17), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-            y += 17;
-        }
+        QlTextLines(dc, br, page, 10, 12, false);
         dc->PopAxisAlignedClip();
     } else {  // ícone grande e, embaixo, o nome e as informações em branco
         float size = std::min(200.f, (body.bottom - body.top) - 110);
@@ -4010,6 +4034,7 @@ static void DrawQuickLookLeopard(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* b
 }
 
 static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
+    g_qlTextShown = false;  // a folha de texto marca de novo se for desenhada
     int i = QlItem();
     if (i < 0) { g_ql = false; return; }
     const Entry& e = g_items[i];
@@ -4136,12 +4161,7 @@ static void DrawQuickLook(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Solid
         dc->FillRoundedRectangle(D2D1::RoundedRect(page, 6, 6), br);
         dc->PushAxisAlignedClip(Inflate(page, -10), D2D1_ANTIALIAS_MODE_ALIASED);
         br->SetColor(pal.text);
-        float y = page.top + 12;
-        for (auto& ln : g_qlLines) {
-            if (y > page.bottom) break;
-            dc->DrawTextW(ln.c_str(), (UINT32)ln.size(), g_tfMono, D2D1::RectF(page.left + 14, y, page.right - 10, y + 17), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-            y += 17;
-        }
+        QlTextLines(dc, br, page, 12, 14, g_dark);
         dc->PopAxisAlignedClip();
     } else {  // pasta ou arquivo sem prévia: ícone grande e informações
         float size = std::min(200.f, (body.bottom - body.top) - 120);
@@ -6638,6 +6658,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         POINT mp{ GET_X_LPARAM(l), GET_Y_LPARAM(l) };  // em coordenadas de tela
         ScreenToClient(h, &mp);
         if (QlWheel(ToDip(mp.x, mp.y), delta)) return 0;  // foto do Quick Look: zoom
+        if (g_ql && !g_qlClosing && g_qlTextShown) {  // texto do Quick Look: rola a folha
+            g_qlTextScroll = std::clamp(g_qlTextScroll - delta / (float)WHEEL_DELTA * 51.f, 0.f, g_qlTextMax);
+            Invalidate();
+            return 0;
+        }
         if (ToDip(mp.x, mp.y).x < Lay::SIDEBAR_W) {  // sobre a barra lateral: rola só ela
             g_sideScroll = std::clamp(g_sideScroll - delta / (float)WHEEL_DELTA * 52.f, 0.f, SideMaxScroll());
             Invalidate();

@@ -34,10 +34,37 @@ std::map<HWND, DWORD> g_finderTid;
 std::map<HWND, HWND> g_finderWnd;    // ou a janela do Finder reserva que atende
 std::atomic<bool> g_stopping{ false };  // o Shell está saindo: não responde mais nada às originais   // o Finder que atende cada um (para fechar se o Shell sair)
 
+thread_local DWORD g_textMs = 300;  // Finish espera mais: a original pode estar ocupada (abaixo)
 std::wstring Text(HWND h) {
     wchar_t buf[2048] = {};
-    SendMessageTimeoutW(h, WM_GETTEXT, 2048, (LPARAM)buf, SMTO_ABORTIFHUNG, 300, nullptr);
+    SendMessageTimeoutW(h, WM_GETTEXT, 2048, (LPARAM)buf, SMTO_ABORTIFHUNG, g_textMs, nullptr);
     return buf;
+}
+
+// A original responde a mensagens? Depois de trocar de pasta a janela do Photoshop/Illustrator fica alguns segundos
+// ocupada (o programa trabalha a cada troca de pasta); as mensagens com 300 ms de espera desistiam em silêncio: o nome
+// escolhido não entrava no campo, o OK (postado) ia mesmo assim e o arquivo saía com o nome original, ou a janela de
+// escolher pasta confirmava a pasta de antes (issue #15, 22/11/2026). Espera ela ficar livre, até ms.
+bool Responde(HWND dlg, DWORD ms) {
+    ULONGLONG fim = GetTickCount64() + ms;
+    do {
+        DWORD_PTR r = 0;
+        if (SendMessageTimeoutW(dlg, WM_NULL, 0, 0, SMTO_NORMAL, 250, &r)) return true;
+        if (!IsWindow(dlg)) return false;
+        Sleep(50);
+    } while (GetTickCount64() < fim);
+    return false;
+}
+
+// Escreve no campo e confere (até 5 vezes, esperando a janela ficar livre entre elas).
+bool PoeTexto(HWND dlg, HWND edit, const std::wstring& v) {
+    for (int k = 0; k < 5 && IsWindow(edit); k++) {
+        Responde(dlg, 3000);
+        SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)v.c_str(), SMTO_NORMAL, 3000, nullptr);
+        if (Text(edit) == v) return true;
+        Sleep(100);
+    }
+    return false;
 }
 
 // Controle pelo id em qualquer nível. Nas janelas antigas com modelo próprio (GetSaveFileName com
@@ -151,9 +178,68 @@ void CALLBACK VeilTimer(HWND, UINT, UINT_PTR, DWORD) {  // segurança: nada fica
     if (g_veiled.empty()) { KillTimer(nullptr, g_veilTimer); g_veilTimer = 0; }
 }
 
+// Pastas especiais pelo nome que a barra de endereço mostra. Nelas a barra não traz o caminho, e sim o nome
+// ("Address: Desktop", "Endereço: Área de Trabalho", "Bibliotecas\Documentos"): a pasta atual saía vazia, o Finder
+// abria em Documentos em vez de onde o programa estava e a entrada da original na pasta escolhida não se confirmava
+// (issue #15, 22/11/2026). Nome → caminho de todas as pastas conhecidas do Windows que têm caminho, montado uma vez.
+std::wstring KnownFolderByName(const std::wstring& name) {
+    static std::mutex mu;
+    static std::map<std::wstring, std::wstring> byName;
+    static bool built = false;
+    std::lock_guard<std::mutex> lk(mu);
+    if (!built) {
+        built = true;
+        HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        IKnownFolderManager* km = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_KnownFolderManager, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&km))) && km) {
+            KNOWNFOLDERID* ids = nullptr; UINT n = 0;
+            if (SUCCEEDED(km->GetFolderIds(&ids, &n))) {
+                for (UINT i = 0; i < n; i++) {
+                    IKnownFolder* kf = nullptr;
+                    if (FAILED(km->GetFolder(ids[i], &kf)) || !kf) continue;
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(kf->GetPath(0, &path)) && path) {
+                        DWORD a = GetFileAttributesW(path);
+                        if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) {
+                            // os nomes que a barra pode mostrar: o da pasta conhecida ("Desktop"), o da própria pasta
+                            // traduzido ("Área de Trabalho", que a barra usa) e o nome no disco
+                            std::vector<std::wstring> nomes{ PathFindFileNameW(path) };
+                            auto nome = [&](IShellItem* it) {
+                                PWSTR dn = nullptr;
+                                if (it && SUCCEEDED(it->GetDisplayName(SIGDN_NORMALDISPLAY, &dn)) && dn) { nomes.push_back(dn); CoTaskMemFree(dn); }
+                                if (it) it->Release();
+                            };
+                            IShellItem* it = nullptr;
+                            if (SUCCEEDED(kf->GetShellItem(0, IID_PPV_ARGS(&it)))) nome(it);
+                            it = nullptr;
+                            if (SUCCEEDED(SHCreateItemFromParsingName(path, nullptr, IID_PPV_ARGS(&it)))) nome(it);
+                            // o mesmo nome em duas (a Mesa do usuário e a pública): fica a do usuário
+                            static const std::wstring perfil = [] { wchar_t p[MAX_PATH] = {}; GetEnvironmentVariableW(L"USERPROFILE", p, MAX_PATH); return std::wstring(p); }();
+                            auto doUsuario = [&](const std::wstring& p) { return !perfil.empty() && !_wcsnicmp(p.c_str(), perfil.c_str(), perfil.size()); };
+                            for (auto& n : nomes) {
+                                std::wstring k = n; for (auto& ch : k) ch = towlower(ch);
+                                auto [pos, novo] = byName.emplace(k, path);
+                                if (!novo && !doUsuario(pos->second) && doUsuario(path)) pos->second = path;
+                            }
+                        }
+                    }
+                    if (path) CoTaskMemFree(path);
+                    kf->Release();
+                }
+                CoTaskMemFree(ids);
+            }
+            km->Release();
+        }
+        if (SUCCEEDED(ci)) CoUninitialize();
+    }
+    std::wstring k = name; for (auto& ch : k) ch = towlower(ch);
+    auto it = byName.find(k);
+    return it == byName.end() ? L"" : it->second;
+}
+
 // Pasta onde a janela original está: a barra de endereço tem o texto "Endereço: C:\..." / "Address: ...".
 std::wstring CurrentFolder(HWND dlg) {
-    struct C { std::wstring found; } c;
+    struct C { std::wstring found, name; } c;
     EnumChildWindows(dlg, [](HWND w, LPARAM p) -> BOOL {
         wchar_t cls[32]; GetClassNameW(w, cls, 32);
         if (wcscmp(cls, L"ToolbarWindow32")) return TRUE;
@@ -163,9 +249,23 @@ std::wstring CurrentFolder(HWND dlg) {
         std::wstring path = t.substr(colon + 2);
         DWORD a = GetFileAttributesW(path.c_str());
         if (a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY)) { ((C*)p)->found = path; return FALSE; }
+        if (((C*)p)->name.empty() && !path.empty()) ((C*)p)->name = path;  // pasta especial: só o nome
         return TRUE;
     }, (LPARAM)&c);
+    if (c.found.empty() && !c.name.empty()) {
+        std::wstring n = c.name;
+        if (size_t s = n.find_last_of(L'\\'); s != std::wstring::npos) n = n.substr(s + 1);  // "Bibliotecas\Documentos"
+        c.found = KnownFolderByName(n);
+    }
     return c.found;
+}
+
+bool SameFolder(const std::wstring& a, const std::wstring& b) {
+    if (a.empty() || b.empty()) return false;
+    std::wstring x = a, y = b;
+    while (x.size() > 3 && x.back() == L'\\') x.pop_back();
+    while (y.size() > 3 && y.back() == L'\\') y.pop_back();
+    return !_wcsicmp(x.c_str(), y.c_str());
 }
 
 struct Request {
@@ -221,18 +321,20 @@ ULONGLONG g_lastSavedAt = 0;
 void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) {
     if (!IsWindow(r.dlg)) return;  // o programa já fechou a janela
     if (paths.empty()) { PostMessageW(r.dlg, WM_COMMAND, IDCANCEL, 0); return; }
+    g_textMs = 2000;
+    Responde(r.dlg, 10000);
     if (r.mode == 1) { std::lock_guard<std::mutex> lk(g_lastMu); g_lastSaved = paths[0]; g_lastSavedAt = GetTickCount64(); }
     if (HWND combo = TypeCombo(r.dlg); combo && type >= 0 && type != r.type) {
-        SendMessageTimeoutW(combo, CB_SETCURSEL, type, 0, SMTO_ABORTIFHUNG, 300, nullptr);
-        SendMessageTimeoutW(r.dlg, WM_COMMAND, MAKEWPARAM(1136, CBN_SELCHANGE), (LPARAM)combo, SMTO_ABORTIFHUNG, 300, nullptr);
+        SendMessageTimeoutW(combo, CB_SETCURSEL, type, 0, SMTO_NORMAL, 3000, nullptr);
+        SendMessageTimeoutW(r.dlg, WM_COMMAND, MAKEWPARAM(1136, CBN_SELCHANGE), (LPARAM)combo, SMTO_NORMAL, 3000, nullptr);
     }
     HWND edit = NameEdit(r.dlg);
     if (!edit) edit = FolderEdit(r.dlg);
     std::wstring value = paths[0];
     if (paths.size() > 1) {  // vários: entra na pasta e depois lista os nomes entre aspas
         std::wstring dir = paths[0].substr(0, paths[0].find_last_of(L'\\'));
-        SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)dir.c_str(), SMTO_ABORTIFHUNG, 300, nullptr);
-        SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, 0, SMTO_ABORTIFHUNG, 2000, nullptr);
+        PoeTexto(r.dlg, edit, dir);
+        SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, 0, SMTO_NORMAL, 10000, nullptr);
         value.clear();
         for (auto& p : paths) value += L"\"" + std::wstring(PathFindFileNameW(p.c_str())) + L"\" ";
     } else if (r.mode != 2 && edit == NameEdit(r.dlg)) {
@@ -242,34 +344,40 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
         size_t cut = paths[0].find_last_of(L'\\');
         std::wstring dir = cut == std::wstring::npos ? L"" : paths[0].substr(0, cut);
         if (dir.size() == 2) dir += L'\\';
-        if (!dir.empty() && _wcsicmp(CurrentFolder(r.dlg).c_str(), dir.c_str())) {
-            SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)dir.c_str(), SMTO_ABORTIFHUNG, 300, nullptr);
-            SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK), SMTO_ABORTIFHUNG, 2000, nullptr);
+        if (!dir.empty() && !SameFolder(CurrentFolder(r.dlg), dir)) {
+            PoeTexto(r.dlg, edit, dir);
+            SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK), SMTO_NORMAL, 10000, nullptr);
             bool entrou = false;
-            for (int i = 0; i < 30 && IsWindow(r.dlg) && !entrou; i++) { Sleep(40); entrou = !_wcsicmp(CurrentFolder(r.dlg).c_str(), dir.c_str()); }
+            ULONGLONG ate = GetTickCount64() + 10000;  // pasta do OneDrive/rede e programa ocupado podem demorar
+            while (IsWindow(r.dlg) && !entrou && GetTickCount64() < ate) { Sleep(40); if (Responde(r.dlg, 2000)) entrou = SameFolder(CurrentFolder(r.dlg), dir); }
             if (!IsWindow(r.dlg)) return;
             if (entrou) value = PathFindFileNameW(paths[0].c_str());  // sem confirmar a pasta, segue com o caminho inteiro
-            Log(L"  original na pasta escolhida: %ls", entrou ? L"sim" : L"não (vai o caminho inteiro)");
+            Log(L"  original na pasta escolhida: %ls (está em '%ls')", entrou ? L"sim" : L"não (vai o caminho inteiro)", CurrentFolder(r.dlg).c_str());
         }
     }
-    SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)value.c_str(), SMTO_ABORTIFHUNG, 300, nullptr);
+    // a janela pode refazer o campo do nome ao trocar de pasta: o de antes já não vale
+    Responde(r.dlg, 10000);
+    if (HWND e2 = NameEdit(r.dlg); e2 && e2 != edit && r.mode != 2) { Log(L"  o campo do nome mudou ao trocar de pasta"); edit = e2; }
+    if (!PoeTexto(r.dlg, edit, value)) Log(L"  o campo do nome não ficou com o escolhido ('%ls')", Text(edit).c_str());
     PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
     // A original (fora da tela) pode abrir uma pergunta depois do OK: "já existe, substituir?" ou um aviso de nome
     // inválido, que nascia fora da tela junto: o programa ficava travado até alguém apertar Esc (Firefox, issue #8,
     // 21/11/2026). Caixas de mensagem (#32770) viram o alerta do Mac no meio da tela (alertas.cpp, que agora não usa
     // mais o lugar da original quando ela está fora da tela); qualquer outra vem para o meio da tela, à frente.
     bool reenviou = false;
-    for (int i = 0; i < 40 && IsWindow(r.dlg); i++) {
+    for (int i = 0; i < 60 && IsWindow(r.dlg); i++) {
         Sleep(50);
         HWND pop = GetWindow(r.dlg, GW_ENABLEDPOPUP);
         if (!pop || pop == r.dlg) {
             // escolher pasta (VS Code "Abrir Pasta", issue #8): com o caminho de uma pasta no campo, o OK da original
             // entra nela em vez de devolvê-la e a janela continuava aberta fora da tela (o programa não fazia nada).
-            // Já dentro da pasta, o campo vazio + OK escolhe a pasta atual.
-            if (r.mode == 2 && !reenviou && i >= 8) {
+            // Já dentro da pasta, o campo vazio + OK escolhe a pasta atual. Só depois de ela estar MESMO na pasta
+            // escolhida: com 400 ms fixos, numa pasta que demora a abrir (OneDrive, rede, PC mais lento) o OK ia antes
+            // e o programa recebia a pasta onde a janela abriu (Illustrator, Figma, Photoshop: issue #15, 22/11/2026).
+            if (r.mode == 2 && !reenviou && i >= 4 && Responde(r.dlg, 5000) && (SameFolder(CurrentFolder(r.dlg), paths[0]) || i >= 50)) {
                 reenviou = true;
-                Log(L"  a original entrou na pasta: confirma a pasta atual");
-                if (edit) SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)L"", SMTO_ABORTIFHUNG, 300, nullptr);
+                Log(L"  a original entrou na pasta: confirma a pasta atual (%ls)", SameFolder(CurrentFolder(r.dlg), paths[0]) ? L"a escolhida" : L"não confirmada");
+                if (edit) PoeTexto(r.dlg, edit, L"");
                 PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
             }
             continue;

@@ -429,6 +429,37 @@ IDWriteTextFormat* Fmt(float size, DWRITE_FONT_WEIGHT w, const wchar_t* family =
     return tf;
 }
 
+// O título "Central de Notificações" e os avisos soltos ("Sem Notificações", "N mais antigas") ficam direto sobre o que está
+// atrás, sem cartão: brancos, sumiam em cima de uma janela clara (navegador, issue #8, carlosjrrr, 22/11/2026). A Central
+// olha o fundo do topo da coluna ao abrir (antes de aparecer) e, se for claro, escreve escuro.
+bool g_fundoClaro;
+void MedeFundo(HWND wnd) {
+    g_fundoClaro = false;
+    RECT wr; if (!GetWindowRect(wnd, &wr)) return;
+    int w = wr.right - wr.left, h = std::min<int>(wr.bottom - wr.top, MulDiv(160, GetDpiForWindow(wnd) ? GetDpiForWindow(wnd) : 96, 96));
+    if (w <= 0 || h <= 0) return;
+    const int BW = 24, BH = 12;
+    HDC s = GetDC(nullptr); HDC m = CreateCompatibleDC(s);
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), BW, -BH, 1, 32, BI_RGB };
+    void* bits = nullptr;
+    HBITMAP b = CreateDIBSection(s, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (b && bits) {
+        HGDIOBJ o = SelectObject(m, b);
+        SetStretchBltMode(m, HALFTONE);
+        StretchBlt(m, 0, 0, BW, BH, s, wr.left, wr.top, w, h, SRCCOPY);
+        GdiFlush();
+        double soma = 0;
+        auto* px = (const BYTE*)bits;
+        for (int i = 0; i < BW * BH; i++) soma += (0.0722 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.2126 * px[i * 4 + 2]) / 255.0;
+        g_fundoClaro = soma / (BW * BH) > 0.62;
+        Log(L"central de notificações: fundo %ls atrás do título (%.2f)", g_fundoClaro ? L"claro: texto escuro" : L"escuro: texto branco", soma / (BW * BH));
+        SelectObject(m, o);
+    }
+    if (b) DeleteObject(b);
+    DeleteDC(m); ReleaseDC(nullptr, s);
+}
+D2D1_COLOR_F CorSolta() { return g_fundoClaro ? D2D1::ColorF(0, 0, 0, 0.85f) : D2D1::ColorF(1, 1, 1, 0.97f); }
+
 void Text(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const std::wstring& s, IDWriteTextFormat* tf, D2D1_RECT_F r, D2D1_COLOR_F c,
           DWRITE_TEXT_ALIGNMENT al = DWRITE_TEXT_ALIGNMENT_LEADING, bool shadow = false) {
     if (!tf || s.empty()) return;
@@ -1062,7 +1093,7 @@ void Paint() {
         case K_HEADER: {
             static IDWriteTextFormat* tfBig = Fmt(17, DWRITE_FONT_WEIGHT_BOLD, L"SF Pro Display");
             IDWriteTextFormat* tf = e.layer == 7 && tfBig ? tfBig : g_tfHeader;
-            Text(dc, br, e.text, tf, D2D1::RectF(r.left + 2, r.top, r.right - 150, r.bottom), D2D1::ColorF(1, 1, 1, 0.97f), DWRITE_TEXT_ALIGNMENT_LEADING, true);
+            Text(dc, br, e.text, tf, D2D1::RectF(r.left + 2, r.top, r.right - 150, r.bottom), CorSolta(), DWRITE_TEXT_ALIGNMENT_LEADING, !g_fundoClaro);
             break;
         }
         case K_PILL: {
@@ -1108,7 +1139,7 @@ void Paint() {
             break;
         }
         case K_LABEL:
-            Text(dc, br, e.text, g_tfEmpty, r, D2D1::ColorF(1, 1, 1, 0.92f), DWRITE_TEXT_ALIGNMENT_CENTER, true);
+            Text(dc, br, e.text, g_tfEmpty, r, CorSolta(), DWRITE_TEXT_ALIGNMENT_CENTER, !g_fundoClaro);
             break;
         case K_EMPTY: {
             if (leo) smoke(r, 8, 0.75f);
@@ -1921,6 +1952,7 @@ void notificacoes::Toggle() {
     Rebuild();
     Wake();  // relê já (e a cada 2 s enquanto aberto)
     Place();
+    MedeFundo(g_wnd);  // ainda escondida: a foto é só do que está atrás
     Paint();
     ShowWindow(g_wnd, SW_SHOWNOACTIVATE);
     SetForegroundWindow(g_wnd);

@@ -447,6 +447,50 @@ inline std::wstring DueText(long long m, bool withTime) {
     return d;
 }
 
+// ---- lugar e tamanho da janela lembrados entre uma vez e outra (issue #8, carlosjrrr, 22/11/2026: os apps do WacOS
+// podiam ser redimensionados, mas reabriam sempre no tamanho de fábrica, no meio da tela). Um arquivo por app em
+// %APPDATA%\Shell (janela-<classe>.txt): "esquerda cima direita baixo maximizada", na posição normal do Windows.
+inline std::wstring LembrarArquivo(HWND h) {
+    wchar_t cls[64] = {}; GetClassNameW(h, cls, 64);
+    return DataPath((std::wstring(L"janela-") + cls + L".txt").c_str());
+}
+inline LRESULT CALLBACK LembrarSub(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR maxPend) {
+    if (m == WM_SHOWWINDOW && w && maxPend) {  // estava maximizada: volta maximizada na primeira vez que aparece
+        SetWindowSubclass(h, LembrarSub, id, 0);
+        PostMessageW(h, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+    }
+    if (m == WM_DESTROY) {
+        WINDOWPLACEMENT wp{ sizeof(wp) };
+        if (GetWindowPlacement(h, &wp)) {
+            RECT r = wp.rcNormalPosition;
+            bool maxed = wp.showCmd == SW_SHOWMAXIMIZED || (wp.showCmd == SW_SHOWMINIMIZED && (wp.flags & WPF_RESTORETOMAXIMIZED));
+            if (r.right - r.left >= 200 && r.bottom - r.top >= 120)
+                WriteLines(LembrarArquivo(h), { std::to_wstring(r.left) + L" " + std::to_wstring(r.top) + L" " + std::to_wstring(r.right) + L" " +
+                                                std::to_wstring(r.bottom) + L" " + (maxed ? L"1" : L"0") });
+        }
+        RemoveWindowSubclass(h, LembrarSub, id);
+    }
+    return DefSubclassProc(h, m, w, l);
+}
+inline void Lembrar(HWND h) {
+    bool maxed = false;
+    auto v = ReadLines(LembrarArquivo(h));
+    if (!v.empty()) {
+        RECT r{}; int mx = 0;
+        if (swscanf_s(v[0].c_str(), L"%ld %ld %ld %ld %d", &r.left, &r.top, &r.right, &r.bottom, &mx) == 5 &&
+            r.right - r.left >= 200 && r.bottom - r.top >= 120) {
+            // só se ainda cai num monitor que existe (o monitor de antes pode ter sido desligado)
+            WINDOWPLACEMENT wp{ sizeof(wp) };
+            GetWindowPlacement(h, &wp);
+            wp.rcNormalPosition = r; wp.showCmd = SW_HIDE; wp.flags = 0;
+            RECT tela = r;  // a posição normal é relativa à área de trabalho; o monitor é achado pelo meio dela
+            POINT meio{ (tela.left + tela.right) / 2, tela.top + 20 };
+            if (MonitorFromPoint(meio, MONITOR_DEFAULTTONULL)) { SetWindowPlacement(h, &wp); maxed = mx != 0; }
+        }
+    }
+    SetWindowSubclass(h, LembrarSub, 0x4C4D, maxed ? 1 : 0);
+}
+
 inline HWND CreateMain(HINSTANCE hi, const wchar_t* cls, const wchar_t* title, WNDPROC proc, int w, int h) {
     WNDCLASSEXW wc{ sizeof(wc) };
     wc.style = CS_DBLCLKS;
@@ -470,6 +514,7 @@ inline HWND CreateMain(HINSTANCE hi, const wchar_t* cls, const wchar_t* title, W
         SetWindowSubclass(wnd, UnifiedSub, 0x55A1, 0);
         SetWindowPos(wnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     }
+    if (wnd) Lembrar(wnd);
     return wnd;
 }
 

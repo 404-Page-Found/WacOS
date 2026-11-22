@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cmath>
 #include "../comum/idioma.h"
+#include "../comum/simbolos.h"
 
 namespace {
 
@@ -60,6 +61,7 @@ void SetIcon(const std::wstring& exe) {
     if (g.icon) { g.icon->Release(); g.icon = nullptr; }
     g.px.clear(); g.iw = g.ih = 0;
     g.iconOf = exe;
+    if (exe == L"sym:pc") return;  // desenhado na hora (DrawIcone)
     if (exe.rfind(L"pack:", 0) == 0) {  // ícone do pacote (ex.: o computador no alerta de desligar)
         std::wstring png = ui::PackIcon(exe.substr(5));
         if (png.empty() || !ui::LoadPng(png, g.iw, g.ih, g.px)) ui::ShellImage(L"shell:MyComputerFolder", 128, g.iw, g.ih, g.px, true);
@@ -100,6 +102,24 @@ float TextH(const std::wstring& s, float size, DWRITE_FONT_WEIGHT w, float width
     if (tf && SUCCEEDED(ui::dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), tf, width, 4000, &lay))) { DWRITE_TEXT_METRICS m; lay->GetMetrics(&m); h = m.height; lay->Release(); }
     if (tf) tf->Release();
     return h;
+}
+
+// O ícone no lugar r. "sym:pc": o computador em alumínio do Sobre Este Mac no modo "este PC" (o padrão), o mesmo dos
+// Ajustes; antes o alerta de desligar/reiniciar mostrava sempre a foto do Mac Studio (issue #8, carlosjrrr, 22/11/2026)
+void DrawIcone(ID2D1DeviceContext* dc, D2D1_RECT_F r) {
+    if (g.iconOf == L"sym:pc") {
+        bool dark = ui::Dark();
+        D2D1_GRADIENT_STOP st[2] = { { 0, dark ? D2D1::ColorF(0.86f, 0.86f, 0.88f, 1) : D2D1::ColorF(0.62f, 0.62f, 0.65f, 1) },
+                                     { 1, dark ? D2D1::ColorF(0.58f, 0.58f, 0.61f, 1) : D2D1::ColorF(0.36f, 0.36f, 0.39f, 1) } };
+        ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(st, 2, &gs)) &&
+            SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), gs, &lb)))
+            simbolo::Draw(dc, L"desktopcomputer", r, lb);
+        if (lb) lb->Release();
+        if (gs) gs->Release();
+        return;
+    }
+    if (g.icon) dc->DrawBitmap(g.icon, r, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
 }
 
 // Alerta do macOS 26 (Tahoe), medido na referência do usuário (alerta de 260 pt de largura): ícone de 52 pt no canto
@@ -193,7 +213,7 @@ void Paint() {
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, AW, H), R, R), br);
         br->SetColor(D2D1::ColorF(0, 0, 0, 0.40f));
         dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, AW - 0.5f, H - 0.5f), R - 0.5f, R - 0.5f), br, 1);
-        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(24, L_TOP, 24 + 64, L_TOP + 64), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        DrawIcone(dc, D2D1::RectF(24, L_TOP, 24 + 64, L_TOP + 64));
         IDWriteTextFormat* tb = ui::FormatFace(L"Lucida Sans Unicode", 13, DWRITE_FONT_WEIGHT_BOLD);
         IDWriteTextFormat* ti = ui::FormatFace(L"Lucida Sans Unicode", 11, DWRITE_FONT_WEIGHT_NORMAL);
         for (auto* f : { tb, ti }) if (f) { f->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP); f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR); }
@@ -262,7 +282,7 @@ void Paint() {
             dc->FillEllipse(D2D1::Ellipse(c, 7, 7), br);
             semaforo::Gloss(dc, c, 7, br);
         }
-        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(20, 36, 52, 68), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        DrawIcone(dc, D2D1::RectF(20, 36, 52, 68));
         IDWriteTextFormat* ti = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_LEADING);
         if (ti) ti->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
         br->SetColor(text);
@@ -301,7 +321,7 @@ void Paint() {
     }
     if (GoldenAlert()) {
         D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f);
-        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(G_IX, G_IY, G_IX + G_ICON, G_IY + G_ICON), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        DrawIcone(dc, D2D1::RectF(G_IX, G_IY, G_IX + G_ICON, G_IY + G_ICON));
         float y = G_IY + G_ICON + 19;
         IDWriteTextFormat* tb = ui::Format(13, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_LEADING);
         IDWriteTextFormat* ti = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -351,7 +371,7 @@ void Paint() {
     }
     if (TahoeAlert()) {
         D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.88f);
-        if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(AW / 2 - T_ICON / 2, T_TOP, AW / 2 + T_ICON / 2, T_TOP + T_ICON), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+        DrawIcone(dc, D2D1::RectF(AW / 2 - T_ICON / 2, T_TOP, AW / 2 + T_ICON / 2, T_TOP + T_ICON));
         float y = T_TOP + T_ICON + 12;
         IDWriteTextFormat* tb = ui::Format(13, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
         IDWriteTextFormat* ti = ui::Format(11, DWRITE_FONT_WEIGHT_NORMAL, false, DWRITE_TEXT_ALIGNMENT_CENTER);
@@ -398,7 +418,7 @@ void Paint() {
         return;
     }
     float cx = AW / 2;
-    if (g.icon) dc->DrawBitmap(g.icon, D2D1::RectF(cx - AICON / 2, APAD, cx + AICON / 2, APAD + AICON), 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+    DrawIcone(dc, D2D1::RectF(cx - AICON / 2, APAD, cx + AICON / 2, APAD + AICON));
     D2D1_COLOR_F text = dark ? D2D1::ColorF(1, 1, 1, 0.92f) : D2D1::ColorF(0, 0, 0, 0.86f);
     float y = APAD + AICON + 12;
     IDWriteTextFormat* tb = ui::Format(13, DWRITE_FONT_WEIGHT_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
