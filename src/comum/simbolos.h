@@ -9,12 +9,50 @@
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <thread>
+#include <windows.h>
 
 namespace simbolo {
 
 struct Sym { ID2D1PathGeometry* geo = nullptr; float w = 0, h = 0; };
 
 inline std::wstring& Dir() { static std::wstring d; return d; }  // pasta com os .svg
+
+// O texto de cada .svg, lido do disco uma vez. Com Preload (o Shell chama ao abrir), todos vêm numa thread: lido na
+// hora de desenhar, o fread parava a interface do Shell por 1,7 s com o disco ocupado (pilha de 22/11/2026:
+// Spotlight -> DrawIcon -> simbolo::Load -> fread). Sem Preload (os apps), lê na hora, como antes.
+struct Textos { std::mutex mx; std::map<std::wstring, std::string> svg; std::atomic<int> estado{ 0 }; };  // 0 nada, 1 lendo, 2 pronto
+inline Textos& Txt() { static Textos t; return t; }
+inline bool LeArquivo(const std::wstring& path, std::string& t) {
+    FILE* fp = nullptr;
+    if (_wfopen_s(&fp, path.c_str(), L"rb") || !fp) return false;
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) t.append(buf, n);
+    fclose(fp);
+    return true;
+}
+inline void Preload() {
+    int nada = 0;
+    if (Dir().empty() || !Txt().estado.compare_exchange_strong(nada, 1)) return;
+    std::thread([dir = Dir()] {
+        std::map<std::wstring, std::string> lidos;
+        WIN32_FIND_DATAW fd;
+        HANDLE h = FindFirstFileW((dir + L"\\*.svg").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                std::wstring nome = fd.cFileName;
+                std::string t;
+                if (LeArquivo(dir + L"\\" + nome, t)) lidos[nome.substr(0, nome.size() - 4)] = std::move(t);
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+        { std::lock_guard<std::mutex> l(Txt().mx); for (auto& [k, v] : lidos) Txt().svg.emplace(k, std::move(v)); }
+        Txt().estado = 2;
+    }).detach();
+}
 
 inline Sym* Load(ID2D1Factory* f, const std::wstring& name) {
     // uma forma por fábrica do Direct2D: a barra de menus (CPU) e as janelas na GPU têm fábricas diferentes,
@@ -23,14 +61,20 @@ inline Sym* Load(ID2D1Factory* f, const std::wstring& name) {
     auto key = std::make_pair(f, name);
     auto it = cache.find(key);
     if (it != cache.end()) return it->second.geo ? &it->second : nullptr;
-    Sym& s = cache[key];
-    FILE* fp = nullptr;
-    if (Dir().empty() || _wfopen_s(&fp, (Dir() + L"\\" + name + L".svg").c_str(), L"rb") || !fp) return nullptr;
+    if (Dir().empty()) return nullptr;
     std::string t;
-    char buf[8192];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) t.append(buf, n);
-    fclose(fp);
+    const int estado = Txt().estado;
+    if (estado) {  // pré-carregando ou pronto: nada de disco aqui
+        std::lock_guard<std::mutex> l(Txt().mx);
+        auto tx = Txt().svg.find(name);
+        if (tx != Txt().svg.end()) t = tx->second;
+    }
+    if (t.empty()) {
+        if (estado == 1) return nullptr;  // ainda lendo: o próximo desenho acha (sem guardar "não existe")
+        if (estado == 0 && !LeArquivo(Dir() + L"\\" + name + L".svg", t)) { cache[key]; return nullptr; }
+        if (estado == 2) { cache[key]; return nullptr; }  // não existe
+    }
+    Sym& s = cache[key];
     auto attr = [&](const char* key) -> float {
         size_t p = t.find(key);
         return p == std::string::npos ? 0.f : (float)atof(t.c_str() + p + strlen(key));

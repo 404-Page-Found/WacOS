@@ -1662,11 +1662,11 @@ Page MesaDock() {
                            // issue #4: como no Mac, o Finder fica no Alt+Tab mesmo sem janela; desligado, só com janela aberta
                            Toggle(L"Mostrar o Finder no Alt+Tab mesmo sem janelas", [] { return Setting(L"seletor_finder", L"1") != L"0"; },
                                   [](bool v) { SetSetting(L"seletor_finder", v ? L"1" : L"0"); }),
-                           // Edge, Chrome, Figma, Discord, VS Code...: os três botões do Mac na barra deles (WacOSWindow.dll). Volta a
-                           // ficar ligado por padrão (21/11/2026); onde a faixa cobriria parte do app, o app fica com a barra dele
-                           Toggle(L"Botões do Mac nos apps com barra própria", [] { return Setting(L"barra_mac_propria", L"1") != L"0"; },
+                           // Edge, Chrome, Figma, Discord, VS Code...: os três botões do Mac na barra deles (WacOSWindow.dll).
+                           // Experimental (22/11/2026, decisão do usuário): desligado por padrão, liga com barra_mac_propria=1
+                           Toggle(L"Botões do Mac nos apps com barra própria", [] { return Setting(L"barra_mac_propria", L"0") == L"1"; },
                                   [](bool v) { SetSetting(L"barra_mac_propria", v ? L"1" : L"0"); },
-                                  L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar."),
+                                  L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar."),
                            Uri(L"Navegador padrão", L"ms-settings:defaultapps") }, L"Janelas"));
     // Organizador Visual (Stage Manager): só o app da frente na tela, os outros numa faixa à esquerda
     p.groups.push_back(G({ Toggle(L"Organizador Visual", flag(L"organizador", L"0"), setFlag(L"organizador")) }, L"",

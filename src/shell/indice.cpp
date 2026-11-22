@@ -33,6 +33,8 @@ Index g_idx;
 std::atomic<bool> g_ready{ false };
 size_t g_dead;  // itens apagados (nome vazio) desde a última varredura completa
 std::wstring g_file;
+ULONGLONG AgoraFt() { FILETIME f; GetSystemTimeAsFileTime(&f); return ((ULONGLONG)f.dwHighDateTime << 32) | f.dwLowDateTime; }
+std::atomic<ULONGLONG> g_ultimaCompleta{ 0 };
 
 // tabela caractere → minúscula sem acento (a busca compara por ela, sem guardar uma cópia dos nomes)
 const wchar_t* FoldTable() {
@@ -187,6 +189,7 @@ void Rebuild() {
     ix.nodes.shrink_to_fit();   // sem a folga do crescimento (o texto dobrava de capacidade: dezenas de MB a mais)
     ix.names.shrink_to_fit();
     Save(ix);
+    g_ultimaCompleta = AgoraFt();
     { std::unique_lock<std::shared_mutex> l(g_mx); g_idx = std::move(ix); g_dead = 0; }
     g_ready = true;
     Log(L"índice: %zu itens em %lu ms (%ls)", n, GetTickCount() - t0, perRoot.c_str());
@@ -380,13 +383,36 @@ void FreeWatches(std::vector<Watch*>& ws) {
     ws.clear();
 }
 
+// Marca de "o Shell estava rodando com o índice em dia" (indice.db.vivo): o horário da última volta do vigia e o da
+// última varredura completa (FILETIMEs). O indice.db só é gravado quando muda (no máximo a cada 10 min), então a data
+// dele não dizia se o Shell acabou de fechar: cada reinício depois de 15 min sem gravar varria os ~940 mil itens de
+// todos os discos (3,6 min de disco, 22/11/2026, com dezenas de reinícios no dia).
+void GravaVivo() {
+    ULONGLONG v[2] = { AgoraFt(), g_ultimaCompleta.load() };
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, (g_file + L".vivo").c_str(), L"wb") || !f) return;
+    fwrite(v, sizeof(v), 1, f);
+    fclose(f);
+}
+bool LeVivo(ULONGLONG& vivo, ULONGLONG& completa) {
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, (g_file + L".vivo").c_str(), L"rb") || !f) return false;
+    ULONGLONG v[2] = {};
+    bool ok = fread(v, sizeof(v), 1, f) == 1;
+    fclose(f);
+    vivo = v[0]; completa = v[1];
+    return ok;
+}
+
 void Watcher() {
     std::vector<Watch*> ws = MakeWatches();
     DWORD drives = GetLogicalDrives();
     DWORD lastChange = 0, lastBuild = GetTickCount(), lastSave = GetTickCount();
     std::set<std::wstring> pending;  // pastas que mudaram (caminho completo)
     bool full = false, unsaved = false;
+    DWORD vivoAt = 0;
     for (;;) {
+        if (!vivoAt || GetTickCount() - vivoAt > 60000) { vivoAt = GetTickCount() | 1; GravaVivo(); }
         std::vector<HANDLE> evs;
         for (auto* w : ws) evs.push_back(w->ev);
         DWORD r = WAIT_TIMEOUT;
@@ -474,7 +500,13 @@ void indice::Start() {
         // enquanto monta, e o arquivo todo gravado de novo). Vai direto para o vigia. Fechado por mais tempo, ou sem
         // o arquivo, a varredura roda como antes (PR #22 apontou, 21/11/2026).
         bool recente = false;
-        if (loaded) {
+        ULONGLONG vivo = 0, completa = 0;
+        if (loaded && LeVivo(vivo, completa)) {
+            const ULONGLONG agora = AgoraFt(), min = 60ULL * 10000000;
+            g_ultimaCompleta = completa;
+            // o vigia estava rodando há menos de 15 min e a última varredura completa tem menos de 24 h
+            recente = agora > vivo && agora - vivo < 15 * min && completa && agora - completa < 24 * 60 * min;
+        } else if (loaded) {
             WIN32_FILE_ATTRIBUTE_DATA fa{};
             if (GetFileAttributesExW(g_file.c_str(), GetFileExInfoStandard, &fa)) {
                 FILETIME agora; GetSystemTimeAsFileTime(&agora);

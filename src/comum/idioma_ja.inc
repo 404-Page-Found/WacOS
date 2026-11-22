@@ -1628,4 +1628,4 @@
 { L"Editar Local…", L"場所を編集…" },
 { L"Digite a cidade do Meu Local", L"現在地にする都市を入力" },
 { L"Botões do Mac nos apps com barra própria", L"独自のタイトルバーを持つアプリにMacのボタン" },
-{ L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Edge、Chrome、Figma、Discord、VS Code など独自のタイトルバーを描くアプリで、Windows のボタンの代わりに Mac のボタンを使います。変更後に開いたウインドウに適用されます。" },
+{ L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"実験的機能。Edge、Chrome、Figma、Discord、VS Code など独自のタイトルバーを描くアプリで、Windows のボタンの代わりに Mac のボタンを使います。変更後に開いたウインドウに適用されます。" },

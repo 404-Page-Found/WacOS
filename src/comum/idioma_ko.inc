@@ -1628,4 +1628,4 @@
 { L"Editar Local…", L"위치 편집…" },
 { L"Digite a cidade do Meu Local", L"나의 위치로 쓸 도시를 입력하세요" },
 { L"Botões do Mac nos apps com barra própria", L"자체 제목 막대가 있는 앱에 Mac 버튼" },
-{ L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Edge, Chrome, Figma, Discord, VS Code 등 자체 제목 막대를 그리는 앱에 Windows 버튼 대신 Mac 버튼을 씁니다. 변경 후 연 윈도우에 적용됩니다." },
+{ L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"실험적 기능. Edge, Chrome, Figma, Discord, VS Code 등 자체 제목 막대를 그리는 앱에 Windows 버튼 대신 Mac 버튼을 씁니다. 변경 후 연 윈도우에 적용됩니다." },

@@ -1227,6 +1227,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &g_origWork, 0);
 
     simbolo::Dir() = shell::dir.substr(0, shell::dir.find_last_of(L'\\')) + L"\\icones\\simbolos";
+    simbolo::Preload();  // os SF Symbols numa thread: desenhar nunca espera o disco (simbolos.h)
     apps::Load(shell::dir + L"\\" EXE_FINDER);
     apps::Refresh();
 

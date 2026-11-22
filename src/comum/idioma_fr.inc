@@ -1628,4 +1628,4 @@
 { L"Editar Local…", L"Modifier le lieu…" },
 { L"Digite a cidade do Meu Local", L"Saisissez la ville de Ma position" },
 { L"Botões do Mac nos apps com barra própria", L"Boutons du Mac dans les apps à barre propre" },
-{ L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Edge, Chrome, Figma, Discord, VS Code et les autres apps qui dessinent leur propre barre reçoivent les boutons du Mac à la place de ceux de Windows. S’applique aux fenêtres ouvertes après le changement." },
+{ L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Expérimental. Edge, Chrome, Figma, Discord, VS Code et les autres apps qui dessinent leur propre barre reçoivent les boutons du Mac à la place de ceux de Windows. S’applique aux fenêtres ouvertes après le changement." },

@@ -141,6 +141,7 @@ struct Info {
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
     COLORREF corGravada = CLR_INVALID;  // a cor que já está no Registro (não relê a cada volta do timer)
+    DWORD sizeAt = 0;            // barra própria: quando mudou de tamanho (maximizar, restaurar): SampleBar espera 700 ms
     bool remedir = false;        // a medição pediu outra (o Chrome refaz a linha): o fim dela não pode apagar o pedido
     POINT lastPos{ INT_MIN, INT_MIN };  // onde a janela estava (barra própria: a faixa só anda junto ao arrastar)
     // janela de ferramenta com barra (plug-ins VST do Ableton e afins): barra escura compacta, como as janelas de
@@ -990,7 +991,7 @@ static bool g_golden;  // lido junto com o Tahoe (TemaTahoe)
 // barra_mac_propria (TemaTahoe). Ligado de novo por padrão (21/11/2026, a pedido do usuário: "todos os apps possíveis"
 // com a barra do Mac); barra_mac_propria=0 desliga. Na build-25 tinha ficado desligado enquanto estava em testes. Onde a
 // faixa cobriria parte do app, a janela fica com a barra dele (recusa, MedirBarra)
-static bool g_propria = true;
+static bool g_propria = false;  // experimental (22/11/2026): só com barra_mac_propria=1
 bool ProvaAbas();  // mais abaixo: o Chrome de teste (--wacos-teste-abas)
 bool BarraPropria() { TemaTahoe(); return g_propria || ProvaAbas(); }  // (o Chrome de teste conta como ligado: as provas continuam)
 bool TemaGolden() { return TemaTahoe() && g_golden; }
@@ -1009,7 +1010,7 @@ void LerTema() {  // espera o disco
     buf[n] = 0;
     g_tahoe = strstr(buf, "liquid_glass=1") != nullptr;
     g_golden = strstr(buf, "golden_gate=1") != nullptr;
-    g_propria = strstr(buf, "barra_mac_propria=0") == nullptr;
+    g_propria = strstr(buf, "barra_mac_propria=1") != nullptr;
 }
 bool TemaTahoe(bool force) {
     static DWORD at;
@@ -1850,6 +1851,7 @@ void SampleCaption(Info* in) {
 // barra (até onde a cor ao lado dos botões continua igual). Só com a janela na frente.
 void SampleBar(Info* in) {
     if (IsIconic(in->owner) || !IsWindowVisible(in->owner) || in->transit) return;
+    if (in->sizeAt && GetTickCount() - in->sizeAt < 700) return;  // a janela ainda está assentando (animação, o app redesenhando)
     RECT f = FrameRect(in->owner);
     float sc = Scale(in->owner);
     // Inativa também: o Chrome clareia a barra ao perder o foco e a faixa ficava na cor de ativa. Só lê se os pontos
@@ -2084,11 +2086,13 @@ void MedirBarra(Info* in) {
                         for (int y = ya; y < yg; y++) if (dist(at(x, y), bg) > 40) { ymin = std::min(ymin, y); ymax = std::max(ymax, y); }
                     if (ymax >= 0) {
                         int c = (ymin + ymax) / 2 - y0, want = std::max((int)(20 * sc), 2 * c + 1);
-                        // Achou os botões: vale sempre a altura por eles. Antes só valia quando discordava da medida pela cor
-                        // (barCor), e essa medida, lida da tela no meio de minimizar ou maximizar, às vezes concordava por
-                        // acaso: a altura pelos botões era zerada e a faixa voltava a 48 pt pela cor, cobrindo o começo do
-                        // app (Discord e Chrome, 22/11/2026)
-                        int nb = want;
+                        // A altura pelos botões só vale quando a medida pela cor (barCor) não achou o fim da barra (bateu no
+                        // teto de 48 pt: o Discord, preto embaixo também) ou discorda dela. No Chrome a cor acerta e os botões
+                        // ficam no alto da linha das abas: pelos botões a faixa ficava ~31 px, mais baixa que os botões do
+                        // Chrome, que apareciam por baixo e recebiam o clique (22/11/2026). A cor lida no meio de minimizar ou
+                        // maximizar não vale (SampleBar espera a janela assentar: sizeAt).
+                        int ref = in->barCor ? in->barCor : in->barH;
+                        int nb = ref >= (int)(48 * sc) || std::abs(ref / 2 - c) > (int)(4 * sc) ? want : 0;
                         if (nb != in->barGlyph) { in->barGlyph = nb; if (nb) in->barH = nb; PlaceOverlay(in); }
                     }
                 }
@@ -2503,6 +2507,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         if (w == SIZE_MAXIMIZED && g_msgZoom) PostMessageW(h, g_msgZoom, 1, 0);  // depois desta mensagem: vira "ampliar"
         if (in->custom) {
             in->layoutAt = 0;  // a barra do app se rearruma no tamanho novo: mede de novo
+            in->sizeAt = GetTickCount() | 1;  // a cor da barra só é lida de novo quando a janela assentar (SampleBar)
             return r;          // faixa e sombra: o WM_WINDOWPOSCHANGED, que chama este, já refaz (eram duas vezes por passo)
         }
         ApplyRegion(in);

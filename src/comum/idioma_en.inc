@@ -1628,4 +1628,4 @@
 { L"Editar Local…", L"Edit Location…" },
 { L"Digite a cidade do Meu Local", L"Type the city for My Location" },
 { L"Botões do Mac nos apps com barra própria", L"Mac buttons in apps with their own title bar" },
-{ L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Edge, Chrome, Figma, Discord, VS Code and other apps that draw their own title bar get the Mac buttons instead of the Windows ones. Applies to windows opened after the change." },
+{ L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Experimental. Edge, Chrome, Figma, Discord, VS Code and other apps that draw their own title bar get the Mac buttons instead of the Windows ones. Applies to windows opened after the change." },

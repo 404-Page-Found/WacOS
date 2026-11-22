@@ -1628,4 +1628,4 @@
 { L"Editar Local…", L"编辑位置…" },
 { L"Digite a cidade do Meu Local", L"输入“我的位置”的城市" },
 { L"Botões do Mac nos apps com barra própria", L"在自带标题栏的应用中使用 Mac 按钮" },
-{ L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Edge、Chrome、Figma、Discord、VS Code 等自带标题栏的应用将使用 Mac 按钮代替 Windows 按钮。对更改后打开的窗口生效。" },
+{ L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"实验性功能。Edge、Chrome、Figma、Discord、VS Code 等自带标题栏的应用将使用 Mac 按钮代替 Windows 按钮。对更改后打开的窗口生效。" },
