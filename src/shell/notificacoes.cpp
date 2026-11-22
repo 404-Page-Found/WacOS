@@ -1013,12 +1013,12 @@ void DefaultWidgets() {
     g_widgetKind.clear();
     if (CentralOn(0)) {
         g_widgets.push_back({ WIDGET_S, WIDGET_S, [](ID2D1DeviceContext* dc, float w, float h, bool d) { (liquid::Leopard() ? PaintCalendarLeo : PaintCalendar)(dc, w, h, d); },
-                              [] { ShellExecuteW(nullptr, L"open", L"outlookcal:", nullptr, nullptr, SW_SHOWNORMAL); } });
+                              [] { shell::Abrir(L"open", L"outlookcal:", nullptr, nullptr, SW_SHOWNORMAL); } });
         g_widgetKind.push_back(0);
     }
     if (CentralOn(1)) {
         g_widgets.push_back({ WIDGET_S, WIDGET_S, [](ID2D1DeviceContext* dc, float w, float h, bool d) { (liquid::Leopard() ? PaintClockLeo : PaintClock)(dc, w, h, d); },
-                              [] { ShellExecuteW(nullptr, L"open", L"ms-clock:", nullptr, nullptr, SW_SHOWNORMAL); } });
+                              [] { shell::Abrir(L"open", L"ms-clock:", nullptr, nullptr, SW_SHOWNORMAL); } });
         g_widgetKind.push_back(1);
     }
 }
@@ -1272,7 +1272,7 @@ void OpenApp(const Note& n) {
     for (auto& a : apps::list)
         if (!_wcsicmp(a.name.c_str(), n.app.c_str())) { apps::Launch(a); return; }
     if (!apps::ActivatePackaged(L"shell:AppsFolder\\" + n.aumid))
-        ShellExecuteW(nullptr, L"open", (L"shell:AppsFolder\\" + n.aumid).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        shell::Abrir(L"open", (L"shell:AppsFolder\\" + n.aumid).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void ClearGroup(int gi) {
@@ -1397,7 +1397,7 @@ void Click(D2D1_POINT_2F p) {
         WidgetsMenu(hit.r, -1);  // Calendário e Relógio da Central; "Widgets da Mesa…" leva ao menu da mesa
         return;
     case A_SETTINGS: Close(); shell::OpenSettings(L"notificacoes"); return;
-    case A_PERMISSION: Close(); ShellExecuteW(nullptr, L"open", L"ms-settings:privacy-notifications", nullptr, nullptr, SW_SHOWNORMAL); return;
+    case A_PERMISSION: Close(); shell::Abrir(L"open", L"ms-settings:privacy-notifications", nullptr, nullptr, SW_SHOWNORMAL); return;
     case A_WIDGET:
         if (hit.widget >= 0 && hit.widget < (int)g_widgets.size() && g_widgets[hit.widget].click) { auto f = g_widgets[hit.widget].click; Close(); f(); return; }
         break;
@@ -1822,7 +1822,7 @@ LRESULT CALLBACK BannerProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (onX) { BannerOut(hv); return 0; }  // fica na Central, como no Mac
             Note n = g_bans[hv].n;
             BannerOut(hv);
-            if (n.id >= AVISO_ID) { ShellExecuteW(nullptr, L"open", n.aumid.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0; }  // aviso do Lembretes/Calendário: abre o app
+            if (n.id >= AVISO_ID) { shell::Abrir(L"open", n.aumid.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return 0; }  // aviso do Lembretes/Calendário: abre o app
             RemoveIds({ n.id }); OpenApp(n);
             return 0;
         }

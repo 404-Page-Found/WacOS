@@ -25,6 +25,7 @@
 #include <DispatcherQueue.h>
 #include <chrono>
 #include <thread>
+#include <atomic>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Numerics.h>
 #include <winrt/Windows.System.h>
@@ -580,6 +581,28 @@ static bool g_wcTried, g_wcOk;
 const float CARD_R_TAHOE = 12;  // raio do canto do menu (DIP)
 #define CARD_R (Golden() ? 11.f : CARD_R_TAHOE)  // macOS 27: 11 (medido)
 
+// Dispositivos D3D/D2D do vidro do menu criados numa thread (o aquecimento do Shell): o D3D11CreateDevice passa pelo
+// driver, e o da NVIDIA (captura do ShadowPlay) grava em disco ao criar; com o disco ocupado a interface do Shell
+// parou 17,6 s aqui e o vigia reiniciou o Shell (pilhas de 22/11/2026 20:01, issue #32). O compositor continua na
+// thread da janela (CompReady); só o dispositivo vem pronto.
+static std::atomic<int> g_preEstado{ 0 };  // 0 nada, 1 criando, 2 pronto, 3 falhou
+static ID2D1Device* g_preD2d;
+static void PreparaDispositivo() {
+    if (g_preEstado.exchange(1)) return;
+    std::thread([] {
+        ID3D11Device* d3d = nullptr; IDXGIDevice* dx = nullptr; ID2D1Factory1* f1 = nullptr; ID2D1Device* d2 = nullptr;
+        if (SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr)) &&
+            SUCCEEDED(d3d->QueryInterface(IID_PPV_ARGS(&dx))) &&
+            SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), nullptr, (void**)&f1)))
+            f1->CreateDevice(dx, &d2);
+        if (f1) f1->Release();
+        if (dx) dx->Release();
+        if (d3d) d3d->Release();
+        g_preD2d = d2;
+        g_preEstado = d2 ? 2 : 3;
+    }).detach();
+}
+
 static bool CompReady() {
     if (g_wcTried) return g_wcOk;
     g_wcTried = true;
@@ -589,6 +612,8 @@ static bool CompReady() {
             winrt::check_hresult(CreateDispatcherQueueController(o, reinterpret_cast<ABI::Windows::System::IDispatcherQueueController**>(winrt::put_abi(g_wdq))));
         }
         g_wc = wuc::Compositor();
+        if (g_preEstado == 2 && g_preD2d) { g_wd2d = g_preD2d; g_preD2d = nullptr; }  // veio pronto da thread
+        else {
         ID3D11Device* d3d = nullptr;
         winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr));
         IDXGIDevice* dx = nullptr; d3d->QueryInterface(IID_PPV_ARGS(&dx));
@@ -596,6 +621,7 @@ static bool CompReady() {
         winrt::check_hresult(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), nullptr, (void**)&f1));
         winrt::check_hresult(f1->CreateDevice(dx, &g_wd2d));
         dx->Release(); d3d->Release(); f1->Release();
+        }
         auto ci = g_wc.as<ABI::Windows::UI::Composition::ICompositorInterop>();
         winrt::check_hresult(ci->CreateGraphicsDevice(g_wd2d, reinterpret_cast<ABI::Windows::UI::Composition::ICompositionGraphicsDevice**>(winrt::put_abi(g_wgfx))));
         g_wcOk = true;
@@ -1453,12 +1479,20 @@ void ctxmenu::Warmup(HWND owner, const std::wstring& folder, const std::wstring&
 
 // O mesmo, numa thread própria: as extensões (DLLs) ficam carregadas no processo sem travar a janela por
 // ~0,4-0,9 s; o primeiro botão direito depois disso já sai em ~70 ms.
+static void CALLBACK TerminaVidro(HWND, UINT, UINT_PTR id, DWORD) {
+    if (g_preEstado == 1) return;  // a thread ainda está criando o dispositivo
+    KillTimer(nullptr, id);
+    if (g_wcTried) return;  // um menu já abriu e montou tudo
+    LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
+    bool ok = CompReady();
+    QueryPerformanceCounter(&b);
+    Log(L"vidro do menu pronto em %d ms na interface (%ls)", (int)((b.QuadPart - a.QuadPart) * 1000 / f.QuadPart), ok ? L"ok" : L"sem composição");
+}
+
 void ctxmenu::WarmupAsync(const std::wstring& folder, const std::wstring& file) {
-    if (Tahoe()) {  // vidro do menu (D3D, D2D, composição): criado aqui, na thread da janela, e não no 1º menu
-        LARGE_INTEGER f, a, b; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
-        bool ok = CompReady();
-        QueryPerformanceCounter(&b);
-        Log(L"vidro do menu pronto em %d ms (%ls)", (int)((b.QuadPart - a.QuadPart) * 1000 / f.QuadPart), ok ? L"ok" : L"sem composição");
+    if (Tahoe() && !g_wcTried) {  // vidro do menu (D3D, D2D, composição) antes do 1º menu: o dispositivo numa thread, o resto aqui
+        PreparaDispositivo();
+        SetTimer(nullptr, 0, 100, TerminaVidro);
     }
     std::thread([folder, file] {
         if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return;

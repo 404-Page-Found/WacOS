@@ -149,7 +149,7 @@ void Handle(HWND h) {
             CoUninitialize();
             return;
         }
-        ShellExecuteW(nullptr, L"open", exe.c_str(), (L"\"" + arg + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+        shell::Abrir(L"open", exe.c_str(), (L"\"" + arg + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
         HWND novo = nullptr;
         for (int t = 0; t < 60 && !novo; t++) {  // até 3 s
             Sleep(50);

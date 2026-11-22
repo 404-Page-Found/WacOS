@@ -428,8 +428,8 @@ void atalhos::MediaCommand(const std::wstring& exePath, const std::wstring& aumi
 }
 
 void atalhos::Run(const Item& it) {
-    if (it.recent) { ShellExecuteW(nullptr, L"open", it.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return; }
-    ShellExecuteW(nullptr, L"open", it.path.c_str(), it.args.empty() ? nullptr : it.args.c_str(), it.dir.empty() ? nullptr : it.dir.c_str(), SW_SHOWNORMAL);
+    if (it.recent) { shell::Abrir(L"open", it.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return; }
+    shell::Abrir(L"open", it.path.c_str(), it.args.empty() ? nullptr : it.args.c_str(), it.dir.empty() ? nullptr : it.dir.c_str(), SW_SHOWNORMAL);
     Log(L"atalhos: \"%ls\" (%ls %ls)", it.title.c_str(), it.path.c_str(), it.args.c_str());
 }
 

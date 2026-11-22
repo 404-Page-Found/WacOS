@@ -11,6 +11,7 @@
 #include <wincodec.h>
 #include <set>
 #include <thread>
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <cstdarg>
@@ -130,7 +131,10 @@ std::map<std::wstring, std::wstring> g_settings;
 void Invalidate() { if (g_hwnd) InvalidateRect(g_hwnd, nullptr, FALSE); }
 double Qpf() { static LARGE_INTEGER f{}; if (!f.QuadPart) QueryPerformanceFrequency(&f); return (double)f.QuadPart; }
 // medida da rolagem (log "rolagem: ..."): quadros, tempo e quanto custa desenhar um quadro
-struct Rolagem { bool on = false; int n = 0; double soma = 0, pior = 0; LARGE_INTEGER ini{}, ult{}; } g_rol;
+struct Rolagem { bool on = false; int n = 0; double soma = 0, pior = 0, parte[6]{}; LARGE_INTEGER ini{}, ult{}; } g_rol;
+// partes do quadro (diagnóstico da rolagem, issue #29): 0 conteúdo, 1 cena desfocada, 2 barra lateral e resto, 3 EndDraw, 4 Present
+static LARGE_INTEGER g_marca;
+static void Marca(int k) { LARGE_INTEGER t; QueryPerformanceCounter(&t); if (g_rol.on && k >= 0) g_rol.parte[k] += (t.QuadPart - g_marca.QuadPart) * 1000.0 / Qpf(); g_marca = t; }
 D2D1_POINT_2F ToDip(int x, int y) { return { x / g_scale, y / g_scale }; }
 bool In(const D2D1_RECT_F& r, D2D1_POINT_2F p) { return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
 D2D1_SIZE_F ClientDip() { RECT rc; GetClientRect(g_hwnd, &rc); return { rc.right / g_scale, rc.bottom / g_scale }; }
@@ -1688,6 +1692,7 @@ void Render() {
     float x0 = SIDE_W + (Golden() ? 21.f : PAD), x1 = s.width - (Golden() ? 20.5f : PAD), w = x1 - x0;
     // Tahoe: o conteúdo rola por baixo de Voltar/Avançar e do título (borda de rolagem desfocada), sem faixa opaca
     ID2D1DeviceContext* mainDc = dc;
+    Marca(-1);
     ID2D1DeviceContext* cdc = g_tahoe ? tahoe::SceneBegin(mainDc, 0, s, g_dpi) : nullptr;
     if (cdc) { dc = cdc; c.dc = cdc; }
     const float clipTop = cdc ? 0.f : TOOL_H;
@@ -1744,10 +1749,12 @@ void Render() {
     }
     g_contentH = y + g_scroll + 20 - TOOL_H;
     dc->PopAxisAlignedClip();
+    Marca(0);
     if (cdc) {
         tahoe::SceneEnd(0);
         dc = mainDc; c.dc = mainDc;
         tahoe::SceneDraw(dc, 0, D2D1::RectF(SIDE_W + 0.5f, 0, s.width, s.height), TOOL_H + 10, D2D1::ColorF(pal.content.r, pal.content.g, pal.content.b, 0.9f));
+        Marca(1);
     } else {
     // barra de ferramentas: setas e título; linha embaixo quando há rolagem
     br->SetColor(pal.content);
@@ -1778,7 +1785,9 @@ void Render() {
     if (g_sheet.open) { g_hits.clear(); DrawSheet(c, pal); }
     if (winClip) { dc->PopLayer(); tahoe::WindowRim(dc, br, s, winR, g_dark); }
     br->Release();
-    gfx::End();
+    Marca(2);
+    gfx::End(g_rol.on ? &g_rol.parte[3] : nullptr);
+    Marca(-1);
     if (!g_toggleAnim.empty()) SetTimer(g_hwnd, T_ANIM, 15, nullptr);
 }
 
@@ -1971,7 +1980,37 @@ void Click(D2D1_POINT_2F p, bool right) {
 float MaxScroll() { return std::max(0.f, g_contentH - (ClientDip().height - TOOL_H)); }
 float SideMaxScroll() { return std::max(0.f, g_sideH - (ClientDip().height - ACCOUNT_Y)); }
 
+// Rolagem no ritmo da tela (issue #29: "rolar engasga, principalmente nos Ajustes"). O passo vinha do SetTimer, que
+// o Windows só entrega a cada ~15,6 ms: 64 passos por segundo fora do compasso da tela (60, 120, 144 Hz), e a rolagem
+// dava trancos (medido: 67-74 quadros/s com o desenho em ~5 ms). Agora uma thread espera cada quadro do compositor
+// (DwmFlush) e pede um passo; o passo desenha na hora. Ela para quando a rolagem chega ao destino.
+const UINT WM_QUADRO = WM_APP + 77;
+std::atomic<bool> g_relogio{ false }, g_quadroPendente{ false };
+void LigaRelogio(HWND h) {
+    if (g_relogio.exchange(true)) return;
+    std::thread([h] {
+        while (g_relogio) {
+            DwmFlush();
+            if (!g_relogio || !IsWindow(h)) break;
+            if (!g_quadroPendente.exchange(true)) PostMessageW(h, WM_QUADRO, 0, 0);
+        }
+        g_relogio = false;
+    }).detach();
+}
+
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_QUADRO) {
+        g_quadroPendente = false;
+        if (!g_relogio) return 0;
+        WndProc(h, WM_TIMER, T_ANIM, 0);  // o mesmo passo do temporizador
+        if (GetUpdateRect(h, nullptr, FALSE)) {  // desenha já, neste quadro
+            LARGE_INTEGER a, b; QueryPerformanceCounter(&a);
+            Render(); ValidateRect(h, nullptr);
+            QueryPerformanceCounter(&b);
+            if (g_rol.on) { double ms = (b.QuadPart - a.QuadPart) * 1000.0 / Qpf(); g_rol.n++; g_rol.soma += ms; g_rol.pior = std::max(g_rol.pior, ms); }
+        }
+        return 0;
+    }
     switch (m) {
     case WM_INITMENUPOPUP: case WM_DRAWITEM: case WM_MEASUREITEM: case WM_MENUCHAR: {
         LRESULT r = 0;
@@ -2055,7 +2094,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else {
             g_scrollTarget = std::clamp(g_scrollTarget + d, 0.f, MaxScroll());
             if (!g_rol.on) { g_rol = {}; g_rol.on = true; QueryPerformanceCounter(&g_rol.ini); g_rol.ult = g_rol.ini; }
-            SetTimer(h, T_ANIM, 4, nullptr);
+            LigaRelogio(h);
         }
         Invalidate();
         return 0;
@@ -2086,10 +2125,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (std::fabs(diff) < 0.5f) g_scroll = g_scrollTarget; else g_scroll += diff * (float)(1.0 - std::pow(0.7, std::clamp(dt, 1.0, 60.0) / 15.0));
             if (g_scroll == g_scrollTarget && g_rol.on) {
                 double tot = (now.QuadPart - g_rol.ini.QuadPart) * 1000.0 / Qpf();
-                Log(L"rolagem: %d quadros em %.0f ms (%.0f quadros/s; desenho médio %.2f ms, pior %.2f ms)", g_rol.n, tot,
-                    tot > 0 ? g_rol.n * 1000.0 / tot : 0.0, g_rol.n ? g_rol.soma / g_rol.n : 0.0, g_rol.pior);
+                double q = g_rol.n ? g_rol.n : 1;
+                Log(L"rolagem: %d quadros em %.0f ms (%.0f quadros/s; desenho médio %.2f ms, pior %.2f ms; por quadro: conteúdo %.2f, cena desfocada %.2f, lateral %.2f, EndDraw %.2f, Present %.2f)", g_rol.n, tot,
+                    tot > 0 ? g_rol.n * 1000.0 / tot : 0.0, g_rol.n ? g_rol.soma / g_rol.n : 0.0, g_rol.pior,
+                    g_rol.parte[0] / q, g_rol.parte[1] / q, g_rol.parte[2] / q, g_rol.parte[3] / q, g_rol.parte[4] / q);
                 g_rol.on = false;
             }
+            if (g_scroll == g_scrollTarget) g_relogio = false;  // chegou: a thread do ritmo para
             if (g_scroll == g_scrollTarget && g_toggleAnim.empty()) KillTimer(h, T_ANIM);
             Invalidate();
         } else if (w == T_CARET) {

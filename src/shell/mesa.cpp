@@ -936,7 +936,7 @@ void OpenItem(const Item& it) {
     }
     std::wstring finder = shell::dir + L"\\" EXE_FINDER;
     if (dir && GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        ShellExecuteW(nullptr, L"open", finder.c_str(), (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+        shell::Abrir(L"open", finder.c_str(), (L"\"" + target + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
         return;
     }
     if (shell::OpenCalculator(it.path)) return;
@@ -2025,9 +2025,9 @@ void mesa::WinKey(UINT vk) {
     if (vk == 'E') {
         std::wstring finder = shell::dir + L"\\" EXE_FINDER;
         bool usaFinder = shell::Setting(L"finder_padrao", L"1") == L"1" && GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES;
-        if (!usaFinder && !Standalone()) { ShellExecuteW(nullptr, L"open", L"explorer.exe", nullptr, nullptr, SW_SHOWNORMAL); return; }
+        if (!usaFinder && !Standalone()) { shell::Abrir(L"open", L"explorer.exe", nullptr, nullptr, SW_SHOWNORMAL); return; }
         AllowSetForegroundWindow(ASFW_ANY);
-        ShellExecuteW(nullptr, L"open", finder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        shell::Abrir(L"open", finder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     } else if (vk == 'R') {  // Executar (shell32 #61), no próprio Shell
         typedef void(WINAPI * RunFileDlgFn)(HWND, HICON, LPCWSTR, LPCWSTR, LPCWSTR, UINT);
         auto f = (RunFileDlgFn)GetProcAddress(GetModuleHandleW(L"shell32.dll"), MAKEINTRESOURCEA(61));

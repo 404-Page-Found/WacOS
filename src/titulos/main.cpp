@@ -50,12 +50,23 @@ void shell::SetSetting(const wchar_t*, const std::wstring&) {}
 void atualizacao::Avisar(const std::wstring& title, const std::wstring& body) { Log(L"aviso: %ls — %ls", title.c_str(), body.c_str()); }
 
 namespace {
+const UINT WM_NA_INTERFACE = WM_APP + 60;
+HWND g_wndUi;
+}
+// como no Shell (main.cpp): o resultado de uma thread volta para a thread das janelas
+void shell::NaInterface(std::function<void()> f) {
+    auto* p = new std::function<void()>(std::move(f));
+    if (!g_wndUi || !PostMessageW(g_wndUi, WM_NA_INTERFACE, 0, (LPARAM)p)) delete p;
+}
+
+namespace {
 
 void CALLBACK OnForeground(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (obj == OBJID_WINDOW && h) janelas::Foreground(h);
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_NA_INTERFACE) { auto* p = (std::function<void()>*)l; if (p) { (*p)(); delete p; } return 0; }
     if (m == WM_CLOSE) { DestroyWindow(h); return 0; }
     if (m == WM_ENDSESSION && w) { janelas::Stop(); return 0; }
     if (m == WM_DESTROY) { PostQuitMessage(0); return 0; }
@@ -82,6 +93,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR cmd, int) {
     // janela comum escondida (não "message-only"): o Shell e o --sair a acham pelo FindWindow
     g_wnd = CreateWindowExW(WS_EX_TOOLWINDOW, wc.lpszClassName, L"WacOS Title Bars", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, hi, nullptr);
     if (!g_wnd) return 1;
+    g_wndUi = g_wnd;
     if (shell::Setting(L"janelas_mac", L"1") != L"1") Log(L"janelas_mac=0 no ajustes.txt: nada a fazer");
     janelas::Start();
     SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnForeground, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);

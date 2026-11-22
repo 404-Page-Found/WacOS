@@ -95,10 +95,14 @@ ID2D1DeviceContext* gfx::Begin(float dpi) {
     return dc;
 }
 
-void gfx::End() {
+void gfx::End(double* ms) {
+    LARGE_INTEGER f, a, b, c; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a);
     HRESULT hr = dc->EndDraw();
+    QueryPerformanceCounter(&b);
     if (FAILED(hr)) Log(L"erro: EndDraw 0x%08X", (unsigned)hr);
     swap->Present(1, 0);
+    QueryPerformanceCounter(&c);
+    if (ms) { ms[0] += (b.QuadPart - a.QuadPart) * 1000.0 / f.QuadPart; ms[1] += (c.QuadPart - b.QuadPart) * 1000.0 / f.QuadPart; }
 }
 
 ID2D1Bitmap* gfx::CreateBitmapBGRA(UINT w, UINT h, const void* pixels, UINT stride) {

@@ -28,7 +28,7 @@ extern IDWriteFactory* dw;
 bool Init(HWND hwnd);
 void Resize(UINT w, UINT h);
 ID2D1DeviceContext* Begin(float dpi);  // já com BeginDraw; desenhe em DIPs
-void End();                            // EndDraw + Present
+void End(double* ms = nullptr);         // EndDraw + Present (ms: soma o tempo de cada um em ms[0] e ms[1])
 ID2D1Bitmap* CreateBitmapBGRA(UINT w, UINT h, const void* pixels, UINT stride);  // pré-multiplicado
 IUnknown* Device();                                 // ID3D11Device
 ID2D1Bitmap* BitmapFromTexture(IUnknown* texture);   // ID3D11Texture2D BGRA -> bitmap (sem cópia)

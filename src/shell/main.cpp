@@ -356,7 +356,7 @@ bool shell::OpenCalculator(const std::wstring& target) {
     if (!calc) return false;
     std::wstring exe = shell::dir + L"\\" EXE_CALCULATOR;
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
-    ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", exe.c_str());
     return true;
 }
 
@@ -364,7 +364,7 @@ bool shell::OpenCalculator(const std::wstring& target) {
 void shell::OpenMonitor() {
     std::wstring exe = shell::dir + L"\\" EXE_MONITOR;
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) exe = L"taskmgr.exe";
-    ShellExecuteW(nullptr, L"open", exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", exe.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 // Forçar Encerrar Aplicativos (WacOSForceQuit.exe); sem ele, o Monitor de Atividade
@@ -372,7 +372,7 @@ void shell::OpenForceQuit(bool memory) {
     std::wstring exe = shell::dir + L"\\" EXE_FORCEQUIT;
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) { shell::OpenMonitor(); return; }
     AllowSetForegroundWindow(ASFW_ANY);  // aberta pela pressão de memória, sem clique: precisa vir para a frente
-    ShellExecuteW(nullptr, L"open", exe.c_str(), memory ? L"--memoria" : nullptr, nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", exe.c_str(), memory ? L"--memoria" : nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void shell::Sound(const wchar_t* name) {
@@ -382,7 +382,35 @@ void shell::Sound(const wchar_t* name) {
 
 void shell::OpenSettings(const std::wstring& page) {
     std::wstring args = page.empty() ? L"" : (page.rfind(L"ms-settings:", 0) == 0 ? page : L"--pagina=" + page);
-    ShellExecuteW(nullptr, L"open", (shell::dir + L"\\" EXE_SETTINGS).c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", (shell::dir + L"\\" EXE_SETTINGS).c_str(), args.c_str());
+}
+
+// ShellExecute numa thread: na thread da interface ele chegou a segurar o Shell 3,2 s (abrir o Ajustes pela Ilha com o
+// disco ocupado; pilha de 22/11/2026 19:54, issue #32). A thread espera o ShellExecute terminar (SEE_MASK_NOASYNC).
+void shell::Abrir(const wchar_t* verb, const wchar_t* file, const wchar_t* args, const wchar_t* dir, int show) {
+    if (!file) return;
+    AllowSetForegroundWindow(ASFW_ANY);  // o app aberto pela thread vem para a frente como antes
+    std::wstring v = verb ? verb : L"", f = file, a = args ? args : L"", d = dir ? dir : L"";
+    bool temVerbo = verb != nullptr;
+    std::thread([v, f, a, d, show, temVerbo] {
+        HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        SHELLEXECUTEINFOW se{ sizeof(se) };
+        se.fMask = SEE_MASK_NOASYNC;
+        se.lpVerb = temVerbo ? v.c_str() : nullptr;
+        se.lpFile = f.c_str();
+        se.lpParameters = a.empty() ? nullptr : a.c_str();
+        se.lpDirectory = d.empty() ? nullptr : d.c_str();
+        se.nShow = show;
+        if (!ShellExecuteExW(&se)) Log(L"abrir: não abriu %ls (%lu)", f.c_str(), GetLastError());
+        if (SUCCEEDED(ci)) CoUninitialize();
+    }).detach();
+}
+
+// trabalho feito numa thread devolve o resultado para a interface (dock: a Lixeira cheia ou vazia)
+static const UINT WM_NA_INTERFACE = WM_APP + 60;
+void shell::NaInterface(std::function<void()> f) {
+    auto* p = new std::function<void()>(std::move(f));
+    if (!g_msg || !PostMessageW(g_msg, WM_NA_INTERFACE, 0, (LPARAM)p)) delete p;
 }
 
 static void LoadSettings() {
@@ -596,7 +624,7 @@ static void Screenshot(int kind, bool clip) {
         return;
     }
     std::wstring args = L"/" + std::to_wstring(kind) + (clip ? L" /c" : L"");
-    ShellExecuteW(nullptr, L"open", (shell::dir + L"\\" EXE_SCREENSHOT).c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", (shell::dir + L"\\" EXE_SCREENSHOT).c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
     Log(L"Captura de Tela aberta agora (%ls)", args.c_str());
 }
 
@@ -607,7 +635,7 @@ void shell::AbrirFinder(const std::wstring& args) {
         if (pedir && pedir(args.c_str())) { Log(L"Finder (nativo): %ls", args.c_str()); return; }
         Log(L"Finder nativo indisponível, abrindo o exe: %ls", args.c_str());
     }
-    ShellExecuteW(nullptr, L"open", (shell::dir + L"\\" EXE_FINDER).c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
+    shell::Abrir(L"open", (shell::dir + L"\\" EXE_FINDER).c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
 }
 
 static void EnsureReserve() {
@@ -736,6 +764,7 @@ static void AutoAppearance() {
 }
 
 static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_NA_INTERFACE) { auto* p = (std::function<void()>*)l; if (p) { (*p)(); delete p; } return 0; }
     // Outro programa (o Explorador, com a barra do Windows escondida ou em ocultar automaticamente) devolveu a área de
     // trabalho para a tela inteira: reaplica a nossa NA HORA. Antes esperava o tique de 1 s, e nesse meio-tempo as
     // janelas maximizadas e os ícones da mesa subiam para baixo da barra de menus e voltavam (issue #1: "a área
@@ -1119,7 +1148,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
         std::wstring finder = shell::dir + L"\\" EXE_FINDER;
         if (GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES) {
             shell::SetSetting(L"finder_padrao", L"1");
-            ShellExecuteW(nullptr, L"open", finder.c_str(), L"--quieto --padrao on", nullptr, SW_HIDE);
+            shell::Abrir(L"open", finder.c_str(), L"--quieto --padrao on", nullptr, SW_HIDE);
             Log(L"finder: de volta depois do Desligar (finder_padrao=1, --padrao on)");
         }
     }
@@ -1193,7 +1222,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     PreloadApps();
 
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) { mesa::Pulse(); TranslateMessage(&msg); DispatchMessageW(&msg); }  // pulso: ver mesa::Pulse
+    sentinela::Start(g_msg);  // interface parada 1 s ou mais: o shell.log diz onde (issue #32)
+    while (GetMessageW(&msg, nullptr, 0, 0)) { mesa::Pulse(); sentinela::ultimaMsg = msg.message; sentinela::ultimaJanela = msg.hwnd; TranslateMessage(&msg); DispatchMessageW(&msg); }  // pulso: ver mesa::Pulse
     Restore();
     DeregisterShellHookWindow(g_msg);
     // Sai daqui direto (TerminateProcess), com tudo já devolvido ao Windows. Voltar do wWinMain roda o
@@ -1283,7 +1313,8 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     PreloadApps();
 
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) { mesa::Pulse(); TranslateMessage(&msg); DispatchMessageW(&msg); }  // pulso: ver mesa::Pulse
+    sentinela::Start(g_msg);  // interface parada 1 s ou mais: o shell.log diz onde (issue #32)
+    while (GetMessageW(&msg, nullptr, 0, 0)) { mesa::Pulse(); sentinela::ultimaMsg = msg.message; sentinela::ultimaJanela = msg.hwnd; TranslateMessage(&msg); DispatchMessageW(&msg); }  // pulso: ver mesa::Pulse
     Restore();
     DeregisterShellHookWindow(g_msg);
     Log(L"Shell nativo encerrado");

@@ -422,8 +422,8 @@ std::wstring OwnApp(const std::wstring& p, std::wstring& name) {
     return GetFileAttributesW(full.c_str()) != INVALID_FILE_ATTRIBUTES ? full : L"";
 }
 void OpenPath(const std::wstring& p) {
-    if (!g_openExe.empty()) ShellExecuteW(nullptr, L"open", g_openExe.c_str(), (L"\"" + p + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
-    else if (!shell::OpenCalculator(p)) ShellExecuteW(nullptr, L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    if (!g_openExe.empty()) shell::Abrir(L"open", g_openExe.c_str(), (L"\"" + p + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+    else if (!shell::OpenCalculator(p)) shell::Abrir(L"open", p.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 std::wstring DefaultAppName(const std::wstring& p) {

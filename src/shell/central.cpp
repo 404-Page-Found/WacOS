@@ -1931,7 +1931,7 @@ void ToggleCtl(const std::wstring& id) {
 }
 void RunExtra(const std::wstring& id) {  // controle da galeria clicado (fora da edição)
     Close();
-    auto open = [](const std::wstring& t, const wchar_t* args = nullptr) { ShellExecuteW(nullptr, L"open", t.c_str(), args, nullptr, SW_SHOWNORMAL); };
+    auto open = [](const std::wstring& t, const wchar_t* args = nullptr) { shell::Abrir(L"open", t.c_str(), args, nullptr, SW_SHOWNORMAL); };
     if (id == L"calculadora") open(shell::dir + L"\\" EXE_CALCULATOR);
     else if (id == L"terminal") open(shell::dir + L"\\" EXE_TERMINAL);
     else if (id == L"monitor") shell::OpenMonitor();
@@ -2016,7 +2016,7 @@ void Click(D2D1_POINT_2F p) {
             OpenSettings(pg[g_detail]); return;
         }
         case H_DET_ROW:
-            if (g_detail == D_WIFI) { if (hit->arg >= 0) { Close(); ShellExecuteW(nullptr, L"open", L"ms-availablenetworks:", nullptr, nullptr, SW_SHOWNORMAL); } else OpenSettings(L"wifi"); return; }
+            if (g_detail == D_WIFI) { if (hit->arg >= 0) { Close(); shell::Abrir(L"open", L"ms-availablenetworks:", nullptr, nullptr, SW_SHOWNORMAL); } else OpenSettings(L"wifi"); return; }
             if (g_detail == D_BT) { OpenSettings(L"bluetooth"); return; }
             if (g_detail == D_FOCO) {  // um modo: liga o Foco (notificações silenciadas) nele; o mesmo de novo desliga
                 int cur = FocoModo(st0.focus);
@@ -2038,7 +2038,7 @@ void Click(D2D1_POINT_2F p) {
                 Paint(); return;
             }
             return;
-        case H_NIGHT: Close(); ShellExecuteW(nullptr, L"open", L"ms-settings:nightlight", nullptr, nullptr, SW_SHOWNORMAL); return;
+        case H_NIGHT: Close(); shell::Abrir(L"open", L"ms-settings:nightlight", nullptr, nullptr, SW_SHOWNORMAL); return;
         case H_DET_PANEL: return;
         default: break;  // brilho, volume, Modo Escuro: o mesmo dos blocos
         }
@@ -2070,7 +2070,7 @@ void Click(D2D1_POINT_2F p) {
     case H_WIFI: if (Tahoe()) { OpenDetail(D_WIFI, hit->r); Paint(); return; } OpenSettings(L"wifi"); return;
     case H_BT: if (Tahoe()) { OpenDetail(D_BT, hit->r); Paint(); return; } OpenSettings(L"bluetooth"); return;
     case H_FOCUS_TEXT: OpenDetail(D_FOCO, hit->r); Paint(); return;
-    case H_AIRDROP: Close(); ShellExecuteW(nullptr, L"open", L"ms-settings:crossdevice", nullptr, nullptr, SW_SHOWNORMAL); return;
+    case H_AIRDROP: Close(); shell::Abrir(L"open", L"ms-settings:crossdevice", nullptr, nullptr, SW_SHOWNORMAL); return;
     case H_FOCUS: {  // Foco = notificações silenciadas
         DWORD v = st.focus ? 1 : 0;
         RegSetKeyValueW(HKEY_CURRENT_USER, PUSH, L"ToastEnabled", REG_DWORD, &v, sizeof(v));
@@ -2140,7 +2140,7 @@ void Click(D2D1_POINT_2F p) {
             DWORD pid = 0; GetWindowThreadProcessId(w, &pid);
             AllowSetForegroundWindow(pid);
             PostMessageW(w, msg, 5, 0);
-        } else ShellExecuteW(nullptr, L"open", (shell::dir + L"\\" EXE_SCREENSHOT).c_str(), L"/5", nullptr, SW_SHOWNORMAL);
+        } else shell::Abrir(L"open", (shell::dir + L"\\" EXE_SCREENSHOT).c_str(), L"/5", nullptr, SW_SHOWNORMAL);
         return;
     }
     default: break;

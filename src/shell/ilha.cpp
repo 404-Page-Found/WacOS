@@ -1744,7 +1744,7 @@ void Activate(const std::wstring& aumid) {  // traz o app que está tocando
             apps::Activate(a); return;
         }
     if (aumid.find(L'!') != std::wstring::npos && !apps::ActivatePackaged(L"shell:AppsFolder\\" + aumid))
-        ShellExecuteW(nullptr, L"open", (L"shell:AppsFolder\\" + aumid).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        shell::Abrir(L"open", (L"shell:AppsFolder\\" + aumid).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void Close() { g_openOn = false; KillTimer(g_wnd, TM_LEAVE); Update(); }
@@ -1797,7 +1797,7 @@ void ClickHit(const Hit& h, D2D1_POINT_2F p) {
         break;
     case H_CLIPCLR: g_clips.clear(); g_clipTop = 0; SaveClips(); break;
     case H_SHELF:
-        if (h.arg < (int)g_shelf.size()) ShellExecuteW(nullptr, L"open", g_shelf[h.arg].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        if (h.arg < (int)g_shelf.size()) shell::Abrir(L"open", g_shelf[h.arg].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
     case H_SHELFCLR: g_shelf.clear(); ShelfSave(); break;
     default: break;
@@ -1845,7 +1845,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             pk.title = Tr(L"Download concluído");
             pk.sub = full.substr(full.find_last_of(L'\\') + 1);
             pk.glyph = 0xE896; pk.color = D2D1::ColorF(0.35f, 0.65f, 1.f, 1);
-            pk.click = [full] { ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"/select,\"" + full + L"\"").c_str(), nullptr, SW_SHOWNORMAL); };
+            pk.click = [full] { shell::Abrir(L"open", L"explorer.exe", (L"/select,\"" + full + L"\"").c_str(), nullptr, SW_SHOWNORMAL); };
             ShowPeek(pk, 4000);
         }
         return 0;

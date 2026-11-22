@@ -2325,8 +2325,8 @@ void Close(bool restore = false) {
 
 void ShowInFinder(const std::wstring& path) {
     for (auto& a : apps::list)
-        if (a.finder) { ShellExecuteW(nullptr, L"open", a.launch.c_str(), (L"\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL); return; }
-    ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"/select,\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
+        if (a.finder) { shell::Abrir(L"open", a.launch.c_str(), (L"\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL); return; }
+    shell::Abrir(L"open", L"explorer.exe", (L"/select,\"" + path + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
 }
 
 void Open(int row, bool reveal) {
@@ -2347,7 +2347,7 @@ void Open(int row, bool reveal) {
         if (!reveal && r.target.size() > 4 && r.target.find(L":\\") != std::wstring::npos && !_wcsicmp(r.target.c_str() + r.target.size() - 4, L".exe")) {
             // nossos apps (e outros pelo .exe): direto
             if (!_wcsicmp(r.target.c_str() + r.target.size() - wcslen(EXE_SETTINGS), EXE_SETTINGS)) shell::OpenSettings(L"");
-            else ShellExecuteW(nullptr, L"open", r.target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            else shell::Abrir(L"open", r.target.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             break;
         }
         if (reveal && r.target.find(L":\\") != std::wstring::npos) { ShowInFinder(r.target); break; }  // app com .exe
@@ -2382,12 +2382,12 @@ void Open(int row, bool reveal) {
                 for (int i = 0; i < n; i++) { wchar_t h[4]; swprintf_s(h, L"%%%02X", (unsigned char)b[i]); u += h; }
             }
         }
-        ShellExecuteW(nullptr, L"open", u.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        shell::Abrir(L"open", u.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
     }
     default:
         if (reveal) ShowInFinder(r.target);
-        else if (!AbrirNoAppMac(r.target)) ShellExecuteW(nullptr, L"open", r.target.c_str(), nullptr, r.detail.c_str(), SW_SHOWNORMAL);
+        else if (!AbrirNoAppMac(r.target)) shell::Abrir(L"open", r.target.c_str(), nullptr, r.detail.c_str(), SW_SHOWNORMAL);
         break;
     }
     Log(L"spotlight: %ls %ls", reveal ? L"mostrando" : L"abrindo", r.name.c_str());
