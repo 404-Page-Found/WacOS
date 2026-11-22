@@ -1853,13 +1853,18 @@ void Paint() {
         }
         Text(dc, g_query, tfF, field, br, pf.text);
         // completa o melhor resultado em cinza ("saf" → "ari"), como no Mac
+        bool completou = false;
         if (!g_selAll && g_sel >= 0 && g_rows[g_sel].res >= 0) {
             const Result& r = g_res[g_rows[g_sel].res];
-            if (r.kind != K_WEB && r.kind != K_CALC && Lower(r.name).rfind(Lower(g_query), 0) == 0 && r.name.size() > g_query.size())
+            if (r.kind != K_WEB && r.kind != K_CALC && Lower(r.name).rfind(Lower(g_query), 0) == 0 && r.name.size() > g_query.size()) {
                 Text(dc, r.name.substr(g_query.size()), tfF, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, pf.place);
+                completou = true;
+            }
             else if (r.kind == K_CALC) Text(dc, L" = " + r.name, tfF, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, pf.place);
         }
-        if (g_caretOn && !g_selAll) {
+        // com o resto do nome completado em cinza o Mac não mostra a barrinha do cursor entre o digitado e o cinza (ela
+        // cortava o nome: "nvi|DIA App", 22/11/2026)
+        if (g_caretOn && !g_selAll && !completou) {
             br->SetColor(p.sel);
             dc->FillRectangle(D2D1::RectF(field.left + tw + 1, FIELD_H / 2 - 16, field.left + tw + 3, FIELD_H / 2 + 16), br);
         }

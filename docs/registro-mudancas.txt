@@ -1251,3 +1251,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Barra própria experimental (pedido do usuário): desligada por padrão (barra_mac_propria=1 liga), "Experimental." na descrição dos Ajustes nos 11 idiomas. Neste PC ficou ligada (barra_mac_propria=1 enviado ao Shell).
   - Barra própria: altura pelos botões do app só quando a cor não acha o fim da barra (Chrome voltou a 39-40 px, botões cobertos de 0 a 38); a cor não é lida nos 700 ms depois de mudar de tamanho.
   DESFAZER: reverter o commit.
+
+[2026-11-22 20:50, hora do PC] Spotlight: sem a barrinha do cursor entre o digitado e o resto do nome em cinza.
+  - src/shell/spotlight.cpp: com a completação cinza ("nvi" + "DIA App") o cursor cortava o nome no meio. Agora ele só aparece sem completação. Conferido: fotos de "nvi" e "spoti" sem a barrinha.
+  DESFAZER: reverter o commit.
