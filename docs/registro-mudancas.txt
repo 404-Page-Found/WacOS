@@ -1053,3 +1053,13 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   4) Tela cheia (F11) a partir do maximizado: o Chrome continua marcado como maximizado e a faixa ficava por cima da página. Fullscreen() conta a janela maximizada que cobre o monitor inteiro (além da área de trabalho). Conferido: some no F11 e volta ao sair.
   5) O grupo de botões do app logo antes dos botões do Windows (o "=" do Gemini, o layout do CurseForge, o "?" do Discord) ficava solto ~140 pt antes da borda: vai para a borda direita (10 pt), como no Mac, desenhado a partir da foto do app; cliques repassados ao de verdade (conferido: o menu do Gemini abre).
   Conferido também: Edge (bolinhas, botões do Windows escondidos), Chrome maximizado e inativo, Gemini e CurseForge.
+
+21/11/2026 - Barra própria: revisão do código da faixa filha
+  src\janelas\macjanela.cpp.
+  1) Relógio que refaz a foto com o mouse em cima: o SetTimer a cada movimento do mouse o reiniciava e, com o mouse andando, a foto nunca era refeita (recapOn).
+  2) FotoDoApp criava uma imagem do tamanho da janela inteira a cada medida (~20 MB maximizada, a cada 120 ms com o mouse em cima): só a faixa de cima.
+  3) Sem a janela de desenho do Chromium (aceleração desligada), a foto da janela inteira trazia a nossa faixa e a janela era recusada: a faixa some durante a foto.
+  4) Saiu a janelinha das miniaturas (sem uso com a faixa filha) e o código morto do recorte dela; a marca MacJanelaSeta sai ao soltar a janela.
+  5) Realce do mouse: o app não acende o botão com o mouse repassado por mensagem (Chrome e Discord); a faixa põe um véu claro arredondado na cópia de um botão só (o ˅, o "=" do Gemini).
+  6) As cópias do grupo/botões movidos vão sem o fundo do app (a cor da barra vira transparente, a borda suave separada dela): aparecia uma caixa mais escura em volta do logo do CurseForge.
+  Conferido: Chrome de teste (bolinhas, 1ª aba, ˅), CurseForge (sem a caixa), Discord sem recusa. NÃO conferido na tela: o véu do realce (o teste por mensagem perde o mouse na hora).

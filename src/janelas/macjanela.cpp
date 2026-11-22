@@ -118,6 +118,7 @@ struct Info {
     int grW = 0, grH = 0, grSrc = 0, grTop = 0;
     std::vector<UINT32> imgGrupoR;
     DWORD recapAte = 0;
+    bool recapOn = false;        // o relógio 11 (refazer a foto) está correndo
     // Chrome com o gancho: o ˅ da busca de abas (TabStripComboButton) na ponta DIREITA da linha, como no Chrome do Mac.
     // O de verdade fica escondido debaixo da faixa dos botões do Mac (a área reservada encolhe para ele caber ali); uma
     // miniatura ao vivo dele (thSeta) aparece na ponta direita; o mouse e o clique vão para o de verdade.
@@ -468,14 +469,13 @@ void DcSoltar(Info* in) {
 
 // As miniaturas ao vivo (DWM) da própria janela na faixa: o grupo movido e o ˅ do Chrome na ponta direita
 void Minis(Info* in) {
-    HWND ov = in->filho ? in->minis : in->overlay;
-    if (!ov) return;
     if (in->filho) {  // faixa filha: o grupo e o ˅ vão desenhados nela (imgGrupo/imgSeta), sem miniatura
         if (in->thGrupo) { DwmUnregisterThumbnail(in->thGrupo); in->thGrupo = nullptr; }
         if (in->thSeta) { DwmUnregisterThumbnail(in->thSeta); in->thSeta = nullptr; }
-        if (IsWindowVisible(ov)) ShowWindow(ov, SW_HIDE);
         return;
     }
+    HWND ov = in->overlay;
+    if (!ov) return;
     RECT r = BarRect(in), f = FrameRect(in->owner), wr; GetWindowRect(in->owner, &wr);
     auto put = [&](HTHUMBNAIL& th, bool want, RECT src, RECT dst) {
         if (!want) { if (th) { DwmUnregisterThumbnail(th); th = nullptr; } return; }
@@ -491,12 +491,6 @@ void Minis(Info* in) {
     int W = r.right - r.left, m = (int)std::lround(8 * Scale(in->owner));
     put(in->thSeta, in->setaW > 0, { fx + in->setaX, fy + in->setaY, fx + in->setaX + in->setaW, fy + in->setaY + in->setaH },
         { W - m - in->setaW, oy + in->setaY, W - m, oy + in->setaY + in->setaH });
-    if (in->filho && ov) {  // recorte da janelinha: só onde há miniatura
-        HRGN rg = CreateRectRgn(0, 0, 0, 0);
-        if (in->chunkW > 0) { HRGN a = CreateRectRgn(ox + in->chunkDst, oy + in->chunkTop, ox + in->chunkDst + in->chunkW, oy + in->chunkTop + in->chunkH); CombineRgn(rg, rg, a, RGN_OR); DeleteObject(a); }
-        if (in->setaW > 0) { HRGN a = CreateRectRgn(W - m - in->setaW, oy + in->setaY, W - m, oy + in->setaY + in->setaH); CombineRgn(rg, rg, a, RGN_OR); DeleteObject(a); }
-        SetWindowRgn(ov, rg, TRUE);  // a janela fica dona da região
-    }
 }
 
 void Paint(Info* in) {
@@ -555,17 +549,23 @@ void Paint(Info* in) {
             if (in->filho) {  // o grupo movido e o ˅ (cópias da foto do app), no lugar deles na faixa
                 RECT f = FrameRect(in->owner);
                 float ox = (f.left - r.left) / sc, oy = (f.top - r.top) / sc;
-                auto img = [&](const std::vector<UINT32>& px, int iw, int ih, float dx, float dy) {
+                // realce do mouse: o app não acende o botão com o mouse repassado por mensagem (Chrome, Discord); a faixa
+                // põe um véu claro arredondado na cópia de um botão só (o ˅, o "=" do Gemini), como o Mac faz
+                auto img = [&](const std::vector<UINT32>& px, int iw, int ih, float dx, float dy, bool realce = false) {
                     if (iw <= 0 || ih <= 0 || px.size() != (size_t)iw * ih) return;
                     ID2D1Bitmap* bm = nullptr;
                     D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96 * sc, 96 * sc);
                     if (FAILED(rt->CreateBitmap(D2D1::SizeU(iw, ih), px.data(), iw * 4, bp, &bm))) return;
                     rt->DrawBitmap(bm, D2D1::RectF(dx, dy, dx + iw / sc, dy + ih / sc), 1.f, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
                     bm->Release();
+                    if (realce && iw / sc <= 44) {
+                        b->SetColor(in->dark ? D2D1::ColorF(1, 1, 1, 0.10f) : D2D1::ColorF(0, 0, 0, 0.07f));
+                        rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(dx + 1, dy + 1, dx + iw / sc - 1, dy + ih / sc - 1), 6, 6), b);
+                    }
                 };
                 if (in->chunkW > 0) img(in->imgGrupo, in->chunkW, in->chunkH, ox + in->chunkDst / sc, oy + in->chunkTop / sc);
-                if (in->setaW > 0) img(in->imgSeta, in->setaW, in->setaH, W - 8 - in->setaW / sc, oy + in->setaY / sc);
-                if (in->grW > 0) img(in->imgGrupoR, in->grW, in->grH, W - 10 - in->grW / sc, oy + in->grTop / sc);
+                if (in->setaW > 0) img(in->imgSeta, in->setaW, in->setaH, W - 8 - in->setaW / sc, oy + in->setaY / sc, in->sobre == 2);
+                if (in->grW > 0) img(in->imgGrupoR, in->grW, in->grH, W - 10 - in->grW / sc, oy + in->grTop / sc, in->sobre == 3);
             }
             if (in->capas && !IsZoomed(in->owner)) {  // o fio da borda do DWM, que as faixas cobrem nos lados (continua o das capas)
                 int fundo = (int)(INT_PTR)GetPropW(in->owner, L"MacJanelaFundo");
@@ -1519,7 +1519,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
         if (w == 11) {  // faixa filha com o mouse no grupo movido ou no ˅: refaz a foto (o realce do app aparece na cópia)
-            if (!in || (!in->sobre && (int)(GetTickCount() - in->recapAte) > 0)) { KillTimer(h, 11); return 0; }
+            if (!in || (!in->sobre && (int)(GetTickCount() - in->recapAte) > 0)) { KillTimer(h, 11); if (in) in->recapOn = false; return 0; }
             if (in->sobre) in->recapAte = GetTickCount() + 400;  // e mais uma vez logo depois de sair (o realce apaga)
             MedirBarra(in);
             return 0;
@@ -1565,8 +1565,10 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             POINT real;
             int alvo = AlvoMovido(in, p, real);
             if (alvo) RepassaGrupo(in, p, WM_MOUSEMOVE);  // o app acende o botão no lugar de verdade; a miniatura mostra na hora
-            if (alvo != in->sobre) { if (in->sobre && !alvo) SaiDoGrupo(in); in->sobre = alvo; }
-            if (in->filho && (alvo || in->sobre != alvo)) { in->recapAte = GetTickCount() + 400; SetTimer(h, 11, 120, nullptr); }  // o realce do app na cópia
+            if (alvo != in->sobre) { if (in->sobre && !alvo) SaiDoGrupo(in); in->sobre = alvo; if (in->filho) Paint(in); }
+            // o realce do app na cópia. Só liga o relógio se ainda não está correndo: o SetTimer a cada movimento do mouse
+            // o reiniciava, e com o mouse andando a foto nunca era refeita
+            if (in->filho && alvo) { in->recapAte = GetTickCount() + 400; if (!in->recapOn) { in->recapOn = true; SetTimer(h, 11, 120, nullptr); } }
             bool grupo = alvo != 0;
             // os símbolos (× − +) só em cima dos botões do Mac, como no Mac (antes acendiam em qualquer ponto da faixa)
             bool luzes = !grupo && (!in->custom || p.x / Scale(in->owner) < PatchL(in));
@@ -1581,7 +1583,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSELEAVE:
         if (in) {
             in->hoverLights = false; in->press = -1; Paint(in);
-            if (in->sobre) { in->sobre = 0; SaiDoGrupo(in); }
+            if (in->sobre) { in->sobre = 0; SaiDoGrupo(in); if (in->filho) Paint(in); }
         }
         RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); return 0;
     case WM_LBUTTONDOWN: RemovePropW(h, L"MacVerdeEspera"); KillTimer(h, 7); if (in) {
@@ -1891,7 +1893,7 @@ BOOL FotoDoApp(Info* in, HDC mdc, const RECT& wr, int W, int H) {
             RECT cr; GetWindowRect(b.achou, &cr);
             int cw = cr.right - cr.left, ch = std::min<int>(cr.bottom - cr.top, H + 8);
             HDC d2 = CreateCompatibleDC(mdc);
-            HBITMAP b2 = CreateCompatibleBitmap(mdc, std::max(cw, 1), std::max<int>(cr.bottom - cr.top, 1));
+            HBITMAP b2 = CreateCompatibleBitmap(mdc, std::max(cw, 1), std::max(ch, 1));  // só a faixa de cima (o PrintWindow corta o resto)
             HGDIOBJ o2 = SelectObject(d2, b2);
             BOOL ok = PrintWindow(b.achou, d2, 2 /*PW_RENDERFULLCONTENT*/);
             if (ok) {
@@ -1903,7 +1905,13 @@ BOOL FotoDoApp(Info* in, HDC mdc, const RECT& wr, int W, int H) {
             if (ok) return TRUE;
         }
     }
-    return PrintWindow(h, mdc, 2 /*PW_RENDERFULLCONTENT*/);
+    // sem a janela de desenho do Chromium (aceleração desligada): a foto da janela inteira traria a nossa faixa filha
+    // (as bolinhas viravam "desenho do app" e a janela era recusada); some durante a foto
+    bool esconde = in->filho && in->overlay && IsWindowVisible(in->overlay);
+    if (esconde) SetWindowPos(in->overlay, nullptr, 0, 0, 0, 0, SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+    BOOL ok = PrintWindow(h, mdc, 2 /*PW_RENDERFULLCONTENT*/);
+    if (esconde) SetWindowPos(in->overlay, nullptr, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return ok;
 }
 void MedirBarra(Info* in) {
     HWND h = in->owner;
@@ -2068,9 +2076,18 @@ void MedirBarra(Info* in) {
                     std::vector<UINT32> n;
                     if (cw > 0 && chh > 0) {
                         n.resize((size_t)cw * chh);
+                        // sem o fundo: a cor da barra vira transparente e a borda suave do ícone é separada dela (alfa pela
+                        // distância até o fundo; cor = (pixel - (1 - a) * fundo), pré-multiplicada). Antes a cópia levava o
+                        // fundo do app junto e, ao lado da faixa (cor lida da tela), aparecia uma caixa em volta do ícone
+                        int bR = (bg >> 16) & 255, bG = (bg >> 8) & 255, bB = bg & 255;
                         for (int y = 0; y < chh; y++) for (int x = 0; x < cw; x++) {
                             int X = std::clamp(sx + x, 0, W - 1), Y = std::clamp(sy + y, 0, H - 1);
-                            n[(size_t)y * cw + x] = px[(size_t)Y * W + X] | 0xFF000000u;
+                            UINT32 v = px[(size_t)Y * W + X] & 0xFFFFFF;
+                            int R = (v >> 16) & 255, G = (v >> 8) & 255, B = v & 255;
+                            int d = std::max({ std::abs(R - bR), std::abs(G - bG), std::abs(B - bB) });
+                            int A = std::clamp(d * 255 / 48, 0, 255);  // 48 de diferença no canal mais distante: opaco
+                            auto un = [&](int c, int f) { return std::clamp(c - (255 - A) * f / 255, 0, A); };  // pré-multiplicado
+                            n[(size_t)y * cw + x] = A ? ((UINT32)A << 24 | (UINT32)un(R, bR) << 16 | (UINT32)un(G, bG) << 8 | (UINT32)un(B, bB)) : 0;
                         }
                     }
                     if (n != v) { v.swap(n); imgMudou = true; }
@@ -2434,7 +2451,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         else if (in->custom && in->overlay) { in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 33, nullptr); }  // barra própria: a cor de inativa, logo que o app repintar
         // faixa filha: as cópias do ˅ e do grupo movido refeitas depois de o app repintar na cor nova (ficava um
         // quadradinho com a cor antiga em volta deles)
-        if (in->filho && in->overlay) { in->recapAte = GetTickCount() + 500; SetTimer(in->overlay, 11, 120, nullptr); }
+        if (in->filho && in->overlay) { in->recapAte = GetTickCount() + 500; if (!in->recapOn) { in->recapOn = true; SetTimer(in->overlay, 11, 120, nullptr); } }
         break;
     case WM_SETTEXT: { LRESULT r = DefSubclassProc(h, m, w, l); PaintNC(in); Paint(in); return r; }
     case WM_DPICHANGED: { LRESULT r = DefSubclassProc(h, m, w, l); PlaceOverlay(in); return r; }
@@ -2556,10 +2573,7 @@ void Attach(HWND h, int mode) {
         // filha sem a superfície comum (desenha por DirectComposition, DcFaixa), como a do próprio Chromium
         if (DcIniciar()) in->overlay = CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_CHILD | WS_CLIPSIBLINGS, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
         in->filho = in->overlay != nullptr;
-        // a janelinha das miniaturas: comum (numa janela em camadas transparente as miniaturas do DWM não apareciam),
-        // recortada no formato exato delas (Minis), e recebe o mouse delas como a faixa
-        if (in->filho) in->minis = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
-        if (in->minis) SetWindowLongPtrW(in->minis, GWLP_USERDATA, (LONG_PTR)in);
+        // (sem miniaturas do DWM com a faixa filha: o grupo movido e o ˅ são cópias desenhadas nela, imgGrupo/imgSeta)
     }
     if (!in->overlay)  // janela comum (ou a filha não deu): a faixa solta por cima, como antes
         in->overlay = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"MacJanelaBarra", L"", WS_POPUP, 0, 0, 1, 1, h, nullptr, g_mod, nullptr);
@@ -2717,6 +2731,7 @@ void CantoLeveDesfazer(HWND h) {
     RemovePropW(h, PROP_CANTO);
     RemovePropW(h, PROP_FUNDO);
     RemovePropW(h, L"MacJanelaRecusa");
+    RemovePropW(h, L"MacJanelaSeta");
     RemovePropW(h, L"MacJanelaFundoN");
 }
 
