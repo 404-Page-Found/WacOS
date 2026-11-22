@@ -1237,3 +1237,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Electron descartável, duas rodadas de normal / maximizada / restaurada / minimizada e de volta / max+min e de volta: faixa sempre 31 px (maximizada 31). Antes, uma rodada deu 48 depois de minimizar; outra, com o código antigo, deu 31: o erro aparece às vezes. Botões do Windows no canto direito: sempre debaixo da faixa nesse teste.
   NÃO conferido: o caso do usuário em que ainda dá para clicar nos botões do Windows no canto do Chrome (não reproduzido; no Chrome dele maximizado os 136 px da direita são da faixa).
   DESFAZER: reverter o commit.
+
+[2026-11-22 20:05, hora do PC] Barra própria: clicar na faixa por cima dos botões escondidos do app acionava esses botões (Chrome e Discord).
+  - src/janelas/macjanela.cpp (OverlayProc, ArrastaJanela): o clique na faixa virava WM_NCLBUTTONDOWN no mesmo ponto; o Chromium testa o ponto de novo e, por baixo da faixa da direita, estão os botões dele. Agora a faixa só arrasta se o ponteiro andar (DragDetect) e arrasta pelo Windows (SC_MOVE; maximizada, sai do maximizado no lugar proporcional), sem passar o ponto ao app. Clique parado não faz nada.
+  - Teste no Electron descartável com cliques mandados à faixa sobre o minimizar e o fechar, normal e maximizada: antes, o clique sobre o minimizar tirou a janela maximizada do maximizado; depois, duas rodadas sem mudança nenhuma.
+  NÃO conferido: arrastar e duplo clique com o mouse de verdade (sem SendInput no PC).
+  DESFAZER: reverter o commit.

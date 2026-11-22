@@ -1562,6 +1562,25 @@ bool RepassaGrupo(Info* in, POINT p, UINT msg) {
     return true;
 }
 
+// Arrasta a janela h que começou no ponto pt (tela), sem passar pelo teste de clique do app: maximizada, sai do
+// maximizado no lugar proporcional ao ponteiro e segue o arraste; senão, o arraste do Windows (SC_MOVE).
+void ArrastaJanela(HWND h, POINT pt) {
+    POINT c; GetCursorPos(&c);
+    if (IsZoomed(h)) {
+        RECT fb; if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb)))) GetWindowRect(h, &fb);
+        float fx = (pt.x - fb.left) / (float)std::max<LONG>(1, fb.right - fb.left);  // onde o ponteiro estava na largura
+        int dy = pt.y - fb.top;                                                       // e abaixo do topo
+        SetPropW(h, L"MacJanelaLeve", (HANDLE)1);  // sem a animação de ampliar no meio do arrasto (PROP_LEVE)
+        ShowWindow(h, SW_RESTORE);
+        GetCursorPos(&c);
+        RECT wr, vis; GetWindowRect(h, &wr);
+        if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &vis, sizeof(vis)))) vis = wr;
+        int x = c.x - (int)std::lround(fx * (vis.right - vis.left)) - (vis.left - wr.left), y = c.y - dy - (vis.top - wr.top);
+        SetWindowPos(h, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    SendMessageW(h, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, MAKELPARAM(c.x, c.y));  // o arrasto continua daqui
+}
+
 LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     Info* in = (Info*)GetWindowLongPtrW(h, GWLP_USERDATA);
     switch (m) {
@@ -1672,7 +1691,10 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 bool duplo = agora - ultimo <= GetDoubleClickTime() && std::abs(sp.x - onde.x) <= GetSystemMetrics(SM_CXDOUBLECLK) && std::abs(sp.y - onde.y) <= GetSystemMetrics(SM_CYDOUBLECLK);
                 ultimo = duplo ? 0 : agora; onde = sp;
                 if (duplo) { if (in->style & WS_MAXIMIZEBOX) ShowWindow(in->owner, IsZoomed(in->owner) ? SW_RESTORE : SW_MAXIMIZE); return 0; }
-                SendMessageW(in->owner, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(sp.x, sp.y));
+                // Nada de WM_NCLBUTTONDOWN no ponto do clique: o Chromium (Chrome, Discord e outros Electron) testa o ponto
+                // de novo e, por baixo da faixa da direita, estão os botões dele: o clique minimizava, ampliava ou fechava a
+                // janela (22/11/2026). Só arrasta se o ponteiro andar; um clique parado aqui não faz nada, como no Mac.
+                if (DragDetect(h, sp)) ArrastaJanela(in->owner, sp);
                 return 0;
             }
             SetCapture(h);
@@ -2894,23 +2916,7 @@ LRESULT CALLBACK LeveProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PT
         BOOL arranjo = TRUE;
         SystemParametersInfoW(SPI_GETWINARRANGING, 0, &arranjo, 0);
         POINT pt{ (short)LOWORD(l), (short)HIWORD(l) };
-        if (!arranjo && DragDetect(h, pt)) {
-            RECT fb; if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb)))) GetWindowRect(h, &fb);
-            float fx = (pt.x - fb.left) / (float)std::max<LONG>(1, fb.right - fb.left);  // onde o ponteiro estava na largura
-            int dy = pt.y - fb.top;                                                       // e abaixo do topo
-            WINDOWPLACEMENT wp{ sizeof(wp) }; GetWindowPlacement(h, &wp);
-            int nw = wp.rcNormalPosition.right - wp.rcNormalPosition.left;
-            SetPropW(h, PROP_LEVE, (HANDLE)1);  // sem a animação de ampliar no meio do arrasto
-            ShowWindow(h, SW_RESTORE);
-            POINT c; GetCursorPos(&c);
-            RECT wr, vis; GetWindowRect(h, &wr);
-            if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &vis, sizeof(vis)))) vis = wr;
-            if (nw <= 0) nw = vis.right - vis.left;
-            int x = c.x - (int)std::lround(fx * (vis.right - vis.left)) - (vis.left - wr.left), y = c.y - dy - (vis.top - wr.top);
-            SetWindowPos(h, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-            SendMessageW(h, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, MAKELPARAM(c.x, c.y));  // o arrasto continua daqui
-            return 0;
-        }
+        if (!arranjo && DragDetect(h, pt)) { ArrastaJanela(h, pt); return 0; }
     }
     if (m == WM_MOVING && l && ClampTopDrag(h, (RECT*)l)) return TRUE;  // não passa por cima da barra de menus
     // só quando o tamanho mudou: o Chromium/Electron troca a moldura (SWP_FRAMECHANGED, sem tamanho) já marcado
