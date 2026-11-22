@@ -112,6 +112,11 @@ struct Info {
     // cima do ˅ escondido e do grupo a mover): aparecia uma bolinha no lugar do ˅. O grupo movido e o ˅ são desenhados a
     // partir da foto da janela de desenho do app (FotoDoApp), refeita a cada ~120 ms com o mouse em cima (o realce do app)
     std::vector<UINT32> imgGrupo, imgSeta;
+    // o grupo de botões do app logo antes dos botões do Windows (o "=" do Gemini, o layout do CurseForge, o "?" do
+    // Discord): sem os botões do Windows ficava solto no meio, ~140 pt antes da borda. No Mac fica encostado na borda
+    // direita: uma cópia vai para lá (10 pt da borda) e o original fica debaixo da faixa da direita (PatchR)
+    int grW = 0, grH = 0, grSrc = 0, grTop = 0;
+    std::vector<UINT32> imgGrupoR;
     DWORD recapAte = 0;
     // Chrome com o gancho: o ˅ da busca de abas (TabStripComboButton) na ponta DIREITA da linha, como no Chrome do Mac.
     // O de verdade fica escondido debaixo da faixa dos botões do Mac (a área reservada encolhe para ele caber ali); uma
@@ -301,7 +306,14 @@ HRGN RoundRgn(int x0, int y0, int x1, int y1, int r) {
 }
 bool OwnApp();     // mais abaixo: um dos apps do WacOS
 const float PATCH_L = 80, PATCH_R = 3 * 46 + 6;  // pt: botões do Mac / os três botões do app (46 pt cada no Windows)
-float PatchR(Info* in) { return in->patchR > 0 ? in->patchR : PATCH_R; }  // a medida do app, quando já se sabe
+float PatchR(Info* in) {  // a medida do app, quando já se sabe (e o grupo levado para a borda direita, coberto)
+    float b = in->patchR > 0 ? in->patchR : PATCH_R;
+    if (in->grW > 0) {
+        RECT f = FrameRect(in->owner);
+        b = std::max(b, (f.right - f.left - in->grSrc) / Scale(in->owner) + 2);
+    }
+    return b;
+}
 RECT BarRect(Info* in);
 
 // Apps do Windows (barra de título padrão, mais alta que a do Mac): os botões 4 pt mais para dentro; na medida do
@@ -553,6 +565,7 @@ void Paint(Info* in) {
                 };
                 if (in->chunkW > 0) img(in->imgGrupo, in->chunkW, in->chunkH, ox + in->chunkDst / sc, oy + in->chunkTop / sc);
                 if (in->setaW > 0) img(in->imgSeta, in->setaW, in->setaH, W - 8 - in->setaW / sc, oy + in->setaY / sc);
+                if (in->grW > 0) img(in->imgGrupoR, in->grW, in->grH, W - 10 - in->grW / sc, oy + in->grTop / sc);
             }
             if (in->capas && !IsZoomed(in->owner)) {  // o fio da borda do DWM, que as faixas cobrem nos lados (continua o das capas)
                 int fundo = (int)(INT_PTR)GetPropW(in->owner, L"MacJanelaFundo");
@@ -784,13 +797,18 @@ void PaintNC(Info* in) {
 // tela cheia do próprio app (Ableton Ctrl+Shift+F, vídeos...): a área do app cobre o monitor inteiro.
 // Aí nada de cantos, contorno, faixa ou sombra, como no Mac.
 bool Fullscreen(HWND h) {
-    if (IsZoomed(h) || IsIconic(h)) return false;
-    if ((GetWindowLongW(h, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;  // com barra de título não é tela cheia (só grande demais)
+    if (IsIconic(h)) return false;
     RECT cr; GetClientRect(h, &cr);
     POINT a{ 0, 0 }; ClientToScreen(h, &a);
     MONITORINFO mi{ sizeof(mi) };
     if (!GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi)) return false;
-    return a.x <= mi.rcMonitor.left && a.y <= mi.rcMonitor.top && a.x + cr.right >= mi.rcMonitor.right && a.y + cr.bottom >= mi.rcMonitor.bottom;
+    bool cobre = a.x <= mi.rcMonitor.left && a.y <= mi.rcMonitor.top && a.x + cr.right >= mi.rcMonitor.right && a.y + cr.bottom >= mi.rcMonitor.bottom;
+    // Maximizada: o Chrome entra no F11 a partir do maximizado e continua marcado como maximizado; a faixa ficava por
+    // cima da página em tela cheia (21/11/2026). Conta como tela cheia se cobre o monitor inteiro, além da área de
+    // trabalho (maximizar só vai até ela; se a área de trabalho é o monitor inteiro, não dá para saber: não é)
+    if (IsZoomed(h)) return cobre && !EqualRect(&mi.rcWork, &mi.rcMonitor);
+    if ((GetWindowLongW(h, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;  // com barra de título não é tela cheia (só grande demais)
+    return cobre;
 }
 
 // Tema macOS Tahoe (liquid_glass=1 no ajustes.txt do Shell): as janelas são mais redondas (16 pt; Sequoia: 12 pt).
@@ -1408,6 +1426,13 @@ int AlvoMovido(Info* in, POINT p, POINT& real) {
             return 1;
         }
     }
+    if (in->grW) {  // o grupo levado para a borda direita
+        int m = (int)std::lround(10 * Scale(in->owner)), x0 = r.right - m - in->grW;
+        if (s.x >= x0 && s.x < r.right - m && s.y >= f.top + in->grTop && s.y < f.top + in->grTop + in->grH) {
+            real = { f.left + in->grSrc + (s.x - x0), s.y };
+            return 3;
+        }
+    }
     if (in->setaW) {
         int m = (int)std::lround(8 * Scale(in->owner)), x0 = r.right - m - in->setaW;
         if (s.x >= x0 && s.x < r.right - m && s.y >= f.top + in->setaY && s.y < f.top + in->setaY + in->setaH) {
@@ -1565,7 +1590,21 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             int alvo = AlvoMovido(in, p, real);
             if (alvo == 2) { in->press = 101; SetCapture(h); return 0; }  // o ˅: o clique inteiro vai quando o botão solta
             if (RepassaGrupo(in, p, WM_LBUTTONDOWN)) { in->press = 100; return 0; }
-            in->press = HitLight(in, p); SetCapture(h);
+            in->press = HitLight(in, p);
+            if (in->custom && in->press < 0) {
+                // barra própria, fora das bolinhas (o vazio da faixa da esquerda e onde ficavam os botões do Windows):
+                // é barra de título, como no Mac. Duplo clique amplia/restaura; senão arrasta a janela (antes o clique
+                // ali não fazia nada, 21/11/2026)
+                static DWORD ultimo; static POINT onde;
+                POINT sp = p; ClientToScreen(h, &sp);
+                DWORD agora = GetMessageTime();
+                bool duplo = agora - ultimo <= GetDoubleClickTime() && std::abs(sp.x - onde.x) <= GetSystemMetrics(SM_CXDOUBLECLK) && std::abs(sp.y - onde.y) <= GetSystemMetrics(SM_CYDOUBLECLK);
+                ultimo = duplo ? 0 : agora; onde = sp;
+                if (duplo) { if (in->style & WS_MAXIMIZEBOX) ShowWindow(in->owner, IsZoomed(in->owner) ? SW_RESTORE : SW_MAXIMIZE); return 0; }
+                SendMessageW(in->owner, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(sp.x, sp.y));
+                return 0;
+            }
+            SetCapture(h);
         } return 0;
     case WM_LBUTTONUP: {
         ReleaseCapture();
@@ -1763,7 +1802,10 @@ void SampleBar(Info* in) {
     for (int y = y0; y < h; y++) if (!near_(at(xr, y), right) && !near_(at(xr, y + 1), right)) { barH = y; break; }
     // esquerda: a cor mais comum numa linha do topo, logo depois da faixa dos botões do Mac
     std::vector<std::pair<UINT32, int>> count;
-    for (int x = (int)(PATCH_L * sc) + 4; x < std::min(w, (int)(260 * sc)); x += 2) {
+    // (depois da faixa da esquerda de verdade: com o grupo movido ela vai até ~260 pt e a leitura caía em cima dela mesma;
+    // a cor nunca mudava, nem ao desativar a janela)
+    int lx = in->custom ? (int)(PatchLeft(in) * sc) + 4 : (int)(PATCH_L * sc) + 4;
+    for (int x = lx; x < std::min(w, lx + (int)(200 * sc)); x += 2) {
         UINT32 v = at(x, y0);
         auto it = std::find_if(count.begin(), count.end(), [&](auto& p) { return p.first == v; });
         if (it == count.end()) count.push_back({ v, 1 }); else it->second++;
@@ -1947,6 +1989,8 @@ void MedirBarra(Info* in) {
             // (3) sem o gancho (a barra é a página do app): o grupo de ícones que começa debaixo dos botões do Mac e
             // termina num vão de 24 pt anda para depois deles, se lá estiver vazio
             int oldW = in->chunkW, oldDst = in->chunkDst, oldSrc = in->chunkSrc, oldSeta[4] = { in->setaX, in->setaY, in->setaW, in->setaH };
+            int oldGr[2] = { in->grW, in->grSrc };
+            in->grW = 0;
             in->chunkW = 0;
             // sem os três botões do app medidos, a faixa da direita cobriria uma largura chutada: também recusa
             bool recusa = in->patchR <= 0;
@@ -1995,6 +2039,27 @@ void MedirBarra(Info* in) {
                         if (dist(at(x, y), bg) > 40) { n++; if (!in->chunkW || x < x0 + in->chunkSrc || x >= x0 + in->chunkSrc + in->chunkW || y < y0 + in->chunkTop || y >= y0 + in->chunkTop + in->chunkH) { if (!fora) px1 = x - x0, py1 = y - y0; fora++; } }
                     if (fora && n * 10 < sw * 8) sobra = true;
                 }
+                // (5) o grupo do app logo antes dos botões do Windows vai para a borda direita (só com a faixa filha,
+                // que desenha a cópia): o que estiver até 80 pt antes da faixa da direita, até um vão de 24 pt, no
+                // máximo 200 pt, inteiro dentro da barra
+                if (in->filho && in->patchR > 0) {
+                    int pr0 = x1 - (int)(in->patchR * sc), e1 = -1, need = (int)(24 * sc);
+                    for (int x = pr0 - 1; x > std::max(x0 + lights, pr0 - (int)(80 * sc)); x--) if (ink(x)) { e1 = x; break; }
+                    if (e1 >= 0) {
+                        int s1 = e1, gap = 0;
+                        for (int x = e1; x > x0 + lights + (int)(40 * sc); x--) { if (ink(x)) { s1 = x; gap = 0; } else if (++gap >= need) break; }
+                        bool ok = gap >= need && e1 - s1 < (int)(200 * sc);
+                        int gt = INT_MAX, gb = -1;
+                        for (int yy = ya; ok && yy <= std::min(yb, H - 1); yy++)
+                            for (int xx = s1; xx <= e1; xx++) if (dist(at(xx, yy), bg) > 40) { gt = std::min(gt, yy); gb = yy; break; }
+                        if (gb < 0 || gb >= yb) ok = false;
+                        if (ok) {
+                            int ta = std::max(y0 + 1, gt - (int)(2 * sc)), tb = std::min(y0 + bh, gb + 1 + (int)(2 * sc));
+                            int src = s1 - (int)(2 * sc);
+                            in->grSrc = src - x0; in->grW = e1 + (int)(2 * sc) + 1 - src; in->grTop = ta - y0; in->grH = tb - ta;
+                        }
+                    }
+                }
                 if (sobra && !recusa) { recusa = true; porque = 2 | std::min(px1, 4095) << 4 | std::min(py1, 4095) << 16 | (in->chunkW ? 1 << 30 : 0); }  // e onde (x, y; bit 30: havia grupo movido)
             }
             bool imgMudou = false;
@@ -2012,13 +2077,15 @@ void MedirBarra(Info* in) {
                 };
                 copia(in->imgGrupo, x0 + in->chunkSrc, y0 + in->chunkTop, in->chunkW, in->chunkH);
                 copia(in->imgSeta, x0 + in->setaX, y0 + in->setaY, in->setaW, in->setaH);
+                copia(in->imgGrupoR, x0 + in->grSrc, y0 + in->grTop, in->grW, in->grH);
             }
             if (g_lpSlot) recusa = false, porque = 0;  // Chrome com o gancho: o espaço é aberto pelo próprio Chrome
             SetPropW(h, L"MacJanelaRecusa", (HANDLE)(INT_PTR)(recusa ? porque : 0));
             bool mudouRecusa = recusa != in->recusa;
             in->recusa = recusa;
             if (in->chunkW != oldW || in->chunkDst != oldDst || in->chunkSrc != oldSrc || in->setaX != oldSeta[0] || in->setaY != oldSeta[1] ||
-                in->setaW != oldSeta[2] || in->setaH != oldSeta[3] || mudouRecusa || imgMudou) PlaceOverlay(in);
+                in->setaW != oldSeta[2] || in->setaH != oldSeta[3] || mudouRecusa || imgMudou ||
+                in->grW != oldGr[0] || in->grSrc != oldGr[1]) PlaceOverlay(in);
         }
     }
     SelectObject(mdc, old); DeleteObject(bmp); DeleteDC(mdc);
@@ -2365,6 +2432,9 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         UpdateShadow(in);
         if (in->active && in->overlay) { in->needColor = true; in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 16, nullptr); }  // relê a cor do app logo depois de ativar
         else if (in->custom && in->overlay) { in->fastUntil = GetTickCount() + 700; SetTimer(in->overlay, 1, 33, nullptr); }  // barra própria: a cor de inativa, logo que o app repintar
+        // faixa filha: as cópias do ˅ e do grupo movido refeitas depois de o app repintar na cor nova (ficava um
+        // quadradinho com a cor antiga em volta deles)
+        if (in->filho && in->overlay) { in->recapAte = GetTickCount() + 500; SetTimer(in->overlay, 11, 120, nullptr); }
         break;
     case WM_SETTEXT: { LRESULT r = DefSubclassProc(h, m, w, l); PaintNC(in); Paint(in); return r; }
     case WM_DPICHANGED: { LRESULT r = DefSubclassProc(h, m, w, l); PlaceOverlay(in); return r; }

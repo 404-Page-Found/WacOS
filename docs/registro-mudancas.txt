@@ -1044,3 +1044,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   3) O ˅ do Chrome e o grupo movido dos apps Electron são desenhados na faixa a partir dessa foto (a miniatura do DWM copiava a janela inteira, já com a nossa faixa: aparecia uma bolinha no lugar do ˅); com o mouse em cima, a foto é refeita a cada ~120 ms para o realce do app aparecer.
   4) MedirSeta: o pedido de medir de novo depois de o Chrome refazer a linha era apagado no fim do MedirBarra; com a janela inativa a faixa ficava com a largura do ˅ antigo e comia o pé da 1ª aba (remedir).
   Conferido: Chrome de teste (bolinhas, 1ª aba curva em 88, ˅ na ponta direita, sem os botões do Windows), CurseForge (logo depois das bolinhas, botões escondidos); Chrome, Discord e Claude abertos pegaram a faixa filha. NÃO conferido na tela: hover/clique no ˅ e no grupo movido, arraste com o mouse de verdade.
+
+21/11/2026 - Barra própria: revisão de erros e inconsistências
+  src\janelas\macjanela.cpp.
+  1) Clique no vazio da faixa (fora das bolinhas, e onde ficavam os botões do Windows) não fazia nada: agora é barra de título como no Mac (arrasta a janela; duplo clique amplia/restaura).
+  2) Cor da faixa da esquerda lida da tela logo depois da faixa de verdade (PatchLeft): com o grupo movido a leitura caía em cima da própria faixa e a cor nunca mudava (ativa/inativa).
+  3) Ao ativar/desativar, as cópias do ˅ e dos grupos movidos são refeitas depois de o app repintar (ficava um quadradinho da cor antiga em volta).
+  4) Tela cheia (F11) a partir do maximizado: o Chrome continua marcado como maximizado e a faixa ficava por cima da página. Fullscreen() conta a janela maximizada que cobre o monitor inteiro (além da área de trabalho). Conferido: some no F11 e volta ao sair.
+  5) O grupo de botões do app logo antes dos botões do Windows (o "=" do Gemini, o layout do CurseForge, o "?" do Discord) ficava solto ~140 pt antes da borda: vai para a borda direita (10 pt), como no Mac, desenhado a partir da foto do app; cliques repassados ao de verdade (conferido: o menu do Gemini abre).
+  Conferido também: Edge (bolinhas, botões do Windows escondidos), Chrome maximizado e inativo, Gemini e CurseForge.
