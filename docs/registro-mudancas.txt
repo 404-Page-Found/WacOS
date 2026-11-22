@@ -1063,3 +1063,13 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   5) Realce do mouse: o app não acende o botão com o mouse repassado por mensagem (Chrome e Discord); a faixa põe um véu claro arredondado na cópia de um botão só (o ˅, o "=" do Gemini).
   6) As cópias do grupo/botões movidos vão sem o fundo do app (a cor da barra vira transparente, a borda suave separada dela): aparecia uma caixa mais escura em volta do logo do CurseForge.
   Conferido: Chrome de teste (bolinhas, 1ª aba, ˅), CurseForge (sem a caixa), Discord sem recusa. NÃO conferido na tela: o véu do realce (o teste por mensagem perde o mouse na hora).
+
+21/11/2026 - Barra própria: revisão a fundo do código da faixa
+  src\janelas\macjanela.cpp.
+  1) Janela fechada (WM_NCDESTROY): os objetos de DirectComposition da faixa filha e as miniaturas do DWM não eram liberados (vazava a cada janela fechada).
+  2) Paint: sem memória para a imagem (CreateDIBSection falhou) seguia com o ponteiro nulo até o DcFaixa; agora sai e pinta na próxima.
+  3) FotoDoApp: a janela de desenho é do processo da GPU; o PrintWindow espera por ele e, travado, travaria a janela do app. Confere antes se responde (IsHungAppWindow + WM_NULL com 100 ms).
+  4) Paint: o SetWindowPos da faixa filha a cada pintura (cada movimento do mouse) fazia o app redesenhar à toa; só quando muda de lugar/tamanho ou não está no topo das filhas.
+  5) Grupo da direita: numa janela estreita podia pegar o grupo da esquerda (desenhado duas vezes); agora só depois do fim dele.
+  6) Janela movida sem arrastar (Win+seta, encaixe): o retângulo das capas dos cantos era deslocado antes de refazê-las e elas ficavam soltas no lugar antigo. Conferido: três movimentos por código, capas acompanham (mesmo desvio).
+  Conferido também: Chrome de teste (bolinhas, 1ª aba, ˅) e fechar a janela pelo próprio Chrome sem queda (sem evento 1000).

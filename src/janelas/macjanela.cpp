@@ -503,6 +503,7 @@ void Paint(Info* in) {
     BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB };
     void* bits = nullptr;
     HBITMAP bmp = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bmp) { DeleteDC(mem); ReleaseDC(nullptr, screen); return; }  // sem memória para a imagem: pinta na próxima
     HGDIOBJ old = SelectObject(mem, bmp);
     ID2D1DCRenderTarget* rt = nullptr;
     auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96 * sc, 96 * sc);
@@ -677,8 +678,13 @@ void Paint(Info* in) {
         // (o Chromium tem as dele) pelo SetWindowPos
         POINT c = dst; ScreenToClient(in->owner, &c);
         GdiFlush();
-        DcFaixa(in, bits, w, h);
-        SetWindowPos(in->overlay, HWND_TOP, c.x, c.y, w, h, SWP_NOACTIVATE);
+        if (bits) DcFaixa(in, bits, w, h);  // (sem a imagem, nada: antes seguia com o ponteiro nulo)
+        // só quando muda de lugar/tamanho ou não está no topo das filhas: a cada movimento do mouse o SetWindowPos fazia o
+        // app redesenhar à toa
+        RECT cur; GetWindowRect(in->overlay, &cur);
+        POINT cc{ cur.left, cur.top }; ScreenToClient(in->owner, &cc);
+        if (cc.x != c.x || cc.y != c.y || cur.right - cur.left != w || cur.bottom - cur.top != h || GetWindow(in->owner, GW_CHILD) != in->overlay)
+            SetWindowPos(in->overlay, HWND_TOP, c.x, c.y, w, h, SWP_NOACTIVATE);
         if (in->minis)  // a janelinha das miniaturas: no lugar e do tamanho da faixa (o recorte é do Minis)
             SetWindowPos(in->minis, nullptr, dst.x, dst.y, w, h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     } else UpdateLayeredWindow(in->overlay, screen, &dst, &sz, mem, &src, 0, &bf, ULW_ALPHA);
@@ -1889,6 +1895,10 @@ BOOL FotoDoApp(Info* in, HDC mdc, const RECT& wr, int W, int H) {
             if (a > b->area) { b->area = a; b->achou = c; }
             return TRUE;
         }, (LPARAM)&b);
+        // a janela de desenho é de OUTRO processo (o da GPU): o PrintWindow espera por ele. Travado, a foto travaria a
+        // janela do app junto; antes, confere se ele responde (100 ms)
+        DWORD_PTR rr = 0;
+        if (b.achou && (IsHungAppWindow(b.achou) || !SendMessageTimeoutW(b.achou, WM_NULL, 0, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 100, &rr))) return FALSE;
         if (b.achou) {
             RECT cr; GetWindowRect(b.achou, &cr);
             int cw = cr.right - cr.left, ch = std::min<int>(cr.bottom - cr.top, H + 8);
@@ -2056,7 +2066,8 @@ void MedirBarra(Info* in) {
                     if (e1 >= 0) {
                         int s1 = e1, gap = 0;
                         for (int x = e1; x > x0 + lights + (int)(40 * sc); x--) { if (ink(x)) { s1 = x; gap = 0; } else if (++gap >= need) break; }
-                        bool ok = gap >= need && e1 - s1 < (int)(200 * sc);
+                        // (e sem pegar o grupo da esquerda, numa janela estreita: sairia desenhado duas vezes)
+                        bool ok = gap >= need && e1 - s1 < (int)(200 * sc) && (!in->chunkW || s1 > x0 + in->chunkSrc + in->chunkW + need);
                         int gt = INT_MAX, gb = -1;
                         for (int yy = ya; ok && yy <= std::min(yb, H - 1); yy++)
                             for (int xx = s1; xx <= e1; xx++) if (dist(at(xx, yy), bg) > 40) { gt = std::min(gt, yy); gb = yy; break; }
@@ -2340,7 +2351,8 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
                       in->lastPos.x != INT_MIN && (dx || dy) && in->overlay && IsWindowVisible(in->overlay);
             in->lastPos = { wr.left, wr.top };
             if (so) {
-                OffsetRect(&in->capasVis, dx, dy);
+                // (o retângulo das capas NÃO é deslocado aqui: o UpdateShadow logo abaixo refaz as capas no lugar novo; deslocado,
+                // ele achava que nada tinha mudado e as capas ficavam soltas no lugar antigo, no Win+seta e no encaixe)
                 // a faixa filha já andou junto com o app; anda só a janelinha das miniaturas (ou a faixa solta)
                 HWND mv = in->filho ? in->minis : in->overlay;
                 RECT ov;
@@ -2481,6 +2493,11 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_NCRBUTTONUP:  // o menu do sistema (sem WS_SYSMENU) não abre mais no clique direito da barra
         break;
     case WM_NCDESTROY: {
+        // a faixa filha já foi destruída junto (filha); os objetos de desenho dela e as miniaturas, não (vazavam a cada
+        // janela fechada)
+        if (in->filho) DcSoltar(in);
+        if (in->thGrupo) { DwmUnregisterThumbnail(in->thGrupo); in->thGrupo = nullptr; }
+        if (in->thSeta) { DwmUnregisterThumbnail(in->thSeta); in->thSeta = nullptr; }
         in->shadow.Destroy();
         for (HWND& c : in->corner) if (c) { DestroyWindow(c); c = nullptr; }
         RemovePropW(h, L"MacJanelaMoldura");
