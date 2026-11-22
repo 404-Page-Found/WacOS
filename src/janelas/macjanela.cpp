@@ -156,6 +156,7 @@ struct Info {
     // a última imagem da barra e da moldura (pré-multiplicadas): entram na foto da janela que o Window Wobble (mod do
     // Windhawk) tira com PrintWindow, onde as nossas janelas por cima não aparecem (issue #26)
     std::vector<UINT32> fotoBarra, fotoMoldura;
+    DWORD wobAte = 0;            // Wobbly Windows: a janela ainda balança depois de soltar; sombra e moldura esperam
     SIZE fotoBarraSz{}, fotoMolduraSz{};
 };
 
@@ -307,6 +308,23 @@ void PatchWobble() {
         wchar_t n[MAX_PATH]; if (!K32GetModuleBaseNameW(GetCurrentProcess(), mods[i], n, MAX_PATH)) continue;
         if (!_wcsnicmp(n, L"window-wobble_", 14) && PatchIat(mods[i])) feito = true;
     }
+}
+
+// Wobbly Windows (mod do Windhawk dentro do dwm.exe): deforma a imagem da janela no compositor. A sombra e a moldura
+// (cantos, contorno, bordas do GTK) são janelas nossas, que não deformam junto: ficavam paradas e retas, soltas da
+// janela que balança. Com o mod ligado, elas somem no arraste e voltam quando a janela assenta.
+bool WobblyAtivo() {
+    static DWORD at; static bool on;
+    if (at && GetTickCount() - at < 3000) return on;
+    at = GetTickCount(); on = false;
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Windhawk\\Engine\\Mods\\wobbly-windows", 0, KEY_READ | KEY_WOW64_64KEY, &k) == ERROR_SUCCESS) {
+        DWORD v = 0, sz = sizeof(v), type = 0;
+        LONG e = RegQueryValueExW(k, L"Disabled", nullptr, &type, (BYTE*)&v, &sz);
+        on = e != ERROR_SUCCESS || v == 0;
+        RegCloseKey(k);
+    }
+    return on;
 }
 
 bool PintaBarraNaFaixa(HWND h) {
@@ -1275,6 +1293,11 @@ void CapasCantos(Info* in, RECT vis) {
 
 void UpdateShadow(Info* in) {
     if (in->transit) return;  // ampliando: nada em volta da janela escondida
+    if ((in->moving || (int)(GetTickCount() - in->wobAte) < 0) && WobblyAtivo()) {  // a janela balançando no compositor
+        if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE);
+        HideCorners(in);
+        return;
+    }
     if (GetPropW(in->owner, L"MacJanelaPintando")) return;  // aparecendo: a sombra espera a janela pintar
     if (TakenByShell(in->owner)) { if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); return; }
     in->shadow.tahoe = TemaTahoe(); in->shadow.dark = Dark();  // Tahoe: sombra medida no macOS 26
@@ -1661,6 +1684,7 @@ LRESULT CALLBACK OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
+        if (w == 21) { KillTimer(h, 21); if (in) { in->wobAte = 0; UpdateShadow(in); } return 0; }  // Wobbly Windows: a janela assentou
         if (w == 9) {  // o menu do ˅: levar para baixo do ˅ da direita (até 40 tentativas de 40 ms)
             int n = (int)(INT_PTR)GetPropW(h, L"MacSetaMenu") + 1;
             SetPropW(h, L"MacSetaMenu", (HANDLE)(INT_PTR)n);
@@ -2546,7 +2570,8 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_ENTERSIZEMOVE:
         in->moving = true;
         GetWindowRect(h, &in->moveStart);
-        if (in->custom || !PintaBarraNaFaixa(h)) HideCorners(in);  // a moldura atrasaria um quadro atrás da janela (a "linha" que a seguia); volta no fim
+        if (WobblyAtivo()) { if (in->shadow.wnd) ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); }
+        else if (in->custom || !PintaBarraNaFaixa(h)) HideCorners(in);  // a moldura atrasaria um quadro atrás da janela (a "linha" que a seguia); volta no fim
         PatchWobble();
         break;
     case WM_MOVING: {
@@ -2579,6 +2604,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         if (!moved) in->tiled = false;  // redimensionou: deixa de estar encaixada
         if (moved) { in->lastStart = in->moveStart; in->lastStartAt = GetTickCount(); }  // o Shell pode encaixar logo depois (MacJanelaEncaixar)
         if (in->custom && in->overlay) { PlaceOverlay(in); in->fastUntil = GetTickCount() + 500; SetTimer(in->overlay, 1, 33, nullptr); }  // pinta de novo no lugar final
+        if (WobblyAtivo() && in->overlay) { in->wobAte = GetTickCount() + 900; SetTimer(in->overlay, 21, 950, nullptr); }  // ainda balança: volta depois
         UpdateShadow(in);
         break;
     }
