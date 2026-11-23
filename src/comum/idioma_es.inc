@@ -1629,3 +1629,6 @@
 { L"Digite a cidade do Meu Local", L"Escribe la ciudad de Mi ubicación" },
 { L"Botões do Mac nos apps com barra própria", L"Botones del Mac en apps con barra propia" },
 { L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Experimental. Edge, Chrome, Figma, Discord, VS Code y otras apps que dibujan su propia barra reciben los botones del Mac en lugar de los de Windows. Se aplica a las ventanas abiertas después del cambio." },
+{ L"Modo leve", L"Modo ligero" },
+{ L"Desempenho", L"Rendimiento" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Menos vidrio y animaciones a 60 fotogramas por segundo, para PCs con gráficos integrados o poca memoria. En Automático, se activa con batería y en PCs con hasta 8 GB de memoria o 4 núcleos." },

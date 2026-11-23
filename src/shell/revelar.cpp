@@ -489,7 +489,8 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 void HookThread() {
-    g_hook = SetWindowsHookExW(WH_MOUSE_LL, MouseHook, GetModuleHandleW(nullptr), 0);
+    shell::ThreadDeGancho();
+    g_hook =SetWindowsHookExW(WH_MOUSE_LL, MouseHook, GetModuleHandleW(nullptr), 0);
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) {}
     if (g_hook) UnhookWindowsHookEx(g_hook);

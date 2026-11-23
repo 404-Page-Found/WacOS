@@ -1629,3 +1629,6 @@
 { L"Digite a cidade do Meu Local", L"現在地にする都市を入力" },
 { L"Botões do Mac nos apps com barra própria", L"独自のタイトルバーを持つアプリにMacのボタン" },
 { L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"実験的機能。Edge、Chrome、Figma、Discord、VS Code など独自のタイトルバーを描くアプリで、Windows のボタンの代わりに Mac のボタンを使います。変更後に開いたウインドウに適用されます。" },
+{ L"Modo leve", L"軽量モード" },
+{ L"Desempenho", L"パフォーマンス" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"ガラス効果を減らし、アニメーションを毎秒60フレームにします。内蔵グラフィックスやメモリの少ないPC向けです。「自動」では、バッテリー駆動時とメモリ8 GB以下または4コア以下のPCでオンになります。" },

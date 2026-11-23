@@ -3,6 +3,7 @@
 // HwndRenderTarget tinha sobre o acrílico.
 #include "finder.h"
 #include <d3d11.h>
+#include "../comum/gpu.h"
 #include <dxgi1_2.h>
 #include <dcomp.h>
 #include <algorithm>
@@ -34,8 +35,8 @@ void BindBackbuffer() {
 
 bool gfx::Init(HWND hwnd) {
     // VIDEO_SUPPORT: o Quick Look toca vídeo neste mesmo dispositivo (Media Foundation)
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
-                                   nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr);
+    // na placa que liga a tela (a do DWM): em notebook com GPU híbrida o padrão pode ser a dedicada (comum/gpu.h, issue #33)
+    HRESULT hr = gpu::CriarNaTela(D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT, &d3d, nullptr);
     if (FAILED(hr))
         hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                                nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr);

@@ -1629,3 +1629,6 @@
 { L"Digite a cidade do Meu Local", L"输入“我的位置”的城市" },
 { L"Botões do Mac nos apps com barra própria", L"在自带标题栏的应用中使用 Mac 按钮" },
 { L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"实验性功能。Edge、Chrome、Figma、Discord、VS Code 等自带标题栏的应用将使用 Mac 按钮代替 Windows 按钮。对更改后打开的窗口生效。" },
+{ L"Modo leve", L"轻量模式" },
+{ L"Desempenho", L"性能" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"减少玻璃效果，动画以每秒 60 帧运行，适合集成显卡或内存较少的电脑。“自动”时，在使用电池以及内存不超过 8 GB 或不超过 4 核的电脑上开启。" },

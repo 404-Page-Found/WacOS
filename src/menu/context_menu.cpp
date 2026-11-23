@@ -20,6 +20,7 @@
 #include <cmath>
 #include "context_menu.h"
 #include <d3d11.h>
+#include "../comum/gpu.h"
 #include <d2d1_1.h>
 #include <d2d1effects.h>
 #include <DispatcherQueue.h>
@@ -591,7 +592,7 @@ static void PreparaDispositivo() {
     if (g_preEstado.exchange(1)) return;
     std::thread([] {
         ID3D11Device* d3d = nullptr; IDXGIDevice* dx = nullptr; ID2D1Factory1* f1 = nullptr; ID2D1Device* d2 = nullptr;
-        if (SUCCEEDED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr)) &&
+        if (SUCCEEDED(gpu::CriarNaTela(D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &d3d, nullptr)) &&  // a placa da tela (comum/gpu.h)
             SUCCEEDED(d3d->QueryInterface(IID_PPV_ARGS(&dx))) &&
             SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), nullptr, (void**)&f1)))
             f1->CreateDevice(dx, &d2);
@@ -615,7 +616,7 @@ static bool CompReady() {
         if (g_preEstado == 2 && g_preD2d) { g_wd2d = g_preD2d; g_preD2d = nullptr; }  // veio pronto da thread
         else {
         ID3D11Device* d3d = nullptr;
-        winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, nullptr));
+        winrt::check_hresult(gpu::CriarNaTela(D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &d3d, nullptr));
         IDXGIDevice* dx = nullptr; d3d->QueryInterface(IID_PPV_ARGS(&dx));
         ID2D1Factory1* f1 = nullptr;
         winrt::check_hresult(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), nullptr, (void**)&f1));

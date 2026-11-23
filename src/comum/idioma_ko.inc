@@ -1629,3 +1629,6 @@
 { L"Digite a cidade do Meu Local", L"나의 위치로 쓸 도시를 입력하세요" },
 { L"Botões do Mac nos apps com barra própria", L"자체 제목 막대가 있는 앱에 Mac 버튼" },
 { L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"실험적 기능. Edge, Chrome, Figma, Discord, VS Code 등 자체 제목 막대를 그리는 앱에 Windows 버튼 대신 Mac 버튼을 씁니다. 변경 후 연 윈도우에 적용됩니다." },
+{ L"Modo leve", L"경량 모드" },
+{ L"Desempenho", L"성능" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"유리 효과를 줄이고 애니메이션을 초당 60프레임으로 실행합니다. 내장 그래픽이나 메모리가 적은 PC용입니다. 자동에서는 배터리 사용 중이거나 메모리 8GB 이하 또는 4코어 이하 PC에서 켜집니다." },

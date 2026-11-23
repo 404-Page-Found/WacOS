@@ -110,14 +110,38 @@ bool HasWindow(DWORD pid) {
 // objeto, então cada movimento do CURSOR também chega ao Shell, uma vez por gancho. Num jogo (o cursor é recentrado a
 // cada quadro, mouse de 1000 Hz) eram milhares de avisos por segundo na thread principal; medido 20/11/2026, com o
 // vidro real já desligado: 43% de um núcleo logo depois de abrir. No modo jogo eles saem e voltam quando o jogo fecha.
-struct Gancho { WINEVENTPROC fn; DWORD flags; HWINEVENTHOOK h; };
+// Fora do modo jogo também pesava: eram 4 ganchos (vidro, tela cheia, notificações, sombras), então o Windows entregava
+// cada movimento do cursor (e de cada barra de rolagem, cursor de texto, controle filho de qualquer app) 4 vezes à
+// thread da interface, de processo para processo. Agora é UM gancho só, que joga fora na hora o que não é janela
+// (todos os que pedem só querem OBJID_WINDOW) e repassa o resto a cada um (23/11/2026, otimização de desempenho).
+struct Gancho { WINEVENTPROC fn; DWORD flags; };
 std::vector<Gancho> g_ganchos;
-HWINEVENTHOOK Ligar(const Gancho& g) { return SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, g.fn, 0, 0, g.flags); }
-void Ganchos(bool on) {
-    for (auto& g : g_ganchos) {
-        if (on && !g.h) g.h = Ligar(g);
-        if (!on && g.h) { UnhookWinEvent(g.h); g.h = nullptr; }
+HWINEVENTHOOK g_posicao;       // o gancho único (nullptr no modo jogo)
+DWORD g_posicaoFlags;
+unsigned g_avisos, g_deJanela;  // contagem para o log (Tick)
+void CALLBACK Posicao(HWINEVENTHOOK hk, DWORD ev, HWND h, LONG obj, LONG child, DWORD tid, DWORD t) {
+    g_avisos++;
+    if (obj != OBJID_WINDOW || !h) return;  // cursor, cursor de texto, barras de rolagem: ninguém usa
+    g_deJanela++;
+    static const DWORD eu = GetCurrentProcessId();
+    int proprio = -1;
+    auto lista = g_ganchos;  // quem é chamado pode soltar o próprio gancho (SoltarPosicao)
+    for (auto& g : lista) {
+        if ((g.flags & WINEVENT_SKIPOWNPROCESS) && !(g_posicaoFlags & WINEVENT_SKIPOWNPROCESS)) {  // este não quer as do Shell
+            if (proprio < 0) { DWORD pid = 0; GetWindowThreadProcessId(h, &pid); proprio = pid == eu; }
+            if (proprio) continue;
+        }
+        g.fn(hk, ev, h, obj, child, tid, t);
     }
+}
+void Ganchos(bool on) {
+    if (g_posicao) { UnhookWinEvent(g_posicao); g_posicao = nullptr; }
+    if (!on || g_ganchos.empty()) return;
+    // todos dispensam as janelas do próprio Shell (o normal): o Windows já filtra e o Dock animando não chega aqui
+    bool todosSemProprio = true;
+    for (auto& g : g_ganchos) if (!(g.flags & WINEVENT_SKIPOWNPROCESS)) todosSemProprio = false;
+    g_posicaoFlags = WINEVENT_OUTOFCONTEXT | (todosSemProprio ? WINEVENT_SKIPOWNPROCESS : 0);
+    g_posicao = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, nullptr, Posicao, 0, 0, g_posicaoFlags);
 }
 
 void Eco(bool on) {
@@ -156,7 +180,14 @@ void Check(HWND fg) {
     Apply(true);
 }
 
-void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) { Check(GetForegroundWindow()); }
+void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
+    Check(GetForegroundWindow());
+    static int n = 0;
+    if (++n % 30 == 0 && g_avisos) {  // a cada minuto (diagnóstico de CPU): quantos avisos de posição chegaram
+        Log(L"posição: %u avisos em 60 s, %u de janela repassados a %zu (antes cada um chegava %zu vezes)", g_avisos, g_deJanela, g_ganchos.size(), g_ganchos.size());
+        g_avisos = g_deJanela = 0;
+    }
+}
 
 }  // namespace
 
@@ -176,12 +207,11 @@ void jogo::Foreground(HWND h) { Check(h); }
 
 // no lugar de SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE...): o mesmo gancho, que sai durante o modo jogo
 void jogo::GanchoPosicao(WINEVENTPROC fn, DWORD flags) {
-    Gancho g{ fn, flags, nullptr };
-    if (!g_on) g.h = Ligar(g);
-    g_ganchos.push_back(g);
+    g_ganchos.push_back({ fn, flags });
+    Ganchos(!g_on);  // refaz o gancho único (as opções podem mudar com o novo)
 }
 void jogo::SoltarPosicao(WINEVENTPROC fn) {
     for (size_t i = 0; i < g_ganchos.size(); i++)
-        if (g_ganchos[i].fn == fn) { if (g_ganchos[i].h) UnhookWinEvent(g_ganchos[i].h); g_ganchos.erase(g_ganchos.begin() + i); return; }
+        if (g_ganchos[i].fn == fn) { g_ganchos.erase(g_ganchos.begin() + i); Ganchos(!g_on); return; }
 }
 bool jogo::Ativo() { return g_on; }

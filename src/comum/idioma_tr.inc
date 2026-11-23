@@ -1629,3 +1629,6 @@
 { L"Digite a cidade do Meu Local", L"Konumum için şehri yazın" },
 { L"Botões do Mac nos apps com barra própria", L"Kendi başlık çubuğu olan uygulamalarda Mac düğmeleri" },
 { L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.", L"Deneysel. Edge, Chrome, Figma, Discord, VS Code ve kendi başlık çubuğunu çizen diğer uygulamalar Windows düğmeleri yerine Mac düğmelerini alır. Değişiklikten sonra açılan pencerelerde geçerlidir." },
+{ L"Modo leve", L"Hafif mod" },
+{ L"Desempenho", L"Performans" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Daha az cam efekti ve saniyede 60 karede animasyonlar; tümleşik grafikli veya az belleğe sahip PC'ler için. Otomatik'te pilde ve en fazla 8 GB belleğe ya da 4 çekirdeğe sahip PC'lerde açılır." },

@@ -21,6 +21,16 @@ bool shell::nativo;
 
 DWORD shell::SemProprio() { return nativo ? 0 : WINEVENT_SKIPOWNPROCESS; }
 
+// Gancho global (WH_MOUSE_LL / WH_KEYBOARD_LL): o Windows segura cada tecla e cada clique do PC INTEIRO até a thread do
+// gancho responder. Numa CPU fraca e ocupada (i3, notebook na bateria) uma thread de prioridade normal esperava a vez
+// atrás do resto e o ponteiro/teclado engasgavam (issues #10 e #33). No modo jogo o processo vai para o EcoQoS (núcleos
+// lentos, jogo.cpp): a thread do gancho fica fora dele, senão cada tecla do jogo esperava um núcleo de eficiência acordar.
+void shell::ThreadDeGancho() {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+    THREAD_POWER_THROTTLING_STATE s{ THREAD_POWER_THROTTLING_CURRENT_VERSION, THREAD_POWER_THROTTLING_EXECUTION_SPEED, 0 };
+    SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &s, sizeof(s));
+}
+
 // Janela do próprio Shell. Fora do modo nativo: qualquer janela deste processo. No nativo o processo é o
 // explorer.exe: as janelas dele (pastas, Executar, avisos de copiar/apagar) são de app; nossas são só as
 // criadas com o módulo do Shell (a MacBarra.dll).
@@ -276,6 +286,7 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
 }
 
 static void KeyThread() {
+    shell::ThreadDeGancho();
     g_kbHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyHook, GetModuleHandleW(nullptr), 0);
     MSG m;
     while (GetMessageW(&m, nullptr, 0, 0)) {}
@@ -296,7 +307,8 @@ static void LogGrava() {  // o que está na fila vai para o arquivo (só uma thr
     std::lock_guard<std::mutex> d(g_logDisco);
     fputws(s.c_str(), g_log); fflush(g_log);
 }
-static void LogDescarrega() { LogGrava(); }  // fim do Shell: o que faltou vai junto
+static void EsperaAjustes();
+static void LogDescarrega() { EsperaAjustes(); LogGrava(); }  // fim do Shell: o que faltou vai junto (log e ajustes.txt)
 
 void Log(const wchar_t* fmt, ...) {
     if (!g_log) return;
@@ -337,12 +349,41 @@ static std::wstring SettingsPath() {
     return f + L"\\ajustes.txt";
 }
 
+// O ajustes.txt vai para o disco numa thread (como o log). Gravando aqui, cada mudança (Dock, Central de Controle,
+// Launchpad, widgets...) esperava o disco na thread da interface: num HD com o antivírus olhando, 20 a 200 ms de tela
+// parada a cada clique (issue #10, Core i3 com HD). O valor vale na hora (g_settings); o arquivo segue logo depois, e
+// várias mudanças seguidas viram uma gravação só. Quem relê o arquivo (LoadSettings) e a saída do Shell esperam a fila.
+static std::mutex g_ajMx;
+static std::condition_variable g_ajCv;
+static std::wstring g_ajTexto;            // o arquivo inteiro a gravar (o mais novo)
+static bool g_ajTem = false, g_ajOcupado = false;
+static void EsperaAjustes() {
+    std::unique_lock<std::mutex> l(g_ajMx);
+    g_ajCv.wait_for(l, std::chrono::seconds(3), [] { return !g_ajTem && !g_ajOcupado; });
+}
 void shell::SetSetting(const wchar_t* key, const std::wstring& value) {
     g_settings[key] = value;
-    FILE* fp = nullptr;
-    if (_wfopen_s(&fp, SettingsPath().c_str(), L"w, ccs=UTF-8") || !fp) return;
-    for (auto& [k, v] : g_settings) fwprintf(fp, L"%ls=%ls\n", k.c_str(), v.c_str());
-    fclose(fp);
+    std::wstring s;
+    for (auto& [k, v] : g_settings) { s += k; s += L'='; s += v; s += L'\n'; }
+    { std::lock_guard<std::mutex> l(g_ajMx); g_ajTexto = std::move(s); g_ajTem = true; }
+    static std::once_flag umaVez;
+    std::call_once(umaVez, [] {
+        std::thread([] {
+            for (;;) {
+                std::wstring t;
+                {
+                    std::unique_lock<std::mutex> l(g_ajMx);
+                    g_ajCv.wait(l, [] { return g_ajTem; });
+                    t.swap(g_ajTexto); g_ajTem = false; g_ajOcupado = true;
+                }
+                FILE* fp = nullptr;
+                if (!_wfopen_s(&fp, SettingsPath().c_str(), L"w, ccs=UTF-8") && fp) { fputws(t.c_str(), fp); fclose(fp); }
+                { std::lock_guard<std::mutex> l(g_ajMx); g_ajOcupado = false; }
+                g_ajCv.notify_all();
+            }
+        }).detach();
+    });
+    g_ajCv.notify_all();
 }
 
 // Calculadora (Calculadora.exe) no lugar da Calculadora do Windows: Launchpad, Spotlight e Dock passam
@@ -414,6 +455,7 @@ void shell::NaInterface(std::function<void()> f) {
 }
 
 static void LoadSettings() {
+    EsperaAjustes();  // uma gravação nossa ainda na fila: ela vai antes (senão a releitura traria o valor antigo)
     PWSTR p = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) return;
     std::wstring f = std::wstring(p) + L"\\Shell\\ajustes.txt";
@@ -1186,6 +1228,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (!soDock) progresso::Create(hi);  // copiar/mover/apagar: a janela de progresso do Finder no lugar da do Windows
     if (!soDock) cantos::Start();         // Cantos Ativos (Mission Control, mesa, Launchpad... por canto)
     jogo::Start();           // Modo Jogo: jogo na frente desliga o que mais pesa (vidro real, ganchos do mouse...)
+    leve::Start();           // Modo leve: PC fraco ou na bateria (sem vidro real, ~60 quadros/s); vigia tomada/bateria
     boot::Progress(0.7f);
     tray::Start([] { menubar::Update(); });
     mesa::Start(hi, g_msg);  // ajuste explorer=0: a mesa é nossa e o explorer.exe sai (só Dock: a do Windows, mas o vigia fica)
