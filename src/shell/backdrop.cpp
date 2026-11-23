@@ -196,6 +196,8 @@ struct Entry {
     int surfW = 0, surfH = 0;
     bool real = false;                       // esta peça está usando o vidro real agora
     std::vector<backdrop::Piece> pieces;     // várias peças numa janela (módulos da Central)
+    // sem o vidro real, o fosco de cada peça (pares fosco + tinta, recortados no formato da peça; PecasSemReal)
+    std::vector<wuc::SpriteVisual> pecasFosco;
     D2D1_COLOR_F pieceTint{};
     float pieceFrost = 0;                    // desfoque mínimo das peças (DIP): blocos com texto (Central)
     RECT lastRect{};
@@ -291,6 +293,41 @@ void SetLiquidVisible(Entry& e, bool on) {
 
 namespace rg { void Use(Entry& e, bool want); void Redraw(Entry& e); void SetActive(bool on); extern bool active; extern bool semCaptura; }  // vidro real (mais abaixo)
 
+// Sem o vidro real (modo jogo, VM, captura recusada) e com várias peças, o fosco era um só, do tamanho da janela: o
+// Spotlight do Golden Gate virava um retângulo grande em volta da barra e do painel, que deviam flutuar separados
+// (22/11/2026). Aqui cada peça ganha o seu fosco e a sua tinta, recortados nos cantos dela. ativo = false: esconde.
+void PecasSemReal(Entry& e, bool ativo) {
+    if (!ativo) {
+        for (auto& v : e.pecasFosco) v.IsVisible(false);
+        if (e.blur) e.blur.IsVisible(true);
+        return;
+    }
+    auto kids = e.root.Children();
+    while (e.pecasFosco.size() < e.pieces.size() * 2) {
+        auto v = g_comp.CreateSpriteVisual();
+        kids.InsertAbove(v, e.pecasFosco.empty() ? e.blur : e.pecasFosco.back());
+        e.pecasFosco.push_back(v);
+    }
+    D2D1_COLOR_F pt = backdrop::AdjustTint(e.pieceTint);
+    for (size_t i = 0; i < e.pecasFosco.size(); i++) {
+        auto& v = e.pecasFosco[i];
+        size_t k = i / 2;
+        if (k >= e.pieces.size()) { v.IsVisible(false); continue; }
+        const auto& pc = e.pieces[k];
+        float pw = pc.r.right - pc.r.left, ph = pc.r.bottom - pc.r.top;
+        v.Offset({ pc.r.left, pc.r.top, 0 });
+        v.Size({ pw, ph });
+        auto geo = g_comp.CreateRoundedRectangleGeometry();
+        geo.Size({ pw, ph });
+        geo.CornerRadius({ pc.radius, pc.radius });
+        v.Clip(g_comp.CreateGeometricClip(geo));
+        if (i % 2 == 0) v.Brush(e.blur.Brush());                                     // o fosco
+        else v.Brush(g_comp.CreateColorBrush(Col(pt.r, pt.g, pt.b, pt.a)));          // a tinta da peça
+        v.IsVisible(true);
+    }
+    e.blur.IsVisible(false);  // o fosco da janela inteira some
+}
+
 void Apply(Entry& e) {
     if (!e.hasSet) return;
     const auto& st = g_style;
@@ -303,6 +340,7 @@ void Apply(Entry& e) {
     e.tintBrush.Color(Col(t.r, t.g, t.b, t.a));
 
     bool liquid = st.liquid && !st.reduce;
+    PecasSemReal(e, false);
     if (!liquid) { SetLiquidVisible(e, false); rg::Use(e, false); return; }
     BuildLiquid(e);
     SetLiquidVisible(e, true);
@@ -322,8 +360,8 @@ void Apply(Entry& e) {
                 e.geo.CornerRadius({ p.radius, p.radius });
                 D2D1_COLOR_F pt = backdrop::AdjustTint(e.pieceTint);
                 e.tintBrush.Color(Col(pt.r, pt.g, pt.b, pt.a));
-            }
-        }
+            } else PecasSemReal(e, true);
+        } else if (!e.real && !std::any_of(e.pieces.begin(), e.pieces.end(), [](const backdrop::Piece& p) { return p.goo; })) PecasSemReal(e, true);
         return;
     }
 

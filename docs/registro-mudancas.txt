@@ -1276,3 +1276,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Com o vidro real desligado, o Spotlight do Golden Gate cai no vidro de uma peça só, do tamanho da janela (o retângulo grande em volta da barra e do painel). Com o vidro real ligado, conferido em foto: barra e painel separados. NÃO corrigido: o caminho sem vidro real (modo jogo, VM).
   - src/shell/spotlight.cpp: atalhos do Menu Iniciar para programas que não existem mais saem da lista (Notas e Monitor de Atividade antigos apontavam para bin/SequoiaNotes.exe).
   DESFAZER: reverter o commit.
+
+[2026-11-22 21:17, hora do PC] Vidro sem o vidro real: cada peça com o seu fosco (o Spotlight não vira mais um retângulo grande).
+  - src/shell/backdrop.cpp (PecasSemReal): com várias peças e sem o vidro real (modo jogo, VM, captura recusada) o fosco era um só, do tamanho da janela. Agora cada peça ganha fosco e tinta recortados nos cantos dela.
+  Compilado e instalado (21:15, vidro real ligado). NÃO conferido na tela com o vidro real desligado (o usuário ia reiniciar o PC).
+  DESFAZER: reverter o commit.
