@@ -1059,7 +1059,12 @@ void apps::Activate(App& a) {
         std::vector<HWND> back;
         for (auto& w : a.wins) if (IsHidden(w.hwnd)) back.push_back(w.hwnd);
         if (!back.empty()) {
-            for (int i = (int)back.size() - 1; i >= 0; i--) { g_hiddenWins.erase(back[i]); ShowWindowAsync(back[i], SW_SHOWNOACTIVATE); }
+            for (int i = (int)back.size() - 1; i >= 1; i--) { g_hiddenWins.erase(back[i]); ShowWindowAsync(back[i], SW_SHOWNOACTIVATE); }
+            g_hiddenWins.erase(back[0]);
+            // a da frente sai do ícone do app pelo gênio, como entrou (issue #29)
+            RECT de = dock::AppIconTarget(back[0]);
+            if (de.right > de.left && genio::Restore(back[0], de)) { Log(L"dock: %ls volta pelo gênio (%zu janelas)", a.name.c_str(), back.size()); return; }
+            ShowWindowAsync(back[0], SW_SHOWNOACTIVATE);
             ForceForeground(back[0]);
             Log(L"dock: %ls volta (%zu janelas)", a.name.c_str(), back.size());
             return;
@@ -1077,10 +1082,17 @@ void apps::Activate(App& a) {
     for (auto& w : a.wins) if (!w.minimized) { ForceForeground(w.hwnd); break; }
 }
 
+static HWND g_ocultaGenio;  // a janela da frente do app que está sendo ocultado: só ela entra no ícone pelo gênio
+bool apps::OcultaComGenio(HWND h) { return h && h == g_ocultaGenio; }
 void apps::Hide(App& a) {
     DWORD now = GetTickCount();
     std::vector<HWND> hs;
     for (auto& w : a.wins) if (!w.minimized && !IsIconic(w.hwnd)) { g_hiddenWins[w.hwnd] = now; hs.push_back(w.hwnd); }
+    g_ocultaGenio = nullptr;
+    {   // a de cima na ordem da tela
+        for (HWND z = GetTopWindow(nullptr); z && !g_ocultaGenio; z = GetWindow(z, GW_HWNDNEXT))
+            if (std::find(hs.begin(), hs.end(), z) != hs.end()) g_ocultaGenio = z;
+    }
     // assíncrono: o ShowWindow numa janela de outro programa espera a thread dela (app ocupado = Shell parado, issue #32)
     for (HWND h : hs) ShowWindowAsync(h, SW_MINIMIZE);  // somem na hora (a animação do Windows está desligada)
     // a frente passa para a janela de cima de outro app, como no Mac. Minimizada por fora, a janela continuava sendo a

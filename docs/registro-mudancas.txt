@@ -1286,3 +1286,15 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/menubar.cpp: com o Explorador de fundo, a cor do topo do papel de parede vinha do arquivo (Registro + GetFileAttributes) a cada desenho e a cada tique de 1 s; o sentinela pegou 11 s parado (20:49). Agora numa thread, no máximo a cada 4 s.
   - README.md: novidades (barra de menus embaixo, Spotlight com ajustes do Windows, ícones na lista da bandeja, botões do Mac nos apps Electron como experimental, histórico da área de transferência na Ilha, launchers fora do modo jogo, sentinela de travadas).
   DESFAZER: reverter o commit.
+
+[2026-11-22 23:40, hora do PC] Issues #8 e #29 (depois da build-30).
+  - src/ajustes/main.cpp: a rolagem desenhada em pixel inteiro da tela (RoloPx); com a rolagem por quadro da build-30 o texto caía em meio pixel e "tremia" (Aparência).
+  - src/setup/main.cpp: o ShellExecute do "Abrir o WacOS" numa thread (o antivírus segurava segundos e a janela congelava no último passo); a caixinha dos termos centralizada pela largura real do texto.
+  - src/shell/menubar.cpp: barra de menus embaixo só quando cabe dos dois lados do Dock (150 pt, 180 para voltar); com o Dock largo ela volta para cima em vez de ficar por trás dele.
+  - src/shell/apps.cpp, dock.cpp, genio.cpp, shell.h: ocultar pelo clique no ícone do Dock leva a janela da frente para o ícone pelo gênio, e ela volta do ícone pelo gênio. As outras janelas do app continuam sem animação.
+  - src/shell/genio.cpp: as cópias em média do gênio são calculadas numa thread à parte (eram ~20 ms antes de a janela se mexer, metade do preparo).
+  - src/finder/main.cpp: divisória entre Voltar e Avançar, igual à dos Ajustes.
+  - src/shell/ilha.cpp: "olá" escrito à mão (Segoe Script, aparecendo da esquerda para a direita) no notch, uma vez por sessão do Windows, no idioma da interface. Desliga com ilha_ola=0.
+  - src/janelas/macjanela.cpp: uma thread vigia na DLL esconde pelo DWM (cloak) a sombra, a moldura e a barra de um app travado e mostra de novo quando ele volta (antes ficavam no lugar antigo ao lado da janela "fantasma" do Windows).
+  Compilado. Instalação adiada: o usuário estava jogando. NÃO conferido na tela (sem testes com o usuário no PC). Piscadas aleatórias (#29) e o gênio piscando ao redimensionar: sem reprodução, pedido vídeo.
+  DESFAZER: reverter o commit.

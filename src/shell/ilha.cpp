@@ -57,7 +57,7 @@ namespace wmc = winrt::Windows::Media::Control;
 namespace {
 
 const UINT WM_IL_FRAME = WM_APP + 1, WM_IL_MEDIA = WM_APP + 2, WM_IL_CAPS = WM_APP + 3, WM_IL_PRIV = WM_APP + 4, WM_IL_DOWN = WM_APP + 5;
-const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, TM_PAUSE = 6, TM_GONE = 7, TM_TICK = 8, TM_STATS = 9, TM_CAPS = 10;
+const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, TM_PAUSE = 6, TM_GONE = 7, TM_TICK = 8, TM_STATS = 9, TM_CAPS = 10, TM_OLA = 11;
 
 enum Style { S_NOTCH, S_ILHA, S_AVISO };
 enum Mode { M_HIDDEN, M_IDLE, M_MEDIA, M_TIMER, M_HUD, M_PEEK, M_OPEN };
@@ -116,7 +116,9 @@ struct Peek {
     wchar_t glyph = 0; D2D1_COLOR_F color{ 1, 1, 1, 1 };
     std::function<void(ID2D1DeviceContext*, ID2D1SolidColorBrush*, D2D1_RECT_F)> icon;
     std::function<void()> click;
+    bool ola = false;  // o "olá" escrito à mão de quando o PC liga (issue #8)
 };
+IDWriteTextFormat* g_tfOla;  // letra de mão do "olá" (Segoe Script), criada na primeira vez
 bool g_peekOn; Peek g_peek;
 bool g_hudOn; HudKind g_hud; float g_vol; bool g_mute; bool g_caps; int g_batPct; bool g_batAC;
 int g_priv;                  // 1 microfone em uso, 2 câmera em uso
@@ -1461,6 +1463,20 @@ void DrawContent(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, Mode m, doubl
     }
     case M_PEEK: {
         float top = b.top + (Notch() ? g_barPt : 0), h = b.bottom - top;
+        if (g_peek.ola) {  // o "olá" escrito da esquerda para a direita, como a caneta do Mac (o texto vai aparecendo)
+            if (!g_tfOla) {
+                g_tfOla = ui::FormatFace(L"Segoe Script", 26, DWRITE_FONT_WEIGHT_NORMAL);
+                if (g_tfOla) { g_tfOla->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); g_tfOla->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); g_tfOla->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); }
+            }
+            float e = anim::reduceMotion ? 1.f : anim::EaseOut(std::clamp((float)((t - 160) / 1150), 0.f, 1.f));
+            if (e <= 0 || !g_tfOla) break;
+            D2D1_RECT_F tr = D2D1::RectF(b.left + 10, top - 2, b.right - 10, top + h - 4);
+            dc->PushAxisAlignedClip(D2D1::RectF(tr.left, tr.top - 10, tr.left + (tr.right - tr.left) * e, tr.bottom + 10), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            br->SetColor(WHITE);
+            dc->DrawTextW(g_peek.title.c_str(), (UINT32)g_peek.title.size(), g_tfOla, tr, br);
+            dc->PopAxisAlignedClip();
+            break;
+        }
         float icy = top + h / 2 - (Notch() ? 3 : 0);
         D2D1_RECT_F ic = Around(b.left + 14 + 16, icy, 32, 32);
         if (g_peek.icon) g_peek.icon(dc, br, ic);
@@ -1714,6 +1730,7 @@ void Frame() {
     moving |= g_rb.Step(dt, resp, damp, 0.05f);
     moving |= g_a.Step(dt, 0.25f, 1.0f, 0.004f);
     moving |= now - g_modeAt < 320 || now - g_tabAt < 230;
+    moving |= g_mode == M_PEEK && g_peek.ola && now - g_modeAt < 1500;  // o "olá" ainda se escrevendo
     if (g_mode == M_OPEN || g_mode == M_MEDIA) StepBars();
     Paint();
     if (!moving) {
@@ -1890,6 +1907,19 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case TM_PAUSE: KillTimer(h, TM_PAUSE); g_pauseHold = false; Update(); break;
         case TM_GONE: KillTimer(h, TM_GONE); PostMessageW(h, WM_IL_MEDIA, 1, 0); break;  // w = 1: aplica mesmo sem mídia
         case TM_STATS: SampleStats(); if (!g_running) Paint(); break;
+        case TM_OLA: {  // o "olá" ao ligar: uma vez por sessão do Windows (o Shell reiniciando não repete)
+            KillTimer(h, TM_OLA);
+            if (!g_on || g_full || g_peekOn || g_mode == M_OPEN || shell::Setting(L"ilha_ola", L"1") == L"0") break;
+            if (GlobalFindAtomW(L"WacOS.IlhaOla")) break;
+            GlobalAddAtomW(L"WacOS.IlhaOla");
+            static const wchar_t* ola[] = { L"olá", L"hello", L"hola", L"bonjour", L"hallo", L"ciao", L"こんにちは", L"你好", L"안녕하세요", L"привет", L"cześć", L"merhaba" };
+            int l = idioma::Current();
+            Peek p; p.ola = true; p.title = ola[l >= 0 && l < (int)(sizeof(ola) / sizeof(ola[0])) ? l : 1];
+            Log(L"ilha: olá (%ls)", idioma::Code());
+            ShowPeek(std::move(p), 3200);
+            StartFrames();
+            break;
+        }
         case TM_CAPS: {
             KillTimer(h, TM_CAPS);
             g_caps = (GetKeyState(VK_CAPITAL) & 1) != 0;
@@ -2052,6 +2082,7 @@ bool ilha::Create(HINSTANCE hi) {
     RegisterDragDrop(g_wnd, &g_dropTgt);
     Place();
     ilha::Reload();
+    SetTimer(g_wnd, TM_OLA, 2500, nullptr);  // o "olá" depois que a mesa assenta (issue #8)
     return true;
 }
 

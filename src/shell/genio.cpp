@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <memory>
+#include <thread>
 
 namespace {
 
@@ -132,6 +134,14 @@ bool g_ok, g_tried, g_active;
 struct Strip { IDCompositionVisual2* v = nullptr; IDCompositionVisual2* v2 = nullptr; IDCompositionMatrixTransform3D* m3 = nullptr; IDCompositionEffectGroup* fx = nullptr; IDCompositionEffectGroup* fx2 = nullptr; int level = 0; };
 std::vector<Strip> g_strips;
 const UINT_PTR T_BACK = 1, T_END = 2, T_SETTLE = 3;
+// As cópias em média (g_avg) só aparecem quando as faixas já estão baixas, lá pela metade do caminho: são calculadas
+// numa thread à parte e entram quando ficam prontas. Antes o cálculo vinha antes de a janela se mexer (~20 ms de uma
+// janela grande, metade do preparo): o "engasgo" no começo de minimizar (issue #29, 22/11/2026).
+const UINT WM_GN_MEDIA = WM_APP + 91;
+struct Medias { unsigned gen = 0; int n = 0; std::vector<uint32_t> px[MAX_LEVELS]; int w[MAX_LEVELS]{}, h[MAX_LEVELS]{}, strips[MAX_LEVELS]{}; };
+unsigned g_gen;  // muda a cada começo e limpeza: resultado de uma animação antiga é descartado
+bool Upload(const std::vector<uint32_t>& px, int w, int hh, IDCompositionSurface** out);
+void RowAvg(const std::vector<uint32_t>& in, int w, int h, int n, std::vector<uint32_t>& out);
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l);
 
@@ -203,6 +213,7 @@ void Clear() {
         if (s.fx2) s.fx2->Release();
     }
     g_strips.clear();
+    g_gen++;
     for (int k = 0; k < MAX_LEVELS; k++) {
         if (g_level[k]) { g_root->RemoveVisual(g_level[k]); g_level[k]->Release(); g_level[k] = nullptr; }
         if (g_surf[k]) { g_surf[k]->Release(); g_surf[k] = nullptr; }
@@ -233,6 +244,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (w == T_BACK) { KillTimer(h, T_BACK); RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); dock::Raise(); }
         else if (w == T_END) { KillTimer(h, T_END); if (g_a.restore) { RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); SetTimer(h, T_SETTLE, 220, nullptr); } else FinishComp(); }  // o último quadro fica enquanto a janela redesenha
         else if (w == T_SETTLE) FinishComp();
+        return 0;
+    }
+    if (m == WM_GN_MEDIA && h == g_wnd) {  // as cópias em média chegaram da thread: sobem para a placa e entram por baixo
+        std::unique_ptr<Medias> md((Medias*)l);
+        if (!md || md->gen != g_gen || !g_active) return 0;
+        for (int k = 0; k < md->n && k < g_levels; k++)
+            if (!g_avg[k] && !Upload(md->px[k], md->w[k], md->h[k], &g_avg[k]) && g_avg[k]) { g_avg[k]->Release(); g_avg[k] = nullptr; }
+        for (auto& s : g_strips) if (s.v2 && g_avg[s.level]) s.v2->SetContent(g_avg[s.level]);
+        g_dev->Commit();
         return 0;
     }
     return DefWindowProcW(h, m, w, l);
@@ -373,17 +393,18 @@ bool Start(HWND h) {
     // as faixas acompanham essa altura. Com n0/2 em todos os níveis eram centenas de faixas e curvas montadas antes
     // de a janela se mexer (uma pausa no começo de minimizar em PCs mais fracos; PR #12 apontou, 21/11/2026)
     auto stripsOf = [&](int lvl) { return lvl == 0 ? n0 : std::max(10, (int)std::lround(n0 * std::pow(0.55f, (float)lvl))); };
+    g_gen++;
+    auto md = std::make_unique<Medias>(); md->gen = g_gen;
     for (g_levels = 0; g_levels < MAX_LEVELS; g_levels++) {
         if (!Upload(lv, lw, lh, &g_surf[g_levels])) break;
-        {
-            std::vector<uint32_t> av; RowAvg(lv, lw, lh, stripsOf(g_levels), av);
-            if (!Upload(av, lw, lh, &g_avg[g_levels]) && g_avg[g_levels]) { g_avg[g_levels]->Release(); g_avg[g_levels] = nullptr; }
-        }
         dims[g_levels][0] = lw; dims[g_levels][1] = lh;
-        if (lw < 24) { g_levels++; break; }
+        md->w[g_levels] = lw; md->h[g_levels] = lh; md->strips[g_levels] = stripsOf(g_levels);
+        if (lw < 24) { md->px[g_levels] = std::move(lv); g_levels++; break; }
         std::vector<uint32_t> nx; int nw, nh; Half(lv, lw, lh, nx, nw, nh);
+        md->px[g_levels] = std::move(lv);
         lv = std::move(nx); lw = nw; lh = nh;
     }
+    md->n = g_levels;
     if (!g_levels) { Log(L"gênio (compositor): superfície falhou; motor antigo"); Clear(); return false; }
     const double tLv = anim::Now() - t0;  // foto + níveis + cópias em média, já na placa
     // grupos de cada nível: o de baixo (o menor) primeiro, cada um por cima do anterior
@@ -458,8 +479,8 @@ bool Start(HWND h) {
             if (fades) if (IDCompositionAnimation* ao = Curve(op, D)) { st.fx->SetOpacity(ao); ao->Release(); }
             st.v->SetEffect(st.fx);
             // a mesma faixa na cópia de linhas em média, logo por baixo (mesmo recorte e mesmo movimento)
-            if (low && g_avg[lvl] && SUCCEEDED(g_dev->CreateVisual(&st.v2))) {
-                st.v2->SetContent(g_avg[lvl]);
+            if (low && SUCCEEDED(g_dev->CreateVisual(&st.v2))) {  // a cópia em média entra quando a thread terminar
+                if (g_avg[lvl]) st.v2->SetContent(g_avg[lvl]);
                 st.v2->SetClip(clip);
                 if (SUCCEEDED(g_dev->CreateEffectGroup(&st.fx2)) && st.fx2) {
                     set3d(st.v2);
@@ -492,6 +513,14 @@ bool Start(HWND h) {
     g_running = true; g_active = true;
     g_a.t0 = anim::Now();
     g_dev->Commit();
+    {   // as cópias em média, fora desta thread (a foto de cada nível vai junto; a thread só lê e devolve)
+        HWND wnd = g_wnd;
+        Medias* job = md.release();
+        std::thread([wnd, job]() {
+            for (int k = 0; k < job->n; k++) { std::vector<uint32_t> av; RowAvg(job->px[k], job->w[k], job->h[k], job->strips[k], av); job->px[k] = std::move(av); }
+            if (!PostMessageW(wnd, WM_GN_MEDIA, 0, (LPARAM)job)) delete job;
+        }).detach();
+    }
     SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);  // por cima da foto
     dock::Raise();
     if (!g_a.restore) { DwmFlush(); HideCap(); }  // o compositor já está na tela: a foto parada sai
@@ -695,10 +724,12 @@ bool Wanted(HWND h) {
 DWORD g_pauseUntil;  // Win+D: sem gênio até esta hora (genio::Pause)
 void CALLBACK OnMinimize(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (obj != OBJID_WINDOW || ev != EVENT_SYSTEM_MINIMIZESTART || !Wanted(h)) return;
-    if (revelar::Owns(h) || apps::IsHidden(h)) return;  // Ocultar: some sem o gênio
+    const bool oculta = apps::IsHidden(h);
+    if (revelar::Owns(h) || (oculta && !apps::OcultaComGenio(h))) return;  // Ocultar: só a da frente vai pelo gênio
     if ((int)(g_pauseUntil - GetTickCount()) > 0) return;  // Win+D: sem o gênio
     if (g_running && g_a.target == h) { Log(L"gênio: aviso de minimizou %.1f ms depois do começo", anim::Now() - g_a.t0); return; }  // já começou pela pergunta do Windows
-    RECT slot = dock::MinimizeTarget(h);
+    RECT slot = oculta ? dock::AppIconTarget(h) : dock::MinimizeTarget(h);
+    if (slot.right <= slot.left) return;
     Start(h, slot, false);
 }
 
@@ -740,9 +771,13 @@ void genio::Pause(DWORD ms) { g_pauseUntil = GetTickCount() + ms; }
 // HSHELL_GETMINRECT: o Windows vai minimizar `h` (ela ainda está na tela). Começa o gênio agora e responde
 // com o lugar no Dock. false: não é uma janela nossa de animar (ou é a volta de uma restauração).
 bool genio::OnMinRect(HWND h, RECT* out) {
-    if (!g_ov || !Wanted(h) || revelar::Owns(h) || IsIconic(h) || apps::IsHidden(h) || (int)(g_pauseUntil - GetTickCount()) > 0) return false;
+    if (!g_ov || !Wanted(h) || revelar::Owns(h) || IsIconic(h) || (int)(g_pauseUntil - GetTickCount()) > 0) return false;
     if (g_running && g_a.target == h) { *out = g_a.slot; return true; }
-    RECT slot = dock::MinimizeTarget(h);
+    // oculta pelo clique no ícone do Dock: entra no ícone do app pelo gênio, como o botão de minimizar (issue #29: "seria
+    // legal usar o gênio também ao clicar no ícone"). Só a da frente (apps::Hide marca); as outras somem sem animação
+    const bool oculta = apps::IsHidden(h);
+    if (oculta && !apps::OcultaComGenio(h)) return false;
+    RECT slot = oculta ? dock::AppIconTarget(h) : dock::MinimizeTarget(h);
     if (slot.right <= slot.left) return false;
     double t0 = anim::Now();
     Start(h, slot, false);

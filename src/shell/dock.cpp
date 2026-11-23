@@ -1991,6 +1991,12 @@ RECT dock::MinimizeTarget(HWND h) {
     return { 0, 0, 0, 0 };
 }
 
+RECT dock::AppIconTarget(HWND h) {
+    if (App* a = h ? apps::OfWindow(h) : nullptr)
+        for (auto& it : g_items) if (it.kind == I_APP && it.app >= 0 && it.app < (int)apps::list.size() && &apps::list[it.app] == a) return IconSlotRect(it);
+    return { 0, 0, 0, 0 };
+}
+
 void dock::Update() {
     BuildItems();
     g_lastFrame = 0;

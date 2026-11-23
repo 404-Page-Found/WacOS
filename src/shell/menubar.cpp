@@ -1578,7 +1578,21 @@ int menubar::ReservedOn(HMONITOR mon) {
 bool menubar::Embaixo() {
     if (shell::Setting(L"barra_embaixo", L"0") != L"1" || liquid::Leopard()) return false;
     if (!dock::Hwnd() || dock::Posicao() != 0) return false;
-    return dock::MonitorHandle() == MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    HMONITOR prim = MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    if (dock::MonitorHandle() != prim) return false;
+    // Dock largo demais (muitos apps ou janelas minimizadas, tela de notebook): sem lugar dos lados para a maçã, o
+    // nome do app e o relógio, a barra ficava por trás do Dock (issue #29, foto de um ThinkPad). Aí ela volta para
+    // cima até o Dock encolher. Folga de 30 pt entre entrar e sair, para não ficar pulando.
+    static bool cabia = true;
+    RECT v; MONITORINFO mi{ sizeof(mi) };
+    POINT pt; GetCursorPos(&pt);
+    if (dock::Vidro(&v) && !PtInRect(&v, pt) && GetMonitorInfoW(prim, &mi)) {  // ampliado pelo ponteiro: não conta
+        float sc = GetDpiForWindow(dock::Hwnd()) / 96.f;
+        float esq = (v.left - mi.rcMonitor.left) / sc, dir = (mi.rcMonitor.right - v.right) / sc;
+        float precisa = cabia ? 150.f : 180.f;  // maçã + nome do app à esquerda; relógio e Central à direita
+        cabia = esq >= precisa && dir >= precisa;
+    }
+    return cabia;
 }
 int menubar::ReservedBottom(HMONITOR mon) {
     if (!menubar::Embaixo() || mon != MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY)) return 0;

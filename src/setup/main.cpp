@@ -137,8 +137,17 @@ static DWORD RunWait(const wstring& exe, const wstring& args, DWORD ms = 60000, 
     DWORD code = 0; GetExitCodeProcess(pi.hProcess, &code);
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess); return code;
 }
+// Numa thread: com o antivírus olhando o .exe recém-instalado, o ShellExecute levava segundos, e no "Fechar" da última
+// etapa a janela do instalador ficava parada sem responder (issue #8, 22/11/2026: "congela, precisa apertar Esc").
+static std::atomic<int> g_abrindo{ 0 };
 static void Launch(const wstring& exe, const wstring& args = L"") {
-    ShellExecuteW(nullptr, L"open", exe.c_str(), args.empty() ? nullptr : args.c_str(), Parent(exe).c_str(), SW_SHOWNORMAL);
+    g_abrindo++;
+    std::thread([exe, args] {
+        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        ShellExecuteW(nullptr, L"open", exe.c_str(), args.empty() ? nullptr : args.c_str(), Parent(exe).c_str(), SW_SHOWNORMAL);
+        CoUninitialize();
+        g_abrindo--;
+    }).detach();
 }
 static bool WaitGone(const wchar_t* exe, int ms) { for (int t = 0; t < ms; t += 250) { if (!Running(exe)) return true; Sleep(250); } return !Running(exe); }
 
@@ -856,6 +865,11 @@ static float TextH(const wstring& s, float w, float size, DWRITE_FONT_WEIGHT wt 
     if (f && SUCCEEDED(g_dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), f, w, 10000, &l))) { DWRITE_TEXT_METRICS m; l->GetMetrics(&m); h = m.height; l->Release(); }
     if (f) f->Release(); return h;
 }
+static float TextW(const wstring& s, float size, DWRITE_FONT_WEIGHT wt = DWRITE_FONT_WEIGHT_REGULAR) {
+    IDWriteTextFormat* f = Fmt(size, wt); IDWriteTextLayout* l = nullptr; float w = s.size() * size * 0.55f;
+    if (f && SUCCEEDED(g_dw->CreateTextLayout(s.c_str(), (UINT32)s.size(), f, 10000, 100, &l))) { DWRITE_TEXT_METRICS m; l->GetMetrics(&m); w = m.widthIncludingTrailingWhitespace; l->Release(); }
+    if (f) f->Release(); return w;
+}
 static void Fill(D2D1_RECT_F r, float rad, D2D1_COLOR_F c) { ID2D1SolidColorBrush* b; g_rt->CreateSolidColorBrush(c, &b); g_rt->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), b); b->Release(); }
 static void Stroke(D2D1_RECT_F r, float rad, D2D1_COLOR_F c, float w = 1) { ID2D1SolidColorBrush* b; g_rt->CreateSolidColorBrush(c, &b); g_rt->DrawRoundedRectangle(D2D1::RoundedRect(r, rad, rad), b, w); b->Release(); }
 static void Circle(float x, float y, float r, D2D1_COLOR_F c, bool fill = true, float w = 1.5f) { ID2D1SolidColorBrush* b; g_rt->CreateSolidColorBrush(c, &b); if (fill) g_rt->FillEllipse(D2D1::Ellipse({ x, y }, r, r), b); else g_rt->DrawEllipse(D2D1::Ellipse({ x, y }, r, r), b, w); b->Release(); }
@@ -1105,7 +1119,10 @@ static void Paint() {
         float sh = TextH(sub, Rr - L, 13);
         Text(sub, R(L, Y, Rr, Y + sh + 4), 13, Fg2(), DWRITE_FONT_WEIGHT_REGULAR, false, DWRITE_TEXT_ALIGNMENT_CENTER); Y += sh + 16;
         if (g_workOk && g_flow != F_UNINSTALL && (g_ch.mode == M_FULL || g_ch.mode == M_BARS || g_ch.mode == M_APPSBARS)) {
-            CheckBox(cx - 110, Y, g_ch.mode == M_FULL ? T(L"Abrir o WacOS agora", L"Open WacOS now") : T(L"Ligar as barras de título agora", L"Turn on the title bars now"), g_ch.launch, B_CHK0 + 6, 260);
+            // centrada pelo tamanho de verdade (caixa 16 + 10 de vão + o texto); antes a 110 fixos do centro, torta
+            const wstring lbl = g_ch.mode == M_FULL ? T(L"Abrir o WacOS agora", L"Open WacOS now") : T(L"Ligar as barras de título agora", L"Turn on the title bars now");
+            const float lw = 26 + TextW(lbl, 13);
+            CheckBox(cx - lw / 2, Y, g_ch.mode == M_FULL ? T(L"Abrir o WacOS agora", L"Open WacOS now") : T(L"Ligar as barras de título agora", L"Turn on the title bars now"), g_ch.launch, B_CHK0 + 6, 260);
         }
         next = T(L"Fechar", L"Close"); showBack = false;
         break;
@@ -1425,6 +1442,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR cmdLine, int) {
     if (g_checking) SetTimer(g_wnd, 1, 40, nullptr);
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    for (int i = 0; i < 300 && g_abrindo > 0; i++) Sleep(50);  // a janela já fechou; o WacOS ainda está sendo aberto (Launch)
     CoUninitialize();
     return 0;
 }

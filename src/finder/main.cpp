@@ -2599,6 +2599,11 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
             g_toolLuzAt = now;
         }
         cap(U(ToolRect(TB_BACK), ToolRect(TB_FWD)), 0);
+        {   // divisória fina entre Voltar e Avançar, igual à dos Ajustes (issue #8)
+            float x = std::floor(ToolRect(TB_BACK).right) + 0.5f;
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.12f));
+            dc->FillRectangle(D2D1::RectF(x - 0.5f, Lay::TOOL_CY - 8, x + 0.5f, Lay::TOOL_CY + 8), br);
+        }
         if (WideToolbar()) cap(U(ToolRect(TB_V_ICONS), ToolRect(TB_V_GALLERY)), Golden() ? 4.5f : 3);
         else cap(ToolRect(TB_V_ICONS), 0);
         cap(ToolRect(TB_GROUP), 0);

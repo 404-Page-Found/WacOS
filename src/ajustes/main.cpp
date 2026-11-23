@@ -136,6 +136,9 @@ struct Rolagem { bool on = false; int n = 0; double soma = 0, pior = 0, parte[6]
 static LARGE_INTEGER g_marca;
 static void Marca(int k) { LARGE_INTEGER t; QueryPerformanceCounter(&t); if (g_rol.on && k >= 0) g_rol.parte[k] += (t.QuadPart - g_marca.QuadPart) * 1000.0 / Qpf(); g_marca = t; }
 D2D1_POINT_2F ToDip(int x, int y) { return { x / g_scale, y / g_scale }; }
+// A rolagem desenhada em pixel inteiro da tela. Com o passo a cada quadro do monitor (build-30), o deslocamento caía
+// em frações de pixel diferentes a cada quadro e o texto e as miniaturas da Aparência tremiam (issue #8, 22/11/2026).
+float RoloPx() { return std::round(g_scroll * g_scale) / g_scale; }
 bool In(const D2D1_RECT_F& r, D2D1_POINT_2F p) { return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
 D2D1_SIZE_F ClientDip() { RECT rc; GetClientRect(g_hwnd, &rc); return { rc.right / g_scale, rc.bottom / g_scale }; }
 D2D1_COLOR_F Rgb(UINT32 c, float a = 1) { return D2D1::ColorF(((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f, a); }
@@ -1452,7 +1455,7 @@ void LeoRow(aj::Ctx& c, const aj::Row& r, D2D1_RECT_F rr, float x0, float colX, 
 void LeoShowAll(aj::Ctx& c, D2D1_SIZE_F s, float top) {
     auto& items = SidebarItems();
     std::wstring q = g_search.text;
-    float y = top - g_scroll;
+    float y = top - RoloPx();
     int band = 0;
     for (auto& cat : LeoCats()) {
         std::vector<int> idx;
@@ -1484,13 +1487,13 @@ void LeoShowAll(aj::Ctx& c, D2D1_SIZE_F s, float top) {
         y += h;
         band++;
     }
-    g_contentH = y + g_scroll - top + 8;
+    g_contentH = y + RoloPx() - top + 8;
 }
 
 void LeoPage(aj::Ctx& c, D2D1_SIZE_F s, float top) {
     float x0 = 20, x1 = s.width - 20, w = x1 - x0;
     float colX = x0 + std::max(170.f, w * 0.38f);
-    float y = top + 18 - g_scroll;
+    float y = top + 18 - RoloPx();
     for (int gi = 0; gi < (int)g_page.groups.size(); gi++) {
         auto& g = g_page.groups[gi];
         if (g.rows.empty() && g.title.empty()) continue;
@@ -1516,7 +1519,7 @@ void LeoPage(aj::Ctx& c, D2D1_SIZE_F s, float top) {
             y += rh;
         }
     }
-    g_contentH = y + g_scroll - top + 20;
+    g_contentH = y + RoloPx() - top + 20;
 }
 
 void RenderLeopard() {
@@ -1697,7 +1700,7 @@ void Render() {
     if (cdc) { dc = cdc; c.dc = cdc; }
     const float clipTop = cdc ? 0.f : TOOL_H;
     dc->PushAxisAlignedClip(D2D1::RectF(SIDE_W + 0.5f, clipTop, s.width, s.height), D2D1_ANTIALIAS_MODE_ALIASED);
-    float y = (Golden() ? 64.5f : TOOL_H + 6) - g_scroll;
+    float y = (Golden() ? 64.5f : TOOL_H + 6) - RoloPx();
     for (int gi = 0; gi < (int)g_page.groups.size(); gi++) {
         auto& g = g_page.groups[gi];
         if (Golden() && !g.title.empty() && g.subtitle.empty()) {
@@ -1747,7 +1750,7 @@ void Render() {
         }
         y += gh;
     }
-    g_contentH = y + g_scroll + 20 - TOOL_H;
+    g_contentH = y + RoloPx() + 20 - TOOL_H;
     dc->PopAxisAlignedClip();
     Marca(0);
     if (cdc) {

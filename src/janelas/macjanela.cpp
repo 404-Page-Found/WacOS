@@ -166,6 +166,43 @@ struct Info {
     SIZE fotoBarraSz{}, fotoMolduraSz{};
 };
 
+// App travado (issue #8: "ao travar... deixa essa espécie de sombra no desktop"): a sombra, a moldura e a barra são
+// janelas da mesma thread do app, então param junto com ele. O Windows troca a janela travada por uma "Ghost" (que
+// se move, fecha...) mas as nossas ficavam paradas no lugar antigo. Uma thread vigia (a DLL fica presa ao processo, ver
+// DllMain) olha a cada 700 ms; com o dono travado, esconde as nossas pelo DWM (o cloak não manda mensagem à janela,
+// então funciona com a thread dela parada) e mostra de novo quando ele volta.
+static BOOL CALLBACK VigiaUma(HWND w, LPARAM) {
+    DWORD pid = 0; GetWindowThreadProcessId(w, &pid);
+    if (pid != GetCurrentProcessId()) return TRUE;
+    wchar_t c[32];
+    if (!GetClassNameW(w, c, 32)) return TRUE;
+    HWND dono = nullptr;
+    if (!wcscmp(c, L"MacJanelaSombra")) dono = (HWND)GetPropW(w, L"MacSombraDono");
+    else if (!wcscmp(c, L"MacJanelaCanto") || !wcscmp(c, L"MacJanelaBarra")) dono = GetWindow(w, GW_OWNER);
+    if (!dono) return TRUE;
+    const bool escondida = GetPropW(w, L"MacTravadaOculta") != nullptr;
+    const bool travado = IsWindow(dono) && IsHungAppWindow(dono);
+    if (travado && !escondida && IsWindowVisible(w)) {
+        BOOL on = TRUE;
+        if (SUCCEEDED(DwmSetWindowAttribute(w, DWMWA_CLOAK, &on, sizeof(on)))) SetPropW(w, L"MacTravadaOculta", (HANDLE)1);
+    } else if (!travado && escondida) {
+        BOOL off = FALSE;
+        DwmSetWindowAttribute(w, DWMWA_CLOAK, &off, sizeof(off));
+        RemovePropW(w, L"MacTravadaOculta");
+        if (IsWindow(dono)) PostMessageW(dono, WM_NULL, 0, 0);
+    }
+    return TRUE;
+}
+void VigiaTravadas() {
+    static volatile LONG uma;
+    if (InterlockedExchange(&uma, 1)) return;
+    HANDLE t = CreateThread(nullptr, 64 * 1024, [](LPVOID) -> DWORD {
+        for (;;) { Sleep(700); EnumWindows(VigiaUma, 0); }
+    }, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (t) { SetThreadPriority(t, THREAD_PRIORITY_BELOW_NORMAL); CloseHandle(t); }
+    else InterlockedExchange(&uma, 0);
+}
+
 // Regra da DLL: na thread da janela do app, nada que espere disco ou Registro. A primeira leitura do processo é
 // direta (precisa do valor para montar a janela); as outras vão para o pool de threads (22/11/2026: Discord, Claude
 // e Chrome paravam segundos quando o disco engasgava).
@@ -2720,6 +2757,7 @@ void Attach(HWND h, int mode) {
     ULONG_PTR cs = GetClassLongPtrW(h, GCL_STYLE);
     if (cs & CS_DROPSHADOW) { in->dropShadow = true; SetClassLongPtrW(h, GCL_STYLE, cs & ~CS_DROPSHADOW); }
     in->shadow.Create(h, g_mod, L"MacJanelaSombra");
+    if (in->shadow.wnd) { SetPropW(in->shadow.wnd, L"MacSombraDono", h); VigiaTravadas(); }
     // diálogos: o miolo também no visual do Mac (desliga com HKCU\Software\ShellProprio\MacJanela\Controles = 0)
     DWORD ctl = 1, cb = sizeof(ctl);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\ShellProprio\\MacJanela", L"Controles", RRF_RT_REG_DWORD, nullptr, &ctl, &cb);

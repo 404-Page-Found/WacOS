@@ -176,7 +176,8 @@ bool LaunchNoOcclusion(const std::wstring& target, const std::wstring& args = L"
 bool ActivatePackaged(const std::wstring& target, const std::wstring& args = L"");
 void Activate(App& a);          // traz todas as janelas para frente
 void Hide(App& a);            // Ocultar do Mac: as janelas somem (sem gênio, sem ir para o Dock); clicar no ícone traz de volta
-bool IsHidden(HWND h);        // janela oculta pelo Ocultar (minimizada por baixo, mas não aparece no Dock)
+bool IsHidden(HWND h);
+bool OcultaComGenio(HWND h);  // a janela da frente que o clique no ícone do Dock está ocultando (vai pelo gênio)        // janela oculta pelo Ocultar (minimizada por baixo, mas não aparece no Dock)
 void Quit(App& a);
 void SetPinned(App& a, bool pin);
 // programa ou atalho (.lnk, .exe, .url, .appref-ms) solto no Dock: fica fixo antes do app de índice `at` (-1 = no fim
@@ -555,7 +556,8 @@ void ReloadSettings();  // o Ajustes do Sistema mudou tamanho, ampliação...
 void ApplyTheme();      // claro/escuro mudou
 void IconsChanged();    // o pacote de ícones mudou (tema Sequoia/Tahoe): solta os ícones guardados
 void SetFullscreen(bool on);  // app em tela cheia na frente: some
-RECT MinimizeTarget(HWND h = nullptr);  // tela: onde a janela minimizada vai parar (h: no ícone do app com dock_minimizar_no_icone)
+RECT MinimizeTarget(HWND h = nullptr);
+RECT AppIconTarget(HWND h);  // tela: o ícone do app dono da janela (vazio se não está no Dock)  // tela: onde a janela minimizada vai parar (h: no ícone do app com dock_minimizar_no_icone)
 void BadgesChanged();   // chegou ou saiu notificação: redesenha os badges vermelhos
 }
 
