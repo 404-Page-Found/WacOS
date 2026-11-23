@@ -1420,3 +1420,18 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   sistema a cada 700 ms, mas uma varredura de 330 janelas custa centésimos de ms. Não mudado.
   Instalado: WacOSShell.exe. NÃO conferido na tela: a Ilha sumindo ao entrar em tela cheia (no máximo 250 ms depois, pela regra nova).
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:22, hora do PC] Desempenho, 6a rodada: apps nossos que ficam abertos escondidos (Captura de Tela, reserva do Finder).
+  Medido: a Captura de Tela residente (para o Win+Shift+4 abrir na hora) com 111 MB privados e 79 MB de GPU; a reserva do Finder
+  76 MB privados e 46 MB de GPU. Nos dois a memória física é pequena (3-6 MB: o Windows já tirou da RAM o que não é usado).
+  - src/captura/main.cpp: EndSession limpa a foto congelada da tela (3440x1440 = 20 MB). Quem captura de verdade já levou a dela
+    (Launch); cancelada com Esc, ela ficava na memória até a próxima captura.
+  Medido (sessão aberta e cancelada por mensagem, pelo WMI): logo depois do Esc 135 -> 116 MB privados; a 2a sessão sobe a 141 MB e
+  continua em 79 MB de GPU. Abertura do Win+Shift+4 igual (52-59 ms).
+  Tentado e desfeito: soltar da GPU a cópia da foto e o alvo de desenho depois de 1 min sem uso. A memória de vídeo não voltava (o
+  Direct2D adia a liberação) e a sessão seguinte subia para 99-119 MB de GPU e 160-182 MB privados: pior que reaproveitar.
+  A reserva do Finder: os blocos grandes estão zerados ou fora da RAM; não mudado.
+  Teste: as mensagens para a Captura foram mandadas achando a janela pela enumeração (FindWindow não acha a janela escondida de
+  tamanho zero) por scripts em C:\Users\Public\otim-captura*.ps1. Instalado: WacOSScreenshot.exe (o anterior em
+  SequoiaBinariosAntigos\otim-r6-antes-WacOSScreenshot.exe); a residente foi fechada pela mensagem de sair e o Shell abriu a nova.
+  DESFAZER: reverter os commits.
