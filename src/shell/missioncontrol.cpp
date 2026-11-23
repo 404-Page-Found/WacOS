@@ -756,8 +756,7 @@ void Finish() {
     g_xFor = nullptr; g_xHot = false;
     if (g_cd && g_cwins) { g_cwins->RemoveAllVisuals(); g_wallFx->SetOpacity(1.f); g_barFx->SetOpacity(1.f); g_cd->Commit(); }
     if (g_pick) {
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);  // permite trazer a janela para a frente
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
+        shell::LiberaFrente();  // permite trazer a janela para a frente
         SetForegroundWindow(g_pick);
         g_pick = nullptr;
     }

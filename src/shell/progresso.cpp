@@ -250,10 +250,8 @@ void FocusAway(HWND h) {
     static std::map<HWND, DWORD> tried;  // o truque do Alt (o mesmo do Dock), no máximo a cada 2 s por janela
     if (!ok && GetTickCount() - tried[h] > 2000) {
         tried[h] = GetTickCount();
-        const ULONG_PTR KEY_MARK = 0x53484C4C;  // tecla injetada por nós (o gancho do teclado do Shell ignora)
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);
+        shell::LiberaFrente();
         ok = SetForegroundWindow(to);
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
         Log(L"progresso: foco de volta para %p pelo Alt (%ls)", to, ok ? L"ok" : L"falhou");
     }
 }

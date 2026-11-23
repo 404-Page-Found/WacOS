@@ -1017,8 +1017,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_APP_MISSION:
         if (launchpad::IsOpen()) launchpad::Toggle();
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);  // permite ao Mission Control vir para a frente
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
+        shell::LiberaFrente();  // permite ao Mission Control vir para a frente
         missioncontrol::Toggle();
         return 0;
     case WM_APP_EXPOSE: {
@@ -1028,8 +1027,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         App* a = root && !apps::IsShellWindow(root) ? apps::OfWindow(root) : nullptr;
         if (!a) { Log(L"Exposé do app: a janela da frente não é de um app do Dock"); return 0; }
         if (launchpad::IsOpen()) launchpad::Toggle();
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);  // permite ao Exposé vir para a frente
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
+        shell::LiberaFrente();  // permite ao Exposé vir para a frente
         missioncontrol::ToggleApp(a->id, a->name);
         return 0;
     }
@@ -1068,13 +1066,11 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_APP_SWITCH_END: seletor::Release(); return 0;
     case WM_APP_SPOTLIGHT:
         if (launchpad::IsOpen()) launchpad::Toggle();
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);  // permite ao Spotlight vir para a frente e receber o teclado
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
+        shell::LiberaFrente();  // permite ao Spotlight vir para a frente e receber o teclado
         spotlight::Toggle();
         return 0;
     case WM_APP_LAUNCHPAD:
-        keybd_event(VK_MENU, 0, 0, KEY_MARK);  // permite ao Launchpad vir para a frente
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
+        shell::LiberaFrente();  // permite ao Launchpad vir para a frente
         launchpad::Toggle();
         return 0;
     case WM_APP_WINKEY: mesa::WinKey((UINT)w); return 0;
@@ -1082,7 +1078,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_APP_VOLUME: som::Key((UINT)w, l != 0); return 0;
     case WM_SYSCOMMAND:
         if ((w & 0xFFF0) == SC_TASKLIST) {  // Ctrl+Esc com o Shell como Taskman (sem Explorador): Launchpad
-            keybd_event(VK_MENU, 0, 0, KEY_MARK); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, KEY_MARK);
+            shell::LiberaFrente();
             launchpad::Toggle();
             return 0;
         }

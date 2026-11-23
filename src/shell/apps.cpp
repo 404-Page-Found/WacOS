@@ -1036,9 +1036,8 @@ static void LaunchNow(App a, const std::wstring& args) {
 static void ForceForeground(HWND h) {
     if (SetForegroundWindow(h)) return;
     // o clique foi para o nosso processo, então costuma funcionar; senão, o truque do Alt
-    keybd_event(VK_MENU, 0, 0, 0);
+    shell::LiberaFrente();
     SetForegroundWindow(h);
-    keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
 }
 
 // Ocultar: por baixo é minimizar (o Windows não deixa esconder janela de outro programa com segurança),

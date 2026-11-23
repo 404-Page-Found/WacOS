@@ -357,7 +357,7 @@ void Step() {
         if (back) {
             g_revealed = false;
             if (!g_moved.empty() && IsWindow(g_moved.front().h)) {  // a que estava na frente volta a ter o foco
-                keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(g_moved.front().h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+                shell::LiberaFrente(); SetForegroundWindow(g_moved.front().h);
             }
             g_moved.clear();
         }

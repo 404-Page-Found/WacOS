@@ -56,7 +56,7 @@ void RealBack() {
     if (g_a.realBack || !IsWindow(g_a.target)) return;
     g_a.realBack = true;
     shell::Restaurar(g_a.target);
-    keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(g_a.target); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+    shell::LiberaFrente(); SetForegroundWindow(g_a.target);
     SetWindowPos(g_ov, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);  // a camada continua por cima
     dock::Raise();
 }

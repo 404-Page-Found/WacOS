@@ -628,6 +628,14 @@ bool SoDock();
 // Tira a janela de minimizada. Numa janela de administrador o ShowWindow de fora e recusado pelo Windows (o explorer
 // nao e administrador); o pedido pelo menu de sistema dela (WM_SYSCOMMAND) passa.
 inline void Restaurar(HWND h) { ShowWindow(h, SW_RESTORE); if (IsIconic(h)) PostMessageW(h, WM_SYSCOMMAND, SC_RESTORE, 0); }
+// Libera o SetForegroundWindow: o processo que mandou a última entrada pode trocar a janela da frente. Era só Alt
+// apertado e solto, mas Alt sozinho, ao soltar, liga a barra de menus do app da frente (o Firefox abria com a barra
+// Arquivo/Editar/Exibir à mostra, igual ao F10; issue #8). Uma tecla sem função (vkE8) no meio desfaz isso. Marcadas
+// como nossas: o gancho do teclado do Shell deixa passar.
+inline void LiberaFrente() {
+    const ULONG_PTR M = 0x53484C4C;
+    keybd_event(VK_MENU, 0, 0, M); keybd_event(0xE8, 0, 0, M); keybd_event(0xE8, 0, KEYEVENTF_KEYUP, M); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, M);
+}
 int RodarNativo(HINSTANCE dll, const std::wstring& dirBin, const std::wstring& logPath);
 // abre o Finder com estes argumentos: no nativo, no Finder de dentro do explorer (MacFinder.dll); senão o WacOSFinder.exe
 void AbrirFinder(const std::wstring& args);

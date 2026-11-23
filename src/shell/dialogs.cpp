@@ -238,7 +238,9 @@ std::wstring KnownFolderByName(const std::wstring& name) {
 }
 
 // Pasta onde a janela original está: a barra de endereço tem o texto "Endereço: C:\..." / "Address: ...".
-std::wstring CurrentFolder(HWND dlg) {
+// porNome: a barra só trazia o nome (pasta especial) e o caminho veio de KnownFolderByName, que pode errar quando
+// duas pastas têm o mesmo nome ("Vídeos" do usuário e uma "Videos" dentro de Imagens do OneDrive).
+std::wstring CurrentFolder(HWND dlg, bool* porNome = nullptr) {
     struct C { std::wstring found, name; } c;
     EnumChildWindows(dlg, [](HWND w, LPARAM p) -> BOOL {
         wchar_t cls[32]; GetClassNameW(w, cls, 32);
@@ -256,6 +258,7 @@ std::wstring CurrentFolder(HWND dlg) {
         std::wstring n = c.name;
         if (size_t s = n.find_last_of(L'\\'); s != std::wstring::npos) n = n.substr(s + 1);  // "Bibliotecas\Documentos"
         c.found = KnownFolderByName(n);
+        if (porNome) *porNome = true;
     }
     return c.found;
 }
@@ -344,7 +347,15 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
         size_t cut = paths[0].find_last_of(L'\\');
         std::wstring dir = cut == std::wstring::npos ? L"" : paths[0].substr(0, cut);
         if (dir.size() == 2) dir += L'\\';
-        if (!dir.empty() && !SameFolder(CurrentFolder(r.dlg), dir)) {
+        // Já "na" pasta escolhida só vale com o caminho lido na barra: pelo nome (pasta especial) pode ser outra de
+        // mesmo nome, e aí o arquivo ia para a pasta errada com o nome errado (ScreenRec: salvava uma pasta acima,
+        // com o nome original; issue #8, 23/11/2026). Entrar de novo na mesma pasta não faz mal.
+        bool porNome = false;
+        std::wstring atual = CurrentFolder(r.dlg, &porNome);
+        bool jaNela = !porNome && SameFolder(atual, dir);
+        Log(L"  original em '%ls'%ls; escolhida '%ls'", atual.c_str(), porNome ? L" (pelo nome)" : L"", dir.c_str());
+        if (jaNela) value = PathFindFileNameW(paths[0].c_str());
+        if (!dir.empty() && !jaNela) {
             PoeTexto(r.dlg, edit, dir);
             SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK), SMTO_NORMAL, 10000, nullptr);
             bool entrou = false;
@@ -358,7 +369,21 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
     // a janela pode refazer o campo do nome ao trocar de pasta: o de antes já não vale
     Responde(r.dlg, 10000);
     if (HWND e2 = NameEdit(r.dlg); e2 && e2 != edit && r.mode != 2) { Log(L"  o campo do nome mudou ao trocar de pasta"); edit = e2; }
-    if (!PoeTexto(r.dlg, edit, value)) Log(L"  o campo do nome não ficou com o escolhido ('%ls')", Text(edit).c_str());
+    // Só o nome: confere de novo que a original continua na pasta escolhida (o programa pode trocar a pasta ao mudar o
+    // tipo ou ao recriar o campo). Se saiu, vai o caminho inteiro.
+    if (r.mode == 1 && paths.size() == 1 && value.find(L'\\') == std::wstring::npos) {
+        std::wstring dir = paths[0].substr(0, paths[0].find_last_of(L'\\'));
+        if (dir.size() == 2) dir += L'\\';
+        std::wstring atual = CurrentFolder(r.dlg);
+        if (!SameFolder(atual, dir)) { Log(L"  a original saiu da pasta escolhida ('%ls'): vai o caminho inteiro", atual.c_str()); value = paths[0]; }
+    }
+    bool nomeOk = PoeTexto(r.dlg, edit, value);
+    if (!nomeOk) {  // o campo pode ter sido refeito: procura de novo e tenta mais uma vez
+        Responde(r.dlg, 5000);
+        if (HWND e3 = r.mode != 2 ? NameEdit(r.dlg) : nullptr; e3) edit = e3;
+        nomeOk = PoeTexto(r.dlg, edit, value);
+    }
+    if (!nomeOk) Log(L"  o campo do nome não ficou com o escolhido ('%ls')", Text(edit).c_str());
     PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
     // A original (fora da tela) pode abrir uma pergunta depois do OK: "já existe, substituir?" ou um aviso de nome
     // inválido, que nascia fora da tela junto: o programa ficava travado até alguém apertar Esc (Firefox, issue #8,

@@ -1500,7 +1500,7 @@ void LeftClick(int i) {
         RECT from = ToScreenRect({ it.cx - s / 2, top, it.cx + s / 2, top + s });
         if (genio::Restore(h, from)) { apps::Refresh(); BuildItems(); Paint(); return; }
         shell::Restaurar(h);
-        keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+        shell::LiberaFrente(); SetForegroundWindow(h);
         apps::Refresh(); BuildItems(); Paint();
         return;
     }

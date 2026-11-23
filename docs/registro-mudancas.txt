@@ -1304,3 +1304,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/genio.cpp: os níveis menores (Half) também vão para a thread; só o nível 0 sobe antes de a janela se mexer. Janela de 3426 px: preparo de 115 ms para 57-78 ms; níveis na tela 30 ms e médias 60 ms depois do começo (log).
   - Conferido: o gênio ao ocultar pelo Dock (log) e a sombra de app travado (Electron descartável travado 9 s: Ghost aos 5,5 s, sombra com cloak=1; voltou, cloak=0).
   DESFAZER: reverter o commit.
+
+[2026-11-23 01:25, hora do PC] Issue #8 (carlosjrrr, 23/11): Firefox com a barra de menus ligada sozinha e salvar no ScreenRec indo para a pasta de cima.
+  - src/shell/shell.h: shell::LiberaFrente() = Alt com uma tecla sem função (vkE8) no meio, marcadas como nossas. Alt sozinho, ao soltar, liga a barra Arquivo/Editar/Exibir do Firefox (igual ao F10).
+  - src/shell/apps.cpp, dock.cpp, genio.cpp, revelar.cpp, main.cpp, missioncontrol.cpp, progresso.cpp e src/ajustes/main.cpp: o truque do Alt para trazer janelas para a frente passou a usar isso.
+  - src/shell/dialogs.cpp: a original só conta como "já na pasta escolhida" quando a barra de endereço traz o caminho (pelo nome de pasta especial pode ser outra de mesmo nome); nesse caso recebe só o nome. Antes do OK confere de novo a pasta (se saiu, vai o caminho inteiro) e, se o nome não entrou no campo, procura o campo de novo e tenta outra vez. Log com a pasta da original e a escolhida.
+  ScreenRec não reproduzido aqui (app não instalado); pedido o log ao usuário.
+  DESFAZER: reverter o commit.

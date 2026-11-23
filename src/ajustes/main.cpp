@@ -19,6 +19,12 @@
 #include "../comum/semaforo.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra metálica de ponta a ponta
 
+// Libera o SetForegroundWindow (a última entrada foi nossa). Alt com uma tecla sem função (vkE8) no meio: Alt sozinho,
+// ao soltar, ligava a barra de menus do app da frente (Firefox, issue #8).
+static void LiberaFrente() {
+    keybd_event(VK_MENU, 0, 0, 0); keybd_event(0xE8, 0, 0, 0); keybd_event(0xE8, 0, KEYEVENTF_KEYUP, 0); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+}
+
 namespace {
 
 // ---- Medidas (pt), tiradas da referência
@@ -2106,7 +2112,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (w == T_SLIDE) { FlushSlide(); return 0; }
         if (w == T_FRENTE) {  // já à mostra (o Shell terminou a animação de abrir): para a frente de verdade
             KillTimer(h, T_FRENTE);
-            if (GetForegroundWindow() != h) { keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); }
+            if (GetForegroundWindow() != h) { LiberaFrente(); SetForegroundWindow(h); }
             BringWindowToTop(h);
             return 0;
         }
@@ -2190,7 +2196,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else if (id == L"atualizacao") { int g = SidebarIndexFor(L"geral"); if (g >= 0) SelectSide(g); OpenUpdatePage(); }
         }
         if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
-        keybd_event(VK_MENU, 0, 0, 0); SetForegroundWindow(h); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);  // já aberta: para a frente mesmo atrás de outro app
+        LiberaFrente(); SetForegroundWindow(h);  // já aberta: para a frente mesmo atrás de outro app
         BringWindowToTop(h);
         return TRUE;
     }
