@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"Modo ligero" },
 { L"Desempenho", L"Rendimiento" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Menos vidrio y animaciones a 60 fotogramas por segundo, para PCs con gráficos integrados o poca memoria. En Automático, se activa con batería y en PCs con hasta 8 GB de memoria o 4 núcleos." },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"El modo ligero está activado y deja el cristal esmerilado. Para usar el cristal real, pon el modo ligero en Desactivado, en Rendimiento, más abajo." },
+{ L"Copiar Também para a Área de Transferência", L"Copiar también al portapapeles" },

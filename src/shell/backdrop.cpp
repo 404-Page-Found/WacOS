@@ -1557,6 +1557,16 @@ void backdrop::Reload() {
     bool leveMudou = g_leveFosco != leve::Ativo();
     g_leveFosco = leve::Ativo();
     if (g_leveFosco) s.real = false;
+    // issue #31: o log só dizia "estava desligado" e parecia defeito; agora diz quem segurou o vidro real
+    {
+        bool pedido = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1";
+        static int ultimo = -1;
+        int motivo = !pedido || s.real ? 0 : rg::semCaptura ? 1 : jogo::Ativo() ? 2 : 3;
+        if (motivo != ultimo && motivo)
+            Log(L"vidro real: ligado nos ajustes, mas fica fosco (%ls)",
+                motivo == 1 ? L"a captura de janelas falhou nesta sessão" : motivo == 2 ? L"modo jogo" : L"modo leve ligado");
+        ultimo = motivo;
+    }
     if (leveMudou && g_comp)  // o fosco é refeito com a receita nova (Apply põe na peça)
         for (auto& [h, e] : g_entries) if (e.liquidBuilt) { try { e.baseBrush = MakeFrost(); } catch (...) {} }
     g_style = s;

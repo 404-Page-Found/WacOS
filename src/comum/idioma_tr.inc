@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"Hafif mod" },
 { L"Desempenho", L"Performans" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Daha az cam efekti ve saniyede 60 karede animasyonlar; tümleşik grafikli veya az belleğe sahip PC'ler için. Otomatik'te pilde ve en fazla 8 GB belleğe ya da 4 çekirdeğe sahip PC'lerde açılır." },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"Hafif mod açık ve camı buzlu tutuyor. Gerçek camı kullanmak için aşağıdaki Performans bölümünde Hafif modu Kapalı yapın." },
+{ L"Copiar Também para a Área de Transferência", L"Panoya da kopyala" },

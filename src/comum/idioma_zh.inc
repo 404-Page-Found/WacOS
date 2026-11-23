@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"轻量模式" },
 { L"Desempenho", L"性能" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"减少玻璃效果，动画以每秒 60 帧运行，适合集成显卡或内存较少的电脑。“自动”时，在使用电池以及内存不超过 8 GB 或不超过 4 核的电脑上开启。" },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"轻量模式已开启，玻璃保持磨砂效果。要使用真实玻璃，请在下方“性能”中将轻量模式设为关闭。" },
+{ L"Copiar Também para a Área de Transferência", L"同时拷贝到剪贴板" },

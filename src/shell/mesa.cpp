@@ -2234,6 +2234,13 @@ bool mesa::Watchdog(const wchar_t* cmdLine) {
         if (WaitForSingleObject(ev, 0) != WAIT_OBJECT_0) SystemParametersInfoW(SPI_SETCURSORS, 0, nullptr, 0);
         if (!done && r == WAIT_OBJECT_0 + 1 && WaitForSingleObject(ev, 0) != WAIT_OBJECT_0) {
             vlog(L"o Shell sumiu sem sair direito");
+            // fechado à força (Gerenciador de Tarefas) com o Explorador no fundo: a barra dele ficava escondida e o
+            // usuário ficava sem barra de tarefas nenhuma (issue #37)
+            EnumWindows([](HWND h, LPARAM) -> BOOL {
+                wchar_t c[64] = {}; GetClassNameW(h, c, 64);
+                if ((!wcscmp(c, L"Shell_TrayWnd") || !wcscmp(c, L"Shell_SecondaryTrayWnd")) && !IsWindowVisible(h)) ShowWindow(h, SW_SHOWNOACTIVATE);
+                return TRUE;
+            }, 0);
             FILETIME c{}, e{}, k{}, u{};
             double lived = GetProcessTimes(proc, &c, &e, &k, &u)
                 ? ((((ULONGLONG)e.dwHighDateTime << 32) | e.dwLowDateTime) - (((ULONGLONG)c.dwHighDateTime << 32) | c.dwLowDateTime)) / 1e7 : 0;

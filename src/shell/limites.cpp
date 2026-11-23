@@ -55,7 +55,10 @@ bool InMoveSize(HWND h) {
     return GetGUIThreadInfo(GetWindowThreadProcessId(h, nullptr), &gi) && (gi.flags & GUI_INMOVESIZE) && gi.hwndMoveSize == h;
 }
 
-void Clamp(HWND h) {
+// na hora = janela que acabou de aparecer: vai direto para o lugar, ainda durante a animação de abrir do Windows. Antes
+// ela abria maior que a tela e encolhia deslizando à vista, e o Dock (que se esconde quando uma janela encosta) encolhia
+// e voltava junto (issue #29, 23/11/2026)
+void Clamp(HWND h, bool naHora = false) {
     if (!Candidate(h) || InMoveSize(h)) return;
     RECT wr, vis;
     GetWindowRect(h, &wr);
@@ -101,7 +104,11 @@ void Clamp(HWND h) {
     static UINT msgMove = RegisterWindowMessageW(L"MacJanelaMover");
     DWORD_PTR ok = 0;
     // a DLL das janelas só sabe deslizar na vertical: na horizontal (Dock do lado) a janela anda pela thread
-    if (!dx && newW == w && GetPropW(h, L"MacJanela") &&
+    if (naHora) {
+        SetWindowPos(h, nullptr, to.left, to.top, to.right - to.left, to.bottom - to.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        std::lock_guard<std::mutex> k(g_slideMx);
+        g_sliding.erase(std::remove(g_sliding.begin(), g_sliding.end(), h), g_sliding.end());
+    } else if (!dx && newW == w && GetPropW(h, L"MacJanela") &&
         SendMessageTimeoutW(h, msgMove, (WPARAM)(INT_PTR)dy, (LPARAM)(to.bottom - to.top), SMTO_ABORTIFHUNG, 300, &ok) && ok) {
         std::lock_guard<std::mutex> k(g_slideMx);
         g_sliding.erase(std::remove(g_sliding.begin(), g_sliding.end(), h), g_sliding.end());
@@ -109,7 +116,7 @@ void Clamp(HWND h) {
         std::thread(SlideThread, h, wr, to).detach();
     }
     wchar_t cls[64] = {}; GetClassNameW(h, cls, 64);
-    Log(L"limites: %ls voltando para a área (dx %d, dy %d, altura %d -> %d, largura %d -> %d)", cls, dx, dy, hh, newH, w, newW);
+    Log(L"limites: %ls voltando para a área%ls (dx %d, dy %d, altura %d -> %d, largura %d -> %d)", cls, naHora ? L" na hora" : L"", dx, dy, hh, newH, w, newW);
 }
 
 void CALLBACK OnMoveEnd(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
@@ -145,7 +152,7 @@ void CALLBACK OnShow(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, 
     if (obj != OBJID_WINDOW || child != CHILDID_SELF || !Candidate(h)) return;
     if (GetPropW(h, L"ShellLimiteVisto")) return;  // só na primeira vez (depois o usuário manda)
     SetPropW(h, L"ShellLimiteVisto", (HANDLE)1);
-    Clamp(h);
+    Clamp(h, true);
     Later(h, { 600, 1800, 4500 });
 }
 

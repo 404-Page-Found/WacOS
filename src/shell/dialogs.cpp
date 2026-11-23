@@ -390,6 +390,22 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
         nomeOk = PoeTexto(r.dlg, edit, value);
     }
     if (!nomeOk) Log(L"  o campo do nome não ficou com o escolhido ('%ls')", Text(edit).c_str());
+    // O programa pode trocar o nome DEPOIS, ao tratar a mudança de pasta ou de tipo (o Illustrator põe de volta
+    // "Sem título-1": issue #35, 23/11/2026). O nome tem que ficar igual em 3 conferências seguidas (~300 ms) antes do OK.
+    if (nomeOk && r.mode != 2) {
+        int iguais = 0, refeitos = 0;
+        for (int i = 0; i < 25 && iguais < 3 && IsWindow(r.dlg); i++) {
+            Sleep(100);
+            Responde(r.dlg, 2000);
+            if (HWND e4 = NameEdit(r.dlg); e4 && e4 != edit) edit = e4;
+            if (Text(edit) == value) { iguais++; continue; }
+            iguais = 0; refeitos++;
+            Log(L"  o programa trocou o nome para '%ls': escrevendo de novo", Text(edit).c_str());
+            PoeTexto(r.dlg, edit, value);
+        }
+        if (refeitos) Log(L"  nome %ls depois de %d troca(s) do programa", iguais >= 3 ? L"firme" : L"ainda instável", refeitos);
+    }
+    if (!IsWindow(r.dlg)) return;
     PostMessageW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK));
     // A original (fora da tela) pode abrir uma pergunta depois do OK: "já existe, substituir?" ou um aviso de nome
     // inválido, que nascia fora da tela junto: o programa ficava travado até alguém apertar Esc (Firefox, issue #8,

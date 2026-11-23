@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"Облегчённый режим" },
 { L"Desempenho", L"Производительность" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Меньше стекла и анимация с частотой 60 кадров в секунду — для ПК со встроенной графикой или малым объёмом памяти. В режиме «Автоматически» включается при работе от батареи и на ПК с памятью до 8 ГБ или до 4 ядер." },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"Включён облегчённый режим, поэтому стекло остаётся матовым. Чтобы использовать настоящее стекло, выключите облегчённый режим в разделе «Производительность» ниже." },
+{ L"Copiar Também para a Área de Transferência", L"Также копировать в буфер обмена" },

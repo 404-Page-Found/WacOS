@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"Leichter Modus" },
 { L"Desempenho", L"Leistung" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Weniger Glas und Animationen mit 60 Bildern pro Sekunde, für PCs mit integrierter Grafik oder wenig Speicher. Bei „Automatisch“ im Akkubetrieb und auf PCs mit bis zu 8 GB Speicher oder 4 Kernen aktiv." },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"Der Leichtmodus ist aktiv und lässt das Glas mattiert. Um echtes Glas zu verwenden, stelle den Leichtmodus unten unter „Leistung“ auf „Aus“." },
+{ L"Copiar Também para a Área de Transferência", L"Auch in die Zwischenablage kopieren" },

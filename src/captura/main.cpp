@@ -87,6 +87,7 @@ struct Cfg {
     int timer = 0;     // 0, 5, 10 segundos
     int mode = 2;      // última ferramenta da barra: 0 tela inteira, 1 janela, 2 região
     bool thumb = true, remember = true, pointer = false, hasSel = false;
+    bool copiar = true;  // salvou em arquivo: copia também (issue #34: colar logo depois, como no Windows)
     RECT sel{};        // última região (pixels físicos da área de trabalho virtual)
 } g_cfg;
 
@@ -114,6 +115,7 @@ static void LoadCfg() {
         else if (k == L"miniatura") g_cfg.thumb = n != 0;
         else if (k == L"lembrar") g_cfg.remember = n != 0;
         else if (k == L"ponteiro") g_cfg.pointer = n != 0;
+        else if (k == L"copiar") g_cfg.copiar = n != 0;
         else if (k == L"selecao") {
             RECT r{};
             if (swscanf_s(v.c_str(), L"%ld,%ld,%ld,%ld", &r.left, &r.top, &r.right, &r.bottom) == 4 && r.right - r.left >= 4 && r.bottom - r.top >= 4) { g_cfg.sel = r; g_cfg.hasSel = true; }
@@ -129,7 +131,7 @@ static void SaveCfg() {
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, (d + L"\\captura.txt").c_str(), L"w, ccs=UTF-8") || !fp) return;
     fwprintf(fp, L"# Captura de Tela (WacOSScreenshot.exe): opções do menu Opções da barra (Win+Shift+5)\n");
-    fwprintf(fp, L"destino=%d\ntemporizador=%d\nmodo=%d\nminiatura=%d\nlembrar=%d\nponteiro=%d\n", g_cfg.dest, g_cfg.timer, g_cfg.mode, g_cfg.thumb, g_cfg.remember, g_cfg.pointer);
+    fwprintf(fp, L"destino=%d\ntemporizador=%d\nmodo=%d\nminiatura=%d\nlembrar=%d\nponteiro=%d\ncopiar=%d\n", g_cfg.dest, g_cfg.timer, g_cfg.mode, g_cfg.thumb, g_cfg.remember, g_cfg.pointer, g_cfg.copiar);
     if (g_cfg.hasSel) fwprintf(fp, L"selecao=%ld,%ld,%ld,%ld\n", g_cfg.sel.left, g_cfg.sel.top, g_cfg.sel.right, g_cfg.sel.bottom);
     if (!g_cfg.other.empty()) fwprintf(fp, L"outro=%ls\n", g_cfg.other.c_str());
     fclose(fp);
@@ -689,6 +691,10 @@ static void Deliver(std::vector<Img>& ims, const std::vector<float>& dpis, bool 
         Logf(L"captura %dx%d (%.0f ppp) em %ls: %ls (%.0f ms)", ims[i].w, ims[i].h, dpis[i], path.c_str(), ok ? L"ok" : L"FALHOU", Now() - t0);
         if (ok) { SHChangeNotify(SHCNE_CREATE, SHCNF_PATHW | SHCNF_FLUSHNOWAIT, path.c_str(), nullptr); if (first.empty()) first = path; }
     }
+    if (!first.empty() && g_cfg.copiar) {
+        bool ok = ToClipboard(ims[0], dpis[0]);
+        Logf(L"captura também na área de transferência: %ls", ok ? L"ok" : L"FALHOU");
+    }
     if (!first.empty()) AvisaShell(false);
     if (g_cfg.thumb && !first.empty()) ShowThumb(ims[0], first, where);
 }
@@ -1215,6 +1221,7 @@ static void ShowOptions() {
     items.push_back(item(Tr(L"Mostrar Miniatura Flutuante"), 301, g_cfg.thumb));
     items.push_back(item(Tr(L"Lembrar Última Seleção"), 302, g_cfg.remember));
     items.push_back(item(Tr(L"Mostrar Ponteiro do Mouse"), 303, g_cfg.pointer));
+    items.push_back(item(Tr(L"Copiar Também para a Área de Transferência"), 304, g_cfg.copiar));
     Ov& o = g_ov[S.barOv];
     SetForegroundWindow(o.h);
     POINT pt{ S.btn[B_OPTIONS].left, S.btn[B_OPTIONS].top - (LONG)(6 * o.m.sc) };
@@ -1233,6 +1240,7 @@ static void ShowOptions() {
     case 301: g_cfg.thumb = !g_cfg.thumb; break;
     case 302: g_cfg.remember = !g_cfg.remember; break;
     case 303: g_cfg.pointer = !g_cfg.pointer; break;
+    case 304: g_cfg.copiar = !g_cfg.copiar; break;
     }
     if (id) { SaveCfg(); Logf(L"opções: destino %d, temporizador %d, miniatura %d, lembrar %d, ponteiro %d", g_cfg.dest, g_cfg.timer, g_cfg.thumb, g_cfg.remember, g_cfg.pointer); }
     S.hot = S.press = -1;
@@ -1539,6 +1547,10 @@ static void ThumbMenu(HWND h) {
     It sep; sep.separator = true;
     std::vector<It> items = { item(Tr(L"Abrir"), 1), item(Tr(L"Editar"), 2), sep, item(Tr(L"Mostrar no Finder"), 3), item(Tr(L"Copiar"), 4), sep, item(Tr(L"Apagar"), 5), item(Tr(L"Fechar"), 6) };
     g_thumb->down = false; g_thumb->hover = true;
+    // a miniatura não ativa (WS_EX_NOACTIVATE): sem a frente, o menu fechava na hora e "Copiar" nunca dava para
+    // clicar (issue #34). Alt com uma tecla sem uso no meio (vkE8, como o MenuMaskKey do AutoHotkey) libera a frente
+    // sem o app de trás tratar o Alt como a tecla de menu.
+    { const ULONG_PTR M = 0x53484C4C; keybd_event(VK_MENU, 0, 0, M); keybd_event(0xE8, 0, 0, M); keybd_event(0xE8, 0, KEYEVENTF_KEYUP, M); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, M); }
     SetForegroundWindow(h);
     POINT pt; GetCursorPos(&pt);
     int id = ctxmenu::ShowItems(h, pt, items);
@@ -1561,7 +1573,10 @@ static void ThumbMenu(HWND h) {
             SUCCEEDED(g_wic->CreateFormatConverter(&cv)) && SUCCEEDED(cv->Initialize(fr, GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) {
             Img im; UINT w, hh; cv->GetSize(&w, &hh); im.w = w; im.h = hh; im.alpha = true; im.px.resize((size_t)w * hh * 4);
             double dx = 96, dy = 96; fr->GetResolution(&dx, &dy);
-            if (SUCCEEDED(cv->CopyPixels(nullptr, w * 4, (UINT)im.px.size(), im.px.data()))) ToClipboard(im, (float)dx);
+            if (SUCCEEDED(cv->CopyPixels(nullptr, w * 4, (UINT)im.px.size(), im.px.data())) && ToClipboard(im, (float)dx)) {
+                Logf(L"miniatura: copiada");
+                AvisaShell(true);  // a ilha mostra "Captura copiada"
+            }
         }
         Rel(cv); Rel(fr); Rel(dec);
         return;

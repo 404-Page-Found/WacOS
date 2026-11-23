@@ -1327,6 +1327,18 @@ Page TransparenciaEfeitos() {
     auto on = [](const wchar_t* k, const wchar_t* d) { return Setting(k, d) == L"1"; };
     auto num = [](const wchar_t* k, const wchar_t* d) { return (float)_wtof(Setting(k, d).c_str()); };
     bool liquid = on(L"liquid_glass", L"0"), reduce = on(L"reduzir_transparencia", L"0");
+    // modo leve ligado (a mesma conta do src/shell/leve.cpp): o Shell não liga o vidro real e o vidro fica fosco
+    // mesmo com o botão ligado (issue #31: parecia quebrado, "Reiniciar o Liquid Glass" não fazia nada)
+    bool leveOn = [] {
+        auto m = Setting(L"modo_leve", L"auto");
+        if (m == L"1") return true;
+        if (m == L"0") return false;
+        MEMORYSTATUSEX ms{ sizeof(ms) }; GlobalMemoryStatusEx(&ms);
+        SYSTEM_INFO si{}; GetNativeSystemInfo(&si);
+        SYSTEM_POWER_STATUS ps{};
+        bool bat = GetSystemPowerStatus(&ps) && ps.ACLineStatus == 0;
+        return bat || ms.ullTotalPhys / (1024.0 * 1024 * 1024) <= 10.0 || si.dwNumberOfProcessors <= 4;
+    }();
 
     // material: três miniaturas (papel de parede com um Dock de vidro em cima)
     Row mat; mat.kind = Kind::Custom; mat.height = 112;
@@ -1402,7 +1414,7 @@ Page TransparenciaEfeitos() {
     Row real = Toggle(L"Vidro real (refração)", [] { return Setting(L"vidro_real", L"1") == L"1"; },
                       [](bool v) { SetSetting(L"vidro_real", v ? L"1" : L"0"); Rebuild(); },
                       L"O fundo aparece através do vidro e dobra nas bordas, com o brilho da luz na borda, como no Tahoe. Desligado, o vidro fica fosco.");
-    real.enabled = liquid && !reduce;
+    real.enabled = liquid && !reduce && !leveOn;
     Row refr = Slider(L"Refração nas bordas", 0, 1, [num] { return num(L"liquid_refracao", L"0.6"); },
                       [](float v) { wchar_t b[16]; swprintf_s(b, L"%.2f", v); SetSetting(L"liquid_refracao", b); }, L"Nenhum", L"Forte");
     refr.enabled = liquid && !reduce;
@@ -1415,7 +1427,11 @@ Page TransparenciaEfeitos() {
         if (sh) PostMessageW(sh, msg, 0, 0);
     });
     redo.enabled = liquid && !reduce;
-    p.groups.push_back(G({ mat, lg, real, refr, redo }, L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
+    if (liquid && !reduce && leveOn)
+        p.groups.push_back(G({ mat, lg, real, Note(L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo."), refr, redo },
+                             L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
+    else
+        p.groups.push_back(G({ mat, lg, real, refr, redo }, L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
 
     Row red = Toggle(L"Reduzir transparência", [] { return Setting(L"reduzir_transparencia", L"0") == L"1"; },
                      [](bool v) { SetSetting(L"reduzir_transparencia", v ? L"1" : L"0"); Rebuild(); },
@@ -1443,7 +1459,7 @@ Page TransparenciaEfeitos() {
     // Modo leve (src/shell/leve.cpp): PC fraco ou notebook na bateria
     Row leve = Popup(L"Modo leve", { L"Automático", L"Ligado", L"Desligado" },
                      [] { auto v = Setting(L"modo_leve", L"auto"); return v == L"1" ? 1 : v == L"0" ? 2 : 0; },
-                     [](int i) { SetSetting(L"modo_leve", i == 1 ? L"1" : i == 2 ? L"0" : L"auto"); });
+                     [](int i) { SetSetting(L"modo_leve", i == 1 ? L"1" : i == 2 ? L"0" : L"auto"); Rebuild(); });
     p.groups.push_back(G({ leve, Note(L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. "
                                       L"No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.") }, L"Desempenho"));
     return p;

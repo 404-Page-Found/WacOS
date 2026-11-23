@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"軽量モード" },
 { L"Desempenho", L"パフォーマンス" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"ガラス効果を減らし、アニメーションを毎秒60フレームにします。内蔵グラフィックスやメモリの少ないPC向けです。「自動」では、バッテリー駆動時とメモリ8 GB以下または4コア以下のPCでオンになります。" },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"軽量モードがオンのため、ガラスはすりガラスのままです。リアルガラスを使うには、下の「パフォーマンス」で軽量モードをオフにしてください。" },
+{ L"Copiar Também para a Área de Transferência", L"クリップボードにもコピー" },

@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"Lite mode" },
 { L"Desempenho", L"Performance" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Less glass and animations at 60 frames per second, for PCs with integrated graphics or little memory. On Automatic, it turns on when on battery and on PCs with up to 8 GB of memory or 4 cores." },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"Lite mode is on and keeps the glass frosted. To use real glass, set Lite mode to Off, under Performance below." },
+{ L"Copiar Também para a Área de Transferência", L"Also Copy to Clipboard" },

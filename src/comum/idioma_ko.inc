@@ -1640,3 +1640,5 @@
 { L"Modo leve", L"경량 모드" },
 { L"Desempenho", L"성능" },
 { L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"유리 효과를 줄이고 애니메이션을 초당 60프레임으로 실행합니다. 내장 그래픽이나 메모리가 적은 PC용입니다. 자동에서는 배터리 사용 중이거나 메모리 8GB 이하 또는 4코어 이하 PC에서 켜집니다." },
+{ L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"라이트 모드가 켜져 있어 유리가 불투명하게 유지됩니다. 실제 유리를 사용하려면 아래 성능에서 라이트 모드를 끔으로 설정하세요." },
+{ L"Copiar Também para a Área de Transferência", L"클립보드에도 복사" },

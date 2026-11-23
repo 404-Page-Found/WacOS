@@ -1508,3 +1508,28 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   tamanho zero) por scripts em C:\Users\Public\otim-captura*.ps1. Instalado: WacOSScreenshot.exe (o anterior em
   SequoiaBinariosAntigos\otim-r6-antes-WacOSScreenshot.exe); a residente foi fechada pela mensagem de sair e o Shell abriu a nova.
   DESFAZER: reverter os commits.
+
+[2026-11-23 13:27, hora do PC] Correções dos issues depois da build-32 (#29, #31, #34, #35, #37).
+  - #31 (vidro real "não liga" num notebook com Iris Xe): não era defeito: o modo leve novo (automático: bateria, até 10 GB ou até
+    4 núcleos) desliga o vidro real e nada dizia isso. src/ajustes/paginas.cpp: com o modo leve ligado, o botão "Vidro real" fica
+    apagado com uma nota explicando como ligar; mudar o Modo leve redesenha a página. src/shell/backdrop.cpp: o log diz quem
+    segurou o vidro real ("modo leve ligado", "modo jogo" ou a captura que falhou).
+  - #37 (depois de sair, o Win+E ainda abria o Finder; a barra de tarefas do Windows sumia): src/shell/main.cpp: sair de verdade
+    (não o reiniciar) devolve as pastas e o Win+E ao Explorador (Finder --padrao off, finder_volta=1: ao abrir o WacOS de novo o
+    Finder volta, o mesmo caminho do "Desligar o WacOS") e fecha a Captura residente e a reserva do Finder. ShowTaskbars mostra
+    também a barra de um Explorador que reiniciou com o Shell aberto (não estava na lista). src/shell/mesa.cpp: o vigia, quando o
+    Shell some sem sair direito (Gerenciador de Tarefas), mostra a barra do Explorador que ficou escondida.
+  - #34 (a captura não ia para a área de transferência; "Copiar" da miniatura não funcionava): src/captura/main.cpp: opção nova
+    "Copiar Também para a Área de Transferência" (Opções da barra do Win+Shift+5, ligada por padrão, copiar=1 em captura.txt): a
+    captura salva em arquivo vai também para a área de transferência. O menu do clique direito na miniatura libera a frente antes
+    de abrir (a miniatura não ativa e o menu fechava na hora); "Copiar" avisa a ilha.
+  - #35 (Illustrator ficava com "Sem título-1"): src/shell/dialogs.cpp: depois de escrever o nome, ele tem que ficar igual em 3
+    conferências seguidas (~300 ms) antes do OK; se o programa trocar de volta, escreve de novo (até 2,5 s) e o log diz.
+  - #29 (app abria maior que a tela e encolhia à vista, o Dock encolhia junto): src/shell/limites.cpp: na primeira vez que a janela
+    aparece ela vai direto para o lugar (sem deslizar), ainda durante a animação de abrir; as conferências depois continuam
+    deslizando.
+  Traduções das 2 frases novas nos 11 idiomas (src/comum/idioma_*.inc).
+  Testado aqui: compilação; janela de teste do Electron com 1600 px de altura foi para a área em menos de 120 ms ("na hora" no log);
+  o Shell novo abriu sem erro. NÃO conferido na tela: a nota do modo leve (o modo leve está desligado neste PC), a saída por inteiro
+  (sair fecharia o WacOS do usuário), a cópia da captura e o menu da miniatura, o Illustrator (não instalado).
+  DESFAZER: reverter o commit.

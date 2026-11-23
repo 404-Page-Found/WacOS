@@ -500,6 +500,16 @@ static void HideTaskbars() {
 static void ShowTaskbars() {
     for (HWND h : g_hiddenBars) if (IsWindow(h)) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
     g_hiddenBars.clear();
+    // issue #37 (a barra do Windows sumia ao sair): o Explorador que reiniciou com o Shell aberto cria uma barra nova,
+    // que não está na lista acima. Toda barra do Explorador escondida volta.
+    EnumWindows([](HWND h, LPARAM) -> BOOL {
+        wchar_t c[64] = {}; GetClassNameW(h, c, 64);
+        if ((!wcscmp(c, L"Shell_TrayWnd") || !wcscmp(c, L"Shell_SecondaryTrayWnd")) && !apps::IsShellWindow(h) && !IsWindowVisible(h)) {
+            DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+            if (pid != GetCurrentProcessId()) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
+        }
+        return TRUE;
+    }, 0);
 }
 
 // Barra do Windows nos outros monitores: só esconder não segurava (o Explorador a mostrava de novo e ela
@@ -646,8 +656,32 @@ static void Restore() {
     Log(L"saindo: barra do Windows e área de trabalho devolvidas");
 }
 
+// Saindo de verdade (não o reiniciar): o WacOS fecha por inteiro (issue #37: depois de sair, o Win+E e as pastas
+// ainda abriam o Finder, e o Finder reserva e a Captura residente continuavam abertos, escondidos).
+// As pastas voltam para o Explorador e finder_volta=1 faz o Shell, ao abrir de novo, devolvê-las ao Finder (o mesmo
+// caminho do "Desligar o WacOS"). Quem desligou "Abrir pastas no Finder" à mão (finder_padrao=0) não é mexido.
+static void SaiPorInteiro() {
+    static UINT capMsg = RegisterWindowMessageW(L"SequoiaCaptura");
+    if (HWND w = FindWindowW(L"SequoiaCapturaMsg", nullptr)) PostMessageW(w, capMsg, 0, 0);  // wParam 0 = sair
+    if (HWND w = FindWindowW(L"ArquivosJanela", L"​ArquivosReserva"))  // a reserva nunca foi usada: não tem nada do usuário
+        PostThreadMessageW(GetWindowThreadProcessId(w, nullptr), WM_QUIT, 0, 0);
+    std::wstring finder = shell::dir + L"\\" EXE_FINDER;
+    if (shell::Setting(L"finder_padrao", L"1") == L"1" && GetFileAttributesW(finder.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        shell::SetSetting(L"finder_volta", L"1");
+        std::wstring cmd = L"\"" + finder + L"\" --padrao off --quieto";
+        STARTUPINFOW si{ sizeof(si) }; si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION pi{};
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, shell::dir.c_str(), &si, &pi)) {
+            WaitForSingleObject(pi.hProcess, 3000);  // antes de uma atualização abrir o Shell novo (que religa)
+            CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+            Log(L"saindo: pastas e Win+E de volta ao Explorador (o Finder volta ao abrir o WacOS)");
+        }
+    }
+}
+
 void shell::Quit(const wchar_t* why) {
     Log(L"pedido para sair: %ls", why);
+    if (wcscmp(why, L"reiniciar")) SaiPorInteiro();
     pastas::Stop();
     limites::Stop();
     bloqueio::Fallback();  // saiu com a tela travada (ex.: Ctrl+Alt+Shift+F12): o Windows bloqueia
@@ -674,7 +708,7 @@ bool shell::SoDock() { static int v = -1; if (v < 0) v = shell::Setting(L"modo",
 
 static void EnsureScreenshot() {
     static DWORD lastSpawn;
-    if (!g_capturaExe || FindWindowW(L"SequoiaCapturaMsg", nullptr)) return;
+    if (g_quitting || !g_capturaExe || FindWindowW(L"SequoiaCapturaMsg", nullptr)) return;
     if (lastSpawn && GetTickCount() - lastSpawn < 10000) return;
     lastSpawn = GetTickCount();
     std::wstring cmd = L"\"" + shell::dir + L"\\" EXE_SCREENSHOT L"\" /residente";
@@ -715,7 +749,7 @@ void shell::AbrirFinder(const std::wstring& args) {
 static void EnsureReserve() {
     if (shell::nativo) return;  // no nativo a reserva é a janela do Finder dentro do explorer (MacFinder.dll)
     static DWORD lastSpawn;
-    if (FindWindowW(L"ArquivosJanela", L"​ArquivosReserva")) return;
+    if (g_quitting || FindWindowW(L"ArquivosJanela", L"​ArquivosReserva")) return;
     if (lastSpawn && GetTickCount() - lastSpawn < 4000) return;  // um por vez
     lastSpawn = GetTickCount();
     std::wstring cmd = L"\"" + shell::dir + L"\\" EXE_FINDER L"\" --reserva";
