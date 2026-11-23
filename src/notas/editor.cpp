@@ -1039,6 +1039,129 @@ bool Transform(int kind) {
     return true;
 }
 
+// ---- Ferramentas de Escrita com IA
+// Markdown simples nos dois sentidos: o modelo entende e devolve listas, títulos e tabelas que viram parágrafos de verdade
+static std::wstring ParaMd(const Para& p, int numero) {
+    if (p.kind == K_FILE) return L"";
+    if (p.kind == K_ROW) {
+        std::wstring t = L"| ";
+        for (wchar_t c : p.text) t += c == L'\t' ? std::wstring(L" | ") : std::wstring(1, c);
+        return t + L" |";
+    }
+    std::wstring pre(p.indent * 2, L' ');
+    if (p.style == S_TITLE) pre += L"# ";
+    else if (p.style == S_HEADING) pre += L"## ";
+    else if (p.style == S_SUBHEADING) pre += L"### ";
+    if (p.list == L_BULLET || p.list == L_DASH) pre += L"- ";
+    else if (p.list == L_NUMBER) pre += std::to_wstring(numero) + L". ";
+    else if (p.list == L_CHECK) pre += p.checked ? L"- [x] " : L"- [ ] ";
+    return pre + p.text;
+}
+
+editor::AiRange AiTake() {
+    editor::AiRange r;
+    if (!N) return r;
+    r.n = N;
+    r.all = !HasSel();
+    if (r.all) { r.a = 0; r.b = Count() - 1; } else SelParas(r.a, r.b);
+    int num = 0;
+    for (int i = r.a; i <= r.b; i++) {
+        const Para& p = P(i);
+        num = p.list == L_NUMBER ? num + 1 : 0;
+        std::wstring l = ParaMd(p, num);
+        if (p.kind == K_FILE) continue;
+        r.antes += l + L"\n";
+    }
+    while (!r.antes.empty() && r.antes.back() == L'\n') r.antes.pop_back();
+    return r;
+}
+
+static std::wstring SemMarcas(std::wstring t) {  // **negrito**, __x__ e `código` viram texto puro
+    for (const wchar_t* m : { L"**", L"__", L"`" }) for (size_t i; (i = t.find(m)) != std::wstring::npos;) t.erase(i, wcslen(m));
+    return t;
+}
+
+bool AiReplace(const editor::AiRange& r, const std::wstring& md) {
+    if (!N || N != r.n || r.b >= Count()) return false;
+    {   // a nota mudou enquanto a IA escrevia: não troca (o texto novo iria para o lugar errado)
+        editor::AiRange agora; agora.n = N; agora.a = r.a; agora.b = r.b;
+        int num = 0; std::wstring t;
+        for (int i = r.a; i <= r.b; i++) { const Para& p = P(i); num = p.list == L_NUMBER ? num + 1 : 0; if (p.kind != K_FILE) t += ParaMd(p, num) + L"\n"; }
+        while (!t.empty() && t.back() == L'\n') t.pop_back();
+        if (t != r.antes) return false;
+    }
+    std::vector<Para> novos;
+    std::wstring s = md;
+    // o modelo às vezes embrulha tudo num bloco ```
+    if (s.rfind(L"```", 0) == 0) { size_t q = s.find(L'\n'); s = q == std::wstring::npos ? L"" : s.substr(q + 1); }
+    if (s.size() >= 3 && s.compare(s.size() - 3, 3, L"```") == 0) s.resize(s.size() - 3);
+    size_t i = 0;
+    bool brancoAntes = false;
+    while (i <= s.size()) {
+        size_t f = s.find(L'\n', i); if (f == std::wstring::npos) f = s.size();
+        std::wstring l = s.substr(i, f - i);
+        i = f + 1;
+        if (!l.empty() && l.back() == L'\r') l.pop_back();
+        size_t ind = 0; while (ind < l.size() && (l[ind] == L' ' || l[ind] == L'\t')) ind++;
+        std::wstring t = l.substr(ind);
+        if (t.empty()) { brancoAntes = true; if (f >= s.size()) break; continue; }
+        Para p;
+        p.indent = (uint8_t)std::min<size_t>(ind / 2, 4);
+        if (t[0] == L'|') {  // tabela; a linha de traços (|---|) some
+            bool tracos = t.find_first_not_of(L"|-: ") == std::wstring::npos;
+            if (tracos) continue;
+            std::wstring c = t.substr(1);
+            if (!c.empty() && c.back() == L'|') c.pop_back();
+            std::wstring cel, o;
+            for (size_t k = 0; k <= c.size(); k++) {
+                if (k == c.size() || c[k] == L'|') {
+                    size_t x = cel.find_first_not_of(L' '), y = cel.find_last_not_of(L' ');
+                    o += (x == std::wstring::npos ? L"" : cel.substr(x, y - x + 1));
+                    if (k < c.size()) o += L'\t';
+                    cel.clear();
+                } else cel += c[k];
+            }
+            p.kind = K_ROW; p.text = SemMarcas(o); p.indent = 0;
+        } else {
+            if (t.rfind(L"### ", 0) == 0) { p.style = S_SUBHEADING; t = t.substr(4); }
+            else if (t.rfind(L"## ", 0) == 0) { p.style = S_HEADING; t = t.substr(3); }
+            else if (t.rfind(L"# ", 0) == 0) { p.style = S_TITLE; t = t.substr(2); }
+            if (t.rfind(L"- [ ] ", 0) == 0 || t.rfind(L"* [ ] ", 0) == 0) { p.list = L_CHECK; t = t.substr(6); }
+            else if (t.rfind(L"- [x] ", 0) == 0 || t.rfind(L"- [X] ", 0) == 0) { p.list = L_CHECK; p.checked = true; t = t.substr(6); }
+            else if (t.rfind(L"- ", 0) == 0 || t.rfind(L"* ", 0) == 0 || t.rfind(L"• ", 0) == 0) { p.list = L_BULLET; t = t.substr(2); }
+            else {
+                size_t d = 0; while (d < t.size() && iswdigit(t[d])) d++;
+                if (d > 0 && d < 4 && d + 1 < t.size() && (t[d] == L'.' || t[d] == L')') && t[d + 1] == L' ') { p.list = L_NUMBER; t = t.substr(d + 2); }
+            }
+            p.text = SemMarcas(t);
+            if (p.list != L_NONE && p.style != S_BODY) p.style = S_BODY;
+        }
+        // um parágrafo em branco entre blocos de texto comum (como o modelo separa): fica um vazio na nota também
+        if (brancoAntes && !novos.empty() && p.list == L_NONE && p.kind == K_TEXT && novos.back().list == L_NONE && novos.back().kind == K_TEXT)
+            novos.push_back(Para{});
+        brancoAntes = false;
+        p.at.assign(p.text.size(), 0);
+        novos.push_back(std::move(p));
+        if (f >= s.size()) break;
+    }
+    if (novos.empty()) return false;
+    // a nota inteira: o primeiro parágrafo continua título (o nome da nota na lista)
+    if (r.all && r.a == 0 && P(0).style == S_TITLE && novos[0].kind == K_TEXT && novos[0].list == L_NONE) novos[0].style = S_TITLE;
+    // anexos dentro do trecho ficam (no fim do texto novo)
+    for (int k = r.a; k <= r.b; k++) if (P(k).kind == K_FILE) novos.push_back(P(k));
+    Checkpoint(3);
+    N->paras.erase(N->paras.begin() + r.a, N->paras.begin() + r.b + 1);
+    N->paras.insert(N->paras.begin() + r.a, novos.begin(), novos.end());
+    if (N->paras.empty()) N->paras.push_back(Para{});
+    // a seleção cobre o texto novo (como no Mac: dá para ver o que mudou e desfazer com Ctrl+Z)
+    int fim = r.a + (int)novos.size() - 1;
+    anchor = { r.a, 0 };
+    caret = { fim, (int)P(fim).text.size() };
+    Clamp();
+    Changed();
+    return true;
+}
+
 int CurrentStyle() { return N ? P(caret.p).style : S_BODY; }
 int CurrentList() { return N ? P(caret.p).list : L_NONE; }
 uint8_t CurrentAttrs() {

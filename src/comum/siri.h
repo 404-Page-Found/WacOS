@@ -326,4 +326,82 @@ inline std::wstring RodaCli(const std::wstring& comando, const std::wstring& per
     return Wide(saida);
 }
 
+// ---------------------------------------------------------------- um pedido de texto (Ferramentas de Escrita das Notas)
+// O serviço e o modelo escolhidos para a Siri (siri_provedor, siri_modelo), com a chave dela. Uma tentativa a mais se o
+// serviço estiver sobrecarregado, e o preferido da lista se o modelo saiu do ar ou ficou sem cota.
+// erro: 0 ok, 1 sem serviço escolhido, 2 sem chave, 3 sem conexão, 4 o serviço recusou (msg: a mensagem dele),
+// 5 o app local (CLI) não respondeu.
+struct Gerado { std::wstring texto, msg; int erro = 0; };
+inline Gerado Gera(int p, std::wstring modelo, const std::wstring& sistema, const std::wstring& pedido) {
+    Gerado g;
+    const auto& provs = Provedores();
+    if (p <= 0 || p >= (int)provs.size()) { g.erro = 1; return g; }
+    const auto& pv = provs[p];
+    if (pv.fmt == F_CLI) {
+        DWORD codigo = 0; bool tempo = false;
+        wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
+        std::wstring ultima = std::wstring(tmp) + L"WacOS-Siri\\ultima.txt";
+        DeleteFileW(ultima.c_str());
+        std::wstring r = RodaCli(pv.caminho, sistema + L"\n\nDo not run commands or edit files.\n\n" + pedido, codigo, tempo);
+        HANDLE h = CreateFileW(ultima.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {  // o Codex grava só a última mensagem num arquivo
+            DWORD sz = GetFileSize(h, nullptr), n = 0;
+            std::string b(sz < (1u << 20) ? sz : 0, 0);
+            if (!b.empty() && ReadFile(h, b.data(), sz, &n, nullptr)) r = Wide(b);
+            CloseHandle(h);
+            DeleteFileW(ultima.c_str());
+        }
+        if (tempo || codigo != 0 || r.empty()) { g.erro = 5; g.msg = pv.nome; return g; }
+        g.texto = r;
+        return g;
+    }
+    std::wstring chave = pv.precisaChave ? LeChave(p) : L"";
+    if (pv.precisaChave && chave.empty()) { g.erro = 2; return g; }
+    if (modelo.empty() && !pv.modelos.empty()) modelo = pv.modelos[0];
+    if (modelo.empty()) { std::wstring e; auto l = ListaModelos(p, e); if (!l.empty()) modelo = l[0]; }
+    std::wstring cab = Cabecalhos(pv, chave);
+    SecureZeroMemory(chave.data(), chave.size() * sizeof(wchar_t));
+    Resposta r;
+    for (int tentativa = 0; tentativa < 3; tentativa++) {
+        std::string body;
+        std::wstring caminho = pv.caminho;
+        if (pv.fmt == F_GEMINI) {
+            size_t m = caminho.find(L"{m}"); if (m != std::wstring::npos) caminho.replace(m, 3, modelo);
+            body = "{\"systemInstruction\":{\"parts\":[{\"text\":" + JStr(sistema) + "}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":" + JStr(pedido) + "}]}]}";
+        } else if (pv.fmt == F_ANTHROPIC) {
+            body = "{\"model\":" + JStr(modelo) + ",\"max_tokens\":4096,\"system\":" + JStr(sistema) +
+                   ",\"messages\":[{\"role\":\"user\",\"content\":" + JStr(pedido) + "}]}";
+        } else {
+            body = "{\"model\":" + JStr(modelo) + ",\"messages\":[{\"role\":\"system\",\"content\":" + JStr(sistema) + "},{\"role\":\"user\",\"content\":" + JStr(pedido) + "}]" +
+                   (pv.fmt == F_OLLAMA ? ",\"stream\":false}" : "}");
+        }
+        r = Http(pv, L"POST", caminho, cab, body, 120000);
+        if (r.falha || tentativa >= 2) break;
+        if (r.status == 503 || r.status == 500 || r.status == 529) { Sleep(1500); continue; }
+        std::wstring m = ErroDoServico(r.corpo); for (auto& c : m) c = (wchar_t)towlower(c);
+        bool trocar = (r.status == 429 && m.find(L"quota") != std::wstring::npos) ||
+                      ((r.status == 400 || r.status == 404) && (m.find(L"not found") != std::wstring::npos || m.find(L"no longer") != std::wstring::npos ||
+                                                                 m.find(L"does not exist") != std::wstring::npos || m.find(L"model") != std::wstring::npos));
+        if (!trocar) break;
+        std::wstring e; auto lista = ListaModelos(p, e);
+        if (lista.empty() || lista[0] == modelo) break;
+        modelo = lista[0];  // só neste pedido
+    }
+    SecureZeroMemory(cab.data(), cab.size() * sizeof(wchar_t));
+    if (r.falha) { g.erro = 3; return g; }
+    if (r.status >= 200 && r.status < 300) {
+        std::wstring t;
+        bool ok = pv.fmt == F_GEMINI ? JLe(r.corpo, "text", r.corpo.find("\"candidates\""), t)
+                : pv.fmt == F_ANTHROPIC ? JLe(r.corpo, "text", r.corpo.find("\"content\""), t)
+                : JLe(r.corpo, "content", r.corpo.find("\"message\""), t);
+        if (ok && !t.empty()) { g.texto = t; return g; }
+    }
+    g.erro = 4;
+    g.msg = ErroDoServico(r.corpo);
+    if (size_t q = g.msg.find(L'\n'); q != std::wstring::npos) g.msg = g.msg.substr(0, q);
+    if (g.msg.size() > 240) g.msg = g.msg.substr(0, 237) + L"...";
+    if (g.msg.empty()) g.msg = L"HTTP " + std::to_wstring(r.status);
+    return g;
+}
+
 }  // namespace siri

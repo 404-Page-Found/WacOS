@@ -83,6 +83,7 @@ static DWORD g_macKeyVk;    // a tecla do atalho: soltar também é nosso (o app
 static DWORD g_capKey;      // tecla do atalho da Captura de Tela ainda segurada
 static bool g_fullHook = true;  // false: o gancho só existe para a tela de bloqueio (tecla Windows do Launchpad desligada)
 const UINT WM_APP_VOLUME = WM_APP + 42;
+const UINT WM_APP_SIRI = WM_APP + 45;  // Win+S
 static bool g_volumeKeys = true;  // ajuste volume_mac: teclas de volume com o aviso do Mac (0 = o Windows trata)
 
 static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
@@ -103,6 +104,16 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 bool fine = GetAsyncKeyState(VK_SHIFT) < 0 && GetAsyncKeyState(VK_MENU) < 0;
                 PostMessageW(g_msg, WM_APP_VOLUME, k->vkCode, fine);
             }
+            return 1;
+        }
+    }
+    if (code == HC_ACTION && !bloqueio::Active()) {
+        // teclas de mídia (issue #37: com o WacOS aberto não faziam nada): o Shell manda o comando à sessão de mídia
+        // atual do Windows (a mesma que a Ilha mostra), sem depender do caminho do Explorador
+        auto* k = (KBDLLHOOKSTRUCT*)l;
+        DWORD vk = k->vkCode;
+        if (k->dwExtraInfo != KEY_MARK && (vk == VK_MEDIA_PLAY_PAUSE || vk == VK_MEDIA_NEXT_TRACK || vk == VK_MEDIA_PREV_TRACK || vk == VK_MEDIA_STOP)) {
+            if (w == WM_KEYDOWN || w == WM_SYSKEYDOWN) PostMessageW(g_msg, WM_APP_VOLUME, vk, 0);
             return 1;
         }
     }
@@ -202,6 +213,12 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 static UINT openPanel = RegisterWindowMessageW(L"ShellAbrirPainel");
                 PostMessageW(g_msg, openPanel, k->vkCode == VK_F12 ? 16 : 17, 0);
                 g_winCombo = g_winEaten = true;
+                return 1;
+            } else if (g_winDown && down && !g_winCombo && k->vkCode == 'S' && GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_CONTROL) >= 0 &&
+                       GetAsyncKeyState(VK_MENU) >= 0 && siri::Pronta()) {
+                // Win+S: a Siri com o campo para digitar (no Windows, o atalho da busca/assistente); de novo fecha
+                g_winCombo = g_winEaten = true;
+                PostMessageW(g_msg, WM_APP_SIRI, 0, 0);
                 return 1;
             } else if (g_winDown && down && !g_winCombo && (k->vkCode == 'I' || k->vkCode == VK_TAB)) {
                 // Win+I: o nosso Ajustes do Sistema; Win+Tab: o Mission Control (no lugar da Visão de Tarefas)
@@ -569,8 +586,35 @@ static void TellExplorerTray() {  // o Explorador relê o ajuste da barra (como 
     }).detach();
 }
 
+// Barra do Windows em "ocultar automaticamente" (issue #37): com ela escondida pelo Shell, o Explorador devolvia a área
+// de trabalho para a tela inteira ~6 vezes por segundo, o Shell punha a dele de volta, e as janelas maximizadas eram
+// reencaixadas a cada vez (as travadas). Ao sair, a barra ficava num estado estranho e não voltava. Enquanto o Shell
+// roda, o ocultar automático fica desligado (a barra está escondida de qualquer jeito) e volta ao sair; o estado de
+// antes fica em ajustes.txt (barra_windows_ocultar_antes).
+static UINT_PTR EstadoDaBarra(bool set, UINT_PTR estado) {
+    APPBARDATA d{ sizeof(d) };
+    d.lParam = (LPARAM)estado;
+    return SHAppBarMessage(set ? ABM_SETSTATE : ABM_GETSTATE, &d);
+}
+static void OcultarAutomaticoOff() {
+    UINT_PTR st = EstadoDaBarra(false, 0);
+    if (!(st & ABS_AUTOHIDE)) return;
+    if (shell::Setting(L"barra_windows_ocultar_antes", L"").empty())
+        shell::SetSetting(L"barra_windows_ocultar_antes", std::to_wstring((unsigned)st));
+    EstadoDaBarra(true, st & ~(UINT_PTR)ABS_AUTOHIDE);
+    Log(L"barra do Windows: ocultar automaticamente desligado enquanto o Shell roda (estado %u)", (unsigned)st);
+}
+static void OcultarAutomaticoRestore() {
+    std::wstring before = shell::Setting(L"barra_windows_ocultar_antes", L"");
+    if (before.empty()) return;
+    EstadoDaBarra(true, (UINT_PTR)_wtoi(before.c_str()));
+    shell::SetSetting(L"barra_windows_ocultar_antes", L"");
+    Log(L"barra do Windows: ocultar automaticamente devolvido (estado %ls)", before.c_str());
+}
+
 static void SecondaryTaskbarsOff() {
     if (shell::nativo) return;
+    OcultarAutomaticoOff();
     DWORD v = 0, cb = sizeof(v);
     bool had = RegGetValueW(HKEY_CURRENT_USER, MM_KEY, L"MMTaskbarEnabled", RRF_RT_REG_DWORD, nullptr, &v, &cb) == ERROR_SUCCESS;
     if (had && v == 0) return;  // já desligado (pelo usuário ou por nós antes)
@@ -584,6 +628,7 @@ static void SecondaryTaskbarsOff() {
 }
 
 static void SecondaryTaskbarsRestore() {
+    OcultarAutomaticoRestore();
     std::wstring before = shell::Setting(L"barra_windows_monitores_antes", L"");
     if (before.empty()) return;
     if (before == L"x") RegDeleteKeyValueW(HKEY_CURRENT_USER, MM_KEY, L"MMTaskbarEnabled");
@@ -1245,6 +1290,12 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_APP_SWITCH: seletor::Step((int)(INT_PTR)w); return 0;
     case WM_APP_SWITCH_KEY: seletor::Key((UINT)w); return 0;
     case WM_APP_SWITCH_END: seletor::Release(); return 0;
+    case WM_APP_SIRI:
+        if (launchpad::IsOpen()) launchpad::Toggle();
+        if (spotlight::IsOpen()) spotlight::Toggle();
+        shell::LiberaFrente();
+        siri::Abrir();
+        return 0;
     case WM_APP_SPOTLIGHT:
         if (launchpad::IsOpen()) launchpad::Toggle();
         shell::LiberaFrente();  // permite ao Spotlight vir para a frente e receber o teclado
@@ -1258,6 +1309,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_APP_CAPTURA: Screenshot((int)w, l != 0); return 0;
     case WM_APP_VOLUME:
         if (w == VK_F14 || w == VK_F15) { central::BrilhoPasso(w == VK_F15 ? 1 : -1); return 0; }  // brilho (issue #38)
+        if (w == VK_MEDIA_PLAY_PAUSE || w == VK_MEDIA_NEXT_TRACK || w == VK_MEDIA_PREV_TRACK || w == VK_MEDIA_STOP) {  // issue #37
+            atalhos::MediaCommand(L"", L"", w == VK_MEDIA_NEXT_TRACK ? 1 : w == VK_MEDIA_PREV_TRACK ? 2 : w == VK_MEDIA_STOP ? 3 : 0);
+            return 0;
+        }
         som::Key((UINT)w, l != 0); return 0;
     case WM_SYSCOMMAND:
         if ((w & 0xFFF0) == SC_TASKLIST) {  // Ctrl+Esc com o Shell como Taskman (sem Explorador): Launchpad

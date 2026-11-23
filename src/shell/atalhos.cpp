@@ -421,11 +421,15 @@ void atalhos::MediaCommand(const std::wstring& exePath, const std::wstring& aumi
     std::thread([exePath, aumid, cmd] {
         winrt::init_apartment(winrt::apartment_type::multi_threaded);
         try {
-            if (auto s = SessionOf(exePath, aumid)) {
+            // sem app: a sessão atual do Windows (as teclas de mídia do teclado)
+            auto s = exePath.empty() && aumid.empty() ? wmc::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get().GetCurrentSession()
+                                                      : SessionOf(exePath, aumid);
+            if (s) {
                 if (cmd == 0) s.TryTogglePlayPauseAsync().get();
                 else if (cmd == 1) s.TrySkipNextAsync().get();
-                else s.TrySkipPreviousAsync().get();
-            }
+                else if (cmd == 2) s.TrySkipPreviousAsync().get();
+                else s.TryStopAsync().get();
+            } else Log(L"mídia: nenhuma sessão de mídia para o comando %d", cmd);
         } catch (...) {}
     }).detach();
 }

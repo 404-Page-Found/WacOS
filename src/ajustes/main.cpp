@@ -367,9 +367,14 @@ void aj::Tile(Ctx& c, D2D1_RECT_F r, wchar_t glyph, UINT32 color, const std::wst
     D2D1_COLOR_F top = Rgb(color), bot = Rgb(color);
     top.r = std::min(1.f, top.r * 1.08f + 0.05f); top.g = std::min(1.f, top.g * 1.08f + 0.05f); top.b = std::min(1.f, top.b * 1.08f + 0.05f);
     D2D1_GRADIENT_STOP gs[2] = { { 0, top }, { 1, bot } };
-    c.dc->CreateGradientStopCollection(gs, 2, &stops);
+    // o ícone do Apple Intelligence e da Siri: o degradê dele (amarelo, laranja, rosa, roxo e azul), na diagonal
+    D2D1_GRADIENT_STOP ai[5] = { { 0, D2D1::ColorF(1.f, 0.78f, 0.25f) }, { 0.3f, D2D1::ColorF(1.f, 0.50f, 0.20f) }, { 0.55f, D2D1::ColorF(1.f, 0.30f, 0.50f) },
+                                 { 0.78f, D2D1::ColorF(0.70f, 0.38f, 1.f) }, { 1, D2D1::ColorF(0.22f, 0.52f, 1.f) } };
+    bool appleAI = symbol == L"apple.intelligence";
+    c.dc->CreateGradientStopCollection(appleAI ? ai : gs, appleAI ? 5 : 2, &stops);
     ID2D1LinearGradientBrush* lg = nullptr;
-    if (stops) c.dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), stops, &lg);
+    if (stops) c.dc->CreateLinearGradientBrush(appleAI ? D2D1::LinearGradientBrushProperties({ r.left, r.top }, { r.right, r.bottom })
+                                                       : D2D1::LinearGradientBrushProperties({ 0, r.top }, { 0, r.bottom }), stops, &lg);
     auto rr = D2D1::RoundedRect(r, w * 0.24f, w * 0.24f);
     if (lg) c.dc->FillRoundedRectangle(rr, lg); else { c.br->SetColor(Rgb(color)); c.dc->FillRoundedRectangle(rr, c.br); }
     if (lg) lg->Release();

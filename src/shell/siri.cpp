@@ -8,6 +8,7 @@
 #include "../comum/simbolos.h"
 #include "../comum/idioma.h"
 #include <dwmapi.h>
+#include <d2d1effects_2.h>
 #include <windowsx.h>
 #include <thread>
 #include <atomic>
@@ -16,9 +17,11 @@
 
 namespace {
 
-const UINT WM_SIRI_FIM = WM_APP + 70, WM_SIRI_FRAME = WM_APP + 71;
+const UINT WM_SIRI_FIM = WM_APP + 70, WM_SIRI_FRAME = WM_APP + 71, WM_SIRI_VOZ = WM_APP + 72;
+D2D1_RECT_F g_mic{};  // o botão do microfone no campo (coordenadas do painel, DIP)
 const UINT_PTR T_PONTOS = 1;
-const float W = 560, PAD = 20, ORB = 30, R = 22;
+float W = 560;  // a largura do campo do Spotlight (MostraPainel): os dois alinhados
+const float PAD = 20, ORB = 30, R = 22;
 const float M = 28;  // folga em volta do painel para o brilho (os cliques nela atravessam: WM_NCHITTEST)
 
 HWND g_wnd, g_back;
@@ -38,6 +41,9 @@ std::wstring g_texto;
 const UINT_PTR T_CURSOR = 2;
 bool g_cursorOn = true;  // 'SIRT' (teste com um jogo na frente): não pega a frente, não fecha ao perder a frente, some em 8 s
 ID2D1StrokeStyle* g_round;
+struct { int n, cont, longos; double soma, max, gapMax; } g_med;  // medição dos quadros
+int g_wpx, g_hpx; float g_H;             // o tamanho do último Paint (a camada da frente redesenha sem refazer o resto)
+int g_pecasW = -1, g_pecasH = -1; bool g_pecasDark; double g_pecasAt;  // o vidro já posto (não refazer a cada quadro)
 IDWriteTextFormat *g_tfQ, *g_tfA;
 
 // ---------------------------------------------------------------- a pergunta (thread)
@@ -256,14 +262,16 @@ D2D1_POINT_2F PontoDaBorda(const D2D1_RECT_F& r, float rad, float u) {
     if (d < arco) return canto(r.left + rad, r.top + rad, 3.1415926f, d); d -= arco;
     return { r.left + rad + std::min(d, retoX / 2), r.top };
 }
+// O brilho da borda (como o do Apple Intelligence): um anel colorido que gira, com uma onda de luz correndo, gravado numa
+// lista de comandos e desfocado na GPU (dois desfoques: um largo e suave, outro curto e forte), e o fio nítido por cima.
+// Antes eram 4 camadas de 240 traços sobrepostos: pesado e com "degraus" na luz.
 void Brilho(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, float rad, double tMs, float forca) {
     if (forca <= 0.01f) return;
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1), &br);
     if (!br) return;
-    const int N = 240;
+    const int N = 144;
     float gira = (float)(tMs / 2600.0);  // as cores dão uma volta a cada 2,6 s
-    struct Camada { float largura, alfa; } camadas[] = { { 22, 0.06f }, { 13, 0.10f }, { 7, 0.18f }, { 2.6f, 0.95f } };
     ID2D1Factory* fab = nullptr; dc->GetFactory(&fab);
     static ID2D1Factory* fabDoTraco = nullptr;
     if (fab && fab != fabDoTraco) {
@@ -273,24 +281,79 @@ void Brilho(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, float rad, double tM
         fabDoTraco = fab;
     }
     if (fab) fab->Release();
-    std::vector<D2D1_POINT_2F> pts(N + 1);
+    D2D1_POINT_2F pts[N + 1];
+    D2D1_COLOR_F cores[N]; float ondas[N];
     for (int k = 0; k <= N; k++) pts[k] = PontoDaBorda(box, rad, (float)k / N);
-    for (auto& cm : camadas) {
+    for (int k = 0; k < N; k++) {
+        float u = (k + 0.5f) / N;
+        cores[k] = CorDaVolta(u * 2 + gira);  // duas voltas de cor pela borda inteira
+        ondas[k] = 0.55f + 0.45f * std::cos(6.2831853f * (u - gira * 0.7f));  // o trecho mais claro que corre
+    }
+    // a luz: o anel grosso numa lista de comandos, desfocado
+    ID2D1CommandList* cl = nullptr;
+    ID2D1Image* alvo = nullptr;
+    if (SUCCEEDED(dc->CreateCommandList(&cl))) {
+        dc->GetTarget(&alvo);
+        dc->SetTarget(cl);
         for (int k = 0; k < N; k++) {
-            float u = (float)k / N;
-            D2D1_COLOR_F c = CorDaVolta(u * 2 + gira);  // duas voltas de cor pela borda inteira
-            // um trecho mais claro corre pela borda (a "onda" de luz)
-            float onda = 0.55f + 0.45f * std::cos(6.2831853f * (u - gira * 0.7f));
-            c.a = cm.alfa * forca * (cm.largura > 3 ? onda : 0.75f + 0.25f * onda);
+            D2D1_COLOR_F c = cores[k]; c.a = 1;
             br->SetColor(c);
-            // pontas retas nas camadas translúcidas (as redondas se sobrepunham e faziam "contas" na borda); redondas no fio
-            dc->DrawLine(pts[k], pts[k + 1], br, cm.largura, cm.largura > 3 ? nullptr : g_round);
+            dc->DrawLine(pts[k], pts[k + 1], br, 7.f + 5.f * ondas[k], g_round);  // opaco: as pontas redondas se sobrepõem sem marcas
         }
+        dc->SetTarget(alvo);
+        cl->Close();
+        D2D1_MATRIX_3X2_F t; dc->GetTransform(&t);
+        dc->SetTransform(D2D1::Matrix3x2F::Identity());  // a lista já está no lugar (gravada com a transformação)
+        struct { float desvio, alfa; } passes[] = { { 11.f * (t._11 > 0 ? t._11 : 1), 0.55f }, { 3.5f * (t._11 > 0 ? t._11 : 1), 0.45f } };
+        for (auto& ps : passes) {
+            ID2D1Effect *blur = nullptr, *opa = nullptr;
+            if (SUCCEEDED(dc->CreateEffect(CLSID_D2D1GaussianBlur, &blur)) && SUCCEEDED(dc->CreateEffect(CLSID_D2D1Opacity, &opa))) {
+                blur->SetInput(0, cl);
+                blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, ps.desvio);
+                blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION, D2D1_GAUSSIANBLUR_OPTIMIZATION_SPEED);
+                opa->SetInputEffect(0, blur);
+                opa->SetValue(D2D1_OPACITY_PROP_OPACITY, ps.alfa * forca);
+                dc->DrawImage(opa, D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+            }
+            if (opa) opa->Release();
+            if (blur) blur->Release();
+        }
+        dc->SetTransform(t);
+        if (alvo) alvo->Release();
+        cl->Release();
+    }
+    // o fio nítido na borda
+    for (int k = 0; k < N; k++) {
+        D2D1_COLOR_F c = cores[k];
+        c.a = 0.95f * forca * (0.75f + 0.25f * ondas[k]);
+        br->SetColor(c);
+        dc->DrawLine(pts[k], pts[k + 1], br, 2.2f, nullptr);
     }
     br->Release();
 }
 
+// O ícone do Apple Intelligence (o símbolo apple.intelligence) com o degradê dele: laranja, rosa, roxo e azul, que gira
+// devagar e pulsa enquanto pensa. Sem o símbolo instalado, a bolinha de antes.
+void OrbeAntiga(ID2D1DeviceContext* dc, D2D1_POINT_2F c, float r, double t);
 void Orbe(ID2D1DeviceContext* dc, D2D1_POINT_2F c, float r, double t) {
+    D2D1_GRADIENT_STOP gs[5] = { { 0, D2D1::ColorF(1.f, 0.62f, 0.10f) }, { 0.3f, D2D1::ColorF(1.f, 0.24f, 0.42f) },
+                                 { 0.55f, D2D1::ColorF(0.74f, 0.33f, 0.95f) }, { 0.8f, D2D1::ColorF(0.40f, 0.45f, 1.f) }, { 1, D2D1::ColorF(0.15f, 0.55f, 1.f) } };
+    ID2D1GradientStopCollection* sc = nullptr;
+    if (FAILED(dc->CreateGradientStopCollection(gs, 5, &sc))) return;
+    float a = (float)(t / (g_busy ? 900.0 : 4000.0)) + 2.3f;
+    float pulso = g_busy ? 1.f + 0.06f * (float)std::sin(t / 260.0) : 1.f;
+    float rr = r * pulso;
+    D2D1_POINT_2F p0{ c.x + std::cos(a) * rr, c.y + std::sin(a) * rr }, p1{ c.x - std::cos(a) * rr, c.y - std::sin(a) * rr };
+    ID2D1LinearGradientBrush* lg = nullptr;
+    bool ok = false;
+    if (SUCCEEDED(dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(p0, p1), sc, &lg))) {
+        ok = simbolo::Draw(dc, L"apple.intelligence", D2D1::RectF(c.x - rr, c.y - rr, c.x + rr, c.y + rr), lg);
+        lg->Release();
+    }
+    sc->Release();
+    if (!ok) OrbeAntiga(dc, c, r, t);
+}
+void OrbeAntiga(ID2D1DeviceContext* dc, D2D1_POINT_2F c, float r, double t) {
     // a bolinha da Siri: as cores giram enquanto pensa (e devagar depois), com um brilho que pulsa
     D2D1_GRADIENT_STOP gs[4] = { { 0, D2D1::ColorF(0.98f, 0.36f, 0.62f) }, { 0.35f, D2D1::ColorF(0.62f, 0.38f, 1.f) },
                                  { 0.7f, D2D1::ColorF(0.25f, 0.62f, 1.f) }, { 1, D2D1::ColorF(1.f, 0.62f, 0.32f) } };
@@ -326,10 +389,12 @@ float ForcaBrilho(double now) {
     return k >= 1 ? 0.f : (1 - k) * (1 - k);
 }
 bool Animando(double now) {
+    if (g_entrada && voz::Ouvindo()) return true;
     double digitar = g_a.size() / std::max(110.0, g_a.size() / 2.2) * 1000.0;  // o tempo da resposta "digitando"
     return g_closing || g_busy || !anim::PanelIn(now - g_openAt).done || now - g_answerAt < std::max(950.0, digitar + 50);
 }
 
+void PaintFrente();
 void Paint() {
     if ((!g_open && !g_closing) || !g_wnd) return;
     double now = anim::Now();
@@ -363,8 +428,12 @@ void Paint() {
         if (g_back) SetWindowPos(g_back, g_wnd, wr.left, wr.top, wpx, hpx, SWP_NOACTIVATE);
     }
     float mpx = M * sc;
-    if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(mpx, mpx, wpx - mpx, hpx - mpx), R * sc } },
+    g_wpx = wpx; g_hpx = hpx; g_H = H;
+    if (g_glass && (wpx != g_pecasW || hpx != g_pecasH || dark != g_pecasDark || now - g_pecasAt > 250)) {
+        g_pecasW = wpx; g_pecasH = hpx; g_pecasDark = dark; g_pecasAt = now;
+        backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(mpx, mpx, wpx - mpx, hpx - mpx), R * sc } },
                                      dark ? D2D1::ColorF(0.13f, 0.13f, 0.14f, 0.55f) : D2D1::ColorF(0.96f, 0.96f, 0.97f, 0.50f), 24.f);
+    }
     ID2D1DeviceContext* dc = g_glass ? backdrop::ContentBegin(g_back, wpx, hpx, sc) : nullptr;
     g_inGlass = dc != nullptr;
     if (!dc) dc = ui::GpuBegin(g_s, wpx, hpx, sc);
@@ -379,12 +448,28 @@ void Paint() {
         if (!g_glass) { br->SetColor(dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.95f) : D2D1::ColorF(0.96f, 0.96f, 0.97f, 0.95f)); dc->FillRoundedRectangle(D2D1::RoundedRect(box, R, R), br); }
         if (liquid::On()) liquid::Rim(dc, box, R, dark);
         else { br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.12f)); dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R, R), br, 1); }
-        Orbe(dc, { PAD + ORB / 2, PAD + ORB / 2 }, ORB / 2, now - g_openAt);
+        if (!g_inGlass) Orbe(dc, { PAD + ORB / 2, PAD + ORB / 2 }, ORB / 2, now - g_openAt);
         float x = PAD + ORB + 14;
-        if (g_entrada) {  // o campo: o texto digitado (ou o convite em cinza) e o cursor piscando
+        if (g_entrada) {  // o campo: o texto digitado (ou o convite em cinza), o cursor piscando e o microfone à direita
             float y0 = (H - ah) / 2;
+            bool ouvindo = voz::Ouvindo();
             bool vazio = g_texto.empty();
-            const std::wstring& t = vazio ? std::wstring(Tr(L"Pergunte à Siri…")) : g_texto;
+            const std::wstring& t = vazio ? std::wstring(ouvindo ? Tr(L"Ouvindo…") : Tr(L"Pergunte à Siri…")) : g_texto;
+            {   // o microfone (clique: ditar; de novo: parar)
+                float mx = W - PAD - 14, my = H / 2;
+                g_mic = D2D1::RectF(mx - 16, my - 16, mx + 16, my + 16);
+                if (ouvindo) {
+                    float k = 0.5f + 0.5f * (float)std::sin(now / 220.0);
+                    br->SetColor(D2D1::ColorF(1.f, 0.23f, 0.19f, 0.18f + 0.14f * k));
+                    dc->FillEllipse(D2D1::Ellipse({ mx, my }, 13 + 3 * k, 13 + 3 * k), br);
+                }
+                br->SetColor(ouvindo ? D2D1::ColorF(1.f, 0.27f, 0.23f) : (dark ? D2D1::ColorF(1, 1, 1, 0.75f) : D2D1::ColorF(0, 0, 0, 0.6f)));
+                if (!simbolo::Draw(dc, L"microphone.fill", D2D1::RectF(mx - 7, my - 10, mx + 7, my + 10), br)) {
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(mx - 4, my - 9, mx + 4, my + 3), 4, 4), br);
+                    dc->DrawLine({ mx, my + 6 }, { mx, my + 10 }, br, 1.6f);
+                }
+            }
+            textW -= 34;
             br->SetColor(vazio ? (dark ? D2D1::ColorF(1, 1, 1, 0.38f) : D2D1::ColorF(0, 0, 0, 0.35f)) : (dark ? D2D1::ColorF(1, 1, 1, 0.95f) : D2D1::ColorF(0, 0, 0, 0.88f)));
             dc->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfA, D2D1::RectF(x, y0, x + textW, y0 + ah + 4), br, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
             if (g_cursorOn) {  // o cursor no fim do texto
@@ -401,7 +486,7 @@ void Paint() {
             dc->SetTransform(base);
             if (g_inGlass) {
                 backdrop::ContentEnd(g_back);
-                if (ID2D1DeviceContext* gd = ui::GpuBegin(g_s, wpx, hpx, sc)) ui::GpuEnd(g_s);  // sem brilho enquanto digita
+                PaintFrente();  // o ícone (sem brilho enquanto digita)
             } else ui::GpuEnd(g_s);
             return;
         }
@@ -414,7 +499,7 @@ void Paint() {
         float k = g_busy ? 1.f : std::clamp((float)((now - g_answerAt) / 350.0), 0.f, 1.f);
         float e = 1 - (1 - k) * (1 - k) * (1 - k);
         D2D1_COLOR_F tc = g_erro ? D2D1::ColorF(1.f, 0.42f, 0.38f) : dark ? D2D1::ColorF(1, 1, 1, 0.95f) : D2D1::ColorF(0, 0, 0, 0.88f);
-        tc.a *= g_busy ? 0.6f + 0.25f * (float)std::sin(now / 300.0) : e;
+        tc.a *= g_busy ? 0.6f : e;
         br->SetColor(tc);
         float dy = (1 - e) * 8;
         dc->DrawTextW(a.c_str(), (UINT32)a.size(), g_tfA, D2D1::RectF(x, y + dy, x + textW, y + dy + ah + 4), br, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);  // emoji colorido
@@ -429,16 +514,32 @@ void Paint() {
     dc->SetTransform(base);
     if (g_inGlass) {
         backdrop::ContentEnd(g_back);
-        // o desenho dentro do vidro é recortado no formato do painel: o brilho, que passa para fora, vai na janela da frente
-        // (transparente, do tamanho da folga)
-        if (ID2D1DeviceContext* gd = ui::GpuBegin(g_s, wpx, hpx, sc)) {
-            D2D1_MATRIX_3X2_F b2; gd->GetTransform(&b2);
-            gd->SetTransform(D2D1::Matrix3x2F::Translation(M, M) * b2);
-            Brilho(gd, D2D1::RectF(-1, -1, W + 1, H + 1), R + 1, now - g_openAt, ForcaBrilho(now));
-            gd->SetTransform(b2);
-            ui::GpuEnd(g_s);
-        }
+        PaintFrente();
     } else ui::GpuEnd(g_s);
+}
+
+// A camada da frente (com vidro): o brilho e o ícone. O desenho dentro do vidro é recortado no formato do painel, e o
+// brilho passa para fora; e, separados, os quadros da animação redesenham só isto (o vidro e o texto ficam parados).
+void PaintFrente() {
+    if ((!g_open && !g_closing) || !g_wnd || !g_inGlass || !g_wpx) return;
+    double now = anim::Now();
+    if (ID2D1DeviceContext* gd = ui::GpuBegin(g_s, g_wpx, g_hpx, Sc())) {
+        D2D1_MATRIX_3X2_F b2; gd->GetTransform(&b2);
+        gd->SetTransform(D2D1::Matrix3x2F::Translation(M, M) * b2);
+        Brilho(gd, D2D1::RectF(-1, -1, W + 1, g_H + 1), R + 1, now - g_openAt, ForcaBrilho(now));
+        Orbe(gd, { PAD + ORB / 2, PAD + ORB / 2 }, ORB / 2, now - g_openAt);
+        gd->SetTransform(b2);
+        ui::GpuEnd(g_s);
+    }
+}
+
+// o conteúdo (texto) muda neste quadro? Sem vidro, tudo é uma camada só e vai sempre
+bool ConteudoMexe(double now) {
+    if (!g_inGlass) return true;
+    if (g_entrada) return voz::Ouvindo();  // o microfone pulsando
+    if (g_busy) return false;              // os pontinhos mudam pelo T_PONTOS
+    double digitar = g_a.size() / std::max(110.0, g_a.size() / 2.2) * 1000.0;
+    return now - g_answerAt < std::max(400.0, digitar + 50);  // a resposta entrando e "digitando"
 }
 
 // a mola de abrir (crescendo do meio) e a de fechar: escala e opacidade pelo compositor
@@ -451,8 +552,29 @@ void Movimento() {
     if (g_back) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy);
 }
 
+// a mola de abrir ou de fechar entregue ao compositor de uma vez (amostrada a cada 10 ms): a escala e a opacidade andam
+// no vsync pelo DWM, sem depender dos nossos quadros (antes, cada quadro atrasado na thread da interface fazia o painel
+// pular). Os nossos quadros ficam só para o brilho e o texto.
+void MolaNoCompositor(bool fechar) {
+    if (!g_wnd) return;
+    std::vector<float> es, op;
+    const float passo = 10.f;
+    for (int i = 0; i < 400; i++) {
+        anim::Panel mo = fechar ? anim::PanelOut(i * passo) : anim::PanelIn(i * passo);
+        es.push_back(mo.scale); op.push_back(mo.fade);
+        if (mo.done) break;
+    }
+    if (es.size() < 2) { es.push_back(es.empty() ? 1.f : es.back()); op.push_back(op.empty() ? 1.f : op.back()); }
+    RECT wr; GetWindowRect(g_wnd, &wr);
+    float cx = (wr.right - wr.left) / 2.f, cy = (wr.bottom - wr.top) / 2.f;
+    ui::GpuMotionAnim(g_s, cx, cy, es, op, passo);
+    if (g_back) backdrop::FadeAnim(g_back, cx, cy, es, op, passo);
+}
+
 void Esconde() {
-    Log(L"siri: painel escondido");
+    Log(L"siri: painel escondido (%d quadros, %d com o texto; desenho médio %.2f ms, máx %.1f ms; intervalo máx %.0f ms, %d acima de 25 ms)",
+        g_med.n, g_med.cont, g_med.n ? g_med.soma / g_med.n : 0.0, g_med.max, g_med.gapMax, g_med.longos);
+    g_med = {};
     g_closing = false;
     ui::FrameClock(g_wnd, WM_SIRI_FRAME, false);
     ShowWindow(g_wnd, SW_HIDE);
@@ -461,11 +583,13 @@ void Esconde() {
 
 void Fecha() {
     if (!g_open) return;
+    voz::Parar();
     g_open = false; g_busy = false;
     g_num++;  // a resposta que ainda vem é descartada
     KillTimer(g_wnd, T_PONTOS);
     if (anim::reduceMotion) { Esconde(); return; }
     g_closing = true; g_closeAt = anim::Now();
+    MolaNoCompositor(true);
     ui::FrameClock(g_wnd, WM_SIRI_FRAME, true);
 }
 
@@ -495,15 +619,50 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         delete r;
         return 0;
     }
+    case WM_LBUTTONUP: {  // o microfone do campo
+        float sc = Sc();
+        float x = GET_X_LPARAM(l) / sc - M, y = GET_Y_LPARAM(l) / sc - M;
+        Log(L"siri: clique em %.0f,%.0f (campo %d, microfone %.0f,%.0f-%.0f,%.0f)", x, y, g_entrada, g_mic.left, g_mic.top, g_mic.right, g_mic.bottom);
+        if (g_entrada && x >= g_mic.left && x <= g_mic.right && y >= g_mic.top && y <= g_mic.bottom) {
+            if (voz::Ouvindo()) voz::Parar();
+            else { voz::Ouvir(h, WM_SIRI_VOZ); ui::FrameClock(h, WM_SIRI_FRAME, true); }
+            Paint();
+        }
+        return 0;
+    }
+    case WM_SIRI_VOZ: {  // voz.cpp: o texto enquanto fala, o final (pergunta sozinha) ou o aviso
+        std::unique_ptr<std::wstring> t((std::wstring*)l);
+        if (!g_open || !g_entrada) return 0;
+        if (w == voz::V_PARCIAL) { g_texto = *t; Paint(); }
+        else if (w == voz::V_FINAL) {
+            if (!t->empty()) { std::wstring q = *t; siri::Perguntar(q, g_teste); }  // como a Siri: falou, perguntou
+            else Paint();
+        } else {  // erro: aparece no painel, em vermelho
+            g_entrada = false; g_q.clear(); g_a = *t; g_erro = true; g_answerAt = anim::Now();
+            KillTimer(h, T_CURSOR);
+            ui::FrameClock(h, WM_SIRI_FRAME, true);
+            Paint();
+        }
+        return 0;
+    }
     case WM_SIRI_FRAME: {
         ui::FrameAck(h, WM_SIRI_FRAME);
         double now = anim::Now();
-        if (g_closing) {
-            Movimento();
+        if (g_closing) {  // a mola de fechar é do compositor
             if (anim::PanelOut(now - g_closeAt).done) Esconde();
             return 0;
         }
-        Paint(); Movimento();
+        {   // medição dos quadros (no log ao esconder): quanto cada um custa e o intervalo entre eles
+            LARGE_INTEGER f, t0, t1; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&t0);
+            bool cont = ConteudoMexe(now);
+            if (cont) Paint(); else PaintFrente();
+            QueryPerformanceCounter(&t1);
+            double ms = (t1.QuadPart - t0.QuadPart) * 1000.0 / f.QuadPart;
+            static double ultimo;
+            double gap = ultimo > 0 ? now - ultimo : 0; ultimo = now;
+            g_med.n++; g_med.soma += ms; g_med.max = std::max(g_med.max, ms); if (cont) g_med.cont++;
+            if (gap > 0 && gap < 500) { g_med.gapMax = std::max(g_med.gapMax, gap); if (gap > 25) g_med.longos++; }
+        }
         if (!Animando(now)) ui::FrameClock(h, WM_SIRI_FRAME, false);
         return 0;
     }
@@ -515,7 +674,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_TIMER: if (w == 9) { KillTimer(h, 9); Fecha(); return 0; }
         if (w == T_CURSOR) { g_cursorOn = !g_cursorOn; if (g_entrada) Paint(); else KillTimer(h, T_CURSOR); return 0; }
-        if (w == T_PONTOS) { g_pontos++; if (!Animando(anim::Now())) Paint(); } return 0;
+        if (w == T_PONTOS) { g_pontos++; Paint(); } return 0;
     case WM_MOUSEWHEEL: g_scroll -= GET_WHEEL_DELTA_WPARAM(w) / 120.f * 48; Paint(); return 0;
     case WM_CHAR:
         { static int n; if (n++ < 3) Log(L"siri: tecla %u (aberta %d, pensando %d, campo %d)", (unsigned)w, g_open, g_busy, g_entrada); }
@@ -605,18 +764,19 @@ static void MostraPainel(bool teste) {
         return;
     }
     // no alto do monitor do ponteiro, centralizado (onde a Siri do Mac aparece... e onde o Spotlight estava)
-    POINT pt; GetCursorPos(&pt);
-    HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(hm, &mi);
+    // alinhada ao Spotlight: o mesmo monitor (o do ponteiro), o mesmo centro e o topo do painel na altura do campo dele
     float sc = ui::Scale(g_wnd);
+    W = spotlight::LarguraCampo();
     int wpx = (int)std::lround((W + 2 * M) * sc), hpx = (int)std::lround((ORB + PAD * 2 + 2 * M) * sc);
-    int x = (mi.rcWork.left + mi.rcWork.right - wpx) / 2, y = mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top) / 6 - (int)std::lround(M * sc);
+    RECT sp = spotlight::Lugar();
+    int x = (sp.left + sp.right - wpx) / 2, y = sp.top - (int)std::lround(M * sc);
     SetWindowPos(g_wnd, HWND_TOPMOST, x, y, wpx, hpx, SWP_NOACTIVATE);
     if (g_back) SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE);
-    g_open = true; g_closing = false; g_openAt = anim::Now(); g_answerAt = 0;
+    g_open = true; g_closing = false; g_openAt = anim::Now(); g_answerAt = 0; g_pecasW = -1;
     if (g_glass) backdrop::Fade(g_back, 0, 0.94f, wpx / 2.f, hpx / 2.f);  // nasce invisível e um pouco menor: a mola leva até o tamanho
     ui::GpuMotion(g_s, 0.94f, wpx / 2.f, hpx / 2.f, 0);
     Paint();
+    MolaNoCompositor(false);
     if (g_back) ShowWindow(g_back, SW_SHOWNOACTIVATE);
     ShowWindow(g_wnd, teste ? SW_SHOWNOACTIVATE : SW_SHOW);
     if (teste) SetTimer(g_wnd, 9, 8000, nullptr);
@@ -640,6 +800,7 @@ bool siri::Aberta() { return g_open; }
 void siri::Perguntar(const std::wstring& q, bool teste) {
     if (q.empty() || !Ready()) return;
     g_teste = teste;
+    if (voz::Ouvindo()) voz::Parar();
     g_entrada = false; g_texto.clear();
     KillTimer(g_wnd, T_CURSOR);
     g_q = q; g_a.clear(); g_busy = true; g_erro = false; g_scroll = 0; g_pontos = 0;

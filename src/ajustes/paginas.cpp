@@ -2622,7 +2622,7 @@ std::wstring SymbolFor(const std::wstring& label) {
     static const std::map<std::wstring, std::wstring> m = {
         { L"Wi‑Fi", L"wifi" }, { L"Rede", L"globe" }, { L"Energia", L"bolt.fill" }, { L"Bateria", L"battery.100percent" },
         { L"Geral", L"gearshape.fill" }, { L"Experimental", L"sparkles" }, { L"Acessibilidade", L"accessibility" }, { L"Aparência", L"circle.lefthalf.filled" },
-        { L"Apple Intelligence e Siri", L"apple.intelligence" }, { L"Assistente e Fala", L"apple.intelligence" }, { L"Central de Controle", L"switch.2" },
+        { L"Apple Intelligence e Siri", L"apple.intelligence" }, { L"Siri", L"apple.intelligence" }, { L"Assistente e Fala", L"apple.intelligence" }, { L"Central de Controle", L"switch.2" },
         { L"Ilha Dinâmica", L"menubar.dock.rectangle" }, { L"Mostrar o uso do microfone e da câmera", L"microphone.fill" },
         { L"Mesa e Dock", L"dock.rectangle" }, { L"Telas", L"sun.max.fill" }, { L"Protetor de Tela", L"photo.on.rectangle.angled" },
         { L"Spotlight", L"magnifyingglass" }, { L"Imagem de Fundo", L"camera.macro" }, { L"Notificações", L"bell.badge.fill" },

@@ -1767,9 +1767,36 @@ void backdrop::Fade(HWND h, float opacity, float scale, float cx, float cy) {
     auto it = g_entries.find(h);
     if (it == g_entries.end()) return;
     auto& e = it->second;
+    try { e.root.StopAnimation(L"Opacity"); e.root.StopAnimation(L"Scale"); } catch (...) {}  // uma de FadeAnim ainda andando
     e.root.Opacity(std::clamp(opacity, 0.f, 1.f));
     e.root.CenterPoint({ cx, cy, 0 });
     e.root.Scale({ scale, scale, 1 });
+}
+
+// a mola inteira pela Composição (quadros-chave a cada passoMs, retos entre eles): o DWM toca no ritmo da tela, e a
+// thread da interface ocupada (o gênio do Dock, um menu) não faz o painel pular quadros
+void backdrop::FadeAnim(HWND h, float cx, float cy, const std::vector<float>& escala, const std::vector<float>& opac, float passoMs) {
+    auto it = g_entries.find(h);
+    if (it == g_entries.end() || escala.size() < 2 || opac.size() < 2) return;
+    auto& e = it->second;
+    try {
+        e.root.CenterPoint({ cx, cy, 0 });
+        auto lin = g_comp.CreateLinearEasingFunction();
+        auto o = g_comp.CreateScalarKeyFrameAnimation();
+        auto sv = g_comp.CreateVector3KeyFrameAnimation();
+        size_t n = std::min(escala.size(), opac.size());
+        for (size_t i = 0; i < n; i++) {
+            float p = (float)i / (float)(n - 1);
+            o.InsertKeyFrame(p, std::clamp(opac[i], 0.f, 1.f), lin);
+            sv.InsertKeyFrame(p, { escala[i], escala[i], 1 }, lin);
+        }
+        auto dur = std::chrono::milliseconds(std::max(1, (int)std::lround((n - 1) * passoMs)));
+        o.Duration(dur); sv.Duration(dur);
+        e.root.StartAnimation(L"Opacity", o);
+        e.root.StartAnimation(L"Scale", sv);
+    } catch (...) {
+        Fade(h, opac.back(), escala.back(), cx, cy);
+    }
 }
 
 // some sozinho na Composição (o DWM anima): vale mesmo que esta thread fique ocupada (a ação escolhida no menu)

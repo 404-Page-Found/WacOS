@@ -1674,7 +1674,9 @@ void Tick() {
     if (shell::SoDock()) opt = L"1";  // só Dock e barra de menus: a área de trabalho e os ícones são os do Windows
     bool registered = WinlogonIsOurs();
     bool want0 = opt == L"0";
-    g_fundo = opt == L"fundo" || (opt.empty() && registered);
+    // sem o ajuste: fundo (o padrão do instalador). Antes, vazio e sem o registro do Winlogon = a mesa do Explorador, e quem
+    // perdeu a linha do ajustes.txt ficava com os ícones e o menu de clique direito do Windows (23/11/2026)
+    g_fundo = opt == L"fundo" || opt.empty();
     // nativo: o Shell roda dentro do explorer.exe; a mesa do projeto fica por cima da dele (os ícones e o papel
     // de parede do Windows ficam atrás, sem uso) e nunca se pede para o Explorador sair
     if (shell::nativo) { g_fundo = true; g_uwpWant = false; }

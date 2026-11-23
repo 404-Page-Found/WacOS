@@ -888,20 +888,16 @@ void Render() {
     // Controle e a data/hora: laranja = microfone, verde = câmera (a câmera ganha). barra_privacidade=0 tira.
     if (shell::Setting(L"barra_privacidade", L"1") != L"0")
         if (int pv = ilha::Privacidade()) {
+            D2D1_COLOR_F antes = br->GetColor();
             br->SetColor(pv & 2 ? D2D1::ColorF(0.20f, 0.78f, 0.35f) : D2D1::ColorF(1.0f, 0.58f, 0.0f));
             rt->FillEllipse(D2D1::Ellipse({ r, H / 2 }, 3, 3), br);  // no meio do vão (os dois PAD): nada anda de lugar
+            br->SetColor(antes);  // os ícones seguintes (Siri, Central de Controle) voltam à cor da barra
         }
     // a Siri entre o relógio e a Central de Controle, como no macOS (só com um serviço escolhido; barra_siri=0 tira)
     if (siri::Pronta() && shell::Setting(L"barra_siri", L"1") != L"0") {
         auto bx = slot(16, K_SIRI, 0);
-        float cx = (bx.left + bx.right) / 2, r = 7.f;
-        D2D1_GRADIENT_STOP gs[3] = { { 0, D2D1::ColorF(0.98f, 0.36f, 0.62f) }, { 0.5f, D2D1::ColorF(0.62f, 0.38f, 1.f) }, { 1, D2D1::ColorF(0.25f, 0.62f, 1.f) } };
-        ID2D1GradientStopCollection* gsc = nullptr; ID2D1LinearGradientBrush* lg = nullptr;
-        if (SUCCEEDED(rt->CreateGradientStopCollection(gs, 3, &gsc)) &&
-            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ cx - r, H / 2 - r }, { cx + r, H / 2 + r }), gsc, &lg)))
-            rt->FillEllipse(D2D1::Ellipse({ cx, H / 2 }, r, r), lg);
-        if (lg) lg->Release();
-        if (gsc) gsc->Release();
+        // como no macOS: o símbolo do Apple Intelligence na cor da barra, igual aos outros ícones (o colorido fica no app)
+        if (!sym(L"apple.intelligence", bx, 16)) rt->DrawEllipse(D2D1::Ellipse({ (bx.left + bx.right) / 2, H / 2 }, 6.5f, 6.5f), br, 1.6f);
     }
     { auto bx = slot(18, K_CC, 0); if (!sym(L"switch.2", bx, 14)) DrawCC(rt, br, (bx.left + bx.right) / 2, H / 2); }
     if (!leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {

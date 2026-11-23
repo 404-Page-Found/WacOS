@@ -131,6 +131,11 @@ void CaretScreenRect(D2D1_RECT_F& r);   // em DIPs (para o IME)
 void Copy(bool cut);
 void Paste();
 bool HasSelection();
+// Ferramentas de Escrita com IA (main.cpp faz o pedido numa thread): o texto da seleção (parágrafos inteiros) ou da nota
+// toda, em Markdown simples (# títulos, - listas, - [ ] tarefas, | tabelas |); e a troca pelo texto que a IA devolveu.
+struct AiRange { Note* n = nullptr; int a = 0, b = -1; std::wstring antes; bool all = false; };
+AiRange AiTake();
+bool AiReplace(const AiRange& r, const std::wstring& markdown);  // false: a nota mudou enquanto a IA escrevia
 }
 
 // ---- main.cpp (para o editor avisar)

@@ -298,6 +298,33 @@ void ui::GpuMotion(GpuSurface& s, float scale, float cx, float cy, float opacity
     g_dcomp->Commit();
 }
 
+// A curva vira trechos retos entre as amostras (a cada passoMs): o DWM toca sozinho, no ritmo da tela
+void ui::GpuMotionAnim(GpuSurface& s, float cx, float cy, const std::vector<float>& escala, const std::vector<float>& opac, float passoMs) {
+    if (!s.visual || !g_dcomp || escala.size() < 2 || opac.size() < 2) return;
+    float dt = std::max(passoMs, 1.f) / 1000.f;
+    auto curva = [&](const std::vector<float>& v) -> IDCompositionAnimation* {
+        IDCompositionAnimation* an = nullptr;
+        if (FAILED(g_dcomp->CreateAnimation(&an))) return nullptr;
+        for (size_t i = 0; i + 1 < v.size(); i++) an->AddCubic(i * dt, v[i], (v[i + 1] - v[i]) / dt, 0, 0);
+        an->End((v.size() - 1) * dt, v.back());
+        return an;
+    };
+    IDCompositionScaleTransform* st = nullptr;
+    if (SUCCEEDED(g_dcomp->CreateScaleTransform(&st))) {
+        st->SetCenterX(cx); st->SetCenterY(cy);
+        if (IDCompositionAnimation* a = curva(escala)) { st->SetScaleX(a); st->SetScaleY(a); a->Release(); }
+        s.visual->SetTransform(st);
+        st->Release();
+    }
+    IDCompositionEffectGroup* e = nullptr;
+    if (SUCCEEDED(g_dcomp->CreateEffectGroup(&e))) {
+        if (IDCompositionAnimation* a = curva(opac)) { e->SetOpacity(a); a->Release(); }
+        s.visual->SetEffect(e);
+        e->Release();
+    }
+    g_dcomp->Commit();
+}
+
 void ui::GpuOffset(GpuSurface& s, float x, float y) {
     if (!s.visual) return;
     s.visual->SetOffsetX(x);

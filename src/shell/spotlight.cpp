@@ -69,7 +69,8 @@ void Metricas() {
 }
 const float LEO_ROW = 20, LEO_COL = 112;  // Leopard: linhas de 20 e a coluna das categorias
 const UINT WM_SP_FILES = WM_APP + 60, WM_SP_ICON = WM_APP + 61, WM_SP_APPS = WM_APP + 62, WM_SP_FRAME = WM_APP + 63, WM_SP_SUGG = WM_APP + 64, WM_SP_FORA = WM_APP + 65;
-const UINT_PTR T_SEARCH = 1, T_CARET = 2, T_ICONS = 3, T_REGRAB = 4;
+const UINT_PTR T_SEARCH = 1, T_CARET = 2, T_ICONS = 3, T_REGRAB = 4, T_VOZ = 5;
+const UINT WM_SP_VOZ = WM_APP + 66;  // voz.cpp: o texto falado (ditado pelo microfone do campo)
 
 enum Kind { K_APP, K_SETTING, K_DOC, K_FOLDER, K_IMAGE, K_MEDIA, K_OTHER, K_CALC, K_WEB, K_AI };  // K_AI: Perguntar à Siri (issue #39)
 
@@ -1097,6 +1098,7 @@ void ModeChanged() {
 bool g_appsList;     // apps em lista em vez de grade (botão ⋯)
 std::vector<D2D1_RECT_F> g_chipR;
 D2D1_RECT_F g_moreR{};
+D2D1_RECT_F g_micR{};  // o microfone do campo (o clique: ditar a busca)
 
 bool ModePanel() { return liquid::On() && g_mode >= 1 && g_mode <= 3; }
 std::vector<std::wstring> Chips() {
@@ -1839,9 +1841,17 @@ void Paint() {
     D2D1_RECT_F field = gg ? D2D1::RectF(g_query.empty() && g_mode != 0 ? 58.f : 20.f, 0, fpw - 38, FIELD_H) : D2D1::RectF(56, 0, fpw - 20, FIELD_H);
     static IDWriteTextFormat* tfFieldGG = ui::Format(22, DWRITE_FONT_WEIGHT_NORMAL);
     IDWriteTextFormat* const tfF = gg && tfFieldGG ? tfFieldGG : g_tfField;
-    if (g_query.empty() && gg && g_mode == 0) {  // macOS 27: microfone (contorno) a ~50 da borda direita, só com o campo vazio
-        float mx = fpw - 50 - 18, my = FIELD_H / 2;
-        br->SetColor(pf.text2);
+    g_micR = {};
+    bool ouvindo = voz::Ouvindo();
+    if ((g_query.empty() && g_mode == 0) || ouvindo) {  // microfone (contorno) à direita: clique dita a busca. macOS 27: a ~50 da borda
+        float mx = gg ? fpw - 50 - 18 : fpw - 36, my = FIELD_H / 2;
+        g_micR = D2D1::RectF(mx - 18 + (gg ? fx0 + 18 : 0), my - 18, mx + 18 + (gg ? fx0 + 18 : 0), my + 18);  // o clique é sem o deslocamento do desenho
+        if (ouvindo) {
+            float k = 0.5f + 0.5f * (float)std::sin(anim::Now() / 220.0);
+            br->SetColor(D2D1::ColorF(1.f, 0.23f, 0.19f, 0.16f + 0.14f * k));
+            dc->FillEllipse(D2D1::Ellipse({ mx, my }, 15 + 3 * k, 15 + 3 * k), br);
+        }
+        br->SetColor(ouvindo ? D2D1::ColorF(1.f, 0.27f, 0.23f) : pf.text2);
         dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(mx - 4.5f, my - 11, mx + 4.5f, my + 3), 4.5f, 4.5f), br, 1.6f);
         ID2D1Factory* fac = nullptr; dc->GetFactory(&fac);
         ID2D1PathGeometry* pg = nullptr;
@@ -2336,6 +2346,7 @@ Composicao g_comp;  // sílaba ainda em composição no fim da busca (composicao
 
 void Close(bool restore = false) {
     if (!g_open) return;
+    if (voz::Ouvindo()) voz::Parar();  // o ditado não continua com o Spotlight fechado
     g_comp.Cancela(g_wnd, g_query);
     g_open = false;
     menubar::SoundChanged(false);  // a cápsula da lupa da barra sai
@@ -2620,6 +2631,23 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         delete v;
         return 0;
     }
+    case WM_SP_VOZ: {  // voz.cpp: o texto enquanto fala e o final viram a busca; um aviso vira a busca também (em cinza não dá)
+        std::unique_ptr<std::wstring> t((std::wstring*)l);
+        if (!g_open) return 0;
+        if (w == voz::V_PARCIAL || w == voz::V_FINAL) {
+            if (!t->empty() || w == voz::V_FINAL) {
+                if (!t->empty()) { g_query = *t; g_selAll = false; QueryChanged(); }
+            }
+            if (w == voz::V_FINAL) KillTimer(h, T_VOZ);
+        } else {
+            KillTimer(h, T_VOZ);
+            Log(L"spotlight: ditado: %ls", t->c_str());
+            MessageBeep(MB_ICONWARNING);
+            g_query = *t; g_selAll = true; QueryChanged();  // o aviso aparece no campo, todo selecionado (digitar substitui)
+        }
+        Paint();
+        return 0;
+    }
     case WM_TIMER:
         if (w == T_SEARCH) {
             KillTimer(h, T_SEARCH);
@@ -2629,6 +2657,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::thread(SearchFiles, gen, q).detach();
             if (!q.empty() && shell::Setting(L"spotlight_google", L"1") == L"1") std::thread(FetchSuggestions, gen, q).detach();
         } else if (w == T_CARET) { g_caretOn = !g_caretOn; Paint(); }
+        else if (w == T_VOZ) { if (!voz::Ouvindo()) KillTimer(h, T_VOZ); Paint(); }  // o microfone pulsando
         else if (w == T_REGRAB) { KillTimer(h, T_REGRAB); if (g_open) Grab(h); }
         else if (w == T_ICONS) { KillTimer(h, T_ICONS); Paint(); }
         else if (w == T_HOLD) {  // segurou um app: a grade treme (como no Launchpad)
@@ -2754,6 +2783,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             auto pt = Pt(l);
             auto in = [&](D2D1_RECT_F r) { return pt.x >= r.left && pt.x < r.right && pt.y >= r.top && pt.y < r.bottom; };
             if (g_moreR.right > g_moreR.left && in(g_moreR)) { g_appsList = !g_appsList; g_scroll = 0; ModeChanged(); Refresh(); return 0; }  // grade ↔ lista
+            if (g_micR.right > g_micR.left && in(g_micR)) {  // o microfone: dita a busca (de novo: para)
+                if (voz::Ouvindo()) { voz::Parar(); KillTimer(h, T_VOZ); }
+                else { voz::Ouvir(h, WM_SP_VOZ); SetTimer(h, T_VOZ, 50, nullptr); }
+                Paint();
+                return 0;
+            }
             if (HasChips() && pt.y > FIELD_H && pt.y < ListTop()) {  // filtros
                 for (int c = 0; c < (int)g_chipR.size(); c++)
                     if (in(g_chipR[c])) { g_chip = g_chip == c + 1 ? 0 : c + 1; g_scroll = 0; ModeChanged(); Refresh(); return 0; }
@@ -2964,6 +2999,13 @@ LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 }
 
 }  // namespace
+
+RECT spotlight::Lugar() { return PlaceRect(); }
+float spotlight::LarguraCampo() {  // o campo do modo de busca (o Apps é mais largo, mas o campo não)
+    if (liquid::Leopard()) return 560.f;  // o do Leopard é um menu na ponta direita: a Siri fica com o tamanho dela
+    if (!liquid::On()) return 720.f;
+    return liquid::Golden() ? GG_BAR_W : 640.f;
+}
 
 bool spotlight::Create(HINSTANCE hi) {
     WNDCLASSW wc{}; wc.lpfnWndProc = Proc; wc.hInstance = hi; wc.lpszClassName = L"ShellSpotlight";

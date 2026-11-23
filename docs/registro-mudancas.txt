@@ -1713,3 +1713,31 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Compilado e instalado. Visto: a propriedade do caminho existe nos itens de Aplicativos dos jogos do PC. NÃO visto: abrir um
   jogo pelo Launchpad (não abro programas do usuário), o Dock inteligente na tela.
   DESFAZER: reverter o commit.
+[2026-11-23 19:50] Siri, voz, área de trabalho, issue #37 e Ferramentas de Escrita com IA nas Notas:
+  - src/shell/voz.cpp (novo), siri.cpp, spotlight.cpp: o microfone da Siri e do Spotlight dita de verdade
+    (Windows.Media.SpeechRecognition). Sem o "Reconhecimento de fala online" ligado, avisa e abre a página do Windows.
+  - siri.cpp: animação fluida. O brilho da borda é um anel desfocado na GPU (Gaussian blur), não mais 4x240 traços.
+    O ícone e o brilho ficam na camada da frente; o vidro e o texto só redesenham quando mudam. O vidro (SetPieces)
+    não é refeito a cada quadro. A mola de abrir/fechar é do compositor (ui::GpuMotionAnim, backdrop::FadeAnim):
+    a thread da interface ocupada (o gênio do Dock) não faz mais o painel pular quadros. Medição no log ao esconder.
+  - siri.cpp: abre alinhada ao Spotlight (mesmo monitor, centro, topo e largura do campo: spotlight::Lugar e
+    LarguraCampo). Atalho novo: Win+S abre a Siri (main.cpp, WM_APP_SIRI), só com um serviço escolhido.
+  - menubar.cpp: o ícone da Siri na barra é o símbolo apple.intelligence monocromático, na cor da barra (como no
+    macOS). O ponto de privacidade não deixa mais a cor laranja/verde para os ícones seguintes.
+  - mesa.cpp: o ajuste explorer vazio vale "fundo" (o padrão do instalador). Quem perdeu a linha do ajustes.txt
+    ficava com a área de trabalho do Explorador e o menu de clique direito do Windows.
+  - main.cpp (issue #37): com a barra do Windows em "ocultar automaticamente", o Explorador devolvia a área de
+    trabalho para a tela inteira ~6 vezes por segundo, e as janelas maximizadas eram reencaixadas a cada vez
+    (as travadas). O ocultar automático fica desligado enquanto o Shell roda e volta ao sair
+    (barra_windows_ocultar_antes). Teclas de mídia (tocar/pausar, próxima, anterior, parar) vão para a sessão de
+    mídia atual do Windows (atalhos::MediaCommand sem app).
+  - src/comum/siri.h (siri::Gera), src/notas/editor.cpp (AiTake, AiReplace), src/notas/main.cpp: Ferramentas de
+    Escrita com IA nas Notas, com o serviço e a chave da Siri. Revisar, Reescrever, Amigável, Profissional, Conciso,
+    Resumo, Pontos-chave, Lista, Tabela e "Pedir à IA…". Agem na seleção ou na nota inteira; Ctrl+Z desfaz. As
+    transformações sem IA ficam num submenu. Traduções nos 11 idiomas.
+  Compilado e instalado. Visto: o brilho e o texto em fotos; 942 quadros em 8 s (antes 76/s, irregular); a briga da
+    área de trabalho reproduzida com o ocultar automático e sumida com a correção (o ajuste da barra e o
+    ajustes.txt devolvidos, hash conferido); a posição da Siri (painel 520 de largura, centro 1720, topo 432, igual
+    ao campo do Spotlight). NÃO visto: ditado falando de verdade (o reconhecimento online está desligado neste PC),
+    as teclas de mídia apertadas (sem teclas simuladas), as Ferramentas de Escrita com IA na tela, o Win+S.
+  DESFAZER: reverter o commit.

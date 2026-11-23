@@ -22,7 +22,10 @@
 #include "../comum/ampliacao.h"  // botão verde com a animação do ampliar do Shell
 #include "../comum/idioma.h"
 #include "../comum/semaforo.h"
-#include "../comum/leopard.h"  // tema Mac OS X Leopard: a barra de metal e a barra lateral azul-acinzentada
+#include "../comum/leopard.h"
+#include "../comum/siri.h"            // Ferramentas de Escrita com IA: o serviço e a chave da Siri
+#include "../comum/ajustes_arquivo.h"
+#include <thread>  // tema Mac OS X Leopard: a barra de metal e a barra lateral azul-acinzentada
 
 #pragma comment(lib, "imm32.lib")
 #pragma comment(lib, "windowscodecs.lib")
@@ -45,7 +48,8 @@ namespace {
 // medidas (pt), da referência do Notas no Sequoia
 const float TOOLBAR_H = 52, TOOL_CY = 26, SIDE_ROW_H = 28, SIDE_HDR_H = 30;
 const float SIDE_MIN = 160, SIDE_MAX = 340, LIST_MIN = 200, LIST_MAX = 480, EDITOR_MIN = 300;  // lista: 200 (era 220, issue #8)
-const UINT_PTR T_BLINK = 1, T_SAVE = 2, T_FRONT = 3;
+const UINT_PTR T_BLINK = 1, T_SAVE = 2, T_FRONT = 3, T_IA = 4;
+const UINT WM_APP_IA = WM_APP + 8;  // a thread da IA terminou (lParam = new IaFeito)
 const UINT WM_APP_TRAZER = WM_APP + 7;  // segunda cópia aberta (Launchpad, Spotlight, Dock): vem para a frente
 
 HWND g_hwnd;
@@ -77,7 +81,11 @@ Note* g_dragNote; bool g_dragging; POINT g_dragFrom; D2D1_POINT_2F g_dragAt; std
 int g_divDrag;  // 1 borda da barra lateral, 2 borda da lista
 
 // folha de confirmação
-struct Sheet { bool on = false; std::wstring title, msg, ok; std::function<void()> act; } g_sheet;
+struct Sheet { bool on = false; std::wstring title, msg, ok; std::function<void()> act; bool campo = false, aviso = false; } g_sheet;  // campo: com o g_iaCampo; aviso: só OK
+TextField g_iaCampo;  // "Pedir à IA…": o que a pessoa quer que a IA faça
+// a IA escrevendo (o aviso embaixo do editor)
+struct Ia { bool on = false; ULONGLONG t0 = 0; std::wstring rotulo; } g_ia;
+struct IaFeito { editor::AiRange r; siri::Gerado g; bool juntar = false; };
 D2D1_RECT_F g_sheetOk, g_sheetCancel;
 
 // folha de desenho (botão de marcação): uma tela branca para rabiscar com o mouse ou a caneta; "Inserir" grava um PNG
@@ -119,6 +127,7 @@ float ToolStart() { return g_sideHidden ? 128.f : SideW(); }  // onde começam o
 
 // ---- cores
 struct Pal { D2D1_COLOR_F side, list, editor, text, text2, text3, line, sel, selFocus, icon, iconOff, hover, field; };
+void DrawIa(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal);  // Ferramentas de Escrita com IA (mais abaixo)
 Pal ColorsNormal();
 Pal Colors() {
     // issue #8 (macOS 26/27): o acrílico do Windows sozinho deixava a lateral num cinza turvo (e chapado com a janela
@@ -889,21 +898,39 @@ void DrawSheet(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal)
     gfx::dw->CreateTextLayout(g_sheet.msg.c_str(), (UINT32)g_sheet.msg.size(), g_f11, W - 40, 400, &ml);
     float mh = 0;
     if (ml) { ml->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER); DWRITE_TEXT_METRICS m{}; ml->GetMetrics(&m); mh = m.height; }
-    float H = 20 + 20 + 8 + mh + 20 + 28 + 16;
+    if (g_sheet.campo) W = 360, x = (c.width - W) / 2;
+    float campoH = g_sheet.campo ? 38.f : 0.f;
+    float H = 20 + 20 + 8 + mh + 20 + campoH + 28 + 16;
     D2D1_RECT_F r{ x, y, x + W, y + H };
     for (int k = 6; k >= 1; k--) { br->SetColor(D2D1::ColorF(0, 0, 0, 0.04f)); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x - k, y - k + 4, x + W + k, y + H + k + 6), 14.f + k, 14.f + k), br); }
     br->SetColor(g_dark ? D2D1::ColorF(0.20f, 0.20f, 0.21f) : D2D1::ColorF(0.96f, 0.96f, 0.96f));
     dc->FillRoundedRectangle(D2D1::RoundedRect(r, 13, 13), br);
     Text(dc, br, g_sheet.title, g_f13c, D2D1::RectF(x + 16, y + 20, x + W - 16, y + 40), pal.text);
     if (ml) { br->SetColor(pal.text); dc->DrawTextLayout({ x + 20, y + 46 }, ml, br); ml->Release(); }
+    if (g_sheet.campo) {  // o campo do pedido
+        D2D1_RECT_F fr{ x + 16, y + 46 + mh + 14, x + W - 16, y + 46 + mh + 14 + 28 };
+        br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.25f) : D2D1::ColorF(1, 1, 1));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(fr, 7, 7), br);
+        auto a = Accent(); br->SetColor(D2D1::ColorF(a.r, a.g, a.b, 0.6f));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(fr.left - 1, fr.top - 1, fr.right + 1, fr.bottom + 1), 8, 8), br, 2);
+        D2D1_RECT_F tr{ fr.left + 9, fr.top, fr.right - 9, fr.bottom };
+        if (g_iaCampo.text.empty()) Text(dc, br, Tr(L"Ex.: organize em tópicos, traduza para o inglês…"), g_f13, tr, pal.text3);
+        ID2D1SolidColorBrush *tb = nullptr, *sb = nullptr, *cb = nullptr;
+        dc->CreateSolidColorBrush(pal.text, &tb); dc->CreateSolidColorBrush(D2D1::ColorF(a.r, a.g, a.b, 0.4f), &sb); dc->CreateSolidColorBrush(a, &cb);
+        if (tb && sb && cb) g_iaCampo.Draw(dc, g_f13, tr, tb, sb, cb, true, false);
+        if (tb) tb->Release(); if (sb) sb->Release(); if (cb) cb->Release();
+    }
     float by = y + H - 16 - 28, bw = (W - 44) / 2;
-    g_sheetCancel = { x + 16, by, x + 16 + bw, by + 28 };
-    g_sheetOk = { x + W - 16 - bw, by, x + W - 16, by + 28 };
-    br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.07f));
-    dc->FillRoundedRectangle(D2D1::RoundedRect(g_sheetCancel, 7, 7), br);
-    br->SetColor(D2D1::ColorF(1.0f, 0.27f, 0.23f));
+    g_sheetCancel = g_sheet.aviso ? D2D1_RECT_F{} : D2D1_RECT_F{ x + 16, by, x + 16 + bw, by + 28 };
+    g_sheetOk = g_sheet.aviso ? D2D1_RECT_F{ x + (W - bw) / 2, by, x + (W + bw) / 2, by + 28 } : D2D1_RECT_F{ x + W - 16 - bw, by, x + W - 16, by + 28 };
+    if (!g_sheet.aviso) {
+        br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.16f) : D2D1::ColorF(0, 0, 0, 0.07f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(g_sheetCancel, 7, 7), br);
+        Text(dc, br, Tr(L"Cancelar"), g_f13c, g_sheetCancel, pal.text);
+    }
+    // apagar: vermelho; os outros (pedir à IA, avisos): a cor de destaque do sistema
+    br->SetColor(g_sheet.campo || g_sheet.aviso ? D2D1::ColorF(0.0f, 0.48f, 1.0f) : D2D1::ColorF(1.0f, 0.27f, 0.23f));
     dc->FillRoundedRectangle(D2D1::RoundedRect(g_sheetOk, 7, 7), br);
-    Text(dc, br, Tr(L"Cancelar"), g_f13c, g_sheetCancel, pal.text);
     Text(dc, br, g_sheet.ok, g_f13c, g_sheetOk, D2D1::ColorF(1, 1, 1));
 }
 
@@ -967,6 +994,7 @@ void Render(ID2D1DeviceContext* dc) {
     DrawToolbarButtons(dc, br, pal);
     DrawFormatPanel(dc, br, pal);
     DrawDragGhost(dc, br, pal);
+    DrawIa(dc, br, pal);
     DrawSheet(dc, br, pal);
     DrawSketch(dc, br, pal);
     br->Release();
@@ -1346,15 +1374,169 @@ void AttachCmd() {
 }
 
 // Ferramentas de Escrita: sem o Apple Intelligence, só o que dá para fazer aqui mesmo, sem IA e sem internet
+// ---- Ferramentas de Escrita com IA (como as do Apple Intelligence): o pedido vai para o serviço escolhido para a Siri
+// (Ajustes do Sistema > Apple Intelligence e Siri), com a chave dela, numa thread. O resultado troca a seleção (ou a nota
+// inteira, sem seleção) e fica selecionado; Ctrl+Z desfaz. Resumo e pontos-chave entram depois do texto, sem apagá-lo.
+std::wstring AjusteDaSiri(const wchar_t* k, const wchar_t* padrao) {
+    wchar_t* p = nullptr; std::wstring dir;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { dir = p; CoTaskMemFree(p); }
+    std::map<std::wstring, std::wstring> m;
+    ajarq::Ler(dir + L"\\Shell\\ajustes.txt", m);
+    auto it = m.find(k);
+    return it == m.end() ? padrao : it->second;
+}
+int ServicoDaIa() {
+    int p = _wtoi(AjusteDaSiri(L"siri_provedor", L"0").c_str());
+    return p > 0 && p < (int)siri::Provedores().size() ? p : 0;
+}
+
+void DrawIa(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Pal& pal) {
+    if (!g_ia.on || !editor::Current()) return;
+    auto c = ClientDip();
+    double t = (double)(GetTickCount64() - g_ia.t0);
+    std::wstring txt = g_ia.rotulo;
+    float tw = TextW(g_f13, txt) + 56, x0 = EdL() + (c.width - EdL() - tw) / 2, y0 = c.height - 54;
+    D2D1_RECT_F r{ x0, y0, x0 + tw, y0 + 34 };
+    // o brilho colorido em volta da cápsula (as cores do Apple Intelligence, girando)
+    D2D1_GRADIENT_STOP gs[5] = { { 0, D2D1::ColorF(1.f, 0.62f, 0.10f) }, { 0.3f, D2D1::ColorF(1.f, 0.24f, 0.42f) },
+                                 { 0.55f, D2D1::ColorF(0.74f, 0.33f, 0.95f) }, { 0.8f, D2D1::ColorF(0.40f, 0.45f, 1.f) }, { 1, D2D1::ColorF(0.15f, 0.55f, 1.f) } };
+    ID2D1GradientStopCollection* sc = nullptr;
+    ID2D1LinearGradientBrush* lg = nullptr;
+    float a = (float)(t / 900.0);
+    D2D1_POINT_2F mid{ (r.left + r.right) / 2, (r.top + r.bottom) / 2 };
+    if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 5, &sc)))
+        dc->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ mid.x + std::cos(a) * tw / 2, mid.y + std::sin(a) * 17 }, { mid.x - std::cos(a) * tw / 2, mid.y - std::sin(a) * 17 }), sc, &lg);
+    for (int k = 5; k >= 1; k--) {
+        br->SetColor(D2D1::ColorF(0, 0, 0, g_dark ? 0.10f : 0.035f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - k, r.top - k + 3, r.right + k, r.bottom + k + 3), 17.f + k, 17.f + k), br);
+    }
+    br->SetColor(g_dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f) : D2D1::ColorF(1, 1, 1));
+    dc->FillRoundedRectangle(D2D1::RoundedRect(r, 17, 17), br);
+    if (lg) {
+        float pulso = 0.75f + 0.25f * (float)std::sin(t / 320.0);
+        lg->SetOpacity(pulso);
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left + 0.75f, r.top + 0.75f, r.right - 0.75f, r.bottom - 0.75f), 16.25f, 16.25f), lg, 1.5f);
+        lg->SetOpacity(1);
+        if (!simbolo::Draw(dc, L"apple.intelligence", D2D1::RectF(r.left + 12, mid.y - 8, r.left + 28, mid.y + 8), lg))
+            dc->FillEllipse(D2D1::Ellipse({ r.left + 20, mid.y }, 6, 6), lg);
+        lg->Release();
+    }
+    if (sc) sc->Release();
+    Text(dc, br, txt, g_f13, D2D1::RectF(r.left + 36, r.top, r.right - 10, r.bottom), pal.text2);
+}
+
+void PedeIa(const std::wstring& rotulo, const std::wstring& tarefa, bool juntar) {
+    if (g_ia.on || !editor::Current()) return;
+    int p = ServicoDaIa();
+    if (!p) return;
+    editor::AiRange r = editor::AiTake();
+    if (r.antes.find_first_not_of(L" \n\t") == std::wstring::npos) {
+        g_sheet = { true, Tr(L"Ferramentas de Escrita"), Tr(L"Escreva algo na nota (ou selecione um trecho) antes de usar as Ferramentas de Escrita."), L"OK", nullptr, false, true };
+        Invalidate();
+        return;
+    }
+    std::wstring modelo = AjusteDaSiri(L"siri_modelo", L"");
+    g_ia = { true, GetTickCount64(), rotulo };
+    SetTimer(g_hwnd, T_IA, 33, nullptr);
+    Invalidate();
+    Log(L"escrita com IA: %ls (%ls, %zu letras%ls)", rotulo.c_str(), siri::Provedores()[p].nome, r.antes.size(), r.all ? L", a nota inteira" : L"");
+    HWND h = g_hwnd;
+    std::thread([h, p, modelo, r, tarefa, juntar] {
+        const std::wstring sistema =
+            L"You are the Writing Tools of a notes app. You receive part of a note written in simple Markdown "
+            L"(# title, ## heading, ### subheading, - bullet list, 1. numbered list, - [ ] checklist, | table | rows). "
+            L"Do what is asked and reply ONLY with the resulting text, in the same simple Markdown and in the same language "
+            L"as the note unless the request says otherwise. No explanations, no preamble, no code fences, no bold or italics.";
+        auto* f = new IaFeito{ r, siri::Gera(p, modelo, sistema, tarefa + L"\n\nText:\n" + r.antes), juntar };
+        if (!PostMessageW(h, WM_APP_IA, 0, (LPARAM)f)) delete f;
+    }).detach();
+}
+
+void IaPronta(IaFeito* f) {
+    std::unique_ptr<IaFeito> dono(f);
+    KillTimer(g_hwnd, T_IA);
+    g_ia.on = false;
+    auto& g = f->g;
+    std::wstring erro;
+    if (g.erro == 1) erro = Tr(L"Escolha um serviço de IA em Ajustes do Sistema > Apple Intelligence e Siri.");
+    else if (g.erro == 2) erro = Tr(L"Falta a chave da API. Cole a chave em Ajustes do Sistema > Apple Intelligence e Siri.");
+    else if (g.erro == 3) erro = Tr(L"Não deu para falar com o serviço. Confira a internet.");
+    else if (g.erro == 5) erro = Tr(L"O app não respondeu. Ele está instalado e com a conta entrada?") + std::wstring(L" (") + g.msg + L")";
+    else if (g.erro) erro = std::wstring(Tr(L"O serviço recusou o pedido:")) + L" " + g.msg;
+    std::wstring t = g.texto;
+    while (!t.empty() && iswspace(t.back())) t.pop_back();
+    size_t s0 = t.find_first_not_of(L" \r\n\t"); t = s0 == std::wstring::npos ? L"" : t.substr(s0);
+    if (erro.empty() && t.empty()) erro = Tr(L"O serviço respondeu sem texto.");
+    if (erro.empty()) {
+        std::wstring md = f->juntar ? f->r.antes + L"\n\n" + t : t;
+        if (!editor::AiReplace(f->r, md)) erro = Tr(L"A nota mudou enquanto a IA escrevia. Tente de novo.");
+        else { Log(L"escrita com IA: pronto (%zu letras)", t.size()); FocusEditor(); }
+    }
+    if (!erro.empty()) {
+        Log(L"escrita com IA: %ls", erro.c_str());
+        g_sheet = { true, Tr(L"Ferramentas de Escrita"), erro, L"OK", nullptr, false, true };
+    }
+    Invalidate();
+}
+
+void PedirIaLivre() {  // "Pedir à IA…": a pessoa escreve o que quer
+    g_iaCampo.SetText(L"", false);
+    g_sheet = { true, Tr(L"Pedir à IA"), Tr(L"Descreva o que fazer com o texto selecionado (ou com a nota inteira)."), Tr(L"Enviar"), [] {
+        std::wstring q = g_iaCampo.text;
+        if (q.find_first_not_of(L' ') == std::wstring::npos) return;
+        PedeIa(Tr(L"Escrevendo…"), L"Request from the user: " + q, false);
+    }, true, false };
+    Invalidate();
+}
+
 void WritingMenu() {
     if (!editor::Current()) return;
+    if (g_ia.on) return;  // a IA já está escrevendo
+    if (int p = ServicoDaIa()) {  // com um serviço de IA escolhido: as Ferramentas de Escrita do Apple Intelligence
+        auto r = g_btn[B_WRITING].r;
+        std::wstring titulo = std::wstring(Tr(L"Ferramentas de Escrita")) + L" (" + siri::Provedores()[p].nome + L")";
+        std::vector<Item> items = { I(titulo.c_str(), 0, true), Sep(),
+            I(Tr(L"Revisar"), 101), I(Tr(L"Reescrever"), 102), Sep(),
+            I(Tr(L"Amigável"), 103), I(Tr(L"Profissional"), 104), I(Tr(L"Conciso"), 105), Sep(),
+            I(Tr(L"Resumo"), 106), I(Tr(L"Pontos-chave"), 107), I(Tr(L"Lista"), 108), I(Tr(L"Tabela"), 109), Sep(),
+            I(Tr(L"Pedir à IA…"), 110), Sep() };
+        Item local = I(Tr(L"No computador, sem IA"), 0);
+        local.sub = { I(Tr(L"Revisar"), 1), Sep(), I(Tr(L"Converter em Lista"), 2), I(Tr(L"Converter em Tabela"), 3), Sep(),
+                      I(Tr(L"MAIÚSCULAS"), 4), I(Tr(L"minúsculas"), 5), I(Tr(L"Iniciais Maiúsculas"), 6) };
+        items.push_back(local);
+        int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
+        const int kinds[7] = { -1, editor::W_PROOF, editor::W_LIST, editor::W_TABLE, editor::W_UPPER, editor::W_LOWER, editor::W_TITLE };
+        if (id >= 1 && id <= 6) { bool ch = editor::Transform(kinds[id]); Log(L"escrita %d: %ls", id, ch ? L"mudou" : L"nada a mudar"); FocusEditor(); return; }
+        struct { int id; const wchar_t* rot; const wchar_t* tarefa; bool juntar; } t[] = {
+            { 101, L"Revisando…", L"Proofread it: fix spelling, grammar and punctuation. Keep the wording, meaning and formatting.", false },
+            { 102, L"Reescrevendo…", L"Rewrite it so it reads better, keeping the meaning and the formatting.", false },
+            { 103, L"Reescrevendo…", L"Rewrite it in a friendlier, warmer tone, keeping the meaning and the formatting.", false },
+            { 104, L"Reescrevendo…", L"Rewrite it in a more professional tone, keeping the meaning and the formatting.", false },
+            { 105, L"Reescrevendo…", L"Make it more concise, keeping the important information and the formatting.", false },
+            { 106, L"Resumindo…", L"Write a short summary of it as one paragraph, starting with a '## Summary' heading translated to the note's language.", true },
+            { 107, L"Resumindo…", L"List its key points as a short bulleted list, starting with a '## Key Points' heading translated to the note's language.", true },
+            { 108, L"Organizando…", L"Organize it as a clear bulleted list (use nested items where it helps).", false },
+            { 109, L"Organizando…", L"Organize the information into a table (Markdown table with a header row).", false },
+        };
+        for (auto& x : t) if (x.id == id) { PedeIa(Tr(x.rot), x.tarefa, x.juntar); return; }
+        if (id == 110) { PedirIaLivre(); return; }
+        FocusEditor();
+        return;
+    }
     auto r = g_btn[B_WRITING].r;
+    // sem serviço de IA: as transformações no computador, e o caminho para ligar a IA
     std::vector<Item> items = { I(Tr(L"Ferramentas de Escrita (no computador, sem IA)"), 0, true), Sep(), I(Tr(L"Revisar"), 1), Sep(),
                                 I(Tr(L"Converter em Lista"), 2), I(Tr(L"Converter em Tabela"), 3), Sep(),
-                                I(Tr(L"MAIÚSCULAS"), 4), I(Tr(L"minúsculas"), 5), I(Tr(L"Iniciais Maiúsculas"), 6) };
+                                I(Tr(L"MAIÚSCULAS"), 4), I(Tr(L"minúsculas"), 5), I(Tr(L"Iniciais Maiúsculas"), 6), Sep(),
+                                I(Tr(L"Usar IA: escolha um serviço em Ajustes do Sistema > Apple Intelligence e Siri"), 20) };
     int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
     const int kinds[7] = { -1, editor::W_PROOF, editor::W_LIST, editor::W_TABLE, editor::W_UPPER, editor::W_LOWER, editor::W_TITLE };
     if (id >= 1 && id <= 6) { bool ch = editor::Transform(kinds[id]); Log(L"escrita %d: %ls", id, ch ? L"mudou" : L"nada a mudar"); }
+    if (id == 20) {  // os Ajustes do Sistema na página Apple Intelligence e Siri (ao lado deste exe)
+        wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        std::wstring aj = exe; aj = aj.substr(0, aj.find_last_of(L'\\')) + L"\\WacOSSettings.exe";
+        ShellExecuteW(nullptr, L"open", aj.c_str(), L"--pagina=inteligencia", nullptr, SW_SHOWNORMAL);
+    }
     FocusEditor();
 }
 
@@ -1684,12 +1866,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     case WM_APP_TRAZER: Bring(); return 0;
+    case WM_APP_IA: IaPronta((IaFeito*)l); return 0;
     case WM_TIMER:
         if (w == T_FRONT) {  // abriu pelo Launchpad: confere de novo depois da animação de fechar
             KillTimer(h, T_FRONT);
             if (GetForegroundWindow() != h && ShellInFront()) Bring();
             return 0;
         }
+        if (w == T_IA) { Invalidate(); return 0; }  // a cápsula "Escrevendo…" brilhando
         if (w == T_BLINK) {
             if (editor::Focused()) editor::ToggleBlink();
             Invalidate();
@@ -1761,6 +1945,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_sheet.on) {
             if (In(g_sheetOk, p)) { auto act = g_sheet.act; g_sheet = Sheet{}; if (act) act(); }
             else if (In(g_sheetCancel, p)) g_sheet = Sheet{};
+            else if (g_sheet.campo && In(g_iaCampo.lastRect, p)) g_iaCampo.Click(g_f13, p, GetKeyState(VK_SHIFT) < 0);
             Invalidate();
             return 0;
         }
@@ -1906,6 +2091,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_sheet.on) {
             if (w == VK_ESCAPE) g_sheet = Sheet{};
             else if (w == VK_RETURN) { auto act = g_sheet.act; g_sheet = Sheet{}; if (act) act(); }
+            else if (g_sheet.campo) g_iaCampo.OnKey((UINT)w, shift, ctrl);
             Invalidate();
             return 0;
         }
@@ -1981,6 +2167,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_CHAR:
+        if (g_sheet.on && g_sheet.campo && w >= 32 && w != 127) { g_iaCampo.OnChar((wchar_t)w); Invalidate(); return 0; }
         if (g_sheet.on || g_sk.on) return 0;
         if (g_focus == F_RENAME) { if (w >= 32) g_rename.OnChar((wchar_t)w); Invalidate(); return 0; }
         if (g_focus == F_SEARCH) { if (w >= 32 && w != 127) { g_search.OnChar((wchar_t)w); SearchChanged(); } Invalidate(); return 0; }

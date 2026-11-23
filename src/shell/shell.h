@@ -94,6 +94,8 @@ void GpuSoltarEscondida(GpuSurface& s);  // painel de tela cheia: solta os buffe
 void GpuOffset(GpuSurface& s, float x, float y);
 void GpuScale(GpuSurface& s, float scale, float cx, float cy);  // escala o desenho em volta de (cx, cy) px (animação dos painéis)
 void GpuMotion(GpuSurface& s, float scale, float cx, float cy, float opacity);  // escala e opacidade (a mola dos painéis)
+// a mesma coisa animada pelo compositor: a curva amostrada a cada passoMs (escala e opacidade), tocada pelo DWM no vsync
+void GpuMotionAnim(GpuSurface& s, float cx, float cy, const std::vector<float>& escala, const std::vector<float>& opac, float passoMs);
 // Desliza o conteúdo (px) de (fromX, fromY) até (toX, toY) em `ms`, com ease-out, pelo próprio compositor.
 void GpuSlide(GpuSurface& s, float fromX, float fromY, float toX, float toY, float ms);
 // Quadros no ritmo do monitor: enquanto `on`, manda `msg` para `hwnd` a cada atualização da tela.
@@ -352,6 +354,8 @@ bool IsOpen();
 void OpenMode(int mode);  // Tahoe: abre direto num modo (1 Aplicativos = o "Apps" do Dock, 2 Arquivos, 3 Ações); de novo fecha
 void Rescan();            // relê a lista de apps (um programa foi instalado ou removido)
 void ClickedDesktop();    // clique na mesa (gancho do revelar.cpp, outra thread): aberto, fecha
+RECT Lugar();             // onde o painel abre agora (px): a Siri abre alinhada a ele
+float LarguraCampo();     // a largura do campo de busca (DIP) no tema atual
 }
 namespace dashboard {  // Dashboard do Leopard (dashboard.cpp): Win+F12 / ShellAbrirPainel 16
 bool Create(HINSTANCE hi);
@@ -469,6 +473,12 @@ void PrivacidadeMudou();        // a bandeja mudou: relê o ícone de privacidad
 void Captura(bool copiada);     // a Captura de Tela terminou: aviso rápido "Captura feita" / "Captura copiada"
 int Privacidade();              // 1 microfone, 2 câmera em uso (bits); a 1ª chamada liga a vigia; mudou = menubar::Update()
 }
+namespace voz {  // voz.cpp: ditado pelo reconhecimento de fala do Windows (o microfone da Siri e do Spotlight)
+enum Tipo { V_PARCIAL, V_FINAL, V_ERRO, V_PRIVACIDADE };
+void Ouvir(HWND to, UINT msg);  // uma frase: msg com wParam = Tipo e lParam = new std::wstring (quem recebe apaga)
+void Parar();
+bool Ouvindo();
+}
 namespace siri {  // siri.cpp: a Siri com a chave do usuário (issue #39); provedores e chave em src/comum/siri.h
 bool Pronta();                          // um serviço escolhido nos Ajustes (e a chave, se ele pede)
 void Perguntar(const std::wstring& q, bool teste = false);
@@ -509,7 +519,7 @@ void Run(const Item& it);
 // o que o app está tocando (controles de mídia do Windows), como no menu do Spotify no Dock do Mac
 struct Media { bool has = false, playing = false, canNext = false, canPrev = false; std::wstring title, artist; };
 Media MediaOf(const std::wstring& exePath, const std::wstring& aumid);
-void MediaCommand(const std::wstring& exePath, const std::wstring& aumid, int cmd);  // 0 tocar/pausar, 1 próxima, 2 anterior
+void MediaCommand(const std::wstring& exePath, const std::wstring& aumid, int cmd);  // 0 tocar/pausar, 1 próxima, 2 anterior, 3 parar; sem app: a sessão atual
 }
 namespace cantos {  // Cantos Ativos (cantos.cpp): canto_se/sd/ie/id = nada|mission|mesa|launchpad|notificacoes|central|spotlight|bloquear|tela|nota
 void Start();
@@ -583,6 +593,7 @@ void Detach(HWND h);  // a janela vai ser destruída: solta o vidro dela
 void Restart();       // refaz o vidro real do zero (Ajustes: "Reiniciar o Liquid Glass")
 void Set(HWND h, float w, float hgt, float radius, D2D1_COLOR_F tint);  // px
 void Fade(HWND h, float opacity, float scale, float cx, float cy);     // animação: opacidade e escala em volta de (cx, cy) px
+void FadeAnim(HWND h, float cx, float cy, const std::vector<float>& escala, const std::vector<float>& opac, float passoMs);  // pela Composição
 void FadeOutAnim(HWND h, int ms);    // some em ms pela Composição (não depende desta thread)
 // Conteúdo desenhado DENTRO do vidro (mesma árvore da Composição): vidro e desenho chegam à tela no mesmo
 // quadro. Numa janela à parte (swap chain), a borda do vidro ficava um quadro atrás do desenho quando o
