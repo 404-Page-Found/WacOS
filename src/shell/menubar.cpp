@@ -630,9 +630,42 @@ bool WallpaperTopDark(bool fallback) {
     if (std::fabs(luma - lastLog) > 0.05) { lastLog = luma; Log(L"barra de menus: atrás dela claridade %.2f -> texto %ls", luma, dark ? L"branco" : L"preto"); }
     return dark;
 }
+// O arquivo do papel de parede numa thread (issue #32): esta conta roda a cada desenho da barra e a cada tique de 1 s,
+// e com o Explorador de fundo (o padrão, sem a nossa mesa para dar a cor) lia o Registro e perguntava ao disco pelo
+// arquivo toda vez. Com o disco ocupado o GetFileAttributes segurou a interface 11 s (sentinela, 22/11/2026 20:49).
+// Agora a interface usa o último resultado e pede uma leitura nova no máximo a cada 4 s.
+bool LeTopoDoArquivo(bool fallback, float rgb[3]);
+void Render();
 bool WallpaperTopDarkFile(bool fallback) {
+    static std::atomic<bool> rodando{ false };
+    static DWORD quando = 0;
+    static int escuro = -1;  // -1: ainda sem leitura
+    DWORD agora = GetTickCount();
+    if (!rodando && (!quando || agora - quando > 4000)) {
+        quando = agora;
+        rodando = true;
+        std::thread([fallback] {
+            HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);  // WIC
+            float rgb[3] = { -1, -1, -1 };
+            bool d = LeTopoDoArquivo(fallback, rgb);
+            if (SUCCEEDED(ci)) CoUninitialize();
+            shell::NaInterface([d, r = rgb[0], g = rgb[1], b = rgb[2]] {
+                rodando = false;
+                bool mudou = escuro != (d ? 1 : 0);
+                escuro = d ? 1 : 0;
+                if (r >= 0 && (r != g_topR || g != g_topG || b != g_topB)) { g_topR = r; g_topG = g; g_topB = b; mudou = true; }
+                if (mudou) Render();
+            });
+        }).detach();
+    }
+    return escuro < 0 ? fallback : escuro == 1;
+}
+// roda numa thread (só uma por vez): rgb sai com a cor média do topo, ou fica como veio se não leu
+bool LeTopoDoArquivo(bool fallback, float rgb[3]) {
     static std::wstring lastKey;
     static bool lastDark = true;
+    static float lastRGB[3] = { -1, -1, -1 };
+    struct Sai { float* o; ~Sai() { if (lastRGB[0] >= 0) for (int i = 0; i < 3; i++) o[i] = lastRGB[i]; } } sai{ rgb };
     // o papel de parede que a mesa desenha (do registro); sem ele, o do Windows
     wchar_t path[MAX_PATH] = {};
     DWORD cb = sizeof(path);
@@ -667,7 +700,7 @@ bool WallpaperTopDarkFile(bool fallback) {
                 sb += px[i * 4] / 255.0; sg += px[i * 4 + 1] / 255.0; sr += px[i * 4 + 2] / 255.0;
             }
             double luma = sum / (W * 3);
-            g_topR = (float)(sr / (W * 3)); g_topG = (float)(sg / (W * 3)); g_topB = (float)(sb / (W * 3));
+            lastRGB[0] = (float)(sr / (W * 3)); lastRGB[1] = (float)(sg / (W * 3)); lastRGB[2] = (float)(sb / (W * 3));
             // Tahoe: adaptação com histerese do vidro do macOS 26 (glassLumaHysteresisRange, guia seção 2.1): acima de
             // 0,60 vira texto escuro, abaixo de 0,40 texto claro, entre os dois fica como estava. Sequoia: limiar 0,72.
             static int adapt = -1;  // -1 ainda não decidido, 0 texto claro, 1 texto escuro

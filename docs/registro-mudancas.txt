@@ -1281,3 +1281,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/backdrop.cpp (PecasSemReal): com várias peças e sem o vidro real (modo jogo, VM, captura recusada) o fosco era um só, do tamanho da janela. Agora cada peça ganha fosco e tinta recortados nos cantos dela.
   Compilado e instalado (21:15, vidro real ligado). NÃO conferido na tela com o vidro real desligado (o usuário ia reiniciar o PC).
   DESFAZER: reverter o commit.
+
+[2026-11-22 21:40, hora do PC] Barra de menus: cor do papel de parede lida numa thread (issue #32, achado da outra sessão) e README da build-30.
+  - src/shell/menubar.cpp: com o Explorador de fundo, a cor do topo do papel de parede vinha do arquivo (Registro + GetFileAttributes) a cada desenho e a cada tique de 1 s; o sentinela pegou 11 s parado (20:49). Agora numa thread, no máximo a cada 4 s.
+  - README.md: novidades (barra de menus embaixo, Spotlight com ajustes do Windows, ícones na lista da bandeja, botões do Mac nos apps Electron como experimental, histórico da área de transferência na Ilha, launchers fora do modo jogo, sentinela de travadas).
+  DESFAZER: reverter o commit.

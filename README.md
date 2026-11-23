@@ -100,18 +100,26 @@ themes).
 
 ## Features
 
-- **Menu bar** with the active app's real menus, the Apple menu, status icons and the system tray.
+- **Menu bar** with the active app's real menus, the Apple menu, status icons and the system tray. Hidden tray icons
+  open from a list that shows each app's icon and name. New: you can move the menu bar to the **bottom, beside the
+  Dock** (System Settings > Control Center).
 - **Dock** with magnification, running indicators, stacks (Downloads), minimized windows and the Trash. Put it on
   the **bottom, left or right**, hide it always or only when a window touches it (**smart hide**), and customize
   spacing, distance from the edge, corner rounding, glass color and opacity, labels, indicators and the divider.
 - **Change Icon…**: right-click an app in the Dock or Launchpad to use your own PNG/ICO (and restore the original).
 - **Genie** minimize animation drawn by the compositor, with smooth edges all the way into the Dock.
-- **Finder** (file manager), **Spotlight** (search with Applications, Files, Actions and Clipboard modes),
-  **Control Center**, **Notification Center**, **Mission Control**, **Launchpad / Apps**, **Quick Look**,
-  **Stage Manager** and **Hot Corners**.
-- **Mac title bars** (traffic lights, rounded corners, shadows) on other apps' windows. Chrome, Discord, Spotify and
-  other Chromium/Electron apps keep their own bar but get rounded corners and a Mac-style border that matches the
-  app's own light or dark look.
+- **Finder** (file manager), **Spotlight**, **Control Center**, **Notification Center**, **Mission Control**,
+  **Launchpad / Apps**, **Quick Look**, **Stage Manager** and **Hot Corners**.
+- **Spotlight** searches apps, files, folders and the web, does math, and completes the best match as you type, with
+  Applications, Files, Actions and Clipboard modes. New: it also finds **Windows settings and tools**
+  ("device manager", "add or remove programs", services, display, Wi-Fi and about 200 Control Panel tasks), each
+  with its own icon.
+- **Mac title bars** (traffic lights, rounded corners, shadows) on other apps' windows, including GTK apps like
+  GIMP 3. Chrome, Discord, Spotify and other Chromium/Electron apps keep their own bar but get rounded corners and a
+  Mac-style border that matches the app's own light or dark look.
+- **Mac buttons in Chrome, Discord and other Electron apps** (new, **experimental**, off by default): the traffic
+  lights go into the app's own title bar, in place of the Windows buttons. Turn it on in System Settings > Desktop &
+  Dock > "Mac buttons in apps with their own title bar". Feedback is welcome in the issues.
 - **macOS alerts** in place of Windows message boxes, and the Mac Open/Save panel through Finder.
 - **Built-in apps**: System Settings, Activity Monitor (with memory pressure), Terminal, Calculator, Notes,
   Reminders, Calendar, TextEdit, Preview, Photos, Music, QuickTime Player, Clock, Weather, Contacts,
@@ -119,9 +127,11 @@ themes).
 - **Memory management like macOS**: memory pressure, App Nap and purgeable memory.
 - **Themes**: macOS 27 Golden Gate, macOS Tahoe, macOS Sequoia and Mac OS X Leopard.
 - **Dynamic Island** (optional, System Settings > Control Center): music, timers, notifications and volume in a pill
-  or a notch at the top of the screen.
+  or a **notch** at the top of the screen, plus a **clipboard history** with your last 20 copies (text and files),
+  kept across restarts and encrypted for your Windows user.
 - **Game Mode** like macOS: when a game comes to the front, WacOS turns off what costs the most (real glass, mouse
-  effects, Hot Corners, file indexing) until the game quits. System Settings > Energy.
+  effects, Hot Corners, file indexing) until the game quits. Game launchers (Riot Client, EA app, Ubisoft Connect,
+  Battle.net and others) don't count as games. System Settings > Energy.
 - **Launchpad**: hide any app (right-click > Hide from Launchpad), or all of Windows' system tools at once.
 - **Icon styles** (Default, Dark, Clear, Tinted), accent colors, light and dark appearance.
 - **Customize the desktop** (icon size, grid spacing, text size, widgets), **notifications** (banner duration,
@@ -239,6 +249,10 @@ records what was changed, how it was checked and what wasn't. Some of the checks
 - **Title bars across updates:** the title bars load through a small fixed loader (`WacOSGancho.dll`), so updating or
   restarting WacOS doesn't use up Windows' limited hook slots anymore; tested by swapping the title bar DLL three
   times in one sign-in.
+- **Freeze hunting:** a sentinel thread writes the stack of any interface stall of 1 second or more to `shell.log`,
+  and the shell and the title bar DLL never wait for the disk, the Registry or another process on a window's
+  thread. On a busy disk this took freezes of several seconds in the shell and in apps like Discord and Chrome
+  down to a few milliseconds.
 - **Reported bugs** from Reddit, GitHub and Discord are reproduced when possible (videos help a lot!).
 
 Known limits: apps running as administrator can't get the Mac title bar from a shell that isn't elevated, and the
