@@ -1689,3 +1689,4 @@
 { L"Pegue a chave no site do serviço e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço.", L"서비스 웹사이트에서 키를 받아 \"키 붙여넣기\"를 사용하세요. 키는 이 Windows 계정용으로 암호화되며, 질문은 PC에서 서비스로 바로 전송됩니다." },
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"이 PC에서 실행됩니다: 질문이 PC 밖으로 나가지 않습니다. 질문하기 전에 앱을 여세요." },
 { L"Mostrar os segundos", L"초 표시" },
+{ L"Pergunte à Siri…", L"Siri에게 묻기…" },

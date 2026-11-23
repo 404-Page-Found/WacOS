@@ -31,6 +31,12 @@ int g_pontos;
 float g_scroll, g_contentH, g_viewH;
 double g_openAt, g_answerAt, g_closeAt;
 bool g_closing;
+bool g_teste;
+// campo de digitar (aberta pelo ícone da barra, ou digitando depois de uma resposta): g_texto é o que foi digitado
+bool g_entrada;
+std::wstring g_texto;
+const UINT_PTR T_CURSOR = 2;
+bool g_cursorOn = true;  // 'SIRT' (teste com um jogo na frente): não pega a frente, não fecha ao perder a frente, some em 8 s
 ID2D1StrokeStyle* g_round;
 IDWriteTextFormat *g_tfQ, *g_tfA;
 
@@ -61,6 +67,18 @@ bool ModeloSumiu(DWORD status, const std::wstring& msg) {
                               L"invalid model", L"unknown model", L"model_not_found", L"is not a valid model" })
         if (l.find(w) != std::wstring::npos) return true;
     return false;
+}
+
+// outro modelo da lista para esta pergunta: estável (sem preview/omni/exp/latest/lite), da mesma família (Flash no Gemini)
+std::wstring Reserva(const std::vector<std::wstring>& lista, const std::wstring& atual, bool gemini) {
+    std::wstring alt;
+    for (auto& m : lista) {
+        if (m == atual || m.find(L"lite") != std::wstring::npos || m.find(L"preview") != std::wstring::npos ||
+            m.find(L"omni") != std::wstring::npos || m.find(L"exp") != std::wstring::npos || m.find(L"latest") != std::wstring::npos) continue;
+        if (!gemini || m.find(L"flash") != std::wstring::npos) return m;
+        if (alt.empty()) alt = m;
+    }
+    return alt;
 }
 
 std::wstring PerguntaCli(const siri::Provedor& pv, const std::wstring& q, bool& erro) {
@@ -132,14 +150,7 @@ std::wstring Pergunta(const std::wstring& q, bool& erro) {
             if (!tentativa) { Sleep(1500); continue; }
             std::wstring e; auto lista = siri::ListaModelos(p, e);
             std::wstring alt;
-            // o reserva: estável (sem preview/omni/exp), de preferência da mesma família (Flash no Gemini)
-            for (auto& m : lista) {
-                if (m == modelo || m.find(L"lite") != std::wstring::npos || m.find(L"preview") != std::wstring::npos ||
-                    m.find(L"omni") != std::wstring::npos || m.find(L"exp") != std::wstring::npos || m.find(L"latest") != std::wstring::npos) continue;
-                bool familia = pv.fmt != siri::F_GEMINI || m.find(L"flash") != std::wstring::npos;
-                if (familia) { alt = m; break; }
-                if (alt.empty()) alt = m;
-            }
+            alt = Reserva(lista, modelo, pv.fmt == siri::F_GEMINI);
             if (!alt.empty()) { Log(L"siri: %ls sobrecarregado; tentando %ls", modelo.c_str(), alt.c_str()); modelo = alt; continue; }
             break;
         }
@@ -149,11 +160,11 @@ std::wstring Pergunta(const std::wstring& q, bool& erro) {
         bool semCota = r.status == 429 && lm.find(L"quota") != std::wstring::npos;
         if (semCota) {
             std::wstring e; auto lista = siri::ListaModelos(p, e);
-            if (!lista.empty() && lista[0] != modelo) {
-                Log(L"siri: sem cota em %ls; tentando %ls", modelo.c_str(), lista[0].c_str());
-                modelo = lista[0];
-                shell::SetSetting(L"siri_modelo", modelo.c_str());
-                continue;
+            std::wstring outro = !lista.empty() && lista[0] != modelo ? lista[0] : Reserva(lista, modelo, pv.fmt == siri::F_GEMINI);
+            if (!outro.empty()) {
+                Log(L"siri: sem cota em %ls; tentando %ls", modelo.c_str(), outro.c_str());
+                modelo = outro;
+                continue;  // só nesta pergunta: a cota volta amanhã, e o escolhido nos Ajustes fica
             }
         }
         if (!ModeloSumiu(r.status, msgErro)) { if (r.status >= 400) Log(L"siri: erro do serviço: %ls", siri::ErroDoServico(r.corpo).substr(0, 200).c_str()); break; }
@@ -237,9 +248,18 @@ void Brilho(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, float rad, double tM
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1), &br);
     if (!br) return;
-    const int N = 180;
+    const int N = 240;
     float gira = (float)(tMs / 2600.0);  // as cores dão uma volta a cada 2,6 s
     struct Camada { float largura, alfa; } camadas[] = { { 22, 0.06f }, { 13, 0.10f }, { 7, 0.18f }, { 2.6f, 0.95f } };
+    ID2D1Factory* fab = nullptr; dc->GetFactory(&fab);
+    static ID2D1Factory* fabDoTraco = nullptr;
+    if (fab && fab != fabDoTraco) {
+        if (g_round) { g_round->Release(); g_round = nullptr; }
+        D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
+        fab->CreateStrokeStyle(sp, nullptr, 0, &g_round);
+        fabDoTraco = fab;
+    }
+    if (fab) fab->Release();
     std::vector<D2D1_POINT_2F> pts(N + 1);
     for (int k = 0; k <= N; k++) pts[k] = PontoDaBorda(box, rad, (float)k / N);
     for (auto& cm : camadas) {
@@ -250,7 +270,8 @@ void Brilho(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, float rad, double tM
             float onda = 0.55f + 0.45f * std::cos(6.2831853f * (u - gira * 0.7f));
             c.a = cm.alfa * forca * (cm.largura > 3 ? onda : 0.75f + 0.25f * onda);
             br->SetColor(c);
-            dc->DrawLine(pts[k], pts[k + 1], br, cm.largura, g_round);
+            // pontas retas nas camadas translúcidas (as redondas se sobrepunham e faziam "contas" na borda); redondas no fio
+            dc->DrawLine(pts[k], pts[k + 1], br, cm.largura, cm.largura > 3 ? nullptr : g_round);
         }
     }
     br->Release();
@@ -286,6 +307,7 @@ void Orbe(ID2D1DeviceContext* dc, D2D1_POINT_2F c, float r, double t) {
 
 // quanto do brilho aparece agora (1 pensando, apagando em 0,9 s depois da resposta)
 float ForcaBrilho(double now) {
+    if (g_entrada) return 0;
     if (g_busy) return 0.85f + 0.15f * (float)std::sin(now / 420.0);
     float k = (float)((now - g_answerAt) / 900.0);
     return k >= 1 ? 0.f : (1 - k) * (1 - k);
@@ -303,6 +325,10 @@ void Paint() {
     std::wstring a = g_busy ? std::wstring(Tr(L"Pensando")) + std::wstring((size_t)(g_pontos % 3 + 1), L'.') : g_a;
     float qh = AlturaTexto(g_q, g_tfQ, textW), ah = AlturaTexto(a, g_tfA, textW);
     g_contentH = PAD + qh + 8 + ah + PAD;
+    if (g_entrada) {  // só o campo: uma linha (ou mais, se o texto quebrar)
+        qh = 0; ah = std::max(AlturaTexto(g_texto.empty() ? L"M" : g_texto, g_tfA, textW), 20.f);
+        g_contentH = std::max(ORB + PAD * 2, PAD + ah + PAD + 4);
+    }
     HMONITOR hm = MonitorFromWindow(g_wnd, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(hm, &mi);
     float maxH = (mi.rcWork.bottom - mi.rcWork.top) / sc * 0.6f;
@@ -328,12 +354,36 @@ void Paint() {
     dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1), &br);
     if (br) {
         D2D1_RECT_F box = D2D1::RectF(0, 0, W, H);
-        Brilho(dc, D2D1::RectF(-1, -1, W + 1, H + 1), R + 1, now - g_openAt, ForcaBrilho(now));
+        if (!g_inGlass) Brilho(dc, D2D1::RectF(-1, -1, W + 1, H + 1), R + 1, now - g_openAt, ForcaBrilho(now));
         if (!g_glass) { br->SetColor(dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.95f) : D2D1::ColorF(0.96f, 0.96f, 0.97f, 0.95f)); dc->FillRoundedRectangle(D2D1::RoundedRect(box, R, R), br); }
         if (liquid::On()) liquid::Rim(dc, box, R, dark);
         else { br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.14f) : D2D1::ColorF(0, 0, 0, 0.12f)); dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.5f, 0.5f, W - 0.5f, H - 0.5f), R, R), br, 1); }
         Orbe(dc, { PAD + ORB / 2, PAD + ORB / 2 }, ORB / 2, now - g_openAt);
         float x = PAD + ORB + 14;
+        if (g_entrada) {  // o campo: o texto digitado (ou o convite em cinza) e o cursor piscando
+            float y0 = (H - ah) / 2;
+            bool vazio = g_texto.empty();
+            const std::wstring& t = vazio ? std::wstring(Tr(L"Pergunte à Siri…")) : g_texto;
+            br->SetColor(vazio ? (dark ? D2D1::ColorF(1, 1, 1, 0.38f) : D2D1::ColorF(0, 0, 0, 0.35f)) : (dark ? D2D1::ColorF(1, 1, 1, 0.95f) : D2D1::ColorF(0, 0, 0, 0.88f)));
+            dc->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfA, D2D1::RectF(x, y0, x + textW, y0 + ah + 4), br, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            if (g_cursorOn) {  // o cursor no fim do texto
+                IDWriteTextLayout* lay = nullptr; float cx = x, cy = y0, ch = 18;
+                if (!vazio && SUCCEEDED(ui::dw->CreateTextLayout(g_texto.c_str(), (UINT32)g_texto.size(), g_tfA, textW, 10000, &lay))) {
+                    DWRITE_HIT_TEST_METRICS hm{}; FLOAT px = 0, py = 0;
+                    lay->HitTestTextPosition((UINT32)g_texto.size() - 1, TRUE, &px, &py, &hm);
+                    cx = x + px; cy = y0 + py; ch = hm.height; lay->Release();
+                }
+                br->SetColor(D2D1::ColorF(0.40f, 0.52f, 1.f));
+                dc->FillRectangle(D2D1::RectF(cx + 1, cy + 1, cx + 3, cy + ch - 1), br);
+            }
+            br->Release();
+            dc->SetTransform(base);
+            if (g_inGlass) {
+                backdrop::ContentEnd(g_back);
+                if (ID2D1DeviceContext* gd = ui::GpuBegin(g_s, wpx, hpx, sc)) ui::GpuEnd(g_s);  // sem brilho enquanto digita
+            } else ui::GpuEnd(g_s);
+            return;
+        }
         dc->PushAxisAlignedClip(D2D1::RectF(x - 2, 8, W - PAD + 2, H - 8), D2D1_ANTIALIAS_MODE_ALIASED);
         float y = PAD - g_scroll;
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.5f));
@@ -356,7 +406,18 @@ void Paint() {
         br->Release();
     }
     dc->SetTransform(base);
-    if (g_inGlass) backdrop::ContentEnd(g_back); else ui::GpuEnd(g_s);
+    if (g_inGlass) {
+        backdrop::ContentEnd(g_back);
+        // o desenho dentro do vidro é recortado no formato do painel: o brilho, que passa para fora, vai na janela da frente
+        // (transparente, do tamanho da folga)
+        if (ID2D1DeviceContext* gd = ui::GpuBegin(g_s, wpx, hpx, sc)) {
+            D2D1_MATRIX_3X2_F b2; gd->GetTransform(&b2);
+            gd->SetTransform(D2D1::Matrix3x2F::Translation(M, M) * b2);
+            Brilho(gd, D2D1::RectF(-1, -1, W + 1, H + 1), R + 1, now - g_openAt, ForcaBrilho(now));
+            gd->SetTransform(b2);
+            ui::GpuEnd(g_s);
+        }
+    } else ui::GpuEnd(g_s);
 }
 
 // a mola de abrir (crescendo do meio) e a de fechar: escala e opacidade pelo compositor
@@ -365,8 +426,8 @@ void Movimento() {
     anim::Panel mo = g_closing ? anim::PanelOut(now - g_closeAt) : anim::PanelIn(now - g_openAt);
     RECT wr; GetWindowRect(g_wnd, &wr);
     float cx = (wr.right - wr.left) / 2.f, cy = (wr.bottom - wr.top) / 2.f;
-    if (g_inGlass) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy);
-    else { ui::GpuMotion(g_s, mo.scale, cx, cy, mo.fade); if (g_back) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy); }
+    ui::GpuMotion(g_s, mo.scale, cx, cy, mo.fade);  // o brilho (ou tudo, sem vidro)
+    if (g_back) backdrop::Fade(g_back, mo.fade, mo.scale, cx, cy);
 }
 
 void Esconde() {
@@ -428,16 +489,46 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         float sc = Sc(); int mpx = (int)std::lround(M * sc);
         return pt.x >= wr.left + mpx && pt.x < wr.right - mpx && pt.y >= wr.top + mpx && pt.y < wr.bottom - mpx ? HTCLIENT : HTTRANSPARENT;
     }
-    case WM_TIMER: if (w == T_PONTOS) { g_pontos++; if (!Animando(anim::Now())) Paint(); } return 0;
+    case WM_TIMER: if (w == 9) { KillTimer(h, 9); Fecha(); return 0; }
+        if (w == T_CURSOR) { g_cursorOn = !g_cursorOn; if (g_entrada) Paint(); else KillTimer(h, T_CURSOR); return 0; }
+        if (w == T_PONTOS) { g_pontos++; if (!Animando(anim::Now())) Paint(); } return 0;
     case WM_MOUSEWHEEL: g_scroll -= GET_WHEEL_DELTA_WPARAM(w) / 120.f * 48; Paint(); return 0;
+    case WM_CHAR:
+        { static int n; if (n++ < 3) Log(L"siri: tecla %u (aberta %d, pensando %d, campo %d)", (unsigned)w, g_open, g_busy, g_entrada); }
+        if (!g_open || g_busy) return 0;
+        if (w == 13) {  // Enter: pergunta
+            if (g_entrada && !g_texto.empty()) { std::wstring q = g_texto; siri::Perguntar(q, g_teste); }
+            return 0;
+        }
+        if (w == 8) { if (g_entrada && !g_texto.empty()) { g_texto.pop_back(); g_cursorOn = true; Paint(); } return 0; }
+        if (w >= 32 && w != 127 && !(GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_MENU) >= 0)) {
+            if (!g_entrada) { g_entrada = true; g_texto.clear(); g_q.clear(); g_a.clear(); g_scroll = 0; }  // digitou depois da resposta: outra pergunta
+            if (g_texto.size() < 2000) g_texto += (wchar_t)w;
+            g_cursorOn = true; SetTimer(h, T_CURSOR, 530, nullptr);
+            Paint();
+        }
+        return 0;
     case WM_KEYDOWN:
+        if (w == 'V' && GetKeyState(VK_CONTROL) < 0 && !g_busy && OpenClipboard(h)) {  // colar no campo
+            if (HANDLE cb = GetClipboardData(CF_UNICODETEXT)) {
+                if (auto* p = (const wchar_t*)GlobalLock(cb)) {
+                    std::wstring t = p; GlobalUnlock(cb);
+                    for (auto& c : t) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
+                    if (!g_entrada) { g_entrada = true; g_texto.clear(); g_q.clear(); g_a.clear(); }
+                    g_texto += t.substr(0, 2000 - std::min<size_t>(2000, g_texto.size()));
+                }
+            }
+            CloseClipboard();
+            Paint();
+            return 0;
+        }
         if (w == VK_ESCAPE) Fecha();
         else if (w == 'C' && GetKeyState(VK_CONTROL) < 0) Copia();
         else if (w == VK_DOWN) { g_scroll += 40; Paint(); }
         else if (w == VK_UP) { g_scroll -= 40; Paint(); }
         return 0;
     case WM_ACTIVATE:
-        if (LOWORD(w) == WA_INACTIVE && g_open) {
+        if (LOWORD(w) == WA_INACTIVE && g_open && !g_teste) {
             wchar_t c[64] = {}; if (l) GetClassNameW((HWND)l, c, 64);
             Log(L"siri: perdeu a frente para %ls; fecha", c[0] ? c : L"(nenhuma)");
             Fecha();
@@ -470,8 +561,6 @@ bool Ready() {
     g_tfQ = ui::Format(12.5f, DWRITE_FONT_WEIGHT_NORMAL);
     g_tfA = ui::Format(15, DWRITE_FONT_WEIGHT_NORMAL);
     for (auto* f : { g_tfQ, g_tfA }) if (f) f->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND);
-    ui::d2d->CreateStrokeStyle(sp, nullptr, 0, &g_round);
     return true;
 }
 
@@ -484,10 +573,13 @@ bool siri::Pronta() {
     return !provs[p].precisaChave || GetFileAttributesW(siri::ArquivoChave(p).c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-void siri::Perguntar(const std::wstring& q) {
-    if (q.empty() || !Ready()) return;
-    g_q = q; g_a.clear(); g_busy = true; g_erro = false; g_scroll = 0; g_pontos = 0;
-    int num = ++g_num;
+// mostra o painel (a mola de abrir); já aberto, fica onde está e só muda o conteúdo
+static void MostraPainel(bool teste) {
+    if (g_open && IsWindowVisible(g_wnd)) {
+        Paint();
+        ui::FrameClock(g_wnd, WM_SIRI_FRAME, true);
+        return;
+    }
     // no alto do monitor do ponteiro, centralizado (onde a Siri do Mac aparece... e onde o Spotlight estava)
     POINT pt; GetCursorPos(&pt);
     HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
@@ -499,14 +591,38 @@ void siri::Perguntar(const std::wstring& q) {
     if (g_back) SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE);
     g_open = true; g_closing = false; g_openAt = anim::Now(); g_answerAt = 0;
     if (g_glass) backdrop::Fade(g_back, 0, 0.94f, wpx / 2.f, hpx / 2.f);  // nasce invisível e um pouco menor: a mola leva até o tamanho
-    else ui::GpuMotion(g_s, 0.94f, wpx / 2.f, hpx / 2.f, 0);
+    ui::GpuMotion(g_s, 0.94f, wpx / 2.f, hpx / 2.f, 0);
     Paint();
     if (g_back) ShowWindow(g_back, SW_SHOWNOACTIVATE);
-    ShowWindow(g_wnd, SW_SHOW);
-    shell::LiberaFrente();
-    SetForegroundWindow(g_wnd); SetFocus(g_wnd);
-    SetTimer(g_wnd, T_PONTOS, 420, nullptr);
+    ShowWindow(g_wnd, teste ? SW_SHOWNOACTIVATE : SW_SHOW);
+    if (teste) SetTimer(g_wnd, 9, 8000, nullptr);
+    else { shell::LiberaFrente(); SetForegroundWindow(g_wnd); SetFocus(g_wnd); }
     ui::FrameClock(g_wnd, WM_SIRI_FRAME, true);  // a mola de abrir, o brilho e a bolinha enquanto pensa
+}
+
+void siri::Abrir(bool teste) {  // o ícone da barra: o painel com o campo para digitar
+    if (!Ready()) return;
+    if (g_open && g_entrada) { Fecha(); return; }  // clicar de novo fecha
+    g_teste = teste;
+    g_entrada = true; g_texto.clear(); g_q.clear(); g_a.clear(); g_busy = false; g_erro = false; g_scroll = 0;
+    g_num++;
+    g_cursorOn = true;
+    MostraPainel(teste);
+    SetTimer(g_wnd, T_CURSOR, 530, nullptr);
+}
+
+bool siri::Aberta() { return g_open; }
+
+void siri::Perguntar(const std::wstring& q, bool teste) {
+    if (q.empty() || !Ready()) return;
+    g_teste = teste;
+    g_entrada = false; g_texto.clear();
+    KillTimer(g_wnd, T_CURSOR);
+    g_q = q; g_a.clear(); g_busy = true; g_erro = false; g_scroll = 0; g_pontos = 0;
+    g_answerAt = 0;
+    int num = ++g_num;
+    MostraPainel(teste);
+    SetTimer(g_wnd, T_PONTOS, 420, nullptr);
     HWND to = g_wnd;
     std::thread([q, num, to] {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);

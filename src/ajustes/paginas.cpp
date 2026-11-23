@@ -1609,7 +1609,10 @@ Page CentralControle() {
     auto som = showHide(L"barra_som", L"0"), bt = showHide(L"barra_bluetooth", L"0");
     Row so = Popup(L"Som", { L"Mostrar na Barra de Menus", L"Não Mostrar na Barra de Menus" }, som.first, som.second); so.icon = 0xE767; so.iconColor = C_PURPLE;
     Row b = Popup(L"Bluetooth", { L"Mostrar na Barra de Menus", L"Não Mostrar na Barra de Menus" }, bt.first, bt.second); b.icon = 0xE702; b.iconColor = C_BLUE;
-    p.groups.push_back(G({ w, b, so, s }, L"Módulos da Central de Controle", L"Estes módulos ficam na Central de Controle. Você pode escolher quando eles também aparecem na barra de menus."));
+    // a Siri no canto da barra (aparece com um serviço escolhido em Apple Intelligence e Siri)
+    auto siriB = showHide(L"barra_siri", L"1");
+    Row si = Popup(L"Siri", { L"Mostrar na Barra de Menus", L"Não Mostrar na Barra de Menus" }, siriB.first, siriB.second); si.icon = 0xE720; si.iconColor = C_PURPLE;
+    p.groups.push_back(G({ w, b, so, s, si }, L"Módulos da Central de Controle", L"Estes módulos ficam na Central de Controle. Você pode escolher quando eles também aparecem na barra de menus."));
     // ícones da bandeja: guardados (lista no botão direito da Central de Controle, como o Mac sem setinha),
     // na setinha » ou todos na barra
     Row tray = Popup(L"Ícones dos aplicativos", { L"Guardados (botão direito na Central de Controle)", L"Agrupados no menu »", L"Sempre na barra de menus" },

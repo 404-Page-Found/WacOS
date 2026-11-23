@@ -1689,3 +1689,4 @@
 { L"Pegue a chave no site do serviço e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço.", L"Anahtarı hizmetin web sitesinden alın ve \"Anahtarı yapıştır\"ı kullanın. Anahtar bu Windows hesabı için şifrelenir ve sorular doğrudan bilgisayardan hizmete gider." },
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"Bu bilgisayarda çalışır: sorularınız dışarı çıkmaz. Sormadan önce uygulamayı açın." },
 { L"Mostrar os segundos", L"Saniyeleri göster" },
+{ L"Pergunte à Siri…", L"Siri'ye sorun…" },

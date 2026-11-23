@@ -39,7 +39,7 @@ const float PAD_SEQUOIA = 10;     // espaço de cada lado de um ícone de status
 #define PAD (liquid::On() ? 8.f : PAD_SEQUOIA)
 
 bool g_overflow;  // macOS 27: algum ícone da bandeja não coube na barra (mostra a »)
-enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT };
+enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT, K_SIRI };
 struct Hit { D2D1_RECT_F r; Kind kind; int index; };
 
 HWND g_bar, g_owner;            // g_bar: a barra do monitor principal
@@ -818,7 +818,7 @@ void Render() {
         litNow = false;
         g_hits.push_back({ r, k, i });
         bool lit = (k == K_SOUND && (som::IsOpen() || som::HudLit()))  // menu Som aberto / aviso de volume do Tahoe
-                || (k == K_CC && central::IsOpen()) || (k == K_CLOCK && (notificacoes::IsOpen() || (liquid::On() && notificacoes::BannerVisible()))) || (k == K_SPOT && spotlight::IsOpen());
+                || (k == K_CC && central::IsOpen()) || (k == K_CLOCK && (notificacoes::IsOpen() || (liquid::On() && notificacoes::BannerVisible()))) || (k == K_SPOT && spotlight::IsOpen()) || (k == K_SIRI && siri::Aberta());
         if (lit || ((int)g_hits.size() - 1 == g_open && bar == g_openBar)) highlight(r);
     };
 
@@ -893,6 +893,18 @@ void Render() {
             br->SetColor(pv & 2 ? D2D1::ColorF(0.20f, 0.78f, 0.35f) : D2D1::ColorF(1.0f, 0.58f, 0.0f));
             rt->FillEllipse(D2D1::Ellipse({ r, H / 2 }, 3, 3), br);  // no meio do vão (os dois PAD): nada anda de lugar
         }
+    // a Siri entre o relógio e a Central de Controle, como no macOS (só com um serviço escolhido; barra_siri=0 tira)
+    if (siri::Pronta() && shell::Setting(L"barra_siri", L"1") != L"0") {
+        auto bx = slot(16, K_SIRI, 0);
+        float cx = (bx.left + bx.right) / 2, r = 7.f;
+        D2D1_GRADIENT_STOP gs[3] = { { 0, D2D1::ColorF(0.98f, 0.36f, 0.62f) }, { 0.5f, D2D1::ColorF(0.62f, 0.38f, 1.f) }, { 1, D2D1::ColorF(0.25f, 0.62f, 1.f) } };
+        ID2D1GradientStopCollection* gsc = nullptr; ID2D1LinearGradientBrush* lg = nullptr;
+        if (SUCCEEDED(rt->CreateGradientStopCollection(gs, 3, &gsc)) &&
+            SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({ cx - r, H / 2 - r }, { cx + r, H / 2 + r }), gsc, &lg)))
+            rt->FillEllipse(D2D1::Ellipse({ cx, H / 2 }, r, r), lg);
+        if (lg) lg->Release();
+        if (gsc) gsc->Release();
+    }
     { auto bx = slot(18, K_CC, 0); if (!sym(L"switch.2", bx, 14)) DrawCC(rt, br, (bx.left + bx.right) / 2, H / 2); }
     if (!leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {
         auto bx = slot(15, K_SPOT, 0);
@@ -1377,6 +1389,7 @@ void Click(D2D1_POINT_2F p, bool right) {
         break;
     }
     case K_SPOT: spotlight::Toggle(); break;
+    case K_SIRI: siri::Abrir(); break;
     case K_NET: {
         std::wstring ssid = g_st.ssid.empty() ? Tr(L"Conectado") : g_st.ssid;  // sem a permissão de localização o nome não vem
         bool wifi = g_st.wifiOn;

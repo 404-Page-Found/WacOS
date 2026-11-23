@@ -1689,3 +1689,4 @@
 { L"Pegue a chave no site do serviço e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço.", L"Prendi la chiave dal sito del servizio e usa \"Incolla chiave\". La chiave è cifrata per questo account Windows e le domande vanno direttamente dal PC al servizio." },
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"Funziona su questo PC: le domande non escono da qui. Apri l'app prima di chiedere." },
 { L"Mostrar os segundos", L"Mostra i secondi" },
+{ L"Pergunte à Siri…", L"Chiedi a Siri…" },

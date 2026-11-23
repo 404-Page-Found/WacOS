@@ -1630,3 +1630,21 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   gemini-flash-latest durante os testes (do lado deles). NÃO visto na tela: a animação nova (o usuário estava jogando; o teste
   confere jogo/tela cheia na frente e parou), F14/F15 (sem apertar teclas), os segundos, Codex/Claude Code (Codex não instalado).
   DESFAZER: reverter o commit.
+
+[2026-11-23 17:15, hora do PC] Siri: animação acertada, ícone na barra com campo de digitar, reserva quando a cota acaba.
+  - src/shell/siri.cpp: a primeira versão da animação não aparecia: o traço de pontas redondas vinha da fábrica do ui::d2d e o
+    desenho dentro do vidro usa outra (o quadro inteiro era descartado no EndDraw). Agora o traço é criado na fábrica do contexto.
+    O desenho dentro do vidro é recortado no formato do painel: o brilho foi para a janela da frente (transparente, com a folga).
+    Camadas de brilho com pontas retas (as redondas somavam e faziam "contas"). Visto nas fotos: borda colorida e brilho
+    pensando, apagando quando a resposta chega, texto entrando.
+  - Cota zerada (429) no preferido: tenta um reserva estável da mesma família (cada modelo do Gemini tem a sua cota), só naquela
+    pergunta (Reserva()).
+  - Ícone da Siri na barra de menus (pedido do usuário: "a Siri no canto, no lugar do Spotlight"): a bolinha colorida entre o
+    relógio e a Central de Controle, como no macOS, só com um serviço escolhido (barra_siri; Ajustes > Central de Controle >
+    Siri). Clicar abre o painel com o campo "Pergunte à Siri…" (cursor piscando, Ctrl+V cola, Enter pergunta, Esc fecha);
+    depois de uma resposta, digitar começa outra pergunta.
+  - Testes: WM_COPYDATA 'SIRT' (pergunta sem pegar a frente, fecha em 8 s) e 'SIRA' (abre o campo sem pegar a frente), para
+    testar com um jogo em tela cheia na frente (o usuário liberou). Visto: o campo vazio com o convite e o cursor. NÃO visto:
+    digitar no campo (as letras mandadas pelo teste não chegaram; o usuário estava usando a Siri ao mesmo tempo), o ícone na
+    barra (escondida pela tela cheia do jogo). A cota grátis do Gemini da conta acabou durante os testes (429 em todos os Flash).
+  DESFAZER: reverter o commit.

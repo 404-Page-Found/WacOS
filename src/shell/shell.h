@@ -468,7 +468,9 @@ int Privacidade();              // 1 microfone, 2 câmera em uso (bits); a 1ª c
 }
 namespace siri {  // siri.cpp: a Siri com a chave do usuário (issue #39); provedores e chave em src/comum/siri.h
 bool Pronta();                          // um serviço escolhido nos Ajustes (e a chave, se ele pede)
-void Perguntar(const std::wstring& q);  // abre o painel da Siri e faz a pergunta (numa thread)
+void Perguntar(const std::wstring& q, bool teste = false);
+void Abrir(bool teste = false);   // o ícone da barra de menus: o painel com o campo para digitar (de novo: fecha)
+bool Aberta();  // abre o painel da Siri e faz a pergunta (numa thread)
 }
 namespace brilho {  // brilho.cpp: vigia o brilho da tela do notebook (WMI) e mostra na Ilha
 void Start();

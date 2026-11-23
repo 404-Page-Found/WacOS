@@ -1689,3 +1689,4 @@
 { L"Pegue a chave no site do serviço e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço.", L"Hol dir den Schlüssel auf der Website des Dienstes und nutze „Schlüssel einfügen“. Der Schlüssel wird für dieses Windows-Konto verschlüsselt, und die Fragen gehen direkt vom PC an den Dienst." },
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"Läuft auf diesem PC: Deine Fragen verlassen ihn nicht. Öffne die App, bevor du fragst." },
 { L"Mostrar os segundos", L"Sekunden anzeigen" },
+{ L"Pergunte à Siri…", L"Siri fragen …" },

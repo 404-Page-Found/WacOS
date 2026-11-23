@@ -1689,3 +1689,4 @@
 { L"Pegue a chave no site do serviço e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço.", L"在服务网站上获取密钥，然后使用\"粘贴密钥\"。密钥会为此 Windows 账户加密，问题会直接从电脑发送到服务。" },
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"在此电脑上运行：你的问题不会离开电脑。提问前请先打开应用。" },
 { L"Mostrar os segundos", L"显示秒" },
+{ L"Pergunte à Siri…", L"询问 Siri…" },
