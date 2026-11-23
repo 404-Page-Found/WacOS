@@ -1509,6 +1509,68 @@ void Assenta() {
     if (moveu) shell::ApplyWorkArea();
 }
 
+// Barra de menus de vidro (Ajustes > Transparência > "Barra de menus de vidro", barra_vidro=1, só no Liquid Glass):
+// como o Dock, uma janela logo atrás de cada barra com o vidro do backdrop (o real: captura da tela, desfoque leve,
+// vibrância, borda que refrata e brilho). Sem ela a barra do Tahoe não tem fundo nenhum, e em papel de parede
+// cheio de detalhe as letras sumiam (pedido de 22/11/2026).
+std::map<HWND, HWND> g_vidro;  // barra -> janela de vidro atrás dela
+// o último lugar/tinta passados ao vidro de cada barra: o relógio chama SyncVidro a cada segundo e, sem mudança, não se
+// mexe em nada (antes: SetWindowPos + backdrop::Set a cada segundo, e cada SetWindowPos fazia o vidro real refazer a
+// lista de janelas e remontar o fundo inteiro; o Set igual ainda redesenhava a peça)
+struct VidroUlt { RECT r{}; bool white = false, ok = false; };
+std::map<HWND, VidroUlt> g_vidroUlt;
+bool GlassBarOn() { return backdrop::Liquid() && !liquid::Leopard() && shell::Setting(L"barra_vidro", L"0") == L"1"; }
+LRESULT CALLBACK VidroProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+    if (m == WM_NCHITTEST) return HTTRANSPARENT;
+    if (m == WM_PAINT) { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); return 0; }
+    return DefWindowProcW(h, m, w, l);
+}
+void SyncVidro(HWND bar) {
+    auto it = g_vidro.find(bar);
+    HWND v = it != g_vidro.end() ? it->second : nullptr;
+    if (!GlassBarOn() || !IsWindow(bar) || !IsWindowVisible(bar)) {
+        if (v && IsWindowVisible(v)) ShowWindow(v, SW_HIDE);
+        g_vidroUlt[bar].ok = false;
+        return;
+    }
+    if (!v) {
+        if (it != g_vidro.end()) return;  // já falhou nesta barra
+        static bool reg;
+        if (!reg) { WNDCLASSW c{}; c.lpfnWndProc = VidroProc; c.hInstance = shell::inst; c.lpszClassName = L"ShellBarraVidro"; RegisterClassW(&c); reg = true; }
+        v = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP, L"ShellBarraVidro", L"",
+                            WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, shell::inst, nullptr);
+        if (!v || !backdrop::Attach(v)) {
+            if (v) DestroyWindow(v);
+            g_vidro[bar] = nullptr;
+            Log(L"barra de menus: vidro indisponível");
+            return;
+        }
+        apps::ours.push_back(v);
+        g_vidro[bar] = v;
+    }
+    RECT r; GetWindowRect(bar, &r);
+    const int w = r.right - r.left, h = r.bottom - r.top;
+    if (w <= 0 || h <= 0) { ShowWindow(v, SW_HIDE); g_vidroUlt[bar].ok = false; return; }
+    // tinta pela cor do texto (que segue o papel de parede): letras pretas -> vidro claro; brancas -> vidro escuro
+    bool white = WallpaperTopDark(ui::Dark());
+    VidroUlt& u = g_vidroUlt[bar];
+    const bool same = u.ok && EqualRect(&u.r, &r) && u.white == white && IsWindowVisible(v);
+    // logo atrás da barra (o vidro não passa por cima de nada além dela); só se mudou ou se algo entrou entre os dois
+    if (!same || GetWindow(bar, GW_HWNDNEXT) != v) SetWindowPos(v, bar, r.left, r.top, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (same) return;
+    D2D1_COLOR_F tint = white ? D2D1::ColorF(0.12f, 0.12f, 0.13f, 0.26f) : D2D1::ColorF(0.98f, 0.98f, 0.99f, 0.34f);
+    backdrop::Set(v, (float)w, (float)h, 0.f, tint);
+    u.r = r; u.white = white; u.ok = true;
+}
+void DropVidro(HWND bar) {
+    auto it = g_vidro.find(bar);
+    if (it == g_vidro.end()) return;
+    if (it->second) { backdrop::Detach(it->second); DestroyWindow(it->second); }
+    g_vidro.erase(it);
+    g_vidroUlt.erase(bar);
+}
+
 LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); HWND keep = g_cur; g_cur = h; Render(); g_cur = keep; return 0; }
@@ -1525,11 +1587,14 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         if (w == 2) { TiqueOcultar(); return 0; }
         RefreshStatus(); Assenta(); menubar::Update();
+        SyncVidro(g_bar); for (HWND b : g_extras) SyncVidro(b);  // barra de vidro (PR #18): ligado/desligado nos Ajustes, tinta, monitores
         if (shell::Setting(L"relogio_segundos", L"0") == L"1") {  // com segundos: o tique cai logo depois da virada do segundo
             SYSTEMTIME agora; GetLocalTime(&agora);
             SetTimer(h, 1, 1000 - agora.wMilliseconds + 15, nullptr);
         }
         return 0;
+    case WM_WINDOWPOSCHANGED: SyncVidro(h); break;  // o vidro acompanha a barra (lugar, tamanho, escondida)
+    case WM_DESTROY: DropVidro(h); break;
     case WM_BARSTATUS: PegaStatus(); menubar::Update(); return 0;
     case WM_SETTINGCHANGE:  // Windows trocou entre claro e escuro
         if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { menubar::ApplyTheme(); dock::ApplyTheme(); }
