@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"Her Gün" },
 { L"Dias de Semana", L"Hafta İçi" },
 { L"Fins de Semana", L"Hafta Sonları" },
+{ L"Modo leve", L"Hafif mod" },
+{ L"Desempenho", L"Performans" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Daha az cam efekti ve saniyede 60 karede animasyonlar; tümleşik grafikli veya az belleğe sahip PC'ler için. Otomatik'te pilde ve en fazla 8 GB belleğe ya da 4 çekirdeğe sahip PC'lerde açılır." },

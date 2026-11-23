@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"Every Day" },
 { L"Dias de Semana", L"Weekdays" },
 { L"Fins de Semana", L"Weekends" },
+{ L"Modo leve", L"Lite mode" },
+{ L"Desempenho", L"Performance" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Less glass and animations at 60 frames per second, for PCs with integrated graphics or little memory. On Automatic, it turns on when on battery and on PCs with up to 8 GB of memory or 4 cores." },

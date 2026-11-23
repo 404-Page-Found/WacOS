@@ -405,6 +405,7 @@ bool dashboard::Create(HINSTANCE hi) {
     if (!g_wnd) return false;
     apps::ours.push_back(g_wnd);
     g_s.hwnd = g_wnd;
+    ui::GpuSoltarEscondida(g_s);  // escondido há 2 min: solta os buffers da tela cheia (ui.cpp)
     return true;
 }
 

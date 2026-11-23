@@ -108,11 +108,17 @@ void OpenQuickNote() {
     Log(L"nota rápida: aberta pelo canto");
 }
 
+// Ritmo da leitura: 30 ms com o quadrado à mostra ou o ponteiro a menos de 240 px do canto; longe dele, 150 ms. Antes eram
+// 33 leituras por segundo o tempo todo, mesmo com o ponteiro parado no meio da tela (a interface do Shell acordava ~90
+// vezes por segundo parada, 23/11/2026). Do meio da tela até o canto o ponteiro leva mais que 150 ms.
+UINT g_ritmo = 30;
+void Ritmo(UINT ms) { if (ms != g_ritmo && g_w) { g_ritmo = ms; SetTimer(g_w, T_POLL, ms, nullptr); } }
 void Poll() {
     POINT p; if (!GetCursorPos(&p)) return;
     HMONITOR hm = MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(hm, &mi);
     const RECT& m = mi.rcMonitor;
+    Ritmo(g_on || (p.x >= m.right - 240 && p.y >= m.bottom - 240) ? 30 : 150);
     bool corner = p.x >= m.right - 3 && p.y >= m.bottom - 3;
     bool button = GetAsyncKeyState(VK_LBUTTON) < 0 || GetAsyncKeyState(VK_RBUTTON) < 0;
     DWORD now = GetTickCount();

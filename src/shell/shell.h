@@ -89,6 +89,7 @@ ID2D1DeviceContext* Gpu();                 // contexto compartilhado (criado na 
 ID2D1DeviceContext* GpuBegin(GpuSurface& s, int w, int h, float scale);  // já limpo e com BeginDraw
 void GpuEnd(GpuSurface& s);                       // EndDraw + Present (sem esperar a tela)
 void GpuFree(GpuSurface& s);
+void GpuSoltarEscondida(GpuSurface& s);  // painel de tela cheia: solta os buffers depois de 2 min escondido (pinte antes de mostrar)
 // Desloca o conteúdo dentro da janela (px): a janela pode encolher/crescer sem recriar a imagem.
 void GpuOffset(GpuSurface& s, float x, float y);
 void GpuScale(GpuSurface& s, float scale, float cx, float cy);  // escala o desenho em volta de (cx, cy) px (animação dos painéis)
@@ -648,6 +649,7 @@ void AbrirFinder(const std::wstring& args);
 // abre o Finder com estes argumentos: no nativo, no Finder de dentro do explorer (MacFinder.dll); senão o WacOSFinder.exe
 void AbrirFinder(const std::wstring& args);
 DWORD SemProprio();             // WINEVENT_SKIPOWNPROCESS fora do modo nativo (no nativo, o processo é o explorer)
+void ThreadDeGancho();          // a thread atual segura um gancho global de mouse/teclado: prioridade alta e fora do EcoQoS
 bool Nossa(HWND h);             // janela do próprio Shell (no nativo: só as criadas pelo Shell, não as do explorer)
 extern HINSTANCE inst;
 extern std::wstring dir;        // pasta do Shell.exe
@@ -714,4 +716,10 @@ bool Ativo();
 // gancho de EVENT_OBJECT_LOCATIONCHANGE que sai durante o modo jogo (cada movimento do cursor chegava ao Shell)
 void GanchoPosicao(WINEVENTPROC fn, DWORD flags);
 void SoltarPosicao(WINEVENTPROC fn);
+}
+
+namespace leve {  // Modo leve (leve.cpp): PC fraco ou na bateria → sem vidro real, fosco mais barato, animações a ~60 quadros/s
+void Start();             // vigia tomada/bateria
+bool Atualizar();         // relê modo_leve, a bateria e o PC; true = mudou (quem chama recarrega o vidro)
+bool Ativo();             // pode ser lido de qualquer thread
 }

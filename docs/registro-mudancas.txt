@@ -540,7 +540,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 
 [2026-11-16 23:24 PC] DOCK COMPARADO COM O DO MAC SOBRE PRETO (print do usuário medido pixel a pixel): (1) brilho da borda do vidro real (backdrop.cpp SpecFor): luz vindo de cima (antes da diagonal: acendia o lado esquerdo), embaixo um pouco mais forte, brilho suave de até 6 px, ganho 0,80 no escuro. Medido: topo 74 (Mac 78), embaixo 80 (Mac 91), lados 21 (Mac 13). (2) Transparente escuro (ui.cpp GlassIcon): peça do ícone quase preta (0,05 a 50%); medido 15 (Mac 16; antes 30). Instalado, Shell reiniciado; estilo devolvido para padrao (conferido).
 
-[2026-11-16 23:45 PC] NOME NOVO: WacOS (antes Sequoia Shell), a pedido do usuário ("o nome de tudo, até dos .exe e das dlls"). (1) Programas: SequoiaX.exe/.dll viraram WacOSX.exe/.dll (nomes.h, build.cmd, recursos.ps1, instalador, empacotar; zip dist\WacOS-data.zip; pasta de instalação %LOCALAPPDATA%\Programs\WacOS; tarefa do login "WacOS"; atalho "WacOS.lnk"). Ficaram com o nome velho, de propósito: o tema Sequoia (é o nome do macOS), os ProgIDs SequoiaMusic.Audio/SequoiaQuickTime.Video e a chave HKCU\Software\SequoiaShell (trocar desfaria as associações de arquivo), classes de janela e mensagens internas. (2) src\shell\migrar.cpp: WacOSShell rodando como SequoiaShell.exe passa para o WacOSShell.exe ao lado; ao abrir, corrige no registro (HKCU) os caminhos com o nome velho quando o arquivo novo existe (Winlogon Shell, Run, .zip e Win+E do Finder, Música, QuickTime, diálogos) e troca a tarefa SequoiaShell por WacOS (uma vez, ajuste wacos_tarefa). Neste PC: 11 caminhos corrigidos (log), Winlogon Shell = ...in\WacOSShell.exe (conferido), tarefa WacOS -> Programs\WacOSin\WacOSShell.exe. Instalação nova em Programs\WacOS; da Programs\SequoiaShell só saíram os Sequoia*.exe/dll (para SequoiaBinariosAntigos): cursor\ e o resto ficam lá porque o cursor do Mac no registro aponta para eles. Atalho Sequoia Shell.lnk trocado por WacOS.lnk. instalar.ps1 faz o mesmo nos outros PCs. (3) GITHUB: repositório PRIVADO github.com/renzyxx/WacOS (branch main, commit c57218e; fora: bin, dist, sons/mac, vocal-test, docs/vm-barra e .dll/.exe de docs). .github\workflowsuild.yml: a cada commit na main compila (build.cmd achando o VS pelo vswhere), grava binersao.txt (build-N, commit, data) e publica dist\WacOS.zip como versão latest (empacotar.ps1 -Atualizacao). (4) Ajustes > Geral > Atualização de Software: confere sozinho ao abrir (versão instalada, a mais nova, os commits que faltam) e mostra "Atualizar Agora" só quando há novidade; tools\atualizar-github.ps1 baixa, extrai e roda instalar.ps1 -Atualizar -Silencioso (novo: sem perguntas). Repositório privado: precisa de token em %APPDATA%\Shell\github-token.txt em cada PC (ou tornar o repositório público). Desfazer o nome: migrar.cpp tem os mapeamentos; os valores antigos estão no shell.log de 23:35.
+[2026-11-16 23:45 PC] NOME NOVO: WacOS (antes Sequoia Shell), a pedido do usuário ("o nome de tudo, até dos .exe e das dlls"). (1) Programas: SequoiaX.exe/.dll viraram WacOSX.exe/.dll (nomes.h, build.cmd, recursos.ps1, instalador, empacotar; zip dist\WacOS-data.zip; pasta de instalação %LOCALAPPDATA%\Programs\WacOS; tarefa do login "WacOS"; atalho "WacOS.lnk"). Ficaram com o nome velho, de propósito: o tema Sequoia (é o nome do macOS), os ProgIDs SequoiaMusic.Audio/SequoiaQuickTime.Video e a chave HKCU\Software\SequoiaShell (trocar desfaria as associações de arquivo), classes de janela e mensagens internas. (2) src\shell\migrar.cpp: WacOSShell rodando como SequoiaShell.exe passa para o WacOSShell.exe ao lado; ao abrir, corrige no registro (HKCU) os caminhos com o nome velho quando o arquivo novo existe (Winlogon Shell, Run, .zip e Win+E do Finder, Música, QuickTime, diálogos) e troca a tarefa SequoiaShell por WacOS (uma vez, ajuste wacos_tarefa). Neste PC: 11 caminhos corrigidos (log), Winlogon Shell = ...in\WacOSShell.exe (conferido), tarefa WacOS -> Programs\WacOS\bin\WacOSShell.exe. Instalação nova em Programs\WacOS; da Programs\SequoiaShell só saíram os Sequoia*.exe/dll (para SequoiaBinariosAntigos): cursor\ e o resto ficam lá porque o cursor do Mac no registro aponta para eles. Atalho Sequoia Shell.lnk trocado por WacOS.lnk. instalar.ps1 faz o mesmo nos outros PCs. (3) GITHUB: repositório PRIVADO github.com/renzyxx/WacOS (branch main, commit c57218e; fora: bin, dist, sons/mac, vocal-test, docs/vm-barra e .dll/.exe de docs). .github\workflowsuild.yml: a cada commit na main compila (build.cmd achando o VS pelo vswhere), grava binersao.txt (build-N, commit, data) e publica dist\WacOS.zip como versão latest (empacotar.ps1 -Atualizacao). (4) Ajustes > Geral > Atualização de Software: confere sozinho ao abrir (versão instalada, a mais nova, os commits que faltam) e mostra "Atualizar Agora" só quando há novidade; tools\atualizar-github.ps1 baixa, extrai e roda instalar.ps1 -Atualizar -Silencioso (novo: sem perguntas). Repositório privado: precisa de token em %APPDATA%\Shell\github-token.txt em cada PC (ou tornar o repositório público). Desfazer o nome: migrar.cpp tem os mapeamentos; os valores antigos estão no shell.log de 23:35.
 
 [2026-11-17 00:16 PC] TRÊS CORREÇÕES (o usuário: "os widgets ficam pulando, alguns aplicativos quando clico na área de trabalho pulam, papéis de parede animados como o Lively não funcionam"). (1) Apps pulando: era o "Clicar no papel de parede para mostrar a mesa" (revelar.cpp), ligado sempre; o log mostrava "revelar: 7 janelas para as bordas" a cada clique. Agora o padrão é o do macOS 15/26, "Só no Organizador Visual" (clique_mostra_mesa=palco; 1 = Sempre, 0 = Nunca), com a opção nova em Ajustes > Mesa e Dock > Área de Trabalho. (2) Widgets pulando: um clique com 3 px de movimento virava arrastar e o widget mudava de casa e gravava (estavam salvos nas colunas 7 a 9, no meio da tela). Agora arrastar só depois de ~8 px (widgets.cpp); as posições foram zeradas (widget.*= vazio) e voltaram ao padrão no canto direito. (3) Papel de parede animado: o Lively põe a janela dele dentro da Progman (Windows 11 24H2), atrás dos ícones, e a nossa mesa opaca cobria. mesa.cpp: LiveWallpaperNow() (janela visível de outro processo dentro da Progman ou da WorkerW de trás) a cada ~2 s; detectado, a mesa vira janela em camadas com alfa por pixel (só os ícones, fundo de alfa 1/255 para continuar recebendo cliques); quando o papel animado sai, volta a desenhar o papel de parede. Log "mesa: papel de parede animado detectado" às 00:14:42. Observação: o Lively mostrou "fatal error" ao reiniciar o Shell (00:14:29) e reabriu o player sozinho. Instalado em Programs\WacOS (o Shell agora roda de lá) e reiniciado.
 
@@ -552,7 +552,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 
 [2026-11-17 00:36 PC] ÍCONES DA MESA SOLTOS (o usuário: "não consigo mover os ícones livremente e não tem a opção no botão direito"). mesa.cpp: como no Mac, botão direito > Ordenar Por > Nenhum (padrão: o ícone fica exatamente onde foi solto) / Alinhar à Grade (encaixa nas casas; mesa_grade=1). Cada ícone tem a casa mais perto e um deslocamento livre (mesa.txt: c,r,dx,dy|caminho); o ponto onde foi pego fica sob o cursor ao soltar; preso dentro da área de trabalho. Limpar e Alinhar à Grade zeram os deslocamentos. Instalado e reiniciado; não conferido arrastando (sem simular mouse).
 
-[2026-11-17 00:55 PC] (1) ERRO FATAL DO LIVELY: o log do Lively (LocalCache\Local\Lively Wallpaper\logs) mostrou que cada "TaskbarCreated" do Shell é lido como "Explorer crashed, pid mismatch" e o papel de parede é reiniciado; no reinício do Shell eram dois avisos (saída + entrada) em segundos -> "Explorer restarted multiple times in the last 30s" -> fatal error. tray.cpp: no reinício (ShellReiniciar) o Shell que sai não avisa; o novo avisa uma vez. Conferido: um reinício gerou um aviso só, sem o "multiple times". (2) Lively parando/sem mouse depois de clicar na mesa: a nossa mesa (do tamanho da tela) em primeiro plano parecia um app em tela cheia para o Lively (pausa e para de repassar o mouse); mesa.cpp devolve o primeiro plano à Progman depois de um clique num lugar vazio quando há papel de parede animado. (3) Desenho da mesa transparente limitado a ~60 por segundo (o retângulo de seleção pedia um desenho de tela inteira por movimento do mouse). (4) Dock não abria o Ajustes: o fixado era bin\sequoiasettings.exe (nome velho); apps.cpp OurApp() troca os nossos apps fixados (Sequoia*/WacOS*) pelo WacOS*.exe da pasta de onde o Shell roda (log "System Settings atualizou ... -> Programs\WacOSin\WacOSsettings.exe"). (5) Liquid Glass com aberração cromática: backdrop.cpp DrawPiece desloca vermelho, verde e azul com forças diferentes (+-10%) e soma (vidro_cromatico=0 desliga). (6) Tingido no escuro com o mesmo filtro do Transparente (peça escura na cor de destaque, desenho claro puxado para o destaque; conferido numa foto com o estilo trocado e devolvido para transparente). (7) Otimização: os efeitos do vidro ficam guardados em vez de criados a cada peça a cada quadro. (8) desinstalar.ps1: caixa perguntando se limpa o cache de ícones e miniaturas do Windows (fecha e reabre o Explorador) e sobras (Programs\SequoiaShell se o cursor não estiver em uso, %APPDATA%\Arquivos, SequoiaBinariosAntigos, chaves do registro do Música/QuickTime e Software\SequoiaShell). Instalado e reiniciado.
+[2026-11-17 00:55 PC] (1) ERRO FATAL DO LIVELY: o log do Lively (LocalCache\Local\Lively Wallpaper\logs) mostrou que cada "TaskbarCreated" do Shell é lido como "Explorer crashed, pid mismatch" e o papel de parede é reiniciado; no reinício do Shell eram dois avisos (saída + entrada) em segundos -> "Explorer restarted multiple times in the last 30s" -> fatal error. tray.cpp: no reinício (ShellReiniciar) o Shell que sai não avisa; o novo avisa uma vez. Conferido: um reinício gerou um aviso só, sem o "multiple times". (2) Lively parando/sem mouse depois de clicar na mesa: a nossa mesa (do tamanho da tela) em primeiro plano parecia um app em tela cheia para o Lively (pausa e para de repassar o mouse); mesa.cpp devolve o primeiro plano à Progman depois de um clique num lugar vazio quando há papel de parede animado. (3) Desenho da mesa transparente limitado a ~60 por segundo (o retângulo de seleção pedia um desenho de tela inteira por movimento do mouse). (4) Dock não abria o Ajustes: o fixado era bin\sequoiasettings.exe (nome velho); apps.cpp OurApp() troca os nossos apps fixados (Sequoia*/WacOS*) pelo WacOS*.exe da pasta de onde o Shell roda (log "System Settings atualizou ... -> Programs\WacOS\bin\WacOSsettings.exe"). (5) Liquid Glass com aberração cromática: backdrop.cpp DrawPiece desloca vermelho, verde e azul com forças diferentes (+-10%) e soma (vidro_cromatico=0 desliga). (6) Tingido no escuro com o mesmo filtro do Transparente (peça escura na cor de destaque, desenho claro puxado para o destaque; conferido numa foto com o estilo trocado e devolvido para transparente). (7) Otimização: os efeitos do vidro ficam guardados em vez de criados a cada peça a cada quadro. (8) desinstalar.ps1: caixa perguntando se limpa o cache de ícones e miniaturas do Windows (fecha e reabre o Explorador) e sobras (Programs\SequoiaShell se o cursor não estiver em uso, %APPDATA%\Arquivos, SequoiaBinariosAntigos, chaves do registro do Música/QuickTime e Software\SequoiaShell). Instalado e reiniciado.
 
 [2026-11-17 01:00 PC] Transparente escuro (ui.cpp GlassIcon): corpo da peça de 50% para 24% (o usuário: "não está transparente, parece tingido" sobre papel de parede colorido). Conferido numa foto do Dock.
 
@@ -1390,3 +1390,121 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/main.cpp (IsFullscreen, só a função de conferência; nada dos ganchos): janela filha conta pela de topo dela; sendo a mesa (Progman/WorkerW/SequoiaMesa), não é tela cheia.
   Compilado (build completo). A correção NÃO foi conferida na tela (precisaria instalar este build); a premissa foi conferida no PC com o Shell instalado.
   DESFAZER: reverter o commit.
+[2026-11-23 03:10, hora do PC] Desempenho para PCs fracos e notebooks com GPU híbrida (issues #33, #10, #32).
+  Medido antes (Shell instalado, parado, 30 s): 3,0-3,4% de um núcleo, 428-584 MB de memória privada, 529-885 MB de memória de vídeo
+  dedicada; vidro real com o Chrome atrás do Dock: até 43 montagens/s.
+  - src/comum/gpu.h (novo) + src/shell/ui.cpp, backdrop.cpp, src/menu/context_menu.cpp, src/finder/gfx.cpp, src/captura/main.cpp: os
+    dispositivos D3D11 são criados na placa que liga o monitor principal (a do DWM, pelo nome do monitor no GDI -> LUID), não no
+    "adaptador padrão". Em notebook híbrido (Ryzen/Intel + RTX) marcado como "alto desempenho" o padrão é a dedicada e cada quadro do
+    Dock/barra/vidro/captura era copiado entre as duas placas pelo PCIe (suspeita principal do #33). Log: "GPU: interface em ...".
+    Neste PC continua a RTX 3070 Ti (ela liga o monitor; a UHD 770 não); conferido no log.
+  - src/shell/jogo.cpp: os 4 ganchos de EVENT_OBJECT_LOCATIONCHANGE (vidro, tela cheia, notificações, sombras) viraram UM, que joga fora na
+    hora o que não é janela (cursor, cursor de texto, barras de rolagem). Cada movimento do mouse chegava 4 vezes à thread da interface;
+    agora 1. Log por minuto: "posição: N avisos ... repassados a 4".
+  - src/shell/main.cpp (shell::ThreadDeGancho), revelar.cpp, menus.cpp: as threads dos ganchos globais de teclado e mouse em prioridade
+    alta e fora do EcoQoS (no modo jogo o processo vai para os núcleos de eficiência e cada tecla esperava um deles acordar).
+  - src/shell/main.cpp: shell::SetSetting grava o ajustes.txt numa thread (várias mudanças seguidas = uma gravação). Antes cada clique no
+    Dock/Central/Launchpad/widgets esperava o disco na thread da interface (HD + antivírus: 20-200 ms). LoadSettings e a saída do Shell
+    esperam a fila antes.
+  - src/shell/central.cpp: Editar Controles (Tahoe) desenha no próximo quadro da tela em vez de a cada WM_MOUSEMOVE (eram duas pinturas
+    por movimento: a do arraste e a da luz que segue o ponteiro). Relato do #10: a Central travava ao editar.
+  - src/shell/backdrop.cpp: o vidro real captura sempre as 6 janelas de cima (antes 10); as outras só se aparecem atrás de alguma peça
+    (não estão cobertas ali por janelas opacas). Cada captura segura 2 quadros do tamanho da janela (~40 MB numa janela maximizada
+    3440x1440). Com as 6 janelas abertas no teste não muda nada (~153 MB nos dois casos); com 10 maximizadas seriam ~160 MB a menos.
+    Log por minuto: "vidro real: N capturas segurando ~X MB; memória de vídeo do Shell nesta placa: Y MB".
+  - src/shell/leve.cpp (novo), backdrop.cpp, ui.cpp: modo leve (ajuste modo_leve: auto padrão / 1 / 0). Automático liga na bateria e em
+    PC com até 10 GB de memória ou até 4 núcleos lógicos. Ligado: sem vidro real, o fosco do Tahoe sem o desfoque extra por peça (só a
+    vibrância sobre o fundo já desfocado do DWM) e ui::FrameClock a ~60 quadros/s em telas de 120/144/165/174 Hz. Troca sozinho ao
+    ligar/tirar da tomada (WM_POWERBROADCAST).
+  - src/ajustes/paginas.cpp + idioma_*.inc: Aparência > Transparência e Efeitos > Desempenho > Modo leve (Automático/Ligado/Desligado).
+  Medido depois (mesmas condições, 30 s parado): 3,3% de um núcleo, 381 MB privada, 498 MB de vídeo; com modo_leve=1: 2,8%, vidro real
+  desligado no log. Parado o CPU não muda (o ganho dos ganchos e do disco aparece com o mouse mexendo e em HD, que não dá para simular
+  aqui sem SendInput). NÃO testado: notebook híbrido de verdade (o #33), HD lento, a Central em edição na tela, o modo leve na bateria.
+  Teste do modo leve: modo_leve=1 gravado no ajustes.txt real e devolvido (hash igual ao lido antes).
+  Instalado: WacOSShell/Settings/Finder/Screenshot (os anteriores em SequoiaBinariosAntigos\otim-antes-*.exe).
+  DESFAZER: reverter o commit; para voltar os exes: copiar SequoiaBinariosAntigos\otim-antes-*.exe para Programs\WacOS\bin (sem o prefixo)
+  e reiniciar o Shell. O modo leve sozinho: modo_leve=0 no ajustes.txt.
+
+[2026-11-23 03:45, hora do PC] Desempenho, 2a rodada: o Shell parado, memória e buffers de tela cheia.
+  Medido antes (Shell parado, usuário sem mexer há 36 min): 3,0-3,4% de um núcleo. Por thread (10 s): uma thread gastava 203 ms
+  (2% de um núcleo) acordando ~1.600 vezes/s; a da interface 16 ms. Memória privada comprometida 345 MB, com um bloco de 35.393.536
+  bytes (o papel de parede 4096x2160 inteiro). Handles/GDI/USER estáveis em 26 min (1708 -> 1662, GDI 96, USER 184): sem vazamento.
+  Partida: "fontes: carregadas em 4640 ms" foi um arranque a frio e já fica fora da interface (78 ms com o disco quente); nada mudado.
+  - src/shell/notificacoes.cpp: a thread era a leitura das notificações do Windows (UserNotificationListener: pilhas em wpnapps.dll e
+    msxml6.dll). A cada 1 s, mesmo com a Central fechada, GetNotificationsAsync remontava TODAS as notificações (o XML de cada uma).
+    Agora: Central aberta 1 s; fechada 10 s; quando o toast do Windows aparece (OnToast, que já existia para esconder o toast e mostrar
+    o banner do Mac) acorda na hora e relê a cada 0,4 s por 3 s, então o banner não atrasa.
+  - src/shell/missioncontrol.cpp: o papel de parede das miniaturas das Mesas era lido no tamanho original na partida (4096x2160 = 34 MB)
+    e ficava na memória até a 1a abertura do Mission Control (e depois como bitmap da GPU do mesmo tamanho). Agora é reduzido para
+    1024 px na própria thread que lê.
+  - src/shell/ui.cpp (ui::GpuSoltarEscondida) + launchpad.cpp, missioncontrol.cpp, dashboard.cpp, espacos.cpp: os painéis de tela cheia
+    seguravam os dois buffers do tamanho da tela para sempre depois de fechar (~37 MB cada aqui). Escondido há 2 min, o buffer é solto;
+    eles pintam antes de aparecer, então o buffer volta na próxima abertura. Log: "GPU: <classe> escondida há 2 min: buffers ... soltos".
+  Medido depois (mesmas condições, 30 s): 0,89% de um núcleo (a thread das notificações sumiu da lista; nenhuma passa de 125 ms em 30 s).
+  Memória privada comprometida 314 MB e o bloco de 35 MB não existe mais. Mission Control aberto e fechado pela mensagem ShellAbrirPainel
+  2: aos 2 min o log mostrou "ShellMissionControl ... 3440x1440 soltos (~37 MB)"; reaberto em seguida, normal (foto conferida).
+  Visto e deixado: 4 threads do driver da NVIDIA acordam ~98 vezes/s cada (uma por dispositivo D3D), mas com CPU desprezível;
+  a janela de fundo do Dock recebe ~30 avisos de posição em rajadas de 300 ms a cada poucos segundos sem mudar de lugar (barato; fica
+  para investigar). Banner de notificação NÃO conferido na tela (sem notificação real durante o teste).
+  DESFAZER: reverter o commit; o exe anterior está em SequoiaBinariosAntigos\inst-*-WacOSShell.exe.
+
+[2026-11-23 03:50, hora do PC] Desempenho, 3a rodada: Finder abrindo pasta grande.
+  Medido antes (abrir C:\Windows\System32, 5.113 itens, pelo arquivos.log): 885 ms a frio e janela na tela em 929 ms; com o disco
+  quente 86-141 ms e janela em 121-176 ms. O tempo ia em tags::Read: o fluxo NTFS ":Arquivos.Etiquetas" de CADA item era aberto na
+  thread da interface (5.113 CreateFile que falham), antes de a janela aparecer.
+  - src/finder/main.cpp: ReadEntries não lê mais as etiquetas; PedirEtiquetas lê numa thread (prioridade de segundo plano) e manda só
+    as que existem (WM_APP_TAGS), aplicadas em g_all, g_items e g_childItems. Relendo a mesma pasta, as etiquetas já conhecidas ficam
+    até a thread confirmar (as bolinhas não piscam).
+  Medido depois (mesmas condições, 3 vezes, disco quente): 17 ms e janela na tela em 46-49 ms. Conferido na tela: pasta de teste em
+  C:\Users\Public com um arquivo de etiqueta vermelha (fluxo gravado direto, sem mexer em etiquetas.txt): a bolinha aparece; pasta
+  apagada depois. Instalado: WacOSFinder.exe (o anterior em SequoiaBinariosAntigos\otim-r3-antes-WacOSFinder.exe); a reserva antiga
+  foi fechada (WM_CLOSE) e o Shell abriu outra com o exe novo.
+  DESFAZER: reverter o commit; voltar o exe anterior e fechar a reserva do Finder.
+
+[2026-11-23 04:00, hora do PC] Desempenho, 4a rodada: o Shell parado acordando à toa; Spotlight medido.
+  Medido antes: a thread da interface acordava 84-88 vezes por segundo com o ponteiro parado no meio da tela. Duas leituras do ponteiro
+  rodavam o tempo todo: a Nota Rápida a cada 30 ms (33/s) e os Cantos Ativos a cada 50 ms (20/s).
+  - src/shell/notarapida.cpp e cantos.cpp: intervalo adaptativo. Perto do canto (a menos de 240 px) ou com o quadrado da nota à mostra,
+    o ritmo de antes (30 e 50 ms); longe, 150 ms. Do meio da tela até o canto o ponteiro leva mais que isso.
+  Medido depois (contador "Context Switches/sec" da thread, 15 s, ponteiro parado): 58 acordares por segundo. CPU do Shell parado
+  0,99% de um núcleo (logo depois de reiniciar ficou em 2,6% por meio minuto, o arranque).
+  Visto e deixado:
+  - Spotlight: banco de testes com o indice.db real (943.495 itens, copiado pelo WMI para C:\Users\Public e rodado fora do Shell):
+    a busca leva 14-20 ms por consulta (numa thread, cancelável a cada tecla). Um laço mais enxuto ganhou só ~10%: não mudado.
+  - A thread interna do leitor de notificações do Windows (wpnapps.dll, criada pelo shcore) ainda acorda ~210 vezes/s, mas gasta
+    63-78 ms a cada 10-30 s depois da 2a rodada (antes 203 ms a cada 10 s). É do Windows.
+  - barras.cpp tem um temporizador de 16 ms, mas só no modo nativo (fora do padrão).
+  Instalado: WacOSShell.exe. NÃO conferido na tela: Cantos Ativos e Nota Rápida disparando (sem mexer no mouse do PC).
+  DESFAZER: reverter o commit.
+
+[2026-11-23 04:08, hora do PC] Desempenho, 5a rodada: janela se mexendo (vidro real em movimento e arrastar janelas).
+  Teste: janela Tk descartável (sem moldura, cor mudando a cada quadro) atravessando a tela por trás do Dock por 8 s, duas vezes.
+  - src/shell/backdrop.cpp: a linha de 10 s do vidro real agora traz o tempo médio e máximo das montagens (com os redesenhos das
+    peças). Medido: 0,4-0,65 ms por montagem, máximo 2,8 ms (só a 1a da partida passa de 70 ms). O vidro real em movimento é barato.
+  - Amostras da pilha da thread da interface no teste: a cada quadro em que a janela da frente se mexe, CheckFullscreen ->
+    ilha::SetFullscreen -> FullOnPrimary -> SHQueryUserNotificationState (mensagens síncronas com a bandeja e o Explorador) e a volta
+    por todas as janelas na ordem da tela. Rodava até com a Ilha desligada.
+  - src/shell/ilha.cpp: ilha::SetFullscreen não faz nada com a Ilha desligada; ligada, confere no máximo a cada 250 ms, com uma última
+    conferência 250 ms depois do último movimento (TM_FULL). Travada (bloqueio) continua na hora.
+  Medido (CPU do Shell durante o teste de ~8,5 s, 2 vezes cada): antes 734/750 ms, thread da interface 406/453 ms; depois 672/719 ms,
+  interface 375/391 ms (~10% menos; com a Ilha desligada o caminho todo some). O resto da interface no teste fica espalhado (a maior
+  parte esperando mensagens; a releitura da lista de janelas do vidro em ~2% das amostras): nada mais concentrado para tirar.
+  Visto e deixado: a DLL das janelas (src/janelas) está em 15 processos aqui; o vigia de app travado de cada um varre as janelas do
+  sistema a cada 700 ms, mas uma varredura de 330 janelas custa centésimos de ms. Não mudado.
+  Instalado: WacOSShell.exe. NÃO conferido na tela: a Ilha sumindo ao entrar em tela cheia (no máximo 250 ms depois, pela regra nova).
+  DESFAZER: reverter o commit.
+
+[2026-11-23 04:22, hora do PC] Desempenho, 6a rodada: apps nossos que ficam abertos escondidos (Captura de Tela, reserva do Finder).
+  Medido: a Captura de Tela residente (para o Win+Shift+4 abrir na hora) com 111 MB privados e 79 MB de GPU; a reserva do Finder
+  76 MB privados e 46 MB de GPU. Nos dois a memória física é pequena (3-6 MB: o Windows já tirou da RAM o que não é usado).
+  - src/captura/main.cpp: EndSession limpa a foto congelada da tela (3440x1440 = 20 MB). Quem captura de verdade já levou a dela
+    (Launch); cancelada com Esc, ela ficava na memória até a próxima captura.
+  Medido (sessão aberta e cancelada por mensagem, pelo WMI): logo depois do Esc 135 -> 116 MB privados; a 2a sessão sobe a 141 MB e
+  continua em 79 MB de GPU. Abertura do Win+Shift+4 igual (52-59 ms).
+  Tentado e desfeito: soltar da GPU a cópia da foto e o alvo de desenho depois de 1 min sem uso. A memória de vídeo não voltava (o
+  Direct2D adia a liberação) e a sessão seguinte subia para 99-119 MB de GPU e 160-182 MB privados: pior que reaproveitar.
+  A reserva do Finder: os blocos grandes estão zerados ou fora da RAM; não mudado.
+  Teste: as mensagens para a Captura foram mandadas achando a janela pela enumeração (FindWindow não acha a janela escondida de
+  tamanho zero) por scripts em C:\Users\Public\otim-captura*.ps1. Instalado: WacOSScreenshot.exe (o anterior em
+  SequoiaBinariosAntigos\otim-r6-antes-WacOSScreenshot.exe); a residente foi fechada pela mensagem de sair e o Shell abriu a nova.
+  DESFAZER: reverter os commits.

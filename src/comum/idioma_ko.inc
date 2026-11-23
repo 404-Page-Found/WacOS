@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"매일" },
 { L"Dias de Semana", L"주중" },
 { L"Fins de Semana", L"주말" },
+{ L"Modo leve", L"경량 모드" },
+{ L"Desempenho", L"성능" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"유리 효과를 줄이고 애니메이션을 초당 60프레임으로 실행합니다. 내장 그래픽이나 메모리가 적은 PC용입니다. 자동에서는 배터리 사용 중이거나 메모리 8GB 이하 또는 4코어 이하 PC에서 켜집니다." },

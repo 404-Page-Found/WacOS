@@ -455,6 +455,7 @@ LRESULT CALLBACK MouseHook(int code, WPARAM w, LPARAM lp) {
 }
 
 void HookThread() {
+    shell::ThreadDeGancho();
     MSG m;
     PeekMessageW(&m, nullptr, 0, 0, PM_NOREMOVE);  // cria a fila de mensagens da thread
     g_hookTid = GetCurrentThreadId();

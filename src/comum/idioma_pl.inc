@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"Codziennie" },
 { L"Dias de Semana", L"Dni robocze" },
 { L"Fins de Semana", L"Weekendy" },
+{ L"Modo leve", L"Tryb lekki" },
+{ L"Desempenho", L"Wydajność" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Mniej szkła i animacje w 60 klatkach na sekundę, dla komputerów z grafiką zintegrowaną lub małą ilością pamięci. W trybie Automatycznie włącza się na baterii i na komputerach z maks. 8 GB pamięci lub 4 rdzeniami." },

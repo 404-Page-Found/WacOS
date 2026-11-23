@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"Каждый день" },
 { L"Dias de Semana", L"По будням" },
 { L"Fins de Semana", L"По выходным" },
+{ L"Modo leve", L"Облегчённый режим" },
+{ L"Desempenho", L"Производительность" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Меньше стекла и анимация с частотой 60 кадров в секунду — для ПК со встроенной графикой или малым объёмом памяти. В режиме «Автоматически» включается при работе от батареи и на ПК с памятью до 8 ГБ или до 4 ядер." },

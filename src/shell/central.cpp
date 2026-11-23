@@ -1873,7 +1873,11 @@ void DragPreview(const std::wstring& id, D2D1_POINT_2F pt) {
     g_dragPt = pt;
     g_dragActive = true;
     if (std::fabs(PanelH() - hBefore) > 0.5f) Place();  // cresceu ou encolheu
-    Paint();
+    // Editar Controles (só no Tahoe): o desenho vai no próximo quadro da tela, não a cada movimento do mouse. Pintando aqui,
+    // cada WM_MOUSEMOVE redesenhava a Central inteira E o relógio de quadros (a luz que segue o ponteiro) pintava de novo:
+    // duas pinturas por movimento, o que travava a edição num PC com vídeo integrado (issue #10)
+    if (Tahoe()) ui::FrameClock(g_wnd, WM_CC_FRAME, true);
+    else Paint();
 }
 void DragCancel() {
     if (!g_dragActive && g_preview.empty()) return;

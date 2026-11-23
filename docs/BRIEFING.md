@@ -127,7 +127,7 @@ backdrop (vidro: Composition + **vidro real** por captura de janelas), bloqueio 
 boot (tela de inicialização), cantos (Cantos Ativos), central (Central de Controle + Editar Controles),
 dialogs (Abrir/Salvar trocado por fora), dock, foto/fotogpu (fotos de janelas), genio (efeito gênio),
 indice (índice de arquivos do Spotlight), instalados (lista de apps), jogo (Modo Jogo: jogo na frente desliga vidro real, ganchos de posição e de mouse, Cantos Ativos e o índice; `modo_jogo`, `jogos.txt`), janelas (aplica a SequoiaWindow.dll),
-launchpad (Launchpad/Apps do Tahoe), limites (barra e Dock são limites das janelas), liquid (desenho do Tahoe),
+launchpad (Launchpad/Apps do Tahoe), leve (modo leve: PC fraco ou bateria → sem vidro real, fosco barato, ~60 quadros/s), limites (barra e Dock são limites das janelas), liquid (desenho do Tahoe),
 menubar, menus (menus Win32 dos apps no visual do Mac, sem injetar), mesa (papel de parede e ícones, sem
 Explorer), mesas (áreas virtuais), missioncontrol (Mission Control e Exposé), notarapida, notificacoes,
 pastas (troca janelas de pasta do Explorer pelo Finder), pilhas (Pilhas do Dock), ponteiro (sacudir para
@@ -215,7 +215,7 @@ Chaves (padrão): `ajustes_pagina=geral` `ampliacao=0` `ampliacao_tamanho=128` `
 (padrao/escuro/transparente/tingido) `explorer` (1 / 0 / fundo) `finder_padrao=1` `finder_reserva=1`
 `genio=1` `genio_motor=composicao` `idioma=pt` (pt/en) `indicadores=1` `janelas_mac=1`
 `launchpad_motor=composicao` `launchpad_ocultos` `leopard` (tema Mac OS X Leopard; só vale com `liquid_glass=0`) `limitar_janelas=1` `liquid_estilo=nitido`
-`liquid_glass` `liquid_refracao=0.6` `mc_motor=composicao` `menus_do_windows=1` `menus_fade=1` `ocultar=0`
+`liquid_glass` `liquid_refracao=0.6` `mc_motor=composicao` `menus_do_windows=1` `menus_fade=1` `modo_leve=auto` (auto/1/0: leve.cpp) `ocultar=0`
 `pilha_ordem=adicao` `pilha_ver=auto` `pilhas=1` `progresso_mac=1` `pulo_notificacao=1`
 `reduzir_transparencia=0` `relogio_curto=0` `revelar_motor=composicao` `sacudir_ponteiro=1` `sombras_mac=1`
 `spotlight_google=1` `tamanho=48` `tecla_windows_launchpad=1` `tema=auto` `vidro_real=1` `vidro_tinta=0.5`
@@ -300,7 +300,10 @@ chaves que faltam em cada idioma (texto novo: pôr no en e, se der, nos outros).
    (`ampliacao::Revelar`), sem esperar a primeira pintura.
 6. **Ocioso tem que ser ocioso.** Temporizadores só existem enquanto há trabalho pendente; nada de reler
    listas 10×/s se o Windows já avisa por eventos. Medido: Shell parado de ~6% para ~2% de um núcleo.
-7. **Meça antes e depois.** Os logs já trazem: `menu na tela em X ms`, `QueryContextMenu: X ms`,
+7. **GPU da tela e ganchos leves.** Dispositivo D3D sempre por `gpu::CriarNaTela` (`src/comum/gpu.h`: a placa que liga o
+   monitor, não o "padrão", que em notebook híbrido pode ser a dedicada); EVENT_OBJECT_LOCATIONCHANGE só por
+   `jogo::GanchoPosicao` (um gancho só); thread de gancho global chama `shell::ThreadDeGancho()`; `SetSetting` grava em thread.
+8. **Meça antes e depois.** Os logs já trazem: `menu na tela em X ms`, `QueryContextMenu: X ms`,
    `abertura (reserva): ... X ms`, `pasta: ... (N itens, X ms)`, `rolagem: N quadros em X ms (F quadros/s)`,
    `vidro real: 10 s: ... quadros ... montagens`.
 

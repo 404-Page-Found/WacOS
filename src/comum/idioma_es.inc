@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"Todos los días" },
 { L"Dias de Semana", L"Días laborables" },
 { L"Fins de Semana", L"Fines de semana" },
+{ L"Modo leve", L"Modo ligero" },
+{ L"Desempenho", L"Rendimiento" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Menos vidrio y animaciones a 60 fotogramas por segundo, para PCs con gráficos integrados o poca memoria. En Automático, se activa con batería y en PCs con hasta 8 GB de memoria o 4 núcleos." },

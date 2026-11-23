@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"Täglich" },
 { L"Dias de Semana", L"Wochentags" },
 { L"Fins de Semana", L"Wochenenden" },
+{ L"Modo leve", L"Leichter Modus" },
+{ L"Desempenho", L"Leistung" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"Weniger Glas und Animationen mit 60 Bildern pro Sekunde, für PCs mit integrierter Grafik oder wenig Speicher. Bei „Automatisch“ im Akkubetrieb und auf PCs mit bis zu 8 GB Speicher oder 4 Kernen aktiv." },

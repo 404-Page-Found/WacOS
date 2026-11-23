@@ -8,6 +8,7 @@
 #include <d3d11_4.h>
 #include <dxgi1_2.h>
 #include <dcomp.h>
+#include "../comum/gpu.h"
 #include <dwmapi.h>
 #include <atomic>
 #include <mutex>
@@ -156,9 +157,13 @@ IDCompositionDevice* g_dcomp;
 
 ID2D1DeviceContext* ui::Gpu() {
     if (g_dc) return g_dc;
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &g_d3d, nullptr, nullptr);
+    // na placa que liga a tela (a do DWM), não no "padrão": em notebook com GPU híbrida o padrão pode ser a dedicada e cada
+    // quadro atravessava as duas placas (comum/gpu.h, issue #33)
+    bool naTela = false;
+    HRESULT hr = gpu::CriarNaTela(D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &g_d3d, nullptr, &naTela);
     if (FAILED(hr)) hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &g_d3d, nullptr, nullptr);
     if (FAILED(hr)) { Log(L"erro: D3D11 0x%08X", (unsigned)hr); return nullptr; }
+    { wchar_t nome[128]; gpu::NomeDoAdaptador(g_d3d, nome, 128); Log(L"GPU: interface em %ls%ls", nome, naTela ? L" (a placa da tela)" : L" (padrão)"); }
     g_d3d->QueryInterface(IID_PPV_ARGS(&g_dxgi));
     // a captura de janelas (fotogpu.cpp) escreve quadros neste dispositivo de outras threads
     if (ID3D11Multithread* mt = nullptr; SUCCEEDED(g_d3d->QueryInterface(IID_PPV_ARGS(&mt)))) { mt->SetMultithreadProtected(TRUE); mt->Release(); }
@@ -325,6 +330,33 @@ void ui::GpuFree(GpuSurface& s) {
     if (s.target) s.target->Release();
     if (s.swap) s.swap->Release();
     s = GpuSurface{ s.hwnd };
+}
+
+// Painéis de tela cheia (Launchpad, Mission Control, Dashboard, Mesas) guardavam os dois buffers do tamanho da tela
+// depois de fechar: ~40 MB cada numa tela 3440x1440, para sempre. Com vídeo integrado isso sai da RAM do PC (8 GB no
+// issue #10). Escondido há 2 minutos, o buffer é solto; a próxima pintura (que esses painéis fazem antes de aparecer)
+// cria outro em poucos ms.
+namespace {
+struct Soltavel { ui::GpuSurface* s; ULONGLONG escondida; };
+std::vector<Soltavel> g_soltaveis;
+}
+void ui::GpuSoltarEscondida(GpuSurface& s) {
+    for (auto& x : g_soltaveis) if (x.s == &s) return;
+    g_soltaveis.push_back({ &s, 0 });
+    static UINT_PTR t = SetTimer(nullptr, 0, 20000, [](HWND, UINT, UINT_PTR, DWORD) {
+        ULONGLONG agora = GetTickCount64();
+        for (auto& x : g_soltaveis) {
+            if (!x.s->swap || !x.s->hwnd || IsWindowVisible(x.s->hwnd)) { x.escondida = 0; continue; }
+            if (!x.escondida) { x.escondida = agora; continue; }
+            if (agora - x.escondida < 120000) continue;
+            wchar_t c[64] = {}; GetClassNameW(x.s->hwnd, c, 64);
+            Log(L"GPU: %ls escondida há 2 min: buffers de %dx%d soltos (~%d MB)", c, x.s->w, x.s->h, (int)(2.0 * x.s->w * x.s->h * 4 / (1024 * 1024)));
+            GpuFree(*x.s);  // fica a hwnd; GpuBegin cria tudo de novo
+            if (g_dcomp) g_dcomp->Commit();
+            x.escondida = 0;
+        }
+    });
+    (void)t;
 }
 
 // Relógio de quadros: uma thread que espera a composição da tela (DwmFlush) e avisa a janela.
@@ -616,10 +648,23 @@ void ui::FrameClock(HWND hwnd, UINT msg, bool on) {
     std::thread([c] {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
         DWORD since = GetTickCount(); unsigned frames = 0;
+        // modo leve (leve.cpp): numa tela de 120/144/165 Hz, um quadro a cada `passo` da tela (~60 por segundo). As
+        // animações andam por tempo real: só ficam com menos quadros, e a GPU integrada desenha metade ou um terço
+        unsigned vsync = 0, passo = 1;
+        auto medePasso = [&passo] {
+            DWM_TIMING_INFO ti{ sizeof(ti) };
+            passo = 1;
+            if (SUCCEEDED(DwmGetCompositionTimingInfo(nullptr, &ti)) && ti.rateRefresh.uiDenominator) {
+                double hz = (double)ti.rateRefresh.uiNumerator / ti.rateRefresh.uiDenominator;
+                if (hz > 75) passo = (unsigned)std::lround(hz / 60.0);
+            }
+        };
+        if (leve::Ativo()) medePasso();
         for (;;) {
-            if (!c->on) { WaitForSingleObject(c->wake, INFINITE); since = GetTickCount(); frames = 0; continue; }
+            if (!c->on) { WaitForSingleObject(c->wake, INFINITE); since = GetTickCount(); frames = 0; vsync = 0; if (leve::Ativo()) medePasso(); else passo = 1; continue; }
             DwmFlush();
             if (!c->on) continue;
+            if (passo > 1 && (vsync++ % passo) != 0) continue;  // modo leve: pula este quadro da tela
             // janela destruída não precisa de quadros: desliga sozinho (janela escondida pode precisar: os
             // widgets animam pela janela invisível do relógio deles)
             if (!IsWindow(c->hwnd)) { c->on = false; continue; }

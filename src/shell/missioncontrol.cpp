@@ -523,6 +523,9 @@ void LoadDeskWall(const std::wstring& path) {
         UINT ww = 0, wh = 0; std::vector<BYTE> px;
         bool ok = !wp.empty() && ui::LoadPng(wp, ww, wh, px);
         CoUninitialize();
+        // só as miniaturas das Mesas (~200 px de largura) usam: o papel de parede inteiro (4096x2160 = 34 MB) ficava na
+        // memória desde a partida até a primeira vez que o Mission Control abria, e depois como bitmap da GPU do mesmo tamanho
+        if (ok) { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN); ui::Downscale(ww, wh, px, 1024); px.shrink_to_fit(); }
         std::lock_guard<std::mutex> lk2(g_deskMx);
         if (gen != g_deskGen) return;
         if (ok) { g_deskPx = std::move(px); g_deskW = ww; g_deskH = wh; }
@@ -1079,6 +1082,7 @@ bool missioncontrol::Create(HINSTANCE hi) {
     // cobertura para eles, então as miniaturas continuam vivas.
     apps::ours.push_back(g_wnd);
     g_s.hwnd = g_wnd;
+    ui::GpuSoltarEscondida(g_s);  // escondido há 2 min: solta os buffers da tela cheia (ui.cpp)
     WNDCLASSW xc{}; xc.lpfnWndProc = XProc; xc.hInstance = hi; xc.lpszClassName = L"ShellMissionControlFechar"; xc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassW(&xc);
     g_xWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, xc.lpszClassName, L"", WS_POPUP,

@@ -1637,3 +1637,6 @@
 { L"Todos os Dias", L"每天" },
 { L"Dias de Semana", L"工作日" },
 { L"Fins de Semana", L"周末" },
+{ L"Modo leve", L"轻量模式" },
+{ L"Desempenho", L"性能" },
+{ L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.", L"减少玻璃效果，动画以每秒 60 帧运行，适合集成显卡或内存较少的电脑。“自动”时，在使用电池以及内存不超过 8 GB 或不超过 4 核的电脑上开启。" },

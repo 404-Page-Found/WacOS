@@ -1439,6 +1439,13 @@ Page TransparenciaEfeitos() {
     Row anim = Toggle(L"Animar aplicativos ao abrir", [] { return Setting(L"animar_abertura", L"1") == L"1"; },
                       [](bool v) { SetSetting(L"animar_abertura", v ? L"1" : L"0"); });
     p.groups.push_back(G({ genie, anim }, L"Efeitos"));
+
+    // Modo leve (src/shell/leve.cpp): PC fraco ou notebook na bateria
+    Row leve = Popup(L"Modo leve", { L"Automático", L"Ligado", L"Desligado" },
+                     [] { auto v = Setting(L"modo_leve", L"auto"); return v == L"1" ? 1 : v == L"0" ? 2 : 0; },
+                     [](int i) { SetSetting(L"modo_leve", i == 1 ? L"1" : i == 2 ? L"0" : L"auto"); });
+    p.groups.push_back(G({ leve, Note(L"Menos vidro e animações a 60 quadros por segundo, para PCs com vídeo integrado ou pouca memória. "
+                                      L"No Automático, liga na bateria e em PCs com até 8 GB de memória ou 4 núcleos.") }, L"Desempenho"));
     return p;
 }
 

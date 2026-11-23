@@ -30,7 +30,8 @@
 #include <windows.ui.composition.interop.h>
 #include <windows.graphics.effects.interop.h>
 #include <d3d11_4.h>
-#include <dxgi.h>
+#include <dxgi1_4.h>
+#include "../comum/gpu.h"
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
@@ -222,6 +223,7 @@ backdrop::Style g_style;
 // halo. Se o desfoque extra também for recusado, cai para só a vibrância e, por fim, para o fundo puro.
 std::vector<wuc::CompositionEffectFactory> g_frostFx;
 int g_frostOk = -1;  // índice da receita que funciona; -2 = nenhuma (fundo puro)
+bool g_leveFosco = false;  // modo leve (leve.cpp) valendo para o fosco: sem o desfoque extra
 
 wuc::CompositionBrush MakeFrost() {
     if (g_frostFx.empty() && g_frostOk == -1) {
@@ -235,19 +237,22 @@ wuc::CompositionBrush MakeFrost() {
         add(winrt::make<SatFx>(src()));
     }
     if (g_frostOk != -2) {
-        for (int i = std::max(g_frostOk, 0); i < (int)g_frostFx.size(); i++) {
+        // modo leve: só a vibrância (receita 2). O fundo do DWM já vem desfocado; o gaussiano a mais é refeito pela GPU
+        // em cada peça a cada quadro em que o fundo muda (a Central do Tahoe tem uma peça por controle)
+        int ini = std::max(g_frostOk, 0);
+        if (g_leveFosco) ini = std::max(ini, 2);
+        for (int i = ini; i < (int)g_frostFx.size(); i++) {
             if (!g_frostFx[i]) continue;
             try {
                 auto b = g_frostFx[i].CreateBrush();
                 b.SetSourceParameter(L"fundo", g_comp.CreateHostBackdropBrush());
-                if (g_frostOk != i) Log(L"liquid glass: vidro com a receita %d (0 = fosco + vibrância)", i);
-                g_frostOk = i;
+                if (g_frostOk != i && !g_leveFosco) { Log(L"liquid glass: vidro com a receita %d (0 = fosco + vibrância)", i); g_frostOk = i; }
                 return b;
             } catch (winrt::hresult_error const& e) {
                 Log(L"liquid glass: receita %d falhou (0x%08X %ls)", i, (unsigned)e.code(), e.message().c_str());
             }
         }
-        g_frostOk = -2;
+        if (!g_leveFosco) g_frostOk = -2;
     }
     return g_comp.CreateHostBackdropBrush();
 }
@@ -490,6 +495,7 @@ void Poll(bool refresh = true);  // refresh: relê a lista de janelas (só quand
 std::mutex areasMx;
 std::vector<RECT> areasSnap;
 std::atomic<int> st_frames, st_composes, st_redraws, st_skipped;  // contagem a cada 10 s (diagnóstico de CPU)
+double st_msSoma, st_msMax;  // tempo das montagens (com os redesenhos das peças) nesses 10 s, na thread da interface
 std::map<std::wstring, int> st_frameBy;               // quadros por classe de janela atrás das peças
 // quadro novo de uma janela que não é o papel de parede (Progman/WorkerW/SequoiaMesa). Só o papel de parede animado
 // mudando (Lively: ~58 quadros/s, o tempo todo) remonta o vidro a 30/s, não a 60: o vidro parado sobre um papel de
@@ -497,6 +503,7 @@ std::map<std::wstring, int> st_frameBy;               // quadros por classe de j
 std::atomic<bool> st_nonDesk{ true };
 std::mutex st_mx;
 void Dump();
+double CapturasMb(size_t& n);  // memória de vídeo segura pelas capturas (2 quadros por janela)
 
 // esconde (ou mostra) da captura todas as janelas do Shell que ficam por cima; a mesa (papel de parede) não
 void ApplyAffinity() {
@@ -556,8 +563,21 @@ LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (tick % 40 == 0) {  // a cada 10 s: o que o vidro fez (diagnóstico de CPU)
             std::wstring by;
             { std::lock_guard<std::mutex> lk(st_mx); for (auto& [k, v] : st_frameBy) by += k + L"=" + std::to_wstring(v) + L" "; st_frameBy.clear(); }
-            Log(L"vidro real: 10 s: %d quadros (atrás das peças: %ls; %d ignorados, mudança longe do vidro), %d montagens, %d redesenhos de peça",
-                st_frames.exchange(0), by.c_str(), st_skipped.exchange(0), st_composes.exchange(0), st_redraws.exchange(0));
+            int nm = st_composes.exchange(0);
+            Log(L"vidro real: 10 s: %d quadros (atrás das peças: %ls; %d ignorados, mudança longe do vidro), %d montagens (média %.2f ms, máx %.1f ms), %d redesenhos de peça",
+                st_frames.exchange(0), by.c_str(), st_skipped.exchange(0), nm, nm ? st_msSoma / nm : 0.0, st_msMax, st_redraws.exchange(0));
+            st_msSoma = st_msMax = 0;
+            if (tick % 240 == 0) {  // a cada minuto: quanto de memória de vídeo as capturas seguram (2 quadros por janela)
+                size_t nCaps = 0;
+                double capMb = CapturasMb(nCaps);
+                double usoMb = -1;
+                winrt::com_ptr<IDXGIDevice> dx; winrt::com_ptr<IDXGIAdapter> ad; winrt::com_ptr<IDXGIAdapter3> a3;
+                if (d3d && SUCCEEDED(d3d->QueryInterface(IID_PPV_ARGS(dx.put()))) && SUCCEEDED(dx->GetAdapter(ad.put())) && (a3 = ad.try_as<IDXGIAdapter3>())) {
+                    DXGI_QUERY_VIDEO_MEMORY_INFO vi{};
+                    if (SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &vi))) usoMb = vi.CurrentUsage / (1024.0 * 1024);
+                }
+                Log(L"vidro real: %zu capturas segurando ~%.0f MB; memória de vídeo do Shell nesta placa: %.0f MB", nCaps, capMb, usoMb);
+            }
         }
         Poll(true);  // a lista de janelas, 4 vezes/s: abrir, fechar, mexer e trocar de ordem já avisam na hora (OnWinChange)
         for (auto& [hh, e] : g_entries) {
@@ -610,6 +630,12 @@ struct WinCap {
 };
 std::vector<std::shared_ptr<WinCap>> caps;  // de baixo para cima
 std::map<HWND, DWORD> capFailed;            // janelas que a captura recusa (de administrador): tenta de novo depois
+double CapturasMb(size_t& n) {
+    double mb = 0;
+    for (auto& c : caps) mb += 2.0 * c->size.Width * c->size.Height * 4 / (1024 * 1024);
+    n = caps.size();
+    return mb;
+}
 ID2D1Bitmap1* target;                       // tex como alvo de desenho da montagem
 
 bool Cloaked(HWND h) { DWORD c = 0; DwmGetWindowAttribute(h, DWMWA_CLOAKED, &c, sizeof(c)); return c != 0; }
@@ -699,6 +725,7 @@ std::vector<std::pair<HWND, std::shared_ptr<WinCap>>> ready;  // abertas pela th
 std::vector<HWND> pending;
 
 winrt::com_ptr<ID2D1Bitmap1> g_papel;  // o papel de parede da mesa, por baixo do fundo (issue #31; Compose)
+std::vector<RECT> GlassAreas();
 bool capJaFuncionou = false;  // alguma montagem já teve janela com quadro (a captura funciona neste PC)
 
 void RefreshWindows() {
@@ -725,8 +752,13 @@ void RefreshWindows() {
     bool anyGlass = false;
     for (auto& [hh, e] : g_entries) if (e.real && IsWindowVisible(e.hwnd)) { anyGlass = true; break; }
     if (anyGlass) {
-        struct Ctx { std::vector<HWND>* out; DWORD me; HRGN covered; HRGN tmp; HRGN screen; bool afterMesa; } cx{ &want, GetCurrentProcessId(),
-            CreateRectRgn(0, 0, 0, 0), CreateRectRgn(0, 0, 0, 0), CreateRectRgnIndirect(&mon), false };
+        // Cada captura segura 2 quadros do tamanho da janela na memória de vídeo (numa tela 3440x1440, ~40 MB por janela
+        // maximizada; com 10 janelas, ~400 MB, que no vídeo integrado saem da RAM). As 6 de cima ficam sempre (o Alt+Tab traz
+        // uma delas e o vidro já tem o quadro); das outras, só as que aparecem atrás de alguma peça de vidro (não estão
+        // cobertas ali pelas janelas opacas de cima).
+        auto areas = GlassAreas();
+        struct Ctx { std::vector<HWND>* out; DWORD me; HRGN covered; HRGN tmp; HRGN screen; bool afterMesa; const std::vector<RECT>* areas; } cx{ &want, GetCurrentProcessId(),
+            CreateRectRgn(0, 0, 0, 0), CreateRectRgn(0, 0, 0, 0), CreateRectRgnIndirect(&mon), false, &areas };
         EnumWindows([](HWND h, LPARAM lp) -> BOOL {
             auto* cx = (Ctx*)lp;
             if (!IsWindowVisible(h) || IsIconic(h) || Cloaked(h)) return TRUE;
@@ -752,6 +784,22 @@ void RefreshWindows() {
             if ((ex & WS_EX_TRANSPARENT) || ((ex & WS_EX_LAYERED) && (ex & WS_EX_NOACTIVATE))) return TRUE;
             RECT r = Bounds(h), x;
             if (r.right - r.left < 2 || r.bottom - r.top < 2 || !IntersectRect(&x, &r, &mon)) return TRUE;
+            if (!mesa && cx->out->size() >= 6) {  // além das 6 de cima: só se alguma parte dela aparece atrás de uma peça
+                RECT b = r; OffsetRect(&b, -mon.left, -mon.top);
+                bool aparece = false;
+                for (auto& a : *cx->areas) {
+                    RECT y;
+                    if (!IntersectRect(&y, &b, &a)) continue;
+                    OffsetRect(&y, mon.left, mon.top);
+                    SetRectRgn(cx->tmp, y.left, y.top, y.right, y.bottom);
+                    if (CombineRgn(cx->tmp, cx->tmp, cx->covered, RGN_DIFF) != NULLREGION) { aparece = true; break; }  // não está toda coberta
+                }
+                if (!aparece) return TRUE;
+            }
+            if (!(ex & WS_EX_LAYERED)) {  // opaca: cobre as de baixo (camadas podem ter partes transparentes)
+                SetRectRgn(cx->tmp, r.left, r.top, r.right, r.bottom);
+                CombineRgn(cx->covered, cx->covered, cx->tmp, RGN_OR);
+            }
             // janelas cobertas também: no Alt+Tab a de trás vem para a frente e o vidro já tem o quadro dela
             // (sem isso o vidro mostrava a janela antiga por alguns quadros, até a captura nova abrir)
             cx->out->push_back(h);
@@ -1094,6 +1142,7 @@ void Poll(bool refresh) {
     }
     static int slow = 0;
     double ms = anim::Now() - t0;
+    st_msSoma += ms; st_msMax = std::max(st_msMax, ms);
     if (ms > 12 && slow++ < 20) Log(L"vidro real: montagem lenta, %.1f ms", ms);
 }
 
@@ -1104,7 +1153,8 @@ bool Init() {
     try {
         if (!wgc::GraphicsCaptureSession::IsSupported()) { Log(L"vidro real: captura de janelas indisponível"); return false; }
         if (!d3d) {
-            HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &d3d, nullptr, &ctx);
+            // a placa da tela: os quadros capturados vêm do DWM; noutra placa cada um seria copiado entre as duas (comum/gpu.h)
+            HRESULT hr = gpu::CriarNaTela(D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &d3d, &ctx);
             if (FAILED(hr)) { Log(L"vidro real: D3D11 0x%08X", (unsigned)hr); return false; }
             if (ID3D11Multithread* mt = nullptr; SUCCEEDED(d3d->QueryInterface(IID_PPV_ARGS(&mt)))) { mt->SetMultithreadProtected(TRUE); mt->Release(); }
             winrt::com_ptr<IDXGIDevice> dx; d3d->QueryInterface(IID_PPV_ARGS(dx.put()));
@@ -1502,6 +1552,13 @@ void backdrop::Reload() {
     s.real = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1" && !rg::semCaptura;  // aparece nas gravações (montado pelas janelas)
     // modo jogo (jogo.cpp): o vidro real remontava o fundo a cada quadro do jogo atrás das peças; fica o vidro comum
     if (jogo::Ativo()) s.real = false;
+    // modo leve (leve.cpp: PC fraco ou na bateria): também sem o vidro real, e o fosco sem o desfoque extra (MakeFrost)
+    leve::Atualizar();
+    bool leveMudou = g_leveFosco != leve::Ativo();
+    g_leveFosco = leve::Ativo();
+    if (g_leveFosco) s.real = false;
+    if (leveMudou && g_comp)  // o fosco é refeito com a receita nova (Apply põe na peça)
+        for (auto& [h, e] : g_entries) if (e.liquidBuilt) { try { e.baseBrush = MakeFrost(); } catch (...) {} }
     g_style = s;
     if (g_comp) rg::SetActive(s.real);
     // menus (barra de menus, Dock, Central): mais opacos que os painéis, para ler bem

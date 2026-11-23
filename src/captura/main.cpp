@@ -24,6 +24,7 @@
 #include <mmsystem.h>
 #include <d3d11_4.h>
 #include <dxgi.h>
+#include "../comum/gpu.h"
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.h>
@@ -346,7 +347,7 @@ static ID3D11DeviceContext* g_ctx;
 
 static bool EnsureD3D() {
     if (g_d3d) return true;
-    if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0, D3D11_SDK_VERSION, &g_d3d, nullptr, &g_ctx))) return false;
+    if (FAILED(gpu::CriarNaTela(D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT, &g_d3d, &g_ctx))) return false;  // a placa da tela (comum/gpu.h)
     if (ID3D11Multithread* mt = nullptr; SUCCEEDED(g_d3d->QueryInterface(IID_PPV_ARGS(&mt)))) { mt->SetMultithreadProtected(TRUE); mt->Release(); }
     return true;
 }
@@ -1146,6 +1147,11 @@ static void EndSession() {
     for (auto& o : g_ov) ShowWindow(o.h, SW_HIDE);
     S.wins.clear();
     S.drag = D_NONE;
+    // A Captura fica residente o dia todo: a foto congelada da tela (3440x1440 = 20 MB aqui) ficava na memória até a próxima
+    // captura quando a sessão era cancelada (Esc). Sai já (quem captura de verdade já levou a dela, Launch).
+    // A cópia na GPU (o.bmp) e o alvo (o.rt) ficam: soltar e recriar não devolve a memória de vídeo (o Direct2D adia a
+    // liberação) e a sessão seguinte subia de 79 para 119 MB de GPU (medido 23/11/2026); reaproveitados, ela fica em 79.
+    S.shot = Shot{};
 }
 
 static void StartCountdown(Job j, int secs);
