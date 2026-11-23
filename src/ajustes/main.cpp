@@ -41,7 +41,7 @@ float SEARCH_Y = 52, ACCOUNT_Y = 90;
 const float SEARCH_H = 28, ACCOUNT_H = 50;
 const float PAD = 20, GROUP_R = 8, GROUP_GAP = 11;
 float ROW_H = 38;
-const UINT WM_APP_REBUILD = WM_APP + 1, WM_APP_BITMAP = WM_APP + 2;
+const UINT WM_APP_REBUILD = WM_APP + 1, WM_APP_BITMAP = WM_APP + 2, WM_APP_NA_INTERFACE = WM_APP + 3;
 const UINT_PTR T_REFRESH = 1, T_ANIM = 2, T_CARET = 3, T_FRENTE = 4, T_BARRA = 5;  // T_FRENTE: vem para a frente depois de aparecer
 // Indicador de rolagem do Mac (issue #29: "a barra de rolagem nem sempre aparece"; não havia nenhuma): aparece ao rolar
 // e some 0,9 s depois da última rolagem
@@ -235,6 +235,10 @@ void aj::SetSetting(const wchar_t* key, const std::wstring& v) {
     if (wcscmp(key, L"tema") == 0 || wcscmp(key, L"destaque") == 0) { g_dark = ReadDark(); }
 }
 
+void aj::NaInterface(std::function<void()> f) {
+    auto* p = new std::function<void()>(std::move(f));
+    if (!g_hwnd || !PostMessageW(g_hwnd, WM_APP_NA_INTERFACE, 0, (LPARAM)p)) delete p;
+}
 void aj::Rebuild() { if (g_hwnd) PostMessageW(g_hwnd, WM_APP_REBUILD, 0, 0); }
 void aj::Redraw() { Invalidate(); }
 HWND aj::Window() { return g_hwnd; }
@@ -2208,6 +2212,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (g_drag.g < 0 && !ctxmenu::IsOpen()) ShowPage();
         Invalidate();
         return 0;
+    case WM_APP_NA_INTERFACE: { auto* f = (std::function<void()>*)l; if (f) { (*f)(); delete f; } return 0; }
     case WM_APP_BITMAP: {
         auto* res = (BmpResult*)l;
         ID2D1Bitmap* b = res->px.empty() ? nullptr : gfx::CreateBitmapBGRA(res->w, res->h, res->px.data(), res->w * 4);

@@ -595,8 +595,17 @@ static bool ShellDoWindows() {
     std::wstring v = b; for (auto& c : v) c = (wchar_t)towlower(c);
     return v.find(L"wacosshell.exe") != std::wstring::npos || v.find(L"sequoiashell.exe") != std::wstring::npos;
 }
+// O valor que já estava lá (outro shell personalizado do usuário) fica guardado em winlogon_shell_antes e volta ao
+// desligar; antes ele era sobrescrito e, ao desligar, apagado. Desligar só mexe no valor quando ele é o do WacOS.
 static void SetShellDoWindows(bool on) {
-    if (!on) { RegDeleteKeyValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell"); return; }
+    if (!on) {
+        if (!ShellDoWindows()) return;
+        std::wstring antes = Setting(L"winlogon_shell_antes", L"");
+        if (antes.empty()) RegDeleteKeyValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell");
+        else RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell", REG_SZ, antes.c_str(), (DWORD)(antes.size() + 1) * 2);
+        SetSetting(L"winlogon_shell_antes", L"");
+        return;
+    }
     std::wstring exe = BinDir() + L"\\WacOSShell.exe";
     if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     int r = MessageBoxW(GetActiveWindow(),
@@ -605,6 +614,11 @@ static void SetShellDoWindows(bool on) {
            L"Explorador, ou desligue esta opção. Desinstalar o WacOS também desfaz isso."),
         Tr(L"Abrir no lugar da área de trabalho do Windows?"), MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
     if (r != IDOK) return;
+    if (!ShellDoWindows()) {  // o que estava antes (vazio = o do Windows)
+        wchar_t b[1024] = {}; DWORD cb = sizeof(b);
+        bool tem = RegGetValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell", RRF_RT_REG_SZ, nullptr, b, &cb) == ERROR_SUCCESS && b[0];
+        SetSetting(L"winlogon_shell_antes", tem ? std::wstring(b) : std::wstring());
+    }
     std::wstring v = L"\"" + exe + L"\"";
     RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell", REG_SZ, v.c_str(), (DWORD)(v.size() + 1) * 2);
 }
@@ -1514,15 +1528,19 @@ static void SiriBuscaModelos(int prov) {
     std::thread([prov] {
         std::wstring erro;
         auto l = siri::ListaModelos(prov, erro);
-        if (!l.empty()) {
-            std::wstring junta; for (auto& m : l) junta += (junta.empty() ? L"" : L"|") + m;
-            SetSetting((L"siri_modelos_" + std::to_wstring(prov)).c_str(), junta);
-            std::wstring atual = Setting(L"siri_modelo", L"");
-            if (_wtoi(Setting(L"siri_provedor", L"0").c_str()) == prov && std::find(l.begin(), l.end(), atual) == l.end()) SetSetting(L"siri_modelo", l[0]);
-            g_siriErro.clear();
-        } else g_siriErro = erro;
-        g_siriBuscando = 0;
-        aj::Rebuild();
+        // o resultado vale na thread da interface: Setting/SetSetting e o g_siriErro (lido ao desenhar a página) não são
+        // para duas threads ao mesmo tempo
+        aj::NaInterface([prov, l, erro] {
+            if (!l.empty()) {
+                std::wstring junta; for (auto& m : l) junta += (junta.empty() ? L"" : L"|") + m;
+                SetSetting((L"siri_modelos_" + std::to_wstring(prov)).c_str(), junta);
+                std::wstring atual = Setting(L"siri_modelo", L"");
+                if (_wtoi(Setting(L"siri_provedor", L"0").c_str()) == prov && std::find(l.begin(), l.end(), atual) == l.end()) SetSetting(L"siri_modelo", l[0]);
+                g_siriErro.clear();
+            } else g_siriErro = erro;
+            g_siriBuscando = 0;
+            aj::Rebuild();
+        });
     }).detach();
 }
 Page Inteligencia() {
