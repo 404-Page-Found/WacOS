@@ -1403,3 +1403,20 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - barras.cpp tem um temporizador de 16 ms, mas só no modo nativo (fora do padrão).
   Instalado: WacOSShell.exe. NÃO conferido na tela: Cantos Ativos e Nota Rápida disparando (sem mexer no mouse do PC).
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:08, hora do PC] Desempenho, 5a rodada: janela se mexendo (vidro real em movimento e arrastar janelas).
+  Teste: janela Tk descartável (sem moldura, cor mudando a cada quadro) atravessando a tela por trás do Dock por 8 s, duas vezes.
+  - src/shell/backdrop.cpp: a linha de 10 s do vidro real agora traz o tempo médio e máximo das montagens (com os redesenhos das
+    peças). Medido: 0,4-0,65 ms por montagem, máximo 2,8 ms (só a 1a da partida passa de 70 ms). O vidro real em movimento é barato.
+  - Amostras da pilha da thread da interface no teste: a cada quadro em que a janela da frente se mexe, CheckFullscreen ->
+    ilha::SetFullscreen -> FullOnPrimary -> SHQueryUserNotificationState (mensagens síncronas com a bandeja e o Explorador) e a volta
+    por todas as janelas na ordem da tela. Rodava até com a Ilha desligada.
+  - src/shell/ilha.cpp: ilha::SetFullscreen não faz nada com a Ilha desligada; ligada, confere no máximo a cada 250 ms, com uma última
+    conferência 250 ms depois do último movimento (TM_FULL). Travada (bloqueio) continua na hora.
+  Medido (CPU do Shell durante o teste de ~8,5 s, 2 vezes cada): antes 734/750 ms, thread da interface 406/453 ms; depois 672/719 ms,
+  interface 375/391 ms (~10% menos; com a Ilha desligada o caminho todo some). O resto da interface no teste fica espalhado (a maior
+  parte esperando mensagens; a releitura da lista de janelas do vidro em ~2% das amostras): nada mais concentrado para tirar.
+  Visto e deixado: a DLL das janelas (src/janelas) está em 15 processos aqui; o vigia de app travado de cada um varre as janelas do
+  sistema a cada 700 ms, mas uma varredura de 330 janelas custa centésimos de ms. Não mudado.
+  Instalado: WacOSShell.exe. NÃO conferido na tela: a Ilha sumindo ao entrar em tela cheia (no máximo 250 ms depois, pela regra nova).
+  DESFAZER: reverter o commit.

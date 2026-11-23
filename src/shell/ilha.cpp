@@ -57,7 +57,10 @@ namespace wmc = winrt::Windows::Media::Control;
 namespace {
 
 const UINT WM_IL_FRAME = WM_APP + 1, WM_IL_MEDIA = WM_APP + 2, WM_IL_CAPS = WM_APP + 3, WM_IL_PRIV = WM_APP + 4, WM_IL_DOWN = WM_APP + 5;
-const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, TM_PAUSE = 6, TM_GONE = 7, TM_TICK = 8, TM_STATS = 9, TM_CAPS = 10, TM_OLA = 11;
+const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, TM_PAUSE = 6, TM_GONE = 7, TM_TICK = 8, TM_STATS = 9, TM_CAPS = 10, TM_OLA = 11,
+                TM_FULL = 12;  // conferência da tela cheia que ficou para depois (ilha::SetFullscreen)
+ULONGLONG g_fullChecado;   // quando a tela cheia foi conferida (ilha::SetFullscreen)
+bool g_fullPendente;
 
 enum Style { S_NOTCH, S_ILHA, S_AVISO };
 enum Mode { M_HIDDEN, M_IDLE, M_MEDIA, M_TIMER, M_HUD, M_PEEK, M_OPEN };
@@ -1898,6 +1901,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return TRUE;
     case WM_TIMER:
         switch (w) {
+        case TM_FULL: KillTimer(h, TM_FULL); g_fullPendente = false; g_fullChecado = 0; ilha::SetFullscreen(bloqueio::Active()); break;
         case TM_CLIP: KillTimer(h, TM_CLIP); ReadClipboard(); if (g_mode == M_OPEN && g_tab == TAB_CLIP && !g_running) Paint(); break;
         case TM_EQ: StepBars(); if (!g_running) Paint(); UpdateTimers(); break;
         case TM_HOVER: KillTimer(h, TM_HOVER); if (g_hoverIn && g_mode != M_OPEN && g_mode != M_PEEK) { if (g_mode == M_TIMER) g_tab = TAB_TIMER; g_openOn = true; Update(); } break;
@@ -2183,8 +2187,21 @@ void ApplyFull(bool on) {
 
 }  // namespace
 
+// Chamado a cada mudança da janela da frente, inclusive a cada quadro em que ela se mexe (arrastar uma janela). A conferência
+// (SHQueryUserNotificationState, que conversa com a bandeja e o Explorador por mensagens síncronas, e a volta pela ordem de
+// todas as janelas) rodava a cada quadro do arraste, na thread da interface, até com a Ilha desligada (23/11/2026: era o
+// maior gasto do Shell com uma janela se mexendo). Agora: nada com a Ilha desligada; ligada, no máximo a cada 250 ms, com
+// uma última conferência 250 ms depois do último movimento (a tela cheia nunca fica sem ser vista).
 void ilha::SetFullscreen(bool locked) {
-    ApplyFull(locked || FullOnPrimary());
+    if (locked) { ApplyFull(true); return; }
+    if (!g_wnd || !g_on) return;
+    ULONGLONG agora = GetTickCount64();
+    if (agora - g_fullChecado < 250) {
+        if (!g_fullPendente) { g_fullPendente = true; SetTimer(g_wnd, TM_FULL, 250, nullptr); }
+        return;
+    }
+    g_fullChecado = agora;
+    ApplyFull(FullOnPrimary());
 }
 
 bool ilha::Notificacao(const std::wstring& app, const std::wstring& title, const std::wstring& body,

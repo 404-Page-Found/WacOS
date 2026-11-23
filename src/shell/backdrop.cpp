@@ -495,6 +495,7 @@ void Poll(bool refresh = true);  // refresh: relê a lista de janelas (só quand
 std::mutex areasMx;
 std::vector<RECT> areasSnap;
 std::atomic<int> st_frames, st_composes, st_redraws, st_skipped;  // contagem a cada 10 s (diagnóstico de CPU)
+double st_msSoma, st_msMax;  // tempo das montagens (com os redesenhos das peças) nesses 10 s, na thread da interface
 std::map<std::wstring, int> st_frameBy;               // quadros por classe de janela atrás das peças
 // quadro novo de uma janela que não é o papel de parede (Progman/WorkerW/SequoiaMesa). Só o papel de parede animado
 // mudando (Lively: ~58 quadros/s, o tempo todo) remonta o vidro a 30/s, não a 60: o vidro parado sobre um papel de
@@ -562,8 +563,10 @@ LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (tick % 40 == 0) {  // a cada 10 s: o que o vidro fez (diagnóstico de CPU)
             std::wstring by;
             { std::lock_guard<std::mutex> lk(st_mx); for (auto& [k, v] : st_frameBy) by += k + L"=" + std::to_wstring(v) + L" "; st_frameBy.clear(); }
-            Log(L"vidro real: 10 s: %d quadros (atrás das peças: %ls; %d ignorados, mudança longe do vidro), %d montagens, %d redesenhos de peça",
-                st_frames.exchange(0), by.c_str(), st_skipped.exchange(0), st_composes.exchange(0), st_redraws.exchange(0));
+            int nm = st_composes.exchange(0);
+            Log(L"vidro real: 10 s: %d quadros (atrás das peças: %ls; %d ignorados, mudança longe do vidro), %d montagens (média %.2f ms, máx %.1f ms), %d redesenhos de peça",
+                st_frames.exchange(0), by.c_str(), st_skipped.exchange(0), nm, nm ? st_msSoma / nm : 0.0, st_msMax, st_redraws.exchange(0));
+            st_msSoma = st_msMax = 0;
             if (tick % 240 == 0) {  // a cada minuto: quanto de memória de vídeo as capturas seguram (2 quadros por janela)
                 size_t nCaps = 0;
                 double capMb = CapturasMb(nCaps);
@@ -1139,6 +1142,7 @@ void Poll(bool refresh) {
     }
     static int slow = 0;
     double ms = anim::Now() - t0;
+    st_msSoma += ms; st_msMax = std::max(st_msMax, ms);
     if (ms > 12 && slow++ < 20) Log(L"vidro real: montagem lenta, %.1f ms", ms);
 }
 
