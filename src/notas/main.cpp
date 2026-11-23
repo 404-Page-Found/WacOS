@@ -1489,55 +1489,62 @@ void PedirIaLivre() {  // "Pedir à IA…": a pessoa escreve o que quer
     Invalidate();
 }
 
-void WritingMenu() {
-    if (!editor::Current()) return;
-    if (g_ia.on) return;  // a IA já está escrevendo
-    if (int p = ServicoDaIa()) {  // com um serviço de IA escolhido: as Ferramentas de Escrita do Apple Intelligence
-        auto r = g_btn[B_WRITING].r;
+// Os itens das Ferramentas de Escrita (o botão da barra e o clique direito no texto usam os mesmos): com um serviço de
+// IA escolhido, as do Apple Intelligence e, num submenu, as do computador; sem serviço, as do computador e o caminho
+// para ligar a IA. Ids: 101-110 IA, 201-206 no computador, 220 abrir os Ajustes.
+std::vector<Item> ItensEscrita() {
+    std::vector<Item> local = { I(Tr(L"Revisar"), 201), Sep(), I(Tr(L"Converter em Lista"), 202), I(Tr(L"Converter em Tabela"), 203), Sep(),
+                                I(Tr(L"MAIÚSCULAS"), 204), I(Tr(L"minúsculas"), 205), I(Tr(L"Iniciais Maiúsculas"), 206) };
+    if (int p = ServicoDaIa()) {
         std::wstring titulo = std::wstring(Tr(L"Ferramentas de Escrita")) + L" (" + siri::Provedores()[p].nome + L")";
         std::vector<Item> items = { I(titulo.c_str(), 0, true), Sep(),
-            I(Tr(L"Revisar"), 101), I(Tr(L"Reescrever"), 102), Sep(),
-            I(Tr(L"Amigável"), 103), I(Tr(L"Profissional"), 104), I(Tr(L"Conciso"), 105), Sep(),
-            I(Tr(L"Resumo"), 106), I(Tr(L"Pontos-chave"), 107), I(Tr(L"Lista"), 108), I(Tr(L"Tabela"), 109), Sep(),
-            I(Tr(L"Pedir à IA…"), 110), Sep() };
-        Item local = I(Tr(L"No computador, sem IA"), 0);
-        local.sub = { I(Tr(L"Revisar"), 1), Sep(), I(Tr(L"Converter em Lista"), 2), I(Tr(L"Converter em Tabela"), 3), Sep(),
-                      I(Tr(L"MAIÚSCULAS"), 4), I(Tr(L"minúsculas"), 5), I(Tr(L"Iniciais Maiúsculas"), 6) };
-        items.push_back(local);
-        int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
-        const int kinds[7] = { -1, editor::W_PROOF, editor::W_LIST, editor::W_TABLE, editor::W_UPPER, editor::W_LOWER, editor::W_TITLE };
-        if (id >= 1 && id <= 6) { bool ch = editor::Transform(kinds[id]); Log(L"escrita %d: %ls", id, ch ? L"mudou" : L"nada a mudar"); FocusEditor(); return; }
-        struct { int id; const wchar_t* rot; const wchar_t* tarefa; bool juntar; } t[] = {
-            { 101, L"Revisando…", L"Proofread it: fix spelling, grammar and punctuation. Keep the wording, meaning and formatting.", false },
-            { 102, L"Reescrevendo…", L"Rewrite it so it reads better, keeping the meaning and the formatting.", false },
-            { 103, L"Reescrevendo…", L"Rewrite it in a friendlier, warmer tone, keeping the meaning and the formatting.", false },
-            { 104, L"Reescrevendo…", L"Rewrite it in a more professional tone, keeping the meaning and the formatting.", false },
-            { 105, L"Reescrevendo…", L"Make it more concise, keeping the important information and the formatting.", false },
-            { 106, L"Resumindo…", L"Write a short summary of it as one paragraph, starting with a '## Summary' heading translated to the note's language.", true },
-            { 107, L"Resumindo…", L"List its key points as a short bulleted list, starting with a '## Key Points' heading translated to the note's language.", true },
-            { 108, L"Organizando…", L"Organize it as a clear bulleted list (use nested items where it helps).", false },
-            { 109, L"Organizando…", L"Organize the information into a table (Markdown table with a header row).", false },
-        };
-        for (auto& x : t) if (x.id == id) { PedeIa(Tr(x.rot), x.tarefa, x.juntar); return; }
-        if (id == 110) { PedirIaLivre(); return; }
-        FocusEditor();
-        return;
+            I(Tr(L"Revisar"), 101, g_ia.on), I(Tr(L"Reescrever"), 102, g_ia.on), Sep(),
+            I(Tr(L"Amigável"), 103, g_ia.on), I(Tr(L"Profissional"), 104, g_ia.on), I(Tr(L"Conciso"), 105, g_ia.on), Sep(),
+            I(Tr(L"Resumo"), 106, g_ia.on), I(Tr(L"Pontos-chave"), 107, g_ia.on), I(Tr(L"Lista"), 108, g_ia.on), I(Tr(L"Tabela"), 109, g_ia.on), Sep(),
+            I(Tr(L"Pedir à IA…"), 110, g_ia.on), Sep() };
+        Item sub = I(Tr(L"No computador, sem IA"), 0);
+        sub.sub = local;
+        items.push_back(sub);
+        return items;
     }
-    auto r = g_btn[B_WRITING].r;
-    // sem serviço de IA: as transformações no computador, e o caminho para ligar a IA
-    std::vector<Item> items = { I(Tr(L"Ferramentas de Escrita (no computador, sem IA)"), 0, true), Sep(), I(Tr(L"Revisar"), 1), Sep(),
-                                I(Tr(L"Converter em Lista"), 2), I(Tr(L"Converter em Tabela"), 3), Sep(),
-                                I(Tr(L"MAIÚSCULAS"), 4), I(Tr(L"minúsculas"), 5), I(Tr(L"Iniciais Maiúsculas"), 6), Sep(),
-                                I(Tr(L"Usar IA: escolha um serviço em Ajustes do Sistema > Apple Intelligence e Siri"), 20) };
-    int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), items);
+    std::vector<Item> items = { I(Tr(L"Ferramentas de Escrita (no computador, sem IA)"), 0, true), Sep() };
+    items.insert(items.end(), local.begin(), local.end());
+    items.push_back(Sep());
+    items.push_back(I(Tr(L"Usar IA: escolha um serviço em Ajustes do Sistema > Apple Intelligence e Siri"), 220));
+    return items;
+}
+
+// o item escolhido; false: não era das Ferramentas de Escrita
+bool AgeEscrita(int id) {
     const int kinds[7] = { -1, editor::W_PROOF, editor::W_LIST, editor::W_TABLE, editor::W_UPPER, editor::W_LOWER, editor::W_TITLE };
-    if (id >= 1 && id <= 6) { bool ch = editor::Transform(kinds[id]); Log(L"escrita %d: %ls", id, ch ? L"mudou" : L"nada a mudar"); }
-    if (id == 20) {  // os Ajustes do Sistema na página Apple Intelligence e Siri (ao lado deste exe)
+    if (id >= 201 && id <= 206) { bool ch = editor::Transform(kinds[id - 200]); Log(L"escrita %d: %ls", id - 200, ch ? L"mudou" : L"nada a mudar"); FocusEditor(); return true; }
+    if (id == 220) {  // os Ajustes do Sistema na página Apple Intelligence e Siri (ao lado deste exe)
         wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
         std::wstring aj = exe; aj = aj.substr(0, aj.find_last_of(L'\\')) + L"\\WacOSSettings.exe";
         ShellExecuteW(nullptr, L"open", aj.c_str(), L"--pagina=inteligencia", nullptr, SW_SHOWNORMAL);
+        return true;
     }
-    FocusEditor();
+    struct { int id; const wchar_t* rot; const wchar_t* tarefa; bool juntar; } t[] = {
+        { 101, L"Revisando…", L"Proofread it: fix spelling, grammar and punctuation. Keep the wording, meaning and formatting.", false },
+        { 102, L"Reescrevendo…", L"Rewrite it so it reads better, keeping the meaning and the formatting.", false },
+        { 103, L"Reescrevendo…", L"Rewrite it in a friendlier, warmer tone, keeping the meaning and the formatting.", false },
+        { 104, L"Reescrevendo…", L"Rewrite it in a more professional tone, keeping the meaning and the formatting.", false },
+        { 105, L"Reescrevendo…", L"Make it more concise, keeping the important information and the formatting.", false },
+        { 106, L"Resumindo…", L"Write a short summary of it as one paragraph, starting with a '## Summary' heading translated to the note's language.", true },
+        { 107, L"Resumindo…", L"List its key points as a short bulleted list, starting with a '## Key Points' heading translated to the note's language.", true },
+        { 108, L"Organizando…", L"Organize it as a clear bulleted list (use nested items where it helps).", false },
+        { 109, L"Organizando…", L"Organize the information into a table (Markdown table with a header row).", false },
+    };
+    for (auto& x : t) if (x.id == id) { PedeIa(Tr(x.rot), x.tarefa, x.juntar); return true; }
+    if (id == 110) { PedirIaLivre(); return true; }
+    return false;
+}
+
+void WritingMenu() {
+    if (!editor::Current()) return;
+    auto r = g_btn[B_WRITING].r;
+    int id = ctxmenu::ShowItems(g_hwnd, ScreenPt(r.left, r.bottom + 4), ItensEscrita());
+    if (!AgeEscrita(id)) FocusEditor();
 }
 
 // ---- folha de desenho
@@ -2068,10 +2075,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (!g_gallery && p.x < ListR() && p.y >= TOOLBAR_H) { int r = HitRow(p); if (r >= 0) { SelectNote(g_rows[r].n, true); NoteMenu(g_rows[r].n, sp); } return 0; }
         if (EditorShown() && p.x >= EdL() && editor::Current()) {
             bool s = editor::HasSelection();
+            // as Ferramentas de Escrita (com a IA, se houver serviço) também no clique direito, como no Mac
+            Item escrita = I(Tr(L"Ferramentas de Escrita"), 0);
+            escrita.sub = ItensEscrita();
             int id = ctxmenu::ShowItems(h, sp, { I(Tr(L"Recortar"), 1, !s, false, L"Ctrl+X"), I(Tr(L"Copiar"), 2, !s, false, L"Ctrl+C"), I(Tr(L"Colar"), 3, false, false, L"Ctrl+V"), Sep(),
                                                  I(Tr(L"Negrito"), 4, false, false, L"Ctrl+B"), I(Tr(L"Itálico"), 5, false, false, L"Ctrl+I"), I(Tr(L"Sublinhado"), 6, false, false, L"Ctrl+U"), Sep(),
-                                                 I(Tr(L"Selecionar Tudo"), 7, false, false, L"Ctrl+A") });
+                                                 I(Tr(L"Selecionar Tudo"), 7, false, false, L"Ctrl+A"), Sep(), escrita });
             FocusEditor();
+            if (AgeEscrita(id)) { Invalidate(); return 0; }
             if (id == 1) editor::Copy(true); else if (id == 2) editor::Copy(false); else if (id == 3) editor::Paste();
             else if (id == 4) editor::ToggleAttr(A_BOLD); else if (id == 5) editor::ToggleAttr(A_ITALIC); else if (id == 6) editor::ToggleAttr(A_UNDER);
             else if (id == 7) editor::SelectAll();
