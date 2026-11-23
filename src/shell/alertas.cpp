@@ -495,12 +495,15 @@ void Answer(bool yes, bool third = false) {
     RECT back{}; GetWindowRect(g_wnd, &back);
     Close();
     if (onYes) { if (yes) onYes(); return; }
+    // Rede de segurança para todos os jeitos de responder: se a original não fechar logo depois da resposta (botão não
+    // achado, programa ocupado), ela volta para a tela no lugar do alerta. Antes só o TaskDialog tinha isso, e uma
+    // confirmação do Explorador num Windows em outro idioma ("Sí"/"Ja") ficava escondida em -32000 com a cópia parada.
+    if (t && IsWindow(t)) { g_pendente = t; g_pendentePos = back; SetTimer(g_wnd, 3, 1500, nullptr); }
     if (idYes) {  // caixa de mensagem comum: o clique no botão original
         int id = (third && idThird) ? idThird : (yes || !idNo) ? idYes : idNo;
         if (t && IsWindow(t)) {
             if (taskDlg) {  // TaskDialog: o "clique" documentado; se ela não fechar, volta para a tela (ninguém fica preso)
                 PostMessageW(t, WM_USER + 102 /*TDM_CLICK_BUTTON*/, id, 0);
-                g_pendente = t; g_pendentePos = back;
                 SetTimer(g_wnd, 3, 800, nullptr);
             } else PostMessageW(t, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), (LPARAM)GetDlgItem(t, id));
         }
@@ -523,7 +526,9 @@ void Answer(bool yes, bool third = false) {
             if (name) SysFreeString(name);
             s.erase(std::remove(s.begin(), s.end(), L'&'), s.end());
             for (auto& c : s) c = towlower(c);
-            bool isYes = s == L"yes" || s == L"sim", isNo = s == L"no" || s == L"não" || s == L"nao";
+            // os nomes dos botões no idioma do Windows (os outros caem na rede de segurança acima: a original volta)
+            bool isYes = s == L"yes" || s == L"sim" || s == L"sí" || s == L"si" || s == L"oui" || s == L"ja" || s == L"tak" || s == L"evet" || s == L"да",
+                 isNo = s == L"no" || s == L"não" || s == L"nao" || s == L"non" || s == L"nein" || s == L"nie" || s == L"hayır" || s == L"нет";
             if ((yes && isYes) || (!yes && isNo)) {
                 IUIAutomationInvokePattern* inv = nullptr;
                 if (SUCCEEDED(e->GetCurrentPatternAs(UIA_InvokePatternId, IID_PPV_ARGS(&inv))) && inv) { inv->Invoke(); inv->Release(); }

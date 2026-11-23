@@ -1351,3 +1351,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Conferido sem achar problema: SendMessage para outros processos nos apps (só a do Ajustes), menus criados e destruídos, handles e objetos GDI dos apps, textos dos apps (as tabelas passam por Tr no desenho).
   Compilado (build completo). NÃO instalado nem testado na tela; o caso do WinRAR não foi reproduzido (WinRAR não instalado, sem arrastar simulado).
   DESFAZER: reverter o commit.
+
+[2026-11-23 03:50, hora do PC] Caça a bugs, rodada 3 (alertas). Só código.
+  - src/shell/alertas.cpp: confirmação do Explorador ou do programa respondida pelo alerta do Mac que não fechava depois da resposta ficava escondida em -32000 para sempre (só o TaskDialog voltava). Caso real: Windows em outro idioma, os botões "Sí"/"Ja"/"Oui" não eram achados pela UI Automation, nada era clicado e a operação ficava parada esperando uma pergunta invisível. Agora qualquer resposta tem a rede de segurança (1,5 s; TaskDialog continua com 0,8 s) e os nomes Sim/Não de es, fr, de, it, pl, tr e ru também são reconhecidos.
+  Compilado (build completo). NÃO testado na tela.
+  DESFAZER: reverter o commit.
