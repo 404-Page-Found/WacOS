@@ -425,35 +425,51 @@ bool TimeIn(const std::wstring& key, const SYSTEMTIME& utc, SYSTEMTIME& out) {
 }
 long long Minutes(const SYSTEMTIME& t) { FILETIME f; SystemTimeToFileTime(&t, &f); return (long long)(((ULONGLONG)f.dwHighDateTime << 32 | f.dwLowDateTime) / 600000000ULL); }
 
+// uma cidade: o mostrador, o nome e, embaixo, "Hoje"/"Amanhã" e a diferença de horas (numa linha só se `junto`)
+void WorldOne(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, ID2D1StrokeStyle* st, const CityTz& c, const SYSTEMTIME& utc, const SYSTEMTIME& local,
+              float cx, float cy, float R, float col, bool dark, bool junto) {
+    SYSTEMTIME t;
+    if (!TimeIn(c.tz, utc, t)) return;
+    t.wMilliseconds = local.wMilliseconds;
+    bool night = t.wHour < 6 || t.wHour >= 18;
+    D2D1_COLOR_F face, ink;
+    if (dark) { face = night ? C(0, 0, 0, 0.30f) : C(1, 1, 1, 0.88f); ink = night ? WHITE : C(0, 0, 0); }
+    else { face = night ? C(0.23f, 0.23f, 0.24f) : WHITE; ink = night ? WHITE : C(0, 0, 0); }
+    Face(dc, br, st, cx, cy, R, face, ink, R * 0.26f, false, t);
+    float y = cy + R + 6;
+    Txt(dc, br, Tr(c.name.c_str()), 12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - col / 2, y, cx + col / 2, y + 18), WHITE);
+    long long diff = Minutes(t) - Minutes(local);
+    int dayDiff = (int)((t.wYear * 10000 + t.wMonth * 100 + t.wDay) > (local.wYear * 10000 + local.wMonth * 100 + local.wDay)) -
+                  (int)((t.wYear * 10000 + t.wMonth * 100 + t.wDay) < (local.wYear * 10000 + local.wMonth * 100 + local.wDay));
+    D2D1_COLOR_F sub = C(1, 1, 1, 0.55f);
+    std::wstring dia = dayDiff > 0 ? Tr(L"Amanhã") : dayDiff < 0 ? Tr(L"Ontem") : Tr(L"Hoje");
+    long long ad = diff < 0 ? -diff : diff;
+    wchar_t b[24];
+    if (ad % 60) swprintf_s(b, L"%ls%lld:%02lld H", diff < 0 ? L"−" : L"+", ad / 60, ad % 60);
+    else swprintf_s(b, L"%ls%lld H", diff < 0 ? L"−" : L"+", ad / 60);
+    if (junto) Txt(dc, br, dia + L", " + b, 10, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - col / 2, y + 18, cx + col / 2, y + 33), sub);
+    else {
+        Txt(dc, br, dia, 10, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - col / 2, y + 18, cx + col / 2, y + 33), sub);
+        Txt(dc, br, b, 10, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - col / 2, y + 32, cx + col / 2, y + 47), sub);
+    }
+}
+
+// pequeno: a primeira cidade grande; médio: as quatro numa fileira; grande: as quatro em 2 × 2
 void PaintWorld(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, ID2D1StrokeStyle* st, float w, float h, bool dark) {
     if (!dark) { br->SetColor(C(0.11f, 0.11f, 0.118f)); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, w, h), WidgetRadius(), WidgetRadius()), br); }
     SYSTEMTIME utc, local; GetSystemTime(&utc); GetLocalTime(&local);
-    long long lm = Minutes(local);
     auto cities = Cities();
-    float col = w / 4;
-    for (size_t i = 0; i < cities.size(); i++) {
-        SYSTEMTIME t;
-        if (!TimeIn(cities[i].tz, utc, t)) continue;
-        t.wMilliseconds = local.wMilliseconds;
-        float cx = col * (i + 0.5f);
-        bool night = t.wHour < 6 || t.wHour >= 18;
-        D2D1_COLOR_F face, ink;
-        if (dark) { face = night ? C(0, 0, 0, 0.30f) : C(1, 1, 1, 0.88f); ink = night ? WHITE : C(0, 0, 0); }
-        else { face = night ? C(0.23f, 0.23f, 0.24f) : WHITE; ink = night ? WHITE : C(0, 0, 0); }
-        Face(dc, br, st, cx, 60, 33, face, ink, 8.5f, false, t);
-        Txt(dc, br, Tr(cities[i].name), 12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - col / 2, 99, cx + col / 2, 117), WHITE);
-        long long diff = Minutes(t) - lm;  // em minutos
-        int dayDiff = (int)((t.wYear * 10000 + t.wMonth * 100 + t.wDay) > (local.wYear * 10000 + local.wMonth * 100 + local.wDay)) -
-                      (int)((t.wYear * 10000 + t.wMonth * 100 + t.wDay) < (local.wYear * 10000 + local.wMonth * 100 + local.wDay));
-        D2D1_COLOR_F sub = C(1, 1, 1, 0.55f);
-        Txt(dc, br, dayDiff > 0 ? Tr(L"Amanhã") : dayDiff < 0 ? Tr(L"Ontem") : Tr(L"Hoje"), 10, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER,
-            D2D1::RectF(cx - col / 2, 117, cx + col / 2, 132), sub);
-        long long ad = diff < 0 ? -diff : diff;
-        wchar_t b[24];
-        if (ad % 60) swprintf_s(b, L"%ls%lld:%02lld H", diff < 0 ? L"−" : L"+", ad / 60, ad % 60);
-        else swprintf_s(b, L"%ls%lld H", diff < 0 ? L"−" : L"+", ad / 60);
-        Txt(dc, br, b, 10, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - col / 2, 131, cx + col / 2, 146), sub);
+    if (cities.empty()) return;
+    if (w < SMALL + 1) { WorldOne(dc, br, st, cities[0], utc, local, w / 2, 64, 46, w, dark, true); return; }
+    if (h > SMALL + 1) {
+        for (size_t i = 0; i < cities.size() && i < 4; i++) {
+            float cx = w / 4 + (i % 2) * w / 2, cy = 72 + (i / 2) * (h / 2);
+            WorldOne(dc, br, st, cities[i], utc, local, cx, cy, 50, w / 2, dark, true);
+        }
+        return;
     }
+    float col = w / 4;
+    for (size_t i = 0; i < cities.size(); i++) WorldOne(dc, br, st, cities[i], utc, local, col * (i + 0.5f), 60, 33, col, dark, false);
 }
 
 // ---------------------------------------------------------------- tempo
@@ -461,6 +477,20 @@ void PaintWeather(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, float w, flo
     Weather wx; { std::lock_guard<std::mutex> lk(g_mx); wx = g_wx; }
     if (!dark) Sky(dc, w, h, wx.ok ? wx.code : 0, wx.ok ? wx.day : true);
     std::wstring city = City();
+    wchar_t b[64];
+    if (w < SMALL + 1) {  // pequeno: a cidade, a temperatura grande e, embaixo, o ícone, a condição e a máxima/mínima
+        dc->PushAxisAlignedClip(D2D1::RectF(0, 0, w - 12, h), D2D1_ANTIALIAS_MODE_ALIASED);
+        Txt(dc, br, city, 14, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(16, 12, 400, 30), WHITE);
+        dc->PopAxisAlignedClip();
+        if (wx.ok) swprintf_s(b, L"%ld°", lround(wx.temp)); else wcscpy_s(b, L"--°");
+        Txt(dc, br, b, 40, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(13, 30, w, 80), WHITE, true);
+        if (!wx.ok) return;
+        DrawIcon(dc, br, IconOf(wx.code, wx.day), 27, 104, 18, dark);
+        Txt(dc, br, ConditionOf(wx.code, wx.day), 12, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(16, 118, w - 10, 136), WHITE);
+        swprintf_s(b, Tr(L"Máx.: %ld° Mín.: %ld°"), lround(wx.hi), lround(wx.lo));
+        Txt(dc, br, b, 12, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(16, 136, w - 10, 154), WHITE);
+        return;
+    }
     Txt(dc, br, city, 15, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(17, 12, 250, 32), WHITE);
     {   // seta de localização (location.fill)
         float x = 17 + Width(city, 15, DWRITE_FONT_WEIGHT_SEMI_BOLD) + 5, y = 22;
@@ -475,7 +505,6 @@ void PaintWeather(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, float w, flo
         }
         if (f) f->Release();
     }
-    wchar_t b[64];
     if (wx.ok) swprintf_s(b, L"%ld°", lround(wx.temp)); else wcscpy_s(b, L"--°");
     Txt(dc, br, b, 44, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(14, 32, 200, 86), WHITE, true);
     if (!wx.ok) {
@@ -486,26 +515,40 @@ void PaintWeather(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, float w, flo
     Txt(dc, br, ConditionOf(wx.code, wx.day), 13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING, D2D1::RectF(120, 38, w - 17, 56), WHITE);
     swprintf_s(b, Tr(L"Máx.: %ld° Mín.: %ld°"), lround(wx.hi), lround(wx.lo));
     Txt(dc, br, b, 13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_TRAILING, D2D1::RectF(120, 57, w - 17, 75), WHITE);
-    // próximas 6 horas
+    // próximas horas: 6 no médio, 18 (três fileiras) no grande
     double now = (double)time(nullptr);
     size_t first = 0;
     while (first < wx.hours.size() && wx.hours[first].t <= now) first++;
     float pitch = (w - 34) / 6;
-    for (int i = 0; i < 6 && first + i < wx.hours.size(); i++) {
-        auto& hr = wx.hours[first + i];
-        float cx = 17 + pitch * (i + 0.5f);
-        swprintf_s(b, L"%dh", LocalMinuteOfDay(hr.t, wx.utcOffset) / 60);
-        Txt(dc, br, b, 11, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - 30, 92, cx + 30, 108), C(1, 1, 1, 0.75f));
-        DrawIcon(dc, br, IconOf(hr.code, hr.day), cx, 125, 21, dark);
-        swprintf_s(b, L"%ld°", lround(hr.temp));
-        Txt(dc, br, b, 13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - 30, 144, cx + 30, 162), WHITE);
+    int fileiras = h > SMALL + 1 ? 3 : 1;
+    for (int f = 0; f < fileiras; f++) {
+        float dy = f * 86.f;
+        if (f) { br->SetColor(C(1, 1, 1, 0.18f)); dc->DrawLine({ 17, 86 + dy }, { w - 17, 86 + dy }, br, 1); }
+        for (int i = 0; i < 6 && first + f * 6 + i < wx.hours.size(); i++) {
+            auto& hr = wx.hours[first + f * 6 + i];
+            float cx = 17 + pitch * (i + 0.5f);
+            swprintf_s(b, L"%dh", LocalMinuteOfDay(hr.t, wx.utcOffset) / 60);
+            Txt(dc, br, b, 11, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - 30, 92 + dy, cx + 30, 108 + dy), C(1, 1, 1, 0.75f));
+            DrawIcon(dc, br, IconOf(hr.code, hr.day), cx, 125 + dy, 21, dark);
+            swprintf_s(b, L"%ld°", lround(hr.temp));
+            Txt(dc, br, b, 13, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - 30, 144 + dy, cx + 30, 162 + dy), WHITE);
+        }
     }
 }
 
 // ---------------------------------------------------------------- relógio
+// pequeno: o mostrador; grande: o mostrador maior; médio: o mostrador à esquerda e a hora e a data por extenso à direita
 void PaintClock(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, ID2D1StrokeStyle* st, float w, float h, bool dark) {
     SYSTEMTIME t; GetLocalTime(&t);
-    Face(dc, br, st, w / 2, h / 2, 75, dark ? C(0.07f, 0.07f, 0.08f, 0.92f) : WHITE, dark ? WHITE : C(0, 0, 0), 20, true, t);
+    D2D1_COLOR_F face = dark ? C(0.07f, 0.07f, 0.08f, 0.92f) : WHITE, ink = dark ? WHITE : C(0, 0, 0);
+    if (h > SMALL + 1) { Face(dc, br, st, w / 2, h / 2, 160, face, ink, 40, true, t); return; }
+    if (w < SMALL + 1) { Face(dc, br, st, w / 2, h / 2, 75, face, ink, 20, true, t); return; }
+    Face(dc, br, st, h / 2, h / 2, 75, face, ink, 20, true, t);
+    D2D1_COLOR_F txt = dark ? WHITE : C(0, 0, 0, 0.85f), sub = dark ? C(1, 1, 1, 0.6f) : C(0, 0, 0, 0.5f);
+    wchar_t b[16]; swprintf_s(b, L"%d:%02d", t.wHour, t.wMinute);
+    Txt(dc, br, b, 44, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(h + 4, 42, w - 12, 96), txt, true);
+    Txt(dc, br, idioma::Cap(idioma::DayName(t.wDayOfWeek)), 14, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(h + 6, 98, w - 12, 116), sub);
+    Txt(dc, br, idioma::Date(t, 1), 13, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(h + 6, 116, w - 12, 134), sub);
 }
 
 // ---------------------------------------------------------------- calendário
@@ -513,7 +556,15 @@ void PaintCalendar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, float w, fl
     if (!dark) { br->SetColor(WHITE); dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, w, h), WidgetRadius(), WidgetRadius()), br); }
     static const wchar_t* months[] = { L"JANEIRO", L"FEVEREIRO", L"MARÇO", L"ABRIL", L"MAIO", L"JUNHO", L"JULHO", L"AGOSTO", L"SETEMBRO", L"OUTUBRO", L"NOVEMBRO", L"DEZEMBRO" };
     SYSTEMTIME t; GetLocalTime(&t);
-    Txt(dc, br, Tr(months[t.wMonth - 1]), 11, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(16, 16, w, 33), RED);
+    // médio: o dia da semana e o número grande à esquerda, o mês à direita; grande: o mês com tudo em dobro
+    float k = h > SMALL + 1 ? 2.f : 1.f, ox = w > SMALL + 1 && h < SMALL + 1 ? w - SMALL : (w - SMALL * k) / 2;
+    if (k == 1 && w > SMALL + 1) {
+        Txt(dc, br, idioma::Cap(idioma::DayName(t.wDayOfWeek)), 13, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(18, 16, ox, 34), RED);
+        Txt(dc, br, std::to_wstring(t.wDay), 72, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(14, 30, ox, 120), dark ? WHITE : C(0, 0, 0), true);
+        br->SetColor(dark ? C(1, 1, 1, 0.15f) : C(0, 0, 0, 0.10f));
+        dc->DrawLine({ ox, 18 }, { ox, h - 18 }, br, 1);
+    }
+    Txt(dc, br, Tr(months[t.wMonth - 1]), 11 * k, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, D2D1::RectF(ox + 16 * k, 16 * k, w, 33 * k), RED);
     SYSTEMTIME f = t; f.wDay = 1; f.wHour = 12; FILETIME ft; SystemTimeToFileTime(&f, &ft); FileTimeToSystemTime(&ft, &f);
     int startDow = f.wDayOfWeek;
     static const int dim[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
@@ -523,18 +574,18 @@ void PaintCalendar(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, float w, fl
     std::wstring heads = idioma::En() ? L"SMTWTFS" : idioma::Pt() ? L"DSTQQSS" : L"";
     if (heads.empty())  // os outros idiomas: a inicial do nome mais curto do Windows ("D L M M J V S", "日月火水木金土")
         for (int c = 0; c < 7; c++) { std::wstring n = idioma::Cap(idioma::DayName(c, 2)); heads += n.empty() ? L'?' : n[0]; }
-    float pitchX = 21.2f, x0 = 21, top = 44, pitchY = rows > 5 ? 17 : 19.8f;
+    float pitchX = 21.2f * k, x0 = ox + 21 * k, top = 44 * k, pitchY = (rows > 5 ? 17 : 19.8f) * k;
     for (int c = 0; c < 7; c++) {
         wchar_t s[2] = { heads[c], 0 };
-        Txt(dc, br, s, 10, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(x0 + c * pitchX - 10, top - 8, x0 + c * pitchX + 10, top + 8),
+        Txt(dc, br, s, 10 * k, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(x0 + c * pitchX - 10 * k, top - 8 * k, x0 + c * pitchX + 10 * k, top + 8 * k),
             dark ? C(1, 1, 1, 0.55f) : C(0, 0, 0, 0.45f));
     }
     for (int d = 1; d <= days; d++) {
         int cell = startDow + d - 1, c = cell % 7, r = cell / 7;
-        float cx = x0 + c * pitchX, cy = top + 20 + r * pitchY;
+        float cx = x0 + c * pitchX, cy = top + 20 * k + r * pitchY;
         bool today = d == t.wDay;
-        if (today) { br->SetColor(RED); dc->FillEllipse(D2D1::Ellipse({ cx, cy }, 9, 9), br); }
-        Txt(dc, br, std::to_wstring(d), 11, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - 11, cy - 8, cx + 11, cy + 8),
+        if (today) { br->SetColor(RED); dc->FillEllipse(D2D1::Ellipse({ cx, cy }, 9 * k, 9 * k), br); }
+        Txt(dc, br, std::to_wstring(d), 11 * k, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER, D2D1::RectF(cx - 11 * k, cy - 8 * k, cx + 11 * k, cy + 8 * k),
             today ? WHITE : (c == 0 || c == 6) ? weekend : ink);
     }
 }
@@ -685,6 +736,7 @@ Grid GridNow(HWND h) {
     return { r.left / sc, r.top / sc, r.right / sc, r.bottom / sc, sc };
 }
 int Cols(const Widget& w) { return w.w > SMALL + 1 ? 2 : 1; }
+int Rows(const Widget& w) { return w.h > SMALL + 1 ? 2 : 1; }  // o grande ocupa 2 × 2 casas
 int MaxRc(const Grid& g, const Widget& w) { return std::max(0, (int)std::floor((g.right - g.left - 2 * MARGIN - w.w) / PITCH)); }
 int MaxRow(const Grid& g, const Widget& w) { return std::max(0, (int)std::floor((g.bottom - g.top - 2 * MARGIN - w.h) / PITCH)); }
 POINT CellPx(const Grid& g, const Widget& w, int rc, int row) {  // rc: casa da borda direita do widget, contando da direita
@@ -692,11 +744,11 @@ POINT CellPx(const Grid& g, const Widget& w, int rc, int row) {  // rc: casa da 
     return { (LONG)std::lround(x * g.sc), (LONG)std::lround(y * g.sc) };
 }
 bool Overlaps(const Widget& w, int rc, int row) {
-    int a0 = rc, a1 = rc + Cols(w) - 1;
+    int a0 = rc, a1 = rc + Cols(w) - 1, r0 = row, r1 = row + Rows(w) - 1;
     for (auto& o : g_w) {
-        if (&o == &w || !o.on || o.rc < 0 || o.row != row) continue;
-        int b0 = o.rc, b1 = o.rc + Cols(o) - 1;
-        if (a0 <= b1 && b0 <= a1) return true;
+        if (&o == &w || !o.on || o.rc < 0) continue;
+        int b0 = o.rc, b1 = o.rc + Cols(o) - 1, s0 = o.row, s1 = o.row + Rows(o) - 1;
+        if (a0 <= b1 && b0 <= a1 && r0 <= s1 && s0 <= r1) return true;
     }
     return false;
 }
@@ -827,6 +879,17 @@ void Show(Widget& wd, bool on) {
     }
 }
 
+// Tamanho (issue #39): widget.<id>.tam = p, m ou g. O Nascer do Sol não tem o grande.
+const float LARGE = MEDIUM;
+bool TemTamanho(const Widget& wd, wchar_t t) { return !(wd.kind == K_SUN && t == L'g'); }
+wchar_t TamanhoPadrao(const Widget& wd) { return wd.kind == K_WEATHER || wd.kind == K_WORLD ? L'm' : L'p'; }
+void AplicaTamanho(Widget& wd, wchar_t t) {
+    if (!TemTamanho(wd, t)) t = TamanhoPadrao(wd);
+    wd.w = t == L'p' ? SMALL : MEDIUM;
+    wd.h = t == L'g' ? LARGE : SMALL;
+}
+wchar_t TamanhoDe(const Widget& wd) { return wd.h > SMALL + 1 ? L'g' : wd.w > SMALL + 1 ? L'm' : L'p'; }
+
 Widget* Of(HWND h) { for (auto& w : g_w) if (w.wnd == h || w.back == h) return &w; return nullptr; }
 
 void Click(Widget& wd) {
@@ -856,7 +919,16 @@ void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só 
     // "só dá para ver em Campinas")
     bool local = wd && (wd->kind == K_WEATHER || wd->kind == K_SUN);
     if (local) { ctxmenu::Item ed; ed.label = Tr(L"Editar Local…"); ed.id = 3; items.push_back(ed); }
-    if (wd) { ctxmenu::Item rm; rm.label = Tr(L"Remover Widget"); rm.id = 1; items.push_back(rm); }
+    if (wd) {
+        const wchar_t* nomes[] = { L"Pequeno", L"Médio", L"Grande" };
+        const wchar_t tams[] = { L'p', L'm', L'g' };
+        for (int i = 0; i < 3; i++) {
+            if (!TemTamanho(*wd, tams[i])) continue;
+            ctxmenu::Item t; t.label = Tr(nomes[i]); t.id = 20 + i; t.checked = TamanhoDe(*wd) == tams[i]; items.push_back(t);
+        }
+        ctxmenu::Item s2; s2.separator = true; items.push_back(s2);
+        ctxmenu::Item rm; rm.label = Tr(L"Remover Widget"); rm.id = 1; items.push_back(rm);
+    }
     ctxmenu::Item reset; reset.label = Tr(L"Organizar Widgets"); reset.id = 2; items.push_back(reset);
     HWND fg = GetForegroundWindow();
     DWORD ft = fg ? GetWindowThreadProcessId(fg, nullptr) : 0, me = GetCurrentThreadId();
@@ -867,6 +939,16 @@ void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só 
     if (id == 3) {
         std::wstring exe = shell::dir + L"\\" EXE_WEATHER;
         shell::Abrir(L"open", exe.c_str(), L"--meu-local", shell::dir.c_str(), SW_SHOWNORMAL);
+    } else if (id >= 20 && id <= 22 && wd) {  // outro tamanho: a mesma casa, ou a livre mais perto se não couber
+        wchar_t t = L"pmg"[id - 20];
+        if (t != TamanhoDe(*wd)) {
+            AplicaTamanho(*wd, t);
+            shell::SetSetting((std::wstring(L"widget.") + wd->id + L".tam").c_str(), std::wstring(1, t));
+            Position(*wd, false);
+            SaveCell(*wd);
+            PlaceAtDesktop(*wd);
+            Paint(*wd);
+        }
     } else if (id == 1 && wd) { Show(*wd, false); shell::SetSetting((std::wstring(L"widget.") + wd->id + L".on").c_str(), L"0"); }
     else if (id == 2) {
         for (auto& w : g_w) w.rc = -1;
@@ -1064,6 +1146,10 @@ void widgets::Create(HINSTANCE hi) {
         apps::ours.push_back(wd.wnd);
         apps::ours.push_back(wd.back);
         wd.s.hwnd = wd.wnd;
+        {
+            std::wstring t = shell::Setting((std::wstring(L"widget.") + wd.id + L".tam").c_str(), L"");
+            if (!t.empty()) AplicaTamanho(wd, t[0]);
+        }
         Show(wd, shell::Setting((std::wstring(L"widget.") + wd.id + L".on").c_str(), L"1") != L"0");
     }
     SetTimer(g_timer, 1, 1000, nullptr);

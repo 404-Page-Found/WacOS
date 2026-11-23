@@ -15,6 +15,7 @@
 #include <mfreadwrite.h>
 #include <mferror.h>
 #include "../comum/simbolos.h"  // símbolos SF da prévia do Liquid Glass (Golden Gate)
+#include "../comum/siri.h"      // Siri com a chave do usuário (issue #39)
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
@@ -584,6 +585,29 @@ static void SetShellAutoStart(bool on) {
     }
     RunHidden(L"powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand " + enc, 30000);
 }
+// "Abrir no lugar da área de trabalho do Windows" (issue #39): o WacOSShell vira o shell do Windows deste usuário
+// (HKCU\...\Winlogon, valor Shell). Ele abre logo no login, no lugar em que o Explorador abriria, e o Shell põe o Explorador
+// no fundo sozinho (mesa.cpp, StartExplorer). Desligado, o valor é apagado e vale o do Windows (explorer.exe).
+static const wchar_t* WINLOGON_K = L"Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+static bool ShellDoWindows() {
+    wchar_t b[1024]; DWORD cb = sizeof(b);
+    if (RegGetValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell", RRF_RT_REG_SZ, nullptr, b, &cb) != ERROR_SUCCESS) return false;
+    std::wstring v = b; for (auto& c : v) c = (wchar_t)towlower(c);
+    return v.find(L"wacosshell.exe") != std::wstring::npos || v.find(L"sequoiashell.exe") != std::wstring::npos;
+}
+static void SetShellDoWindows(bool on) {
+    if (!on) { RegDeleteKeyValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell"); return; }
+    std::wstring exe = BinDir() + L"\\WacOSShell.exe";
+    if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    int r = MessageBoxW(GetActiveWindow(),
+        Tr(L"No próximo login, o WacOS abre no lugar da área de trabalho do Windows, antes do Explorador, sem a tela do Windows "
+           L"aparecer antes. O Explorador continua rodando no fundo.\n\nSe algo der errado, aperte Ctrl+Alt+Shift+F11 para voltar ao "
+           L"Explorador, ou desligue esta opção. Desinstalar o WacOS também desfaz isso."),
+        Tr(L"Abrir no lugar da área de trabalho do Windows?"), MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
+    if (r != IDOK) return;
+    std::wstring v = L"\"" + exe + L"\"";
+    RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON_K, L"Shell", REG_SZ, v.c_str(), (DWORD)(v.size() + 1) * 2);
+}
 static void TurnShellOff() {
     int r = MessageBoxW(GetActiveWindow(),
         Tr(L"O WacOS vai fechar agora e não vai mais abrir ao entrar no Windows. A barra de tarefas e o "
@@ -593,6 +617,7 @@ static void TurnShellOff() {
     if (r != IDOK) return;
     SetShellAutoStart(false);
     g_autoStart = 0;
+    SetShellDoWindows(false);  // o próximo login volta a abrir o Explorador
     RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --padrao off --quieto");  // pastas voltam para o Explorador
     SetSetting(L"finder_padrao", L"0");
     SetSetting(L"finder_volta", L"1");  // o Shell, ao abrir de novo, religa o Finder (issue #1: o Win+E ficava no Explorador)
@@ -651,6 +676,8 @@ Page Geral() {
                            Uri(L"Histórico de Arquivos", L"control.exe /name Microsoft.FileHistory", 0xE81C, C_GREEN),
                            Uri(L"Transferir ou Redefinir", L"ms-settings:recovery", 0xE777, C_GRAY) }));
     p.groups.push_back(G({ Toggle(L"Abrir ao entrar no Windows", [] { return ShellAutoStartCached(); }, [](bool on) { SetShellAutoStartAsync(on); }),
+                           Toggle(L"Abrir no lugar da área de trabalho do Windows", [] { return ShellDoWindows(); }, [](bool on) { SetShellDoWindows(on); Rebuild(); },
+                                  L"Experimental. O WacOS abre já no login, sem a área de trabalho do Windows piscar antes. Vale no próximo login."),
                            Toggle(L"Abrir pastas no Finder", [] { return Setting(L"finder_padrao", L"1") == L"1"; },
                                   [](bool on) {
                                       SetSetting(L"finder_padrao", on ? L"1" : L"0");
@@ -1466,8 +1493,57 @@ Page TransparenciaEfeitos() {
 }
 
 // ================= Apple Intelligence e Siri → Copilot e Fala
+// Siri com a chave do próprio usuário (issue #39): src/comum/siri.h. O Ajustes não tem campo de texto, então a chave e um
+// modelo fora da lista entram pela área de transferência (copiar no site do provedor, "Colar").
+static std::wstring TextoCopiado() {
+    std::wstring t;
+    if (!OpenClipboard(nullptr)) return t;
+    if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) { if (auto* p = (const wchar_t*)GlobalLock(h)) { t = p; GlobalUnlock(h); } }
+    CloseClipboard();
+    while (!t.empty() && iswspace(t.back())) t.pop_back();
+    size_t i = 0; while (i < t.size() && iswspace(t[i])) i++;
+    return t.substr(i);
+}
 Page Inteligencia() {
     Page p;
+    p.groups.push_back(Plain(Hero(0xE720, C_PURPLE, L"Siri", L"Pergunte pelo Spotlight: digite a pergunta e escolha \"Perguntar à Siri\". A Siri usa um serviço de IA com a sua própria chave.")));
+    const auto& provs = siri::Provedores();
+    int prov = std::clamp(_wtoi(Setting(L"siri_provedor", L"0").c_str()), 0, (int)provs.size() - 1);
+    std::vector<std::wstring> nomes;
+    for (auto& pv : provs) nomes.push_back(pv.nome);
+    Row rp = Popup(L"Serviço", nomes, [prov] { return prov; }, [](int i) {
+        SetSetting(L"siri_provedor", std::to_wstring(i));
+        const auto& v = siri::Provedores();
+        SetSetting(L"siri_modelo", i > 0 && i < (int)v.size() && !v[i].modelos.empty() ? v[i].modelos[0] : L"");
+        Rebuild();
+    });
+    std::vector<Row> rows{ rp };
+    if (prov > 0) {
+        const auto& pv = provs[prov];
+        std::wstring atual = Setting(L"siri_modelo", pv.modelos.empty() ? L"" : pv.modelos[0]);
+        std::vector<std::wstring> ms;
+        for (auto m : pv.modelos) ms.push_back(m);
+        if (!atual.empty() && std::find(ms.begin(), ms.end(), atual) == ms.end()) ms.push_back(atual);
+        int sel = (int)(std::find(ms.begin(), ms.end(), atual) - ms.begin());
+        rows.push_back(Popup(L"Modelo", ms, [sel] { return sel; }, [ms](int i) { if (i >= 0 && i < (int)ms.size()) SetSetting(L"siri_modelo", ms[i]); Rebuild(); }));
+        rows.push_back(Button(L"Usar outro modelo", L"Colar nome", [] {
+            std::wstring t = TextoCopiado();
+            if (!t.empty() && t.size() < 120 && t.find_first_of(L" \r\n\t\"") == std::wstring::npos) SetSetting(L"siri_modelo", t);
+            Rebuild();
+        }, L"Copie o nome do modelo no site do serviço e cole aqui."));
+        if (pv.precisaChave) {
+            std::wstring k = siri::LeChave();
+            rows.push_back(Button(L"Chave da API", L"Colar chave", [] {
+                std::wstring t = TextoCopiado();
+                if (!t.empty() && t.size() < 400 && t.find_first_of(L" \r\n\t") == std::wstring::npos) siri::GravaChave(t);
+                Rebuild();
+            }, k.empty() ? Tr(L"Nenhuma chave. Copie a chave e clique em Colar chave.") : siri::ChaveMascarada(k)));
+            if (!k.empty()) rows.push_back(Button(L"Apagar a chave deste PC", L"Apagar", [] { siri::GravaChave(L""); Rebuild(); }));
+        }
+    }
+    p.groups.push_back(G(rows, L"Siri",
+        prov == 4 ? L"O Ollama roda no próprio PC (ollama.com): as perguntas não saem dele."
+                  : L"Copie a chave no site do serviço (o Gemini e o Groq têm chave grátis) e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço."));
     p.groups.push_back(Plain(Hero(0xE720, C_PURPLE, L"Assistente e Fala", L"No Windows, o assistente é o Copilot e o reconhecimento de fala fica nos ajustes de Fala.")));
     p.groups.push_back(G({ Uri(L"Copilot", L"ms-copilot:", 0xE99A, C_PURPLE), Uri(L"Fala", L"ms-settings:speech", 0xE720, C_GRAY) }));
     return p;

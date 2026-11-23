@@ -458,10 +458,18 @@ bool On();
 bool Notificacao(const std::wstring& app, const std::wstring& title, const std::wstring& body,
                  std::function<void(ID2D1DeviceContext*, ID2D1SolidColorBrush*, D2D1_RECT_F)> icon, std::function<void()> click);
 bool Volume(float level, bool mute);  // teclas de volume: true = a ilha mostrou (sem o aviso de volume)
+void Brilho(int pct);           // o brilho da tela mudou (qualquer thread): aviso de brilho, como o de volume
 void CapsLock();                // a tecla Caps Lock foi apertada (gancho de teclado do main.cpp)
 void PrivacidadeMudou();        // a bandeja mudou: relê o ícone de privacidade do Windows (tray::PrivacyBits)
 void Captura(bool copiada);     // a Captura de Tela terminou: aviso rápido "Captura feita" / "Captura copiada"
 int Privacidade();              // 1 microfone, 2 câmera em uso (bits); a 1ª chamada liga a vigia; mudou = menubar::Update()
+}
+namespace siri {  // siri.cpp: a Siri com a chave do usuário (issue #39); provedores e chave em src/comum/siri.h
+bool Pronta();                          // um serviço escolhido nos Ajustes (e a chave, se ele pede)
+void Perguntar(const std::wstring& q);  // abre o painel da Siri e faz a pergunta (numa thread)
+}
+namespace brilho {  // brilho.cpp: vigia o brilho da tela do notebook (WMI) e mostra na Ilha
+void Start();
 }
 namespace palco {  // Organizador Visual / Stage Manager (palco.cpp): ajuste organizador=1
 bool On();

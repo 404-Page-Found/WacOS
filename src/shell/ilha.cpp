@@ -58,7 +58,7 @@ namespace wmc = winrt::Windows::Media::Control;
 
 namespace {
 
-const UINT WM_IL_FRAME = WM_APP + 1, WM_IL_MEDIA = WM_APP + 2, WM_IL_CAPS = WM_APP + 3, WM_IL_PRIV = WM_APP + 4, WM_IL_DOWN = WM_APP + 5;
+const UINT WM_IL_FRAME = WM_APP + 1, WM_IL_MEDIA = WM_APP + 2, WM_IL_CAPS = WM_APP + 3, WM_IL_PRIV = WM_APP + 4, WM_IL_DOWN = WM_APP + 5, WM_IL_BRI = WM_APP + 6;
 const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, TM_PAUSE = 6, TM_GONE = 7, TM_TICK = 8, TM_STATS = 9, TM_CAPS = 10, TM_OLA = 11,
                 TM_FULL = 12;  // conferência da tela cheia que ficou para depois (ilha::SetFullscreen)
 ULONGLONG g_fullChecado;   // quando a tela cheia foi conferida (ilha::SetFullscreen)
@@ -67,7 +67,7 @@ bool g_fullPendente;
 enum Style { S_NOTCH, S_ILHA, S_AVISO };
 enum Mode { M_HIDDEN, M_IDLE, M_MEDIA, M_TIMER, M_HUD, M_PEEK, M_OPEN };
 enum Tab { TAB_HOME, TAB_TIMER, TAB_CLIP, TAB_SHELF, TAB_STATS, TAB_N };
-enum HudKind { HUD_VOL, HUD_CAPS, HUD_BAT, HUD_COPY, HUD_SHOT };
+enum HudKind { HUD_VOL, HUD_CAPS, HUD_BAT, HUD_COPY, HUD_SHOT, HUD_BRI };
 
 // medidas em pt
 const float WMAX = 470, HMAX = 210;   // a janela: o maior tamanho (aberta) com folga para a mola e a sombra
@@ -125,7 +125,7 @@ struct Peek {
 };
 IDWriteTextFormat* g_tfOla;  // letra de mão do "olá" (Segoe Script), criada na primeira vez
 bool g_peekOn; Peek g_peek;
-bool g_hudOn; HudKind g_hud; float g_vol; bool g_mute; bool g_caps; int g_batPct; bool g_batAC;
+bool g_hudOn; HudKind g_hud; float g_vol, g_bri; bool g_mute; bool g_caps; int g_batPct; bool g_batAC;
 int g_priv;                  // 1 microfone em uso, 2 câmera em uso
 int g_privReg;               // o que o registro diz (o ícone de privacidade do Windows na bandeja completa)
 bool g_hasBattery;
@@ -1458,6 +1458,9 @@ void DrawContent(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, Mode m, doubl
             const wchar_t* s = g_mute || v < 0.001f ? L"speaker.slash.fill" : v < 0.34f ? L"speaker.wave.1.fill" : v < 0.67f ? L"speaker.wave.2.fill" : L"speaker.wave.3.fill";
             Sym(dc, br, s, D2D1::RectF(wingL + 2, cy - 5.5f, wingL + 19, cy + 5.5f), WHITE);
             DrawProgressT(dc, br, D2D1::RectF(std::max(rr - 120, wingL + 28), cy - 2, rr, cy + 2), v);
+        } else if (g_hud == HUD_BRI) {  // brilho da tela do notebook (issue #39): o sol e a barra, como o volume
+            Sym(dc, br, g_bri < 0.5f ? L"sun.min" : L"sun.max.fill", D2D1::RectF(wingL + 2, cy - 7, wingL + 16, cy + 7), WHITE);
+            DrawProgressT(dc, br, D2D1::RectF(std::max(rr - 120, wingL + 28), cy - 2, rr, cy + 2), g_bri);
         } else if (g_hud == HUD_CAPS) {
             Glyph(dc, br, 0xE765, g_tfIconS, D2D1::RectF(wingL, cy - 9, wingL + 22, cy + 9), g_caps ? GREEN : GRAY);
             Text(dc, br, g_caps ? L"Caps Lock" : Tr(L"Caps Lock desligado"), g_tfWingR, D2D1::RectF(rr - 130, cy - 8, rr, cy + 8), g_caps ? GREEN : GRAY);
@@ -1879,7 +1882,10 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     }
-    case WM_IL_CAPS: SetTimer(h, TM_CAPS, 40, nullptr); return 0;  // o Windows ainda não trocou o estado da tecla
+    case WM_IL_CAPS: SetTimer(h, TM_CAPS, 40, nullptr); return 0;
+    case WM_IL_BRI:  // brilho.cpp: o brilho da tela mudou (teclas do notebook, Windows); arrastando na Central não mostra
+        if (g_on && g_volOn && !g_full && !g_peekOn && g_mode != M_OPEN && !central::IsOpen()) { g_bri = std::clamp((int)w, 0, 100) / 100.f; ShowHud(HUD_BRI, 1500); }
+        return 0;  // o Windows ainda não trocou o estado da tecla
     case WM_CLIPBOARDUPDATE:
         if (g_selfCopy) { g_selfCopy = false; return 0; }
         if (g_on) {
@@ -2231,6 +2237,8 @@ bool ilha::Volume(float level, bool mute) {
     ShowHud(HUD_VOL, 1500);
     return true;
 }
+
+void ilha::Brilho(int pct) { if (g_wnd) PostMessageW(g_wnd, WM_IL_BRI, (WPARAM)pct, 0); }
 
 void ilha::CapsLock() { if (g_wnd && g_on) PostMessageW(g_wnd, WM_IL_CAPS, 0, 0); }
 

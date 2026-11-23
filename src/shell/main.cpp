@@ -1305,6 +1305,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (!soDock) cantos::Start();         // Cantos Ativos (Mission Control, mesa, Launchpad... por canto)
     jogo::Start();           // Modo Jogo: jogo na frente desliga o que mais pesa (vidro real, ganchos do mouse...)
     leve::Start();           // Modo leve: PC fraco ou na bateria (sem vidro real, ~60 quadros/s); vigia tomada/bateria
+    brilho::Start();         // brilho da tela do notebook na Ilha (issue #39)
     boot::Progress(0.7f);
     tray::Start([] { menubar::Update(); });
     mesa::Start(hi, g_msg);  // ajuste explorer=0: a mesa é nossa e o explorer.exe sai (só Dock: a do Windows, mas o vigia fica)

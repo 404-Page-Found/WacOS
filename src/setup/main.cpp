@@ -566,6 +566,16 @@ static void DoUninstall() {
     g_progress = 0.25f;
     Status(T(L"Removendo o início automático e os atalhos…", L"Removing autostart and shortcuts…"));
     for (auto t : { L"WacOS", L"SequoiaShell", L"WacOS Title Bars" }) TaskDelete(t);
+    // "Abrir no lugar da área de trabalho do Windows" (Ajustes > Geral, issue #39): o shell do Windows volta a ser o
+    // Explorador. Sem isso, depois de apagar os arquivos, o próximo login ficaria numa tela preta.
+    {
+        const wchar_t* wl = L"Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+        wstring sh = Lower(RegGetStr(HKEY_CURRENT_USER, wl, L"Shell"));
+        if (sh.find(L"wacosshell.exe") != wstring::npos || sh.find(L"sequoiashell.exe") != wstring::npos) {
+            RegDelValue(HKEY_CURRENT_USER, wl, L"Shell");
+            Anota(L"shell do Windows de volta ao Explorador (HKCU Winlogon Shell apagado)");
+        }
+    }
     if (Exists(g_dest + L"\\bin\\WacOSFinder.exe")) RunWait(g_dest + L"\\bin\\WacOSFinder.exe", L"--quieto --padrao off", 30000);
     wstring progs = Programs();
     DeleteFileW((progs + L"\\WacOS.lnk").c_str());

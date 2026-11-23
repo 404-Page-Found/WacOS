@@ -71,7 +71,7 @@ const float LEO_ROW = 20, LEO_COL = 112;  // Leopard: linhas de 20 e a coluna da
 const UINT WM_SP_FILES = WM_APP + 60, WM_SP_ICON = WM_APP + 61, WM_SP_APPS = WM_APP + 62, WM_SP_FRAME = WM_APP + 63, WM_SP_SUGG = WM_APP + 64, WM_SP_FORA = WM_APP + 65;
 const UINT_PTR T_SEARCH = 1, T_CARET = 2, T_ICONS = 3, T_REGRAB = 4;
 
-enum Kind { K_APP, K_SETTING, K_DOC, K_FOLDER, K_IMAGE, K_MEDIA, K_OTHER, K_CALC, K_WEB };
+enum Kind { K_APP, K_SETTING, K_DOC, K_FOLDER, K_IMAGE, K_MEDIA, K_OTHER, K_CALC, K_WEB, K_AI };  // K_AI: Perguntar à Siri (issue #39)
 
 struct Result {
     Kind kind;
@@ -816,6 +816,7 @@ std::wstring IconKey(const Result& r) {
     case K_SETTING: return EhWin(r.target) ? r.target : L"ajustes";  // os do Windows têm cada um o seu ícone
     case K_CALC: return L"calc";
     case K_WEB: return L"web";
+    case K_AI: return L"siri";
     default: return L"file:" + r.target;
     }
 }
@@ -982,6 +983,7 @@ const wchar_t* Section(Kind k) {
     case K_MEDIA: return Tr(L"Músicas e Filmes");
     case K_CALC: return Tr(L"Calculadora");
     case K_WEB: return Tr(L"Web");
+    case K_AI: return L"Siri";
     default: return Tr(L"Outros");
     }
 }
@@ -996,6 +998,7 @@ const wchar_t* KindName(Kind k) {
     case K_MEDIA: return Tr(L"Mídia");
     case K_CALC: return Tr(L"Calculadora");
     case K_WEB: return Tr(L"Pesquisar na Web");
+    case K_AI: return L"Siri";
     default: return Tr(L"Arquivo");
     }
 }
@@ -1366,6 +1369,7 @@ void Rebuild() {
                 if (web.size() >= 5) break;
             }
         }
+        if (siri::Pronta()) groups.push_back({ L"Siri", { { K_AI, Tr(L"Perguntar à Siri: “") + g_query + L"”", g_query } } });
         groups.push_back({ Tr(L"Sugestões do Google"), web });
     }
     // macOS 27 Golden Gate: uma lista só, sem cabeçalhos, sem o cartão do melhor resultado e sem miniaturas (cada
@@ -1474,6 +1478,12 @@ void NameText(ID2D1RenderTarget* rt, const std::wstring& s, IDWriteTextFormat* t
 }
 
 void DrawIcon(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Result& r, D2D1_RECT_F box, const Pal& p) {
+    if (r.kind == K_AI) {  // a Siri: o símbolo do Apple Intelligence em roxo
+        br->SetColor(D2D1::ColorF(0.62f, 0.38f, 1.f));
+        float k = (box.right - box.left) * 0.12f;
+        simbolo::Draw(dc, L"apple.intelligence", D2D1::RectF(box.left + k, box.top + k, box.right - k, box.bottom - k), br);
+        return;
+    }
     if (r.kind == K_CALC || r.kind == K_WEB) {
         br->SetColor(p.text2);
         float k = (box.right - box.left) * 0.12f;
@@ -1539,6 +1549,7 @@ std::wstring Accessory(const Result& r) {
     case K_APP: return L"";
     case K_SETTING: return EhWin(r.target) ? NomeWin() : Tr(L"Ajustes do Sistema");
     case K_WEB: return L"\x2197";
+    case K_AI: return L"";
     case K_CALC: return Tr(L"Calculadora");
     default: {
         size_t s = r.detail.find_last_of(L'\\');
@@ -1868,7 +1879,7 @@ void Paint() {
         bool completou = false;
         if (!g_selAll && g_sel >= 0 && g_rows[g_sel].res >= 0) {
             const Result& r = g_res[g_rows[g_sel].res];
-            if (r.kind != K_WEB && r.kind != K_CALC && Lower(r.name).rfind(Lower(g_query), 0) == 0 && r.name.size() > g_query.size()) {
+            if (r.kind != K_WEB && r.kind != K_CALC && r.kind != K_AI && Lower(r.name).rfind(Lower(g_query), 0) == 0 && r.name.size() > g_query.size()) {
                 Text(dc, r.name.substr(g_query.size()), tfF, D2D1::RectF(field.left + tw, 0, field.right, FIELD_H), br, pf.place);
                 completou = true;
             }
@@ -2389,6 +2400,7 @@ void Open(int row, bool reveal) {
             CloseClipboard();
         }
         break;
+    case K_AI: siri::Perguntar(r.target); break;
     case K_WEB: {
         std::wstring u = L"https://www.google.com/search?q=";
         for (wchar_t c : r.target) {

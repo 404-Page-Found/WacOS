@@ -1533,3 +1533,28 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   o Shell novo abriu sem erro. NÃO conferido na tela: a nota do modo leve (o modo leve está desligado neste PC), a saída por inteiro
   (sair fecharia o WacOS do usuário), a cópia da captura e o menu da miniatura, o Illustrator (não instalado).
   DESFAZER: reverter o commit.
+
+[2026-11-23 14:00, hora do PC] Issue #39: brilho na Ilha, abrir no lugar da área de trabalho, Siri com chave própria, widgets com tamanhos.
+  - Brilho: src/shell/brilho.cpp (novo): uma thread espera o evento WmiMonitorBrightnessEvent (root\WMI) e manda o valor para a Ilha
+    (ilha::Brilho, aviso HUD_BRI com o sol e a barra, como o volume; fica quieto com a Central aberta, para o controle dela não
+    piscar a Ilha). Só tela de notebook manda o evento. O aviso do próprio Windows continua (é do Explorador).
+  - Abrir no lugar da área de trabalho do Windows: src/ajustes/paginas.cpp (Geral > WacOS), "Experimental". Ligado, grava
+    HKCU\...\Winlogon\Shell = "<bin>\WacOSShell.exe" (com uma pergunta antes); desligado, apaga o valor. O Shell já sabia rodar
+    assim (mesa.cpp: abre o Explorador no fundo com a troca temporária do valor). "Desligar o WacOS" e o desinstalador
+    (src/setup/main.cpp) apagam o valor se for nosso.
+  - Siri: src/comum/siri.h (novo: provedores Gemini, Groq, OpenAI e Ollama local, modelos sugeridos, a chave cifrada com DPAPI em
+    %APPDATA%\Shell\siri-chave.bin), src/shell/siri.cpp (novo: painel de vidro no alto da tela com a bolinha da Siri, a pergunta
+    e a resposta; WinHTTP numa thread, até 60 s; Esc/clicar fora fecha, Ctrl+C copia), src/shell/spotlight.cpp (resultado
+    K_AI "Perguntar à Siri: ..." quando há serviço escolhido), Ajustes > Apple Intelligence e Siri (serviço, modelo, colar nome
+    de modelo, colar/apagar a chave; os Ajustes não têm campo de texto, a chave entra pela área de transferência).
+    A chave não vai para o ajustes.txt nem para o log; o log diz só serviço, modelo, código HTTP e tamanho da resposta.
+  - Widgets: src/shell/widgets.cpp: Pequeno, Médio e Grande no menu do widget (widget.<id>.tam = p/m/g; o Nascer do Sol não tem o
+    Grande). Desenhos novos: Relógio médio (mostrador + hora e data) e grande; Calendário médio (dia grande + mês) e grande (em
+    dobro); Tempo pequeno e grande (18 horas em 3 fileiras); Relógio Mundial pequeno (uma cidade) e grande (2 × 2). A grade
+    passou a ter widgets de 2 linhas (Rows, Overlaps por linha e coluna).
+  Traduções nos 11 idiomas. Testado aqui: compilação; Shell novo abriu sem erro ("brilho: vigiando", widgets na mesa).
+  NÃO conferido na tela: o aviso de brilho (PC de mesa, sem tela de notebook), o login com o WacOS no lugar do Explorador (exige
+  sair da conta), a Siri (sem chave aqui; abrir pelo Spotlight exige digitar), os tamanhos novos dos widgets (a mesa estava coberta
+  por janelas do usuário).
+  DESFAZER: reverter o commit. Se o login ficar preto: Ctrl+Alt+Del > Gerenciador de Tarefas > Executar explorer.exe e apagar
+  HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell.
