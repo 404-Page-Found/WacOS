@@ -723,6 +723,17 @@ static void PreloadApps() {
 // App da frente cobrindo o monitor inteiro (vídeo, jogo, F11): Dock e barra de menus somem, como no Mac.
 static bool IsFullscreen(HWND fg) {
     if (!fg || !IsWindowVisible(fg) || IsIconic(fg) || apps::IsShellWindow(fg)) return false;
+    // Trocadores de papel de parede com transição (YASB, Lively...) põem a janela da animação DENTRO da mesa do Windows
+    // (filha da WorkerW/Progman) e ela fica sendo a "janela da frente". Cobrindo o monitor, parecia um app em tela
+    // cheia: o Dock e a barra de menus sumiam e o vidro ficava sem fundo, e como o YASB mantém a janela viva depois da
+    // transição, ficava assim até reiniciar o WacOS (Reddit, 23/11/2026; reproduzido com o mesmo truque do YASB).
+    // Janela filha conta pela de topo dela: sendo a mesa, não é tela cheia.
+    if (HWND root = GetAncestor(fg, GA_ROOT); root && root != fg) {
+        wchar_t rc[64] = {}; GetClassNameW(root, rc, 64);
+        if (mesa::IsDeskClass(rc)) return false;
+        fg = root;
+        if (!IsWindowVisible(fg) || IsIconic(fg) || apps::IsShellWindow(fg)) return false;
+    }
     wchar_t cls[64] = {}; GetClassNameW(fg, cls, 64);
     if (mesa::IsDeskClass(cls) || !wcscmp(cls, L"Shell_TrayWnd")) return false;
     if (IsZoomed(fg) && (GetWindowLongW(fg, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;  // só maximizada

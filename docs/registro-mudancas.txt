@@ -1383,3 +1383,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Conferido na tela pelo --foto do WacOSSetup (página Desinstalar, claro e escuro): o texto cabe e não encosta na opção de baixo. A remoção em si não foi executada.
   Compilado (build completo).
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:20, hora do PC] Vidro real quebrando ao trocar o papel de parede com transição (Reddit, wristkyion, YASB). Só código.
+  - Como o YASB faz (código dele, amnweb/yasb, src/core/widgets/services/wallpapers/engine.py): manda 0x052C ao Progman, mostra a WorkerW, põe a janela da animação DENTRO dela (SetParent, WS_CHILD), anima 1,2 s, troca pelo IDesktopWallpaper::SetWallpaper e mantém a janela viva.
+  - Reproduzido com um programa descartável que faz o mesmo (sem instalar o YASB). O papel de parede do usuário foi lido antes (IDesktopWallpaper, os 2 monitores, posição) e devolvido igual no fim (conferido). O shell.log mostrou "tela cheia: janela ... classe 'TesteYasb' ... estilo 54000000" e o vidro com "fundo com 0 janelas": a janela filha da mesa fica sendo a janela da frente (GetForegroundWindow; a de topo é a Progman) e, cobrindo o monitor, o Shell achava que era um app em tela cheia (Dock e barra de menus somem, o vidro fica sem fundo). Com o YASB a janela continua viva e na frente depois da transição, por isso parecia precisar reiniciar.
+  - src/shell/main.cpp (IsFullscreen, só a função de conferência; nada dos ganchos): janela filha conta pela de topo dela; sendo a mesa (Progman/WorkerW/SequoiaMesa), não é tela cheia.
+  Compilado (build completo). A correção NÃO foi conferida na tela (precisaria instalar este build); a premissa foi conferida no PC com o Shell instalado.
+  DESFAZER: reverter o commit.
