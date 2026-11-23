@@ -1741,3 +1741,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     ao campo do Spotlight). NÃO visto: ditado falando de verdade (o reconhecimento online está desligado neste PC),
     as teclas de mídia apertadas (sem teclas simuladas), as Ferramentas de Escrita com IA na tela, o Win+S.
   DESFAZER: reverter o commit.
+[2026-11-23 19:40, hora do PC] Issue #42: Siri com Gemini e "Pesquisar na web" no plano grátis.
+  - src/shell/siri.cpp (Pergunta): com a pesquisa ligada, um 429 "quota" do Gemini agora pergunta de novo no MESMO modelo, sem a
+    pesquisa (no plano grátis do AI Studio a cota da pesquisa no Google dos Gemini 3 em diante é zero). Antes o WacOS trocava
+    para o preferido da lista (gemini-flash-latest, um Gemini 3), também sem cota de pesquisa, e o usuário via "acabou a cota" e
+    achava que a opção forçava outro modelo. Se a pergunta sem a pesquisa der certo, o modelo fica marcado (g_semBusca, na
+    memória até o Shell reiniciar) e as próximas perguntas nele já vão sem a pesquisa, sem gastar uma recusa cada vez.
+    Log novo: "siri: sem cota em <modelo> com a pesquisa na web; de novo sem ela".
+  Compilado (build.cmd shell). NÃO instalado nem testado com uma chave real (não tenho chave do plano grátis).
+  DESFAZER: reverter o commit.
