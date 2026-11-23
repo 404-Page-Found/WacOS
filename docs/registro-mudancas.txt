@@ -1558,3 +1558,20 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   por janelas do usuário).
   DESFAZER: reverter o commit. Se o login ficar preto: Ctrl+Alt+Del > Gerenciador de Tarefas > Executar explorer.exe e apagar
   HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell.
+
+[2026-11-23 14:20, hora do PC] Issue #39: testes e dois acertos.
+  - src/shell/main.cpp: WM_COPYDATA 'SIRI' (texto: pergunta à Siri, de atalhos/scripts) e 'BRIL' (n: mostra o brilho n na Ilha,
+    para testar o aviso num PC de mesa).
+  - src/shell/siri.cpp: emoji colorido na pergunta e na resposta (D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT; a bandeira saía vazia).
+  Testado aqui (fotos das janelas pela captura do Windows, que pega a janela mesmo coberta; ferramenta de teste fora do projeto):
+  - widgets: os 5 ligados por alguns minutos em duas rodadas de tamanhos (Relógio M/G, Calendário M/G, Tempo P/G, Mundial P/G,
+    Sol M/P), todos desenhados certo e sem sobrepor na grade. O ajustes.txt foi guardado antes e devolvido (hash igual).
+  - brilho: 'BRIL' 70 mostrou o sol e a barra a 70% na Ilha.
+  - Siri: sem serviço (aviso em vermelho), Ollama falso na porta 11434 (resposta com Markdown limpo, acentos, aspas e emoji; o
+    pedido JSON saiu certo), erro 404 do serviço (mensagem dele em vermelho), Ollama fechado (aviso de conexão). O ajuste
+    siri_provedor do teste foi tirado (o ajustes.txt voltou igual).
+  - Ajustes > Apple Intelligence e Siri: desligada e com o Gemini (Serviço, Modelo, Usar outro modelo, Chave da API) pela foto.
+  - chave: gravar/ler/apagar com o DPAPI (o arquivo não tem a chave em texto puro; a máscara mostra os 4 últimos).
+  NÃO testado: o login com o WacOS no lugar do Explorador (exige sair da conta), o evento de brilho de verdade (PC de mesa), uma
+  chamada real ao Gemini/Groq/OpenAI (sem chave aqui).
+  DESFAZER: reverter o commit.

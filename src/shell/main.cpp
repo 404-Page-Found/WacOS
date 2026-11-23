@@ -973,6 +973,18 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         PostMessageW(h, WM_APP + 77, 0, (LPARAM)copy);
         return TRUE;
     }
+    // 'SIRI': pergunta à Siri (texto UTF-16) vinda de fora (atalhos, scripts, testes); 'BRIL': mostra o brilho n (0-100)
+    // na Ilha como se a tela tivesse mudado (teste do aviso num PC de mesa, que não manda o evento do WMI)
+    if (m == WM_COPYDATA && l && (((COPYDATASTRUCT*)l)->dwData == 0x49524953 /*'SIRI'*/ || ((COPYDATASTRUCT*)l)->dwData == 0x4C495242 /*'BRIL'*/)) {
+        auto* cd = (COPYDATASTRUCT*)l;
+        if (!cd->lpData || cd->cbData < sizeof(wchar_t) || cd->cbData > 16384) return FALSE;
+        std::wstring t((const wchar_t*)cd->lpData, cd->cbData / sizeof(wchar_t));
+        while (!t.empty() && !t.back()) t.pop_back();
+        if (cd->dwData == 0x4C495242) { ilha::Brilho(_wtoi(t.c_str())); return TRUE; }
+        PostMessageW(h, WM_APP + 78, 0, (LPARAM)new std::wstring(t));  // depois de responder: quem mandou não fica esperando
+        return TRUE;
+    }
+    if (m == WM_APP + 78 && l) { std::unique_ptr<std::wstring> q((std::wstring*)l); siri::Perguntar(*q); return 0; }
     if (m == WM_APP + 77 && l) {  // o Quick Look pedido pelo Finder (acima)
         std::unique_ptr<std::wstring> p((std::wstring*)l);
         if (p->empty()) quicklook::Close();

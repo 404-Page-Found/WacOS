@@ -235,10 +235,10 @@ void Paint() {
         dc->PushAxisAlignedClip(D2D1::RectF(x - 2, 8, W - PAD + 2, H - 8), D2D1_ANTIALIAS_MODE_ALIASED);
         float y = PAD - g_scroll;
         br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.5f));
-        dc->DrawTextW(g_q.c_str(), (UINT32)g_q.size(), g_tfQ, D2D1::RectF(x, y, x + textW, y + qh + 4), br);
+        dc->DrawTextW(g_q.c_str(), (UINT32)g_q.size(), g_tfQ, D2D1::RectF(x, y, x + textW, y + qh + 4), br, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
         y += qh + 8;
         br->SetColor(g_erro ? D2D1::ColorF(1.f, 0.42f, 0.38f) : dark ? D2D1::ColorF(1, 1, 1, 0.95f) : D2D1::ColorF(0, 0, 0, 0.88f));
-        dc->DrawTextW(a.c_str(), (UINT32)a.size(), g_tfA, D2D1::RectF(x, y, x + textW, y + ah + 4), br);
+        dc->DrawTextW(a.c_str(), (UINT32)a.size(), g_tfA, D2D1::RectF(x, y, x + textW, y + ah + 4), br, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);  // emoji colorido
         dc->PopAxisAlignedClip();
         if (g_contentH > H) {  // barrinha de rolagem fina
             float bh = std::max(24.f, H * H / g_contentH), by = 6 + (H - 12 - bh) * (g_scroll / (g_contentH - H));
