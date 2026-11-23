@@ -1672,4 +1672,13 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     Dock) e "Abrir no lugar da área de trabalho do Windows" (saiu de Geral). Traduções; as descrições antigas perderam o
     "Experimental." do começo (a tradução antiga sem a primeira frase).
   Visto: a página pela foto da janela (o ajustes.txt foi guardado e devolvido igual).
+[2026-11-23 23:30, hora do PC] Caça a bugs no código novo das builds 33-35 (Siri, brilho por tecla, abrir no lugar da área de trabalho). Branch claude/caca-bugs-4d948f, já com o main (e6869ab).
+  - src/comum/siri.h (RodaCli): o Codex/Claude Code roda num job do Windows. Antes, passar do tempo encerrava só o cmd.exe e o node do CLI seguia rodando escondido (gastando a cota da conta). Agora encerra a árvore inteira, e quem chama pode cancelar.
+  - src/shell/siri.cpp: outra pergunta feita ou o painel fechado encerra o CLI da pergunta anterior na hora (antes cada pergunta descartada seguia até 3 min, e perguntas seguidas empilhavam processos). O modelo trocado sozinho (saiu do ar) é gravado pela thread da interface (era gravado pela thread da pergunta). A resposta não vaza se a janela já fechou; Ctrl+C solta a memória se a área de transferência recusar.
+  - src/ajustes/main.cpp, ajustes.h, paginas.cpp: aj::NaInterface; a busca da lista de modelos aplica o resultado na thread da interface (Setting/SetSetting e o texto de erro eram usados pela thread enquanto a página os lia).
+  - src/shell/migrar.cpp: a gravação de wacos_tarefa feita pela thread também vai pela interface.
+  - src/ajustes/paginas.cpp e src/setup/main.cpp: "Abrir no lugar da área de trabalho do Windows" guarda o Shell que já estava em HKCU\...\Winlogon (outro shell personalizado do usuário) em winlogon_shell_antes e devolve ao desligar e ao desinstalar. Antes ele era sobrescrito e depois apagado; desligar (e "Desligar o WacOS") apagava o valor mesmo quando não era o do WacOS.
+  - src/shell/central.cpp, main.cpp (só a condição das F14/F15 no gancho de teclado), shell.h: F14 e F15 eram engolidas no PC inteiro mesmo sem nenhuma tela com brilho controlável. Teclas de macro usam F13-F24 (cenas do OBS...). Depois que o Shell confere que não há DDC/CI nem WMI, elas passam para os outros programas.
+  - Revisado sem achar problema: JSON da Siri (JStr escapa aspas, barras e controles; JLe desfaz \uXXXX com pares), chave por DPAPI, Wi-Fi (handles do WLAN fechados), relógio de 12 h, menu que ignora o soltar do clique que abriu.
+  Testado: RodaCli com um cmd que abre um ping longo, cancelado em 1 s: nenhum ping sobrou; caminho normal devolve a saída e o código 0. Compilado (build completo). NÃO conferido na tela nem com o Codex/Claude Code reais.
   DESFAZER: reverter o commit.

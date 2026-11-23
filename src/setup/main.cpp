@@ -572,8 +572,12 @@ static void DoUninstall() {
         const wchar_t* wl = L"Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
         wstring sh = Lower(RegGetStr(HKEY_CURRENT_USER, wl, L"Shell"));
         if (sh.find(L"wacosshell.exe") != wstring::npos || sh.find(L"sequoiashell.exe") != wstring::npos) {
-            RegDelValue(HKEY_CURRENT_USER, wl, L"Shell");
-            Anota(L"shell do Windows de volta ao Explorador (HKCU Winlogon Shell apagado)");
+            // o shell personalizado que o usuário tinha antes (os Ajustes guardam em winlogon_shell_antes) volta; sem ele, o Explorador
+            wstring antes;
+            for (auto& l : Lines(ReadText(Env(L"APPDATA") + L"\\Shell\\ajustes.txt")))
+                if (l.rfind(L"winlogon_shell_antes=", 0) == 0) antes = Trim(l.substr(21));
+            if (!antes.empty()) { RegSetStr(HKEY_CURRENT_USER, wl, L"Shell", antes); Anota(L"shell do Windows de volta ao anterior: " + antes); }
+            else { RegDelValue(HKEY_CURRENT_USER, wl, L"Shell"); Anota(L"shell do Windows de volta ao Explorador (HKCU Winlogon Shell apagado)"); }
         }
     }
     if (Exists(g_dest + L"\\bin\\WacOSFinder.exe")) RunWait(g_dest + L"\\bin\\WacOSFinder.exe", L"--quieto --padrao off", 30000);

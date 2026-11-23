@@ -283,6 +283,7 @@ void Stop();
 namespace central {  // Central de Controle: painel embaixo do ícone da barra de menus (central.cpp)
 bool Create(HINSTANCE hi);
 void BrilhoPasso(int dir);  // teclas de brilho (F14/F15): -1/+1 de 16 passos, DDC/CI ou WMI, aviso na Ilha
+bool SemBrilho();           // já se sabe que nenhuma tela aceita brilho (sem DDC/CI nem WMI): F14/F15 ficam para os outros programas
 void Toggle();
 bool IsOpen();
 }

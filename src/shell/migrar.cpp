@@ -121,6 +121,6 @@ void migrar::Registro() {
             L"Unregister-ScheduledTask -TaskName SequoiaShell -Confirm:$false; exit 0";
         DWORD r = RunHidden(L"powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"" + ps + L"\"", 60000);
         Log(L"wacos: tarefa do login %ls", r == 0 ? L"SequoiaShell trocada por WacOS" : r == 2 ? L"SequoiaShell não existe (nada a trocar)" : r == 3 ? L"não trocada: o WacOSShell.exe novo não está no lugar" : L"não trocada (erro)");
-        if (r == 3) shell::SetSetting(L"wacos_tarefa", L"0");  // tenta de novo quando a instalação nova existir
+        if (r == 3) shell::NaInterface([] { shell::SetSetting(L"wacos_tarefa", L"0"); });  // tenta de novo quando a instalação nova existir (gravado pela interface)
     }).detach();
 }

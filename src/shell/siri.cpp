@@ -81,14 +81,16 @@ std::wstring Reserva(const std::vector<std::wstring>& lista, const std::wstring&
     return alt;
 }
 
-std::wstring PerguntaCli(const siri::Provedor& pv, const std::wstring& q, bool& erro) {
+std::wstring PerguntaCli(const siri::Provedor& pv, const std::wstring& q, bool& erro, int num) {
     const std::wstring instr = L"Answer briefly and clearly, in the same language as the question, in plain text without Markdown. "
                                L"Do not run commands or edit files. Question: ";
     DWORD codigo = 0; bool tempo = false;
     wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
     std::wstring ultima = std::wstring(tmp) + L"WacOS-Siri\\ultima.txt";
     DeleteFileW(ultima.c_str());
-    std::wstring r = siri::RodaCli(pv.caminho, instr + q, codigo, tempo);
+    // outra pergunta feita ou o painel fechado (g_num mudou): o CLI é encerrado na hora, em vez de seguir até 3 min
+    std::wstring r = siri::RodaCli(pv.caminho, instr + q, codigo, tempo, [](void* c) { return *(int*)c != g_num.load(); }, &num);
+    if (codigo == ERROR_CANCELLED) return L"";  // descartada
     Log(L"siri: %ls -> código %lu, %zu caracteres%ls", pv.nome, codigo, r.size(), tempo ? L" (passou do tempo)" : L"");
     if (tempo) return Tr(L"O app demorou demais para responder.");
     if (codigo == 9009 || codigo == ERROR_FILE_NOT_FOUND)  // o cmd não achou o comando
@@ -111,13 +113,13 @@ std::wstring PerguntaCli(const siri::Provedor& pv, const std::wstring& q, bool& 
     return Limpa(r);
 }
 
-std::wstring Pergunta(const std::wstring& q, bool& erro) {
+std::wstring Pergunta(const std::wstring& q, bool& erro, int num) {
     erro = true;
     const auto& provs = siri::Provedores();
     int p = std::clamp(_wtoi(shell::Setting(L"siri_provedor", L"0").c_str()), 0, (int)provs.size() - 1);
     if (p == 0) return Tr(L"Escolha um serviço para a Siri em Ajustes do Sistema > Apple Intelligence e Siri.");
     const auto& pv = provs[p];
-    if (pv.fmt == siri::F_CLI) return PerguntaCli(pv, q, erro);
+    if (pv.fmt == siri::F_CLI) return PerguntaCli(pv, q, erro, num);
     std::wstring modelo = shell::Setting(L"siri_modelo", pv.modelos.empty() ? L"" : pv.modelos[0]);
     std::wstring chave = pv.precisaChave ? siri::LeChave(p) : L"";
     if (pv.precisaChave && chave.empty()) return Tr(L"Falta a chave da API. Cole a chave em Ajustes do Sistema > Apple Intelligence e Siri.");
@@ -180,9 +182,13 @@ std::wstring Pergunta(const std::wstring& q, bool& erro) {
         if (lista.empty() || lista[0] == modelo) { Log(L"siri: o modelo saiu do ar, mas a lista não trouxe outro (%ls)", e.empty() ? L"vazia" : e.c_str()); break; }
         Log(L"siri: %ls não existe mais; agora %ls", modelo.c_str(), lista[0].c_str());
         modelo = lista[0];
-        shell::SetSetting(L"siri_modelo", modelo.c_str());
         std::wstring junta; for (auto& m : lista) junta += (junta.empty() ? L"" : L"|") + m;
-        shell::SetSetting((L"siri_modelos_" + std::to_wstring(p)).c_str(), junta.c_str());
+        // pela thread da interface: SetSetting grava o ajustes.txt (num .tmp de nome fixo), e esta thread gravando ao
+        // mesmo tempo que a interface podia misturar as duas gravações
+        shell::NaInterface([modelo, junta, p] {
+            shell::SetSetting(L"siri_modelo", modelo);
+            shell::SetSetting((L"siri_modelos_" + std::to_wstring(p)).c_str(), junta);
+        });
     }
     SecureZeroMemory(cab.data(), cab.size() * sizeof(wchar_t));  // a chave ia no cabeçalho
     if (r.falha) {
@@ -467,7 +473,10 @@ void Copia() {
     if (g_busy || g_a.empty() || !OpenClipboard(g_wnd)) return;
     EmptyClipboard();
     size_t n = (g_a.size() + 1) * sizeof(wchar_t);
-    if (HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, n)) { memcpy(GlobalLock(g), g_a.c_str(), n); GlobalUnlock(g); SetClipboardData(CF_UNICODETEXT, g); }
+    if (HGLOBAL g = GlobalAlloc(GMEM_MOVEABLE, n)) {
+        if (void* d = GlobalLock(g)) { memcpy(d, g_a.c_str(), n); GlobalUnlock(g); if (!SetClipboardData(CF_UNICODETEXT, g)) GlobalFree(g); }
+        else GlobalFree(g);
+    }
     CloseClipboard();
 }
 
@@ -642,8 +651,9 @@ void siri::Perguntar(const std::wstring& q, bool teste) {
     std::thread([q, num, to] {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         bool erro = false;
-        std::wstring r = Pergunta(q, erro);
-        PostMessageW(to, WM_SIRI_FIM, (WPARAM)num, (LPARAM)new std::wstring((erro ? L"\x1" : L"") + r));
+        std::wstring r = Pergunta(q, erro, num);
+        auto* res = new std::wstring((erro ? L"\x1" : L"") + r);
+        if (!PostMessageW(to, WM_SIRI_FIM, (WPARAM)num, (LPARAM)res)) delete res;  // janela já fechada: não vaza
         CoUninitialize();
     }).detach();
 }

@@ -557,6 +557,7 @@ static bool WmiBrilhoGrava(IWbemServices* sv, float f) {
 std::atomic<float> g_brightWant{ -1 };
 std::atomic<bool> g_brightBusy{ false };
 std::atomic<bool> g_brightWmi{ false };  // a tela é de notebook: o brilho vai pelo WMI
+std::atomic<int> g_brilhoTem{ -1 };      // -1 ainda não lido, 0 nenhuma tela aceita brilho, 1 aceita (BrilhoPasso, Toggle)
 void BrightWorker() {
     HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     IWbemServices* sv = nullptr;
@@ -2281,6 +2282,7 @@ bool central::Create(HINSTANCE hi) {
 }
 
 bool central::IsOpen() { return g_open; }
+bool central::SemBrilho() { return g_brilhoTem == 0; }
 
 // Brilho pelas teclas (F14/F15 do teclado do Mac; issue #38: "num PC de mesa o brilho só muda pela Central"): 16 passos,
 // pelo DDC/CI do monitor (ou pelo WMI na tela de notebook), e o aviso na Ilha. Ler o DDC/CI leva ~50-200 ms: em toques
@@ -2300,7 +2302,8 @@ void central::BrilhoPasso(int dir) {
                 g_brightWmi = b >= 0;
             } else g_brightWmi = false;
         }
-        if (b < 0) { Log(L"brilho: tecla, mas o monitor não aceita DDC/CI (ligue o DDC/CI no menu dele)"); return; }
+        g_brilhoTem = b >= 0 ? 1 : 0;
+        if (b < 0) { Log(L"brilho: tecla, mas o monitor não aceita DDC/CI (ligue o DDC/CI no menu dele); F14/F15 voltam para os outros programas"); return; }
         b = std::clamp(std::round(b * 16 + dir) / 16.f, 0.f, 1.f);
         ultimo = b; quando = GetTickCount64();
         { std::lock_guard<std::mutex> l(g_mx); g_st.bright = b; }
@@ -2326,6 +2329,7 @@ void central::Toggle() {
             if (SUCCEEDED(ci)) CoUninitialize();
             g_brightWmi = b >= 0;
         } else g_brightWmi = false;
+        g_brilhoTem = b >= 0 ? 1 : 0;  // monitor trocado ou DDC/CI ligado depois: a Central abrindo confere de novo
         { std::lock_guard<std::mutex> l(g_mx); g_st.bright = b; }
         if (g_wnd) PostMessageW(g_wnd, WM_CC_UPDATE, 0, 0);
     }).detach();

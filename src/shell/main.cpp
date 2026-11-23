@@ -91,7 +91,9 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
         // (o painel do Windows não aparece). Só essas três teclas: os atalhos Ctrl+Alt+Shift+F11/F12 seguem livres.
         auto* k = (KBDLLHOOKSTRUCT*)l;
         // F14/F15: as teclas de brilho do teclado do Mac (e um atalho para teclados de PC com teclas programáveis); issue #38
-        if (k->dwExtraInfo != KEY_MARK && (k->vkCode == VK_F14 || k->vkCode == VK_F15)) {
+        // sem nenhuma tela com brilho controlável (já conferido), elas passam: F13-F24 são atalhos comuns de teclas de
+        // macro (cenas do OBS...) e antes sumiam no PC inteiro sem fazer nada
+        if (k->dwExtraInfo != KEY_MARK && (k->vkCode == VK_F14 || k->vkCode == VK_F15) && !central::SemBrilho()) {
             if (w == WM_KEYDOWN || w == WM_SYSKEYDOWN) PostMessageW(g_msg, WM_APP_VOLUME, k->vkCode, 0);
             return 1;
         }

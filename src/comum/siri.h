@@ -268,11 +268,24 @@ inline std::vector<std::wstring> ListaModelos(int p, std::wstring& erro) {
 // ---------------------------------------------------------------- CLI local (Codex, Claude Code)
 // Roda o comando com a pergunta pela entrada padrão, numa pasta temporária, sem janela; devolve a saída (UTF-8).
 // falha: o comando não existe (9009 do cmd) ou passou do tempo.
-inline std::wstring RodaCli(const std::wstring& comando, const std::wstring& pergunta, DWORD& codigo, bool& tempo) {
+// cancelado (opcional): consultada enquanto espera; true encerra o CLI (pergunta descartada: outra feita ou painel fechado).
+// O cmd e o que ele abre (o node do Codex/Claude Code) ficam num job: encerrar só o cmd deixava o node rodando escondido
+// até terminar (gastando a cota da conta), e várias perguntas seguidas empilhavam processos.
+inline std::wstring RodaCli(const std::wstring& comando, const std::wstring& pergunta, DWORD& codigo, bool& tempo,
+                            bool (*cancelado)(void*) = nullptr, void* ctx = nullptr) {
     codigo = 0; tempo = false;
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    if (job) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION li{};
+        li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &li, sizeof(li));
+    }
     SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
     HANDLE inR = nullptr, inW = nullptr, outR = nullptr, outW = nullptr;
-    if (!CreatePipe(&inR, &inW, &sa, 0) || !CreatePipe(&outR, &outW, &sa, 0)) return L"";
+    if (!CreatePipe(&inR, &inW, &sa, 0) || !CreatePipe(&outR, &outW, &sa, 0)) {
+        for (HANDLE x : { inR, inW, outR, outW, job }) if (x) CloseHandle(x);
+        return L"";
+    }
     SetHandleInformation(inW, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(outR, HANDLE_FLAG_INHERIT, 0);
     wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
@@ -283,9 +296,13 @@ inline std::wstring RodaCli(const std::wstring& comando, const std::wstring& per
     HANDLE nul = CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_WRITE, &sa, OPEN_EXISTING, 0, nullptr);  // os avisos (stderr) não entram na resposta
     si.hStdInput = inR; si.hStdOutput = outW; si.hStdError = nul;
     PROCESS_INFORMATION pi{};
-    BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, dir.c_str(), &si, &pi);
+    // suspenso até entrar no job (o cmd não abre o node antes disso)
+    BOOL ok = CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, dir.c_str(), &si, &pi);
+    if (!ok) codigo = GetLastError();
     CloseHandle(inR); CloseHandle(outW); if (nul != INVALID_HANDLE_VALUE) CloseHandle(nul);
-    if (!ok) { CloseHandle(inW); CloseHandle(outR); codigo = GetLastError(); return L""; }
+    if (!ok) { CloseHandle(inW); CloseHandle(outR); if (job) CloseHandle(job); return L""; }
+    if (job) AssignProcessToJobObject(job, pi.hProcess);
+    ResumeThread(pi.hThread);
     std::string u = Utf8(pergunta); DWORD n = 0;
     WriteFile(inW, u.data(), (DWORD)u.size(), &n, nullptr);
     CloseHandle(inW);  // fim da entrada: o CLI começa
@@ -299,10 +316,13 @@ inline std::wstring RodaCli(const std::wstring& comando, const std::wstring& per
             while (PeekNamedPipe(outR, nullptr, 0, nullptr, &disp, nullptr) && disp && ReadFile(outR, b, sizeof(b), &lido, nullptr) && lido) saida.append(b, lido);
             break;
         }
-        if (GetTickCount64() > ate) { tempo = true; TerminateProcess(pi.hProcess, 1); break; }
+        if (GetTickCount64() > ate) { tempo = true; break; }
+        if (cancelado && cancelado(ctx)) { codigo = ERROR_CANCELLED; break; }
     }
-    GetExitCodeProcess(pi.hProcess, &codigo);
+    if (tempo || codigo == ERROR_CANCELLED) { if (job) TerminateJobObject(job, 1); else TerminateProcess(pi.hProcess, 1); }
+    else GetExitCodeProcess(pi.hProcess, &codigo);
     CloseHandle(outR); CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+    if (job) CloseHandle(job);  // KILL_ON_JOB_CLOSE: o que ainda sobrou do CLI sai junto
     return Wide(saida);
 }
 

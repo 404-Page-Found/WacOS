@@ -2,6 +2,7 @@
 // Reaproveita do Finder a janela sem moldura, o desenho (gfx), a sombra e o campo de texto.
 #pragma once
 #include "../finder/finder.h"
+#include <functional>
 #include <map>
 #include <memory>
 
@@ -62,6 +63,7 @@ void Push(const std::wstring& title, Builder b);  // abre uma subpágina (com Vo
 void Rebuild();                                   // reconstrói a página atual (valores mudaram)
 void Redraw();
 HWND Window();
+void NaInterface(std::function<void()> f);       // roda f na thread da interface (de uma thread: Setting/SetSetting não são para várias)
 bool Dark();
 D2D1_COLOR_F Accent();
 void OpenUri(const std::wstring& uri);            // ms-settings:..., arquivos, URLs
