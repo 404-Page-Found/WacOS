@@ -876,8 +876,10 @@ static std::wstring PackagedAumid(const std::wstring& path) {
     HANDLE fh = CreateFileW((path.substr(0, f1) + L"\\AppxManifest.xml").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     if (fh != INVALID_HANDLE_VALUE) {
         DWORD size = GetFileSize(fh, nullptr), rd = 0;
+        if (size == INVALID_FILE_SIZE || size > 16 * 1024 * 1024) size = 0;  // não lido: nada de string de 4 GB
         std::string x(size, 0);
-        ReadFile(fh, x.data(), size, &rd, nullptr);
+        if (!ReadFile(fh, x.data(), size, &rd, nullptr)) rd = 0;
+        x.resize(rd);
         CloseHandle(fh);
         std::string lx = x; for (auto& c : lx) c = (char)tolower((unsigned char)c);
         std::string want(exe.begin(), exe.end());

@@ -425,7 +425,8 @@ static void UpdCheck() {
         std::wstring cmd = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + UpdScript() + L"\" -Verificar -Saida \"" + f + L"\" -Bin \"" + BinDir() + L"\"";
         STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
         if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-            WaitForSingleObject(pi.hProcess, 45000);
+            // rede parada: encerra o script (antes ele seguia rodando escondido depois de o Ajustes desistir)
+            if (WaitForSingleObject(pi.hProcess, 45000) == WAIT_TIMEOUT) TerminateProcess(pi.hProcess, 1);
             CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
         }
         FILE* fp = nullptr;
@@ -653,7 +654,8 @@ Page Geral() {
                            Toggle(L"Abrir pastas no Finder", [] { return Setting(L"finder_padrao", L"1") == L"1"; },
                                   [](bool on) {
                                       SetSetting(L"finder_padrao", on ? L"1" : L"0");
-                                      RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --quieto --padrao " + (on ? L"on" : L"off"));
+                                      // numa thread: o Finder grava no Registro e o Ajustes esperava até 15 s parado
+                                      std::thread([on] { RunHidden(L"\"" + BinDir() + L"\\WacOSFinder.exe\" --quieto --padrao " + (on ? L"on" : L"off")); }).detach();
                                   }, L"Downloads do navegador, \"Mostrar na pasta\" e o Win+E também"),
                            // Só o Dock e a barra de menus (modo=dock, shell::SoDock): o resto fica com o Windows. Pastas voltam ao
                            // Explorador (o "Abrir pastas no Finder" de antes é guardado e volta no modo completo). Reinicia o Shell.
@@ -1838,7 +1840,7 @@ static bool g_allPhotos;  // Imagem de Fundo: "Mostrar Todas"
 void AddPhoto() {
     IFileOpenDialog* d = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&d)))) return;
-    COMDLG_FILTERSPEC spec[] = { { L"Imagens", L"*.jpg;*.jpeg;*.png;*.bmp" } };
+    COMDLG_FILTERSPEC spec[] = { { Tr(L"Imagens"), L"*.jpg;*.jpeg;*.png;*.bmp" } };
     d->SetFileTypes(1, spec);
     if (SUCCEEDED(d->Show(Window()))) {
         IShellItem* it = nullptr;
@@ -2139,162 +2141,6 @@ Page TempoUso() {
 }
 
 // ================= Tela Bloqueada
-// ---- Fundo da tela de bloqueio: imagem ou vídeo escolhido aqui.
-// Guardado em %APPDATA%\Shell\bloqueio\fundo.jpg (+ fundo.mp4 no vídeo; o .jpg é o 1º quadro, usado no vidro do
-// relógio e enquanto o vídeo carrega). Ajustes bloqueio_fundo / bloqueio_video. Quando a tela de logon do Windows
-// é a do projeto (AuthUX, pasta C:\Windows\Web\Screen\macOS), os dois vão também para lá como
-// personalizado.jpg / personalizado.mp4: a pasta é só de administradores, então o Windows pede a confirmação.
-namespace lockbg {
-const wchar_t* AUTHUX = L"C:\\Windows\\Web\\Screen\\macOS";
-std::wstring Dir() {
-    PWSTR p = nullptr; std::wstring d;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell\\bloqueio"; CoTaskMemFree(p); }
-    SHCreateDirectoryExW(nullptr, d.c_str(), nullptr);
-    return d;
-}
-bool Exists(const std::wstring& f) { return !f.empty() && GetFileAttributesW(f.c_str()) != INVALID_FILE_ATTRIBUTES; }
-
-// grava um HBITMAP ou um arquivo de imagem como JPEG (WIC)
-bool SaveJpeg(IWICImagingFactory* wic, IWICBitmapSource* src, const std::wstring& out) {
-    IWICStream* st = nullptr; IWICBitmapEncoder* enc = nullptr; IWICBitmapFrameEncode* fr = nullptr; IPropertyBag2* bag = nullptr;
-    IWICFormatConverter* cv = nullptr;
-    bool ok = false;
-    if (SUCCEEDED(wic->CreateStream(&st)) && SUCCEEDED(st->InitializeFromFilename(out.c_str(), GENERIC_WRITE)) &&
-        SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatJpeg, nullptr, &enc)) && SUCCEEDED(enc->Initialize(st, WICBitmapEncoderNoCache)) &&
-        SUCCEEDED(enc->CreateNewFrame(&fr, &bag))) {
-        PROPBAG2 opt{}; wchar_t nome[] = L"ImageQuality"; opt.pstrName = nome;
-        VARIANT v; VariantInit(&v); v.vt = VT_R4; v.fltVal = 0.92f;
-        bag->Write(1, &opt, &v);
-        if (SUCCEEDED(fr->Initialize(bag)) && SUCCEEDED(wic->CreateFormatConverter(&cv)) &&
-            SUCCEEDED(cv->Initialize(src, GUID_WICPixelFormat24bppBGR, WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom))) {
-            UINT w = 0, h = 0; cv->GetSize(&w, &h);
-            WICPixelFormatGUID pf = GUID_WICPixelFormat24bppBGR;
-            ok = SUCCEEDED(fr->SetSize(w, h)) && SUCCEEDED(fr->SetPixelFormat(&pf)) && SUCCEEDED(fr->WriteSource(cv, nullptr)) &&
-                 SUCCEEDED(fr->Commit()) && SUCCEEDED(enc->Commit());
-        }
-    }
-    for (IUnknown* u : { (IUnknown*)cv, (IUnknown*)bag, (IUnknown*)fr, (IUnknown*)enc, (IUnknown*)st }) if (u) u->Release();
-    if (!ok) DeleteFileW(out.c_str());
-    return ok;
-}
-bool ImageToJpeg(const std::wstring& in, const std::wstring& out) {
-    IWICImagingFactory* wic = nullptr; IWICBitmapDecoder* dec = nullptr; IWICBitmapFrameDecode* fr = nullptr;
-    bool ok = SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
-              SUCCEEDED(wic->CreateDecoderFromFilename(in.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) &&
-              SUCCEEDED(dec->GetFrame(0, &fr)) && SaveJpeg(wic, fr, out);
-    for (IUnknown* u : { (IUnknown*)fr, (IUnknown*)dec, (IUnknown*)wic }) if (u) u->Release();
-    return ok;
-}
-// Um quadro do vídeo (a 1 s do começo), decodificado do MESMO jeito que a tela de logon toca o vídeo
-// (Media Foundation, SourceReader convertendo para RGB32). Se aqui não decodifica (HEVC sem a extensão, AV1, arquivo
-// quebrado...), lá a tela ficaria preta: o vídeo é recusado. A miniatura do Windows não serve para isso (ela existe
-// mesmo quando o vídeo não toca, e o primeiro quadro costuma ser preto).
-bool VideoFrameToJpeg(const std::wstring& in, const std::wstring& out) {
-    if (FAILED(MFStartup(MF_VERSION, MFSTARTUP_LITE))) return false;
-    IMFAttributes* at = nullptr; IMFSourceReader* rd = nullptr; IMFMediaType* mt = nullptr; IMFMediaType* cur = nullptr;
-    IMFSample* smp = nullptr; IMFMediaBuffer* buf = nullptr; IMF2DBuffer* b2 = nullptr;
-    IWICImagingFactory* wic = nullptr; IWICBitmap* bmp = nullptr;
-    bool ok = false;
-    const DWORD V = (DWORD)MF_SOURCE_READER_FIRST_VIDEO_STREAM;
-    do {
-        if (FAILED(MFCreateAttributes(&at, 1)) || FAILED(at->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE))) break;
-        if (FAILED(MFCreateSourceReaderFromURL(in.c_str(), at, &rd))) break;
-        if (FAILED(MFCreateMediaType(&mt)) || FAILED(mt->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video)) || FAILED(mt->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB32))) break;
-        if (FAILED(rd->SetCurrentMediaType(V, nullptr, mt))) break;  // sem decodificador para este vídeo
-        UINT32 w = 0, h = 0;
-        if (FAILED(rd->GetCurrentMediaType(V, &cur)) || FAILED(MFGetAttributeSize(cur, MF_MT_FRAME_SIZE, &w, &h)) || !w || !h) break;
-        PROPVARIANT pos; PropVariantInit(&pos); pos.vt = VT_I8; pos.hVal.QuadPart = 10000000;  // 1 s
-        rd->SetCurrentPosition(GUID_NULL, pos);
-        for (int n = 0; n < 60 && !smp; n++) {
-            DWORD flags = 0; LONGLONG ts = 0;
-            if (FAILED(rd->ReadSample(V, 0, nullptr, &flags, &ts, &smp))) break;
-            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {  // vídeo com menos de 1 s: do começo
-                if (smp) break;
-                pos.hVal.QuadPart = 0; rd->SetCurrentPosition(GUID_NULL, pos);
-            }
-        }
-        if (!smp || FAILED(smp->ConvertToContiguousBuffer(&buf))) break;
-        std::vector<BYTE> px((size_t)w * h * 4);
-        BYTE* scan = nullptr; LONG pitch = 0;
-        if (SUCCEEDED(buf->QueryInterface(IID_PPV_ARGS(&b2))) && SUCCEEDED(b2->Lock2D(&scan, &pitch))) {
-            for (UINT32 y = 0; y < h; y++) memcpy(&px[(size_t)y * w * 4], scan + (LONG_PTR)y * pitch, (size_t)w * 4);
-            b2->Unlock2D();
-        } else {
-            BYTE* d = nullptr; DWORD len = 0;
-            if (FAILED(buf->Lock(&d, nullptr, &len)) || len < px.size()) break;
-            memcpy(px.data(), d, px.size());
-            buf->Unlock();
-        }
-        bool algo = false;  // quadro todo preto = não decodificou de verdade
-        for (size_t k = 0; k < px.size() && !algo; k += 4 * 97) algo = px[k] > 12 || px[k + 1] > 12 || px[k + 2] > 12;
-        if (!algo) break;
-        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic)))) break;
-        if (FAILED(wic->CreateBitmapFromMemory(w, h, GUID_WICPixelFormat32bppBGR, w * 4, (UINT)px.size(), px.data(), &bmp))) break;
-        ok = SaveJpeg(wic, bmp, out);
-    } while (false);
-    for (IUnknown* u : { (IUnknown*)bmp, (IUnknown*)wic, (IUnknown*)b2, (IUnknown*)buf, (IUnknown*)smp, (IUnknown*)cur, (IUnknown*)mt, (IUnknown*)rd, (IUnknown*)at }) if (u) u->Release();
-    MFShutdown();
-    return ok;
-}
-// leva (ou tira) o fundo personalizado da pasta da tela de logon do projeto; pede administrador (UAC)
-void Publish(const std::wstring& jpg, const std::wstring& mp4) {
-    if (!Exists(AUTHUX)) return;
-    std::wstring d = AUTHUX, cmd = L"/c ";
-    if (jpg.empty()) cmd += L"del /q \"" + d + L"\\personalizado.jpg\" \"" + d + L"\\personalizado.mp4\"";
-    else {
-        cmd += L"copy /y \"" + jpg + L"\" \"" + d + L"\\personalizado.jpg\"";
-        if (mp4.empty()) cmd += L" & del /q \"" + d + L"\\personalizado.mp4\"";
-        else cmd += L" & copy /y \"" + mp4 + L"\" \"" + d + L"\\personalizado.mp4\"";
-    }
-    ShellExecuteW(Window(), L"runas", L"cmd.exe", cmd.c_str(), nullptr, SW_HIDE);
-}
-void Default() {
-    SetSetting(L"bloqueio_fundo", L"");
-    SetSetting(L"bloqueio_video", L"");
-    Publish(L"", L"");
-    Rebuild();
-}
-void Pick(bool video) {
-    IFileOpenDialog* d = nullptr;
-    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&d)))) return;
-    COMDLG_FILTERSPEC img[] = { { L"Imagens", L"*.jpg;*.jpeg;*.png;*.bmp;*.heic;*.webp" } };
-    COMDLG_FILTERSPEC vid[] = { { L"Vídeos", L"*.mp4;*.mov;*.m4v" } };
-    d->SetFileTypes(1, video ? vid : img);
-    std::wstring in;
-    if (SUCCEEDED(d->Show(Window()))) {
-        IShellItem* it = nullptr;
-        if (SUCCEEDED(d->GetResult(&it))) {
-            PWSTR path = nullptr;
-            if (SUCCEEDED(it->GetDisplayName(SIGDN_FILESYSPATH, &path))) { in = path; CoTaskMemFree(path); }
-            it->Release();
-        }
-    }
-    d->Release();
-    if (in.empty()) return;
-    // nome novo a cada escolha (a miniatura da página é guardada pelo caminho); as antigas saem
-    std::wstring dir = Dir(), jpg = dir + L"\\fundo-" + std::to_wstring(GetTickCount64()) + L".jpg", mp4 = dir + L"\\fundo.mp4";
-
-    bool ok;
-    // o vídeo só é aceito se decodifica aqui (senão a tela de bloqueio ficaria preta); nada é trocado em caso de erro
-    if (video) ok = VideoFrameToJpeg(in, jpg) && CopyFileW(in.c_str(), mp4.c_str(), FALSE);
-    else { ok = ImageToJpeg(in, jpg); if (ok) DeleteFileW(mp4.c_str()); }
-    if (!ok) {
-        DeleteFileW(jpg.c_str());
-        MessageBoxW(Window(), video ? Tr(L"Este vídeo não pode ser usado: o Windows não consegue reproduzir o formato dele. Use um vídeo MP4 em H.264.") : Tr(L"Não foi possível usar esta imagem."), Tr(L"Tela Bloqueada"), MB_ICONWARNING);
-        return;
-    }
-    {   // as imagens antigas saem (menos a nova)
-        WIN32_FIND_DATAW fd; HANDLE h = FindFirstFileW((dir + L"\\fundo-*.jpg").c_str(), &fd);
-        if (h != INVALID_HANDLE_VALUE) { do { std::wstring f = dir + L"\\" + fd.cFileName; if (_wcsicmp(f.c_str(), jpg.c_str())) DeleteFileW(f.c_str()); } while (FindNextFileW(h, &fd)); FindClose(h); }
-    }
-    SetSetting(L"bloqueio_fundo", jpg);
-    SetSetting(L"bloqueio_video", video ? mp4 : L"");
-    SetSetting(L"bloqueio_fundo_nome", PathFindFileNameW(in.c_str()));
-    Publish(jpg, video ? mp4 : L"");
-    Rebuild();
-}
-}  // namespace lockbg
-
 Page TelaBloqueada() {
     Page p;
     // a imagem de fundo da tela de bloqueio do WacOS saiu junto com ela (21/11/2026); fica o que é do Windows

@@ -215,8 +215,11 @@ std::vector<atalhos::Item> CubaseRecent(int max) {
     HANDLE f = xml.empty() ? INVALID_HANDLE_VALUE : CreateFileW(xml.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
     if (f == INVALID_HANDLE_VALUE) return out;
     DWORD size = GetFileSize(f, nullptr), rd = 0;
+    // tamanho que não deu para ler (INVALID_FILE_SIZE = 4 GB) virava um std::string gigante e derrubava o Shell
+    if (size == INVALID_FILE_SIZE || size > 16 * 1024 * 1024) { CloseHandle(f); return out; }
     std::string t(size, 0);
-    ReadFile(f, t.data(), size, &rd, nullptr);
+    if (!ReadFile(f, t.data(), size, &rd, nullptr)) rd = 0;
+    t.resize(rd);
     CloseHandle(f);
     size_t at = t.find("GRecentDocumentPaths");
     if (at == std::string::npos) return out;

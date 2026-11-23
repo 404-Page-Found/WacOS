@@ -1668,7 +1668,8 @@ std::vector<std::vector<std::wstring>> ReadTsv(const std::wstring& path) {
     return out;
 }
 void ChecarAvisos() {
-    if (!BannersOn()) return;
+    // Sem o "Banners do Mac" os avisos dos apps do Windows saem no aviso do Windows; os do Relógio, Lembretes e
+    // Calendário não têm outro caminho. Antes daqui saía sem conferir: com os banners desligados o alarme não tocava.
     std::wstring done = ShellData(L"avisos-feitos.txt");
     if (!g_avisadosLidos) { g_avisadosLidos = true; for (auto& v : ReadTsv(done)) if (!v.empty()) g_avisados.insert(v[0]); }
     long long now = (long long)time(nullptr) / 60;
@@ -1740,7 +1741,9 @@ void BannerShowNote(const Note& n) {
                               [gr](ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r) { DrawIcon(dc, br, gr, r); },
                               [nn] { OpenApp(nn); })) { Log(L"notificação na ilha: %ls", n.app.c_str()); return; }
     }
-    if (g_open || g_closing || !BannersOn() || !g_bwnd) return;
+    // avisos dos nossos apps (ChecarAvisos: aumid na pasta do WacOS) aparecem mesmo sem os banners do Mac
+    bool nosso = !n.aumid.empty() && n.aumid.rfind(shell::dir + L"\\", 0) == 0;
+    if (g_open || g_closing || (!BannersOn() && !nosso) || !g_bwnd) return;
     bool first = g_bans.empty();
     Ban b;
     b.n = n; b.at = anim::Now(); b.until = GetTickCount64() + BannerMs(); b.y = TOP;

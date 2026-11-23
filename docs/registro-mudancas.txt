@@ -1322,3 +1322,22 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/dock.cpp (dock::Raise), menubar.cpp (volta da tela cheia e Displays) e revelar.cpp (ShowOverlay): pegam antes de subir as nossas e devolvem depois.
   Testado: janela Tk descartável "sempre por cima" no meio do topo continuou acima do Dock e da barra com o Launchpad abrindo e fechando por mensagem. Não testado: o clique na mesa (sem cliques simulados) e o Vibrance (não instalado).
   DESFAZER: reverter o commit.
+
+[2026-11-23 03:15, hora do PC] Caça a bugs no código inteiro (sessão caca-bugs, branch claude/caca-bugs-4d948f). Nada mudou no sistema: só código.
+  - src/comum/ajustes_arquivo.h (novo), src/shell/main.cpp, src/ajustes/main.cpp: o ajustes.txt era lido em pedaços de 512 caracteres. apps_ordem e launchpad_ocultos (nomes de apps com "|") passam disso: a linha era cortada e a gravação seguinte salvava a lista cortada (ordem do Launchpad/Apps perdida). Agora lê linhas de qualquer tamanho e grava num .tmp trocado de uma vez (quem lê no meio não vê o arquivo vazio; o Ajustes relia vazio e regravava só a chave dele). Testado: linha de 7.090 caracteres com acentos, ida e volta igual, BOM mantido.
+  - src/shell/main.cpp: shell::Setting/SetSetting/LoadSettings com trava (SRWLOCK). O mapa g_settings era lido de várias threads enquanto a interface o trocava inteiro.
+  - src/shell/menus.cpp e src/menu/context_menu.cpp: GoldenIcon sempre devolvia false (o "if" tinha ficado dentro do comentário da linha do "for"): no Golden Gate nenhum item de menu ganhava símbolo.
+  - src/janelas/controles.cpp (DLL das janelas, dentro dos apps): o ícone grande de cada caixa de mensagem no visual do Mac nunca era destruído (um objeto USER perdido por alerta, no processo do app).
+  - src/shell/memoria.cpp: app em soneca (App Nap) que fechava a janela e ficava na bandeja (Discord, Spotify) saía da lista ainda com o modo de eficiência ligado e seguia lento ao ser reaberto. Agora acorda antes de sair da lista.
+  - src/shell/notificacoes.cpp: com "Banners do Mac" desligado os alarmes do Relógio e os avisos de Lembretes/Calendário não apareciam nem tocavam (não têm aviso do Windows para cair no lugar). Eles seguem saindo no banner.
+  - src/shell/spotlight.cpp: SaveLearned abria e zerava o arquivo antes de pegar a trava; duas gravações de threads diferentes se misturavam (as linhas absurdas que o LoadLearned conserta). Agora trava antes e grava em .tmp.
+  - src/shell/ilha.cpp: histórico de cópias: duas gravações quase juntas, a mais nova falhava ao abrir o .tmp e o arquivo ficava com a lista anterior (agora uma por vez, só a mais nova). Tamanho de arquivo inválido virava um vetor de 4 GB.
+  - src/shell/atalhos.cpp e apps.cpp: o mesmo do tamanho inválido (GetFileSize falhando) ao ler o arquivo do Ableton e o AppxManifest.
+  - src/shell/dialogs.cpp: as leituras do combo de tipos da janela de Abrir/Salvar de outro programa iam sem tempo-limite (programa ocupado segurava o Shell).
+  - src/shell/atualizacao.cpp: com "Avisar quando houver atualização" desligado o Shell não roda mais o PowerShell a cada 6 h; script que passa de 60 s é encerrado (antes ficava rodando escondido). src/ajustes/paginas.cpp: o mesmo encerramento na conferência da página Atualização.
+  - src/ajustes/paginas.cpp: "Abrir pastas no Finder" rodava o Finder e esperava até 15 s na thread da interface do Ajustes; agora numa thread. Tirado o bloco lockbg (fundo da tela de bloqueio), sem uso desde que a página saiu em 21/11.
+  - src/shell/revelar.cpp + main.cpp: "Clicar no papel de parede para mostrar a mesa": com o Shell aberto em "Nunca", trocar a opção não fazia nada até reiniciar. Agora liga na hora.
+  - src/shell/progresso.cpp: a lista de posições das janelas de cópia do Windows não apagava as que já fecharam.
+  - Tradução: filtros das janelas de abrir/salvar (Ajustes, Pré-Visualização, QuickTime, TextEdit), "Escolher" (ícone próprio), repetição dos alarmes do Relógio e o erro do Direct2D no Ajustes passavam sem Tr() ou sem par no dicionário; os 8 textos novos estão nos 11 dicionários.
+  Compilado (shell, ajustes, apps, preview, janelas 32/64). NÃO instalado nem conferido na tela: só os testes acima.
+  DESFAZER: reverter o commit.

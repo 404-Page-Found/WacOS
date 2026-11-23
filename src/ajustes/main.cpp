@@ -17,6 +17,7 @@
 #include <cstdarg>
 #include "../comum/ampliacao.h"  // botão verde com a animação do ampliar do Shell
 #include "../comum/semaforo.h"
+#include "../comum/ajustes_arquivo.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra metálica de ponta a ponta
 
 // Libera o SetForegroundWindow (a última entrada foi nossa). Alt com uma tecla sem função (vkE8) no meio: Alt sozinho,
@@ -160,17 +161,11 @@ bool ReadDark() {
 }
 
 void LoadSettings() {
-    g_settings.clear();
-    FILE* fp = nullptr;
-    if (_wfopen_s(&fp, g_settingsPath.c_str(), L"r, ccs=UTF-8") || !fp) return;
-    wchar_t line[512];
-    while (fgetws(line, 512, fp)) {
-        std::wstring s = line;
-        while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r' || s.back() == L' ')) s.pop_back();
-        size_t eq = s.find(L'=');
-        if (eq != std::wstring::npos && !s.empty() && s[0] != L'#') g_settings[s.substr(0, eq)] = s.substr(eq + 1);
-    }
-    fclose(fp);
+    // linhas de qualquer tamanho: com fgetws(512) a apps_ordem do Launchpad era cortada e a próxima gravação salvava
+    // a lista cortada. Sem conseguir abrir (arquivo trocado naquele instante), fica o que já estava lido: zerar aqui
+    // fazia o SetSetting regravar o arquivo só com a chave nova.
+    std::map<std::wstring, std::wstring> novo;
+    if (ajarq::Ler(g_settingsPath, novo)) g_settings.swap(novo);
 }
 
 }  // namespace
@@ -218,11 +213,7 @@ void aj::SetSetting(const wchar_t* key, const std::wstring& v) {
     if (g_pendKey == key) { g_pendKey.clear(); if (g_hwnd) KillTimer(g_hwnd, T_SLIDE); }
     LoadSettings();  // o Shell também grava aqui: parte do arquivo atual
     g_settings[key] = v;
-    FILE* fp = nullptr;
-    if (!_wfopen_s(&fp, g_settingsPath.c_str(), L"w, ccs=UTF-8") && fp) {
-        for (auto& [k, val] : g_settings) fwprintf(fp, L"%ls=%ls\n", k.c_str(), val.c_str());
-        fclose(fp);
-    }
+    ajarq::Gravar(g_settingsPath, g_settings);  // atômico: o Shell nunca lê o arquivo pela metade
     // avisa o Shell (Dock, barra de menus) para reler os ajustes
     static UINT msg = RegisterWindowMessageW(L"ShellAjustesMudaram");
     HWND sh = FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr);
@@ -2323,7 +2314,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     g_tahoe = tahoe::On();
     ApplyWindowTheme();
     SetWindowPos(g_hwnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
-    if (!gfx::Init(g_hwnd)) { MessageBoxW(nullptr, L"Não foi possível iniciar o Direct2D.", L"Ajustes do Sistema", MB_ICONERROR); return 1; }
+    if (!gfx::Init(g_hwnd)) { MessageBoxW(nullptr, Tr(L"Não foi possível iniciar o Direct2D."), Tr(L"Ajustes do Sistema"), MB_ICONERROR); return 1; }
     CreateFormats();
     shadow::Create(g_hwnd);
 

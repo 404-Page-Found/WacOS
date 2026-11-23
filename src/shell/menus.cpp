@@ -141,7 +141,10 @@ const float ARROW = 18;      // faixa com a setinha em cima/embaixo de um menu q
 bool GoldenMenus() { return backdrop::Liquid() && backdrop::Current().golden; }
 #define MENU_R (GoldenMenus() ? 11.f : MENU_R_TAHOE)  // Golden Gate: canto de 11 (medido)
 bool GoldenIcon(const std::wstring& label) {
-    for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })  // macOS 27: o menu da Apple tem símbolo nestes if (label.rfind(k, 0) == 0) return true;
+    // macOS 27: o menu da Apple tem símbolo nestes. (O if estava no fim do comentário da linha do for: o laço
+    // devolvia false no 1º item e nenhum menu ganhava símbolo.)
+    for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })
+        if (label.rfind(k, 0) == 0) return true;
     return false;
 }
 

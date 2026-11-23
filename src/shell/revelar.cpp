@@ -501,6 +501,7 @@ void HookThread() {
 }  // namespace
 
 void revelar::Start() {
+    if (g_wnd) return;  // já ligado (o main.cpp chama de novo quando o ajuste sai de "Nunca")
     if (shell::Setting(L"clique_mostra_mesa", L"palco") == L"0") return;  // "Nunca": nem o gancho do mouse
     WNDCLASSW wc{}; wc.lpfnWndProc = Proc; wc.hInstance = shell::inst; wc.lpszClassName = L"ShellRevelar";
     RegisterClassW(&wc);

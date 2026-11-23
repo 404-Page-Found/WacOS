@@ -261,6 +261,9 @@ void HideOriginal(HWND h) {
     {
         std::lock_guard<std::mutex> l(g_mx);
         if (!OffScreen(r)) {
+            // janelas de cópia que já fecharam saem da lista (uma por cópia: crescia sem fim, e um HWND reaproveitado
+            // por outra janela herdava a posição velha)
+            for (auto it = g_saved.begin(); it != g_saved.end();) it = IsWindow(it->first) ? std::next(it) : g_saved.erase(it);
             g_saved[h] = r;
             if (g_anchor.x == INT_MIN && IsWindowVisible(h)) g_anchor = { (r.left + r.right) / 2, (r.top + r.bottom) / 2 };
             int x = GetSystemMetrics(SM_XVIRTUALSCREEN) - (r.right - r.left) - 4000;
