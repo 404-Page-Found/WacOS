@@ -1368,3 +1368,11 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/apps.cpp (dock.txt), mesa.cpp (mesa.txt), notificacoes.cpp (relogio.txt, ao desligar um alarme de uma vez) e ilha.cpp (prateleira): eram regravados direto com "w". O vigia encerra o Shell travado com TerminateProcess; caindo no meio da gravação o arquivo ficava vazio: o Dock voltava sem nenhum app fixado, os ícones da mesa se embaralhavam e os alarmes do Relógio sumiam. Agora a gravação é atômica. Testado: ida e volta com acentos e tabs, sem sobrar .tmp.
   Compilado (build completo). NÃO testado na tela.
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:20, hora do PC] Caça a bugs, rodada 6 (janelas escondidas depois de o vigia reiniciar o Shell). Só código.
+  - O vigia encerra o Shell travado com TerminateProcess, e aí o Restore não roda: o que o Shell tinha tirado da tela ficava escondido, e o Shell novo não recuperava. O app dono ficava esperando uma pergunta invisível.
+  - src/shell/alertas.cpp: a caixa original (confirmação do Explorador, substituir, caixa de mensagem) guarda a posição numa propriedade da própria janela (ShellAlertaX/Y) antes de ir para -32000; alertas::Create devolve à tela as que ficaram assim.
+  - src/shell/progresso.cpp: a janela de progresso do Windows também guarda a posição (ShellProgressoX/Y). Uma já fora da tela sem posição conhecida (de um Shell anterior) passa a ter para onde voltar: a marca ou o meio do monitor principal. Antes uma pergunta nela não voltava nunca (ShowOriginal saía sem fazer nada).
+  - Conferido: as janelas de Abrir/Salvar deixadas fora da tela já eram recuperadas por dialogs::Start; o Organizador Visual não esconde janelas (minimiza).
+  Compilado (build completo). NÃO testado na tela (precisaria derrubar o Shell instalado).
+  DESFAZER: reverter o commit.

@@ -556,6 +556,15 @@ bool HasDirectUI(HWND dlg) {
     return f;
 }
 
+// A posição original fica numa propriedade da própria janela (de outro programa). O vigia encerra o Shell travado
+// sem passar pelo Stop: a caixa ficava em -32000 para sempre e o programa, esperando a resposta, parecia travado.
+// O Shell novo (alertas::Create) devolve à tela as que ficaram assim.
+void GuardaLugar(HWND dlg, const RECT& wr) {
+    if (wr.left <= -30000) return;
+    SetPropW(dlg, L"ShellAlertaX", (HANDLE)(INT_PTR)(wr.left + 40000));
+    SetPropW(dlg, L"ShellAlertaY", (HANDLE)(INT_PTR)(wr.top + 40000));
+}
+
 // textos da janela original (pergunta, nome do arquivo) e o alerta do Mac no lugar
 void Take(HWND dlg) {
     if (g.target) return;
@@ -637,6 +646,7 @@ void Take(HWND dlg) {
         SetIcon(ExeOf(dlg));
         RECT wr; GetWindowRect(dlg, &wr);
         // ASYNC: a janela é de outro programa; sem isto o Shell esperava a thread dela (e travava se ela estivesse ocupada)
+        GuardaLugar(dlg, wr);
         SetWindowPos(dlg, nullptr, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
         Show((wr.left + wr.right) / 2, (wr.top + wr.bottom) / 2);
         Log(L"alertas: confirmação de substituir no alerta do Mac (%ls%ls)", name.c_str(), g.taskDlg ? L", TaskDialog" : L"");
@@ -680,6 +690,7 @@ void Take(HWND dlg) {
     SetIcon(L"");
     // a janela original sai da tela (continua viva, esperando a resposta); sem esperar a thread dela
     RECT wr; GetWindowRect(dlg, &wr);
+    GuardaLugar(dlg, wr);
     SetWindowPos(dlg, nullptr, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     Show((wr.left + wr.right) / 2, (wr.top + wr.bottom) / 2);
     Log(L"alertas: confirmação do Explorer no alerta do Mac (%ls)", g.title.c_str());
@@ -752,6 +763,7 @@ void TakeMessage(HWND dlg) {
     RECT wr; GetWindowRect(dlg, &wr);
     // sem esperar a thread do programa: o Ableton ocupado (escaneando plugins) com a caixa do Kontakt aberta
     // deixava o Shell parado até o vigia derrubá-lo (12/11/2026)
+    GuardaLugar(dlg, wr);
     if (!SetWindowPos(dlg, nullptr, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS)) {  // não deixou mexer (elevado)
         g.target = nullptr; g.idYes = g.idNo = 0; g.single = false;
         return;
@@ -905,6 +917,16 @@ bool alertas::Create(HINSTANCE hi) {
     g_wnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP, wc.lpszClassName, L"Alerta", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     g_back = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, bc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     if (!g_wnd || !g_back) return false;
+    // caixas que um Shell encerrado à força deixou fora da tela (GuardaLugar) voltam para onde estavam
+    EnumWindows([](HWND h, LPARAM) -> BOOL {
+        HANDLE x = GetPropW(h, L"ShellAlertaX"), y = GetPropW(h, L"ShellAlertaY");
+        RECT r;
+        if (x && y && IsWindowVisible(h) && !IsIconic(h) && GetWindowRect(h, &r) && r.left <= -30000) {
+            SetWindowPos(h, HWND_TOP, (int)(INT_PTR)x - 40000, (int)(INT_PTR)y - 40000, 0, 0, SWP_NOSIZE | SWP_ASYNCWINDOWPOS);
+            Log(L"alertas: caixa deixada fora da tela por um Shell anterior voltou");
+        }
+        return TRUE;
+    }, 0);
     g_glass = backdrop::Attach(g_back);
     if (!g_glass) {
         DestroyWindow(g_back);

@@ -265,9 +265,25 @@ void HideOriginal(HWND h) {
             // por outra janela herdava a posição velha)
             for (auto it = g_saved.begin(); it != g_saved.end();) it = IsWindow(it->first) ? std::next(it) : g_saved.erase(it);
             g_saved[h] = r;
+            // também na própria janela: um Shell encerrado à força (vigia) não a devolve; o novo lê daqui (abaixo)
+            SetPropW(h, L"ShellProgressoX", (HANDLE)(INT_PTR)(r.left + 40000));
+            SetPropW(h, L"ShellProgressoY", (HANDLE)(INT_PTR)(r.top + 40000));
             if (g_anchor.x == INT_MIN && IsWindowVisible(h)) g_anchor = { (r.left + r.right) / 2, (r.top + r.bottom) / 2 };
             int x = GetSystemMetrics(SM_XVIRTUALSCREEN) - (r.right - r.left) - 4000;
             SetWindowPos(h, nullptr, x, r.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        } else if (!g_saved.count(h)) {
+            // já estava fora da tela sem posição guardada aqui: escondida por um Shell anterior encerrado à força. Sem
+            // isto, uma pergunta nela nunca voltava (ShowOriginal não tinha para onde devolver)
+            HANDLE px = GetPropW(h, L"ShellProgressoX"), py = GetPropW(h, L"ShellProgressoY");
+            if (px && py) {
+                int x0 = (int)(INT_PTR)px - 40000, y0 = (int)(INT_PTR)py - 40000;
+                g_saved[h] = { x0, y0, x0 + (r.right - r.left), y0 + (r.bottom - r.top) };
+            } else {  // sem a marca: no meio do monitor principal
+                MONITORINFO mi{ sizeof(mi) };
+                GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
+                int x0 = (mi.rcWork.left + mi.rcWork.right - (r.right - r.left)) / 2, y0 = (mi.rcWork.top + mi.rcWork.bottom - (r.bottom - r.top)) / 2;
+                g_saved[h] = { x0, y0, x0 + (r.right - r.left), y0 + (r.bottom - r.top) };
+            }
         }
         g_hidden.insert(h);
     }
