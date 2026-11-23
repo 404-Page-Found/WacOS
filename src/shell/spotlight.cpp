@@ -387,15 +387,24 @@ void LoadLearned() {
     }
 }
 void SaveLearned() {
+    // A trava vem ANTES de abrir: o arquivo era aberto (e zerado) fora dela, e duas gravações seguidas (cada Learn
+    // roda numa thread) escreviam por cima uma da outra no mesmo arquivo; daí as linhas absurdas que o LoadLearned
+    // conserta. Grava num .tmp e troca, para quem lê nunca ver o arquivo pela metade.
+    static std::mutex gravando;
+    std::lock_guard<std::mutex> g(gravando);
+    std::wstring file = LearnFile(), tmp = file + L".tmp";
     FILE* f = nullptr;
-    if (_wfopen_s(&f, LearnFile().c_str(), L"w, ccs=UTF-8") || !f) return;
-    std::lock_guard<std::mutex> l(g_learnMu);
-    for (auto& [t, L] : g_learn) {
-        fwprintf(f, L"%ls\t%d\t%lld", t.c_str(), L.opens, L.last);
-        for (size_t i = 0; i < L.queries.size() && i < MAX_QUERIES; i++) fwprintf(f, L"\t%ls", L.queries[i].c_str());
-        fputwc(L'\n', f);
+    if (_wfopen_s(&f, tmp.c_str(), L"w, ccs=UTF-8") || !f) return;
+    {
+        std::lock_guard<std::mutex> l(g_learnMu);
+        for (auto& [t, L] : g_learn) {
+            fwprintf(f, L"%ls\t%d\t%lld", t.c_str(), L.opens, L.last);
+            for (size_t i = 0; i < L.queries.size() && i < MAX_QUERIES; i++) fwprintf(f, L"\t%ls", L.queries[i].c_str());
+            fputwc(L'\n', f);
+        }
     }
     fclose(f);
+    if (!MoveFileExW(tmp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING)) DeleteFileW(tmp.c_str());
 }
 // abriu `target` depois de digitar `q` (já em minúsculas sem acento)
 void Learn(const std::wstring& target, const std::wstring& q) {

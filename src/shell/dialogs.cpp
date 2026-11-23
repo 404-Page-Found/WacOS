@@ -289,11 +289,17 @@ Request Read(HWND dlg) {
     if (ok.find(L"salv") != std::wstring::npos || ok.find(L"save") != std::wstring::npos) r.mode = 1;
     else if (ok.find(L"pasta") != std::wstring::npos || ok.find(L"folder") != std::wstring::npos || !combo) r.mode = 2;
     if (combo) {  // "Imagens (*.png;*.jpg)" → descrição + padrões
-        int n = (int)SendMessageW(combo, CB_GETCOUNT, 0, 0);
+        // com tempo-limite, como o Text(): o combo é do programa que pediu a janela; ocupado, ele segurava o Shell
+        auto cb = [&](UINT m, WPARAM w, LPARAM l) -> LRESULT {
+            DWORD_PTR res = 0;
+            return SendMessageTimeoutW(combo, m, w, l, SMTO_ABORTIFHUNG, g_textMs, &res) ? (LRESULT)res : CB_ERR;
+        };
+        int n = (int)cb(CB_GETCOUNT, 0, 0);
         for (int i = 0; i < n && i < 64; i++) {
             wchar_t buf[512] = {};
-            if (SendMessageW(combo, CB_GETLBTEXTLEN, i, 0) >= 511) continue;
-            SendMessageW(combo, CB_GETLBTEXT, i, (LPARAM)buf);
+            LRESULT len = cb(CB_GETLBTEXTLEN, i, 0);
+            if (len < 0 || len >= 511) continue;
+            cb(CB_GETLBTEXT, i, (LPARAM)buf);
             std::wstring t = buf, desc = t, spec = L"*.*";
             size_t o = t.rfind(L'('), c = t.rfind(L')');
             if (o != std::wstring::npos && c != std::wstring::npos && c > o) {
@@ -304,7 +310,7 @@ Request Read(HWND dlg) {
             for (auto& ch : spec) if (ch == L',' ) ch = L';';
             r.types.push_back({ desc.empty() ? t : desc, spec });
         }
-        r.type = std::max(0, (int)SendMessageW(combo, CB_GETCURSEL, 0, 0));
+        r.type = std::max(0, (int)cb(CB_GETCURSEL, 0, 0));
     }
     // Salvar pela estrutura, não só pelo texto do botão: a janela de Abrir do Windows sempre tem o campo do nome 1148
     // (ComboBoxEx32); a de Salvar não tem, o nome fica num Edit 1001 dentro de FloatNotifySink. O botão nasce com o

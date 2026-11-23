@@ -232,8 +232,14 @@ void NapTick(DWORD now) {
     DWORD fgPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), &fgPid);
     std::set<DWORD> audio = AudioPids();
 
-    // processos que sumiram
-    for (auto it = g_procs.begin(); it != g_procs.end();) it = s.any.count(it->first) ? std::next(it) : g_procs.erase(it);
+    // processos que sumiram (ou ficaram sem janela: Discord e Spotify fechados para a bandeja continuam rodando).
+    // Em soneca, acordam antes de sair da lista: sem isso o modo de eficiência ficava ligado para sempre e o app
+    // reaberto pela bandeja seguia lento (o Wake da frente não o achava mais na lista)
+    for (auto it = g_procs.begin(); it != g_procs.end();) {
+        if (s.any.count(it->first)) { ++it; continue; }
+        if (it->second.napped && SetThrottle(it->first, false, it->second)) Log(L"memoria: %ls acordou (sem janela)", it->second.exe.c_str());
+        it = g_procs.erase(it);
+    }
 
     // por programa, não por processo: o Chrome (Edge, Discord, Spotify...) toca o som num processo de áudio à parte e
     // desenha o vídeo em outro; só o da janela entrava em soneca e o YouTube tocando atrás de outra janela travava

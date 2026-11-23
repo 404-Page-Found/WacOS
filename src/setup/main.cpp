@@ -641,8 +641,29 @@ static void DoUninstall() {
         SHFileOperationW(&o);
     }
     if (g_ch.delSettings) {
-        wstring cfg = Env(L"APPDATA") + L"\\Shell"; cfg.push_back(0);
-        SHFILEOPSTRUCTW o{}; o.wFunc = FO_DELETE; o.pFrom = cfg.c_str(); o.fFlags = FOF_NO_UI; SHFileOperationW(&o);
+        // Só os ajustes e os caches. A pasta inteira ia embora, e nela ficam também os documentos do usuário: as notas
+        // do Notas, os lembretes, os eventos do Calendário, os contatos e os alarmes. Quem marcava "ajustes" perdia tudo
+        // isso sem aviso. Esses ficam (o texto da opção diz).
+        static const wchar_t* FICAM[] = { L"notas", L"lembretes.txt", L"calendario.txt", L"contatos.txt", L"relogio.txt",
+                                           L"fotos-favoritos.txt", L"assinatura.txt", L"feriados.txt" };
+        wstring cfg = Env(L"APPDATA") + L"\\Shell";
+        WIN32_FIND_DATAW fd; HANDLE h = cfg.size() > 6 ? FindFirstFileW((cfg + L"\\*").c_str(), &fd) : INVALID_HANDLE_VALUE;
+        std::vector<wstring> sai;
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                wstring n = fd.cFileName;
+                if (n == L"." || n == L"..") continue;
+                bool fica = false;
+                for (auto k : FICAM) if (!_wcsicmp(n.c_str(), k)) fica = true;
+                if (!fica) sai.push_back(cfg + L"\\" + n);
+            } while (FindNextFileW(h, &fd));
+            FindClose(h);
+        }
+        for (auto& p : sai) {
+            wstring from = p; from.push_back(0);
+            SHFILEOPSTRUCTW o{}; o.wFunc = FO_DELETE; o.pFrom = from.c_str(); o.fFlags = FOF_NO_UI; SHFileOperationW(&o);
+        }
+        RemoveDirectoryW(cfg.c_str());  // vazia (nenhum documento): a pasta sai também
     }
     g_progress = 0.85f;
     if (g_ch.cleanCache) {
@@ -684,13 +705,24 @@ static std::string HttpGet(const wstring& host, const wstring& path, const wchar
         wchar_t len[32] = {}; DWORD ln = sizeof(len); ULONGLONG total = 0;
         if (WinHttpQueryHeaders(r, WINHTTP_QUERY_CONTENT_LENGTH, nullptr, len, &ln, nullptr)) total = _wcstoui64(len, nullptr, 10);
         if (code == 200) {
-            if (!outFile.empty()) f = CreateFileW(outFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+            if (!outFile.empty()) {
+                f = CreateFileW(outFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+                // sem o arquivo o pacote inteiro ia para a memória e a resposta dizia "ok" sem nada no disco
+                if (f == INVALID_HANDLE_VALUE) { WinHttpCloseHandle(r); if (c) WinHttpCloseHandle(c); WinHttpCloseHandle(s); return body; }
+            }
             std::vector<char> buf(1 << 16); ULONGLONG got = 0; DWORD n = 0;
+            bool escreveu = true;
             while (WinHttpReadData(r, buf.data(), (DWORD)buf.size(), &n) && n) {
-                if (f != INVALID_HANDLE_VALUE) { DWORD w; WriteFile(f, buf.data(), n, &w, nullptr); } else body.append(buf.data(), n);
+                if (f != INVALID_HANDLE_VALUE) { DWORD w = 0; if (!WriteFile(f, buf.data(), n, &w, nullptr) || w != n) { escreveu = false; break; } } else body.append(buf.data(), n);
                 got += n; if (prog) prog(got, total);
             }
-            if (f != INVALID_HANDLE_VALUE) { CloseHandle(f); body = "ok"; }
+            if (f != INVALID_HANDLE_VALUE) {
+                CloseHandle(f);
+                // Conexão que caiu no meio terminava o laço como se o download tivesse acabado: sem o SHA-256 publicado,
+                // o pacote cortado seguia para a instalação. Só vale inteiro (o tamanho do Content-Length) e gravado.
+                if (escreveu && (!total || got == total)) body = "ok";
+                else DeleteFileW(outFile.c_str());
+            }
         }
     }
     if (r) WinHttpCloseHandle(r); if (c) WinHttpCloseHandle(c); WinHttpCloseHandle(s);
@@ -793,7 +825,8 @@ static void DoUpdate() {
     });
     if (ok.empty()) {
         wchar_t b[200];
-        if (g_httpCode) swprintf_s(b, T(L"O download falhou (HTTP %lu). Tente de novo.", L"The download failed (HTTP %lu). Try again."), g_httpCode);
+        // 200 com falha: a conexão caiu no meio (vai a mensagem de sem conexão)
+        if (g_httpCode && g_httpCode != 200) swprintf_s(b, T(L"O download falhou (HTTP %lu). Tente de novo.", L"The download failed (HTTP %lu). Try again."), g_httpCode);
         else wcscpy_s(b, T(L"O download falhou (sem conexão com o GitHub). Tente de novo.", L"The download failed (couldn't reach GitHub). Try again."));
         Fail(b); g_workOk = false; g_workDone = true; return;
     }
@@ -1081,7 +1114,7 @@ static void Paint() {
         Para(T(L"O WacOS vai ser fechado e removido: programas, atalhos, início automático, fontes e cursor que ele colocou. A barra de tarefas e as janelas voltam ao visual do Windows.",
                L"WacOS will be closed and removed: programs, shortcuts, autostart, and the fonts and cursor it installed. The taskbar and windows go back to the Windows look."));
         Y += 4;
-        CheckBox(L, Y, T(L"Apagar também os meus ajustes do WacOS", L"Also delete my WacOS settings"), g_ch.delSettings, B_CHK0 + 4); Y += 28;
+        CheckBox(L, Y, T(L"Apagar também os meus ajustes do WacOS (notas, lembretes, eventos e contatos ficam)", L"Also delete my WacOS settings (notes, reminders, events and contacts are kept)"), g_ch.delSettings, B_CHK0 + 4, Rr - L); Y += 46;  // duas linhas
         CheckBox(L, Y, T(L"Limpar o cache de ícones do Windows (a área de trabalho pisca)", L"Clear the Windows icon cache (the desktop flickers)"), g_ch.cleanCache, B_CHK0 + 5); Y += 28;
         next = T(L"Desinstalar", L"Uninstall");
         showBack = g_installed && g_flow == F_UNINSTALL && !g_forceUninstallOnly;

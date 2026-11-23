@@ -584,6 +584,15 @@ struct Alert {
     SIZE before{};                          // tamanho do cliente original (para desfazer)
 };
 std::map<HWND, Alert> g_alerts;
+// Tira o alerta da lista e solta o ícone grande do app (SHDefExtractIcon/ExtractIconEx criam um ícone novo a cada
+// caixa de mensagem; sem o DestroyIcon, cada alerta deixava um objeto USER para trás dentro do programa)
+bool EraseAlert(HWND h) {
+    auto it = g_alerts.find(h);
+    if (it == g_alerts.end()) return false;
+    if (it->second.app) DestroyIcon(it->second.app);
+    g_alerts.erase(it);
+    return true;
+}
 
 const float AW = 260, APAD = 20, AICON = 64, ABTN = 28, AGAP = 8;
 // Leopard (alerta do 10.5): 420 de largura, ícone de 64 em (24, 15), o texto a 104 da borda (negrito 13 e 11 embaixo),
@@ -703,6 +712,7 @@ void MakeAlert(HWND dlg) {
     AdjustWindowRectExForDpi(&want, GetWindowLongW(dlg, GWL_STYLE), FALSE, GetWindowLongW(dlg, GWL_EXSTYLE), GetDpiForWindow(dlg));
     int ww = want.right - want.left, wh = want.bottom - want.top;
     int cx = (wr.left + wr.right) / 2, cy = (wr.top + wr.bottom) / 2;
+    EraseAlert(dlg);  // montado de novo: o ícone anterior sai
     g_alerts[dlg] = a;
     SetWindowPos(dlg, nullptr, cx - ww / 2, cy - wh / 2, ww, wh, SWP_NOZORDER | SWP_NOACTIVATE);
 }
@@ -776,7 +786,7 @@ LRESULT CALLBACK CtlProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_PTR
     int type = (int)ref;
     switch (m) {
     case WM_SETFONT: return DefSubclassProc(h, m, (WPARAM)MacFont((HFONT)w), l);  // o diálogo põe a fonte depois de criar
-    case WM_NCDESTROY: RemoveWindowSubclass(h, CtlProc, SUB_ID); g_segments.erase(h); g_alerts.erase(h); break;
+    case WM_NCDESTROY: RemoveWindowSubclass(h, CtlProc, SUB_ID); g_segments.erase(h); EraseAlert(h); break;
     }
     if (type == 0) return DefSubclassProc(h, m, w, l);  // texto fixo, controle deslizante...: só a fonte
     if (type == T_DIALOG) {
@@ -914,7 +924,7 @@ void controles::Unstyle(HWND top) {
         SetWindowPos(c, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     };
     RemovePropW(top, L"MacCtl");
-    if (g_alerts.erase(top)) {  // alerta: os textos do Windows voltam (o tamanho fica)
+    if (EraseAlert(top)) {  // alerta: os textos do Windows voltam (o tamanho fica)
         if (HWND t = GetDlgItem(top, 0xFFFF)) ShowWindow(t, SW_SHOW);
         if (HWND i = GetDlgItem(top, 20)) ShowWindow(i, SW_SHOW);
     }

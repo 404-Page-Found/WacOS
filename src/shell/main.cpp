@@ -3,6 +3,7 @@
 // (menu do logo → Sair do Shell, Ctrl+Alt+Shift+F12, ou erro), devolve tudo como estava.
 #include "shell.h"
 #include "../comum/simbolos.h"
+#include "../comum/ajustes_arquivo.h"
 #include "../menu/context_menu.h"
 #include <shlobj.h>
 #include <dwmapi.h>
@@ -325,9 +326,15 @@ void Log(const wchar_t* fmt, ...) {
     g_logCv.notify_one();
 }
 
+// g_settings é lido de várias threads (vidro, índice, ilha, widgets...) enquanto a interface relê o arquivo
+// (LoadSettings troca o mapa inteiro): sem trava, a leitura podia pegar o mapa no meio da troca e derrubar o Shell
+static SRWLOCK g_settingsLock = SRWLOCK_INIT;
 std::wstring shell::Setting(const wchar_t* key, const wchar_t* def) {
+    AcquireSRWLockShared(&g_settingsLock);
     auto it = g_settings.find(key);
-    return it != g_settings.end() ? it->second : def;
+    std::wstring r = it != g_settings.end() ? it->second : (def ? def : L"");
+    ReleaseSRWLockShared(&g_settingsLock);
+    return r;
 }
 
 static std::wstring SettingsPath() {
@@ -339,11 +346,12 @@ static std::wstring SettingsPath() {
 }
 
 void shell::SetSetting(const wchar_t* key, const std::wstring& value) {
+    std::map<std::wstring, std::wstring> copia;
+    AcquireSRWLockExclusive(&g_settingsLock);
     g_settings[key] = value;
-    FILE* fp = nullptr;
-    if (_wfopen_s(&fp, SettingsPath().c_str(), L"w, ccs=UTF-8") || !fp) return;
-    for (auto& [k, v] : g_settings) fwprintf(fp, L"%ls=%ls\n", k.c_str(), v.c_str());
-    fclose(fp);
+    copia = g_settings;
+    ReleaseSRWLockExclusive(&g_settingsLock);
+    ajarq::Gravar(SettingsPath(), copia);  // atômico (.tmp + troca): quem lê no meio não vê o arquivo vazio
 }
 
 // Calculadora (Calculadora.exe) no lugar da Calculadora do Windows: Launchpad, Spotlight e Dock passam
@@ -419,20 +427,14 @@ static void LoadSettings() {
     if (FAILED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) return;
     std::wstring f = std::wstring(p) + L"\\Shell\\ajustes.txt";
     CoTaskMemFree(p);
-    FILE* fp = nullptr;
-    if (_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") || !fp) return;
     // Do zero a cada leitura: uma linha tirada do arquivo (ajuste de volta ao padrão) continuava valendo com o valor
     // antigo até reiniciar o Shell (23/11/2026: ocultar=1 apagado deixava o Dock sem reserva na área de trabalho).
+    // Linhas de qualquer tamanho (apps_ordem passava de 512 caracteres e era cortada).
     std::map<std::wstring, std::wstring> novo;
-    wchar_t line[512];
-    while (fgetws(line, 512, fp)) {
-        std::wstring s = line;
-        while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r' || s.back() == L' ')) s.pop_back();
-        size_t eq = s.find(L'=');
-        if (eq != std::wstring::npos && s[0] != L'#') novo[s.substr(0, eq)] = s.substr(eq + 1);
-    }
-    fclose(fp);
-    g_settings = std::move(novo);
+    if (!ajarq::Ler(f, novo)) return;
+    AcquireSRWLockExclusive(&g_settingsLock);
+    g_settings.swap(novo);
+    ReleaseSRWLockExclusive(&g_settingsLock);
     backdrop::Reload();  // Transparência e Efeitos (Liquid Glass, reduzir transparência, tinta)
     anim::reduceMotion = shell::Setting(L"reduzir_movimento", L"0") == L"1";
 }
@@ -721,6 +723,17 @@ static void PreloadApps() {
 // App da frente cobrindo o monitor inteiro (vídeo, jogo, F11): Dock e barra de menus somem, como no Mac.
 static bool IsFullscreen(HWND fg) {
     if (!fg || !IsWindowVisible(fg) || IsIconic(fg) || apps::IsShellWindow(fg)) return false;
+    // Trocadores de papel de parede com transição (YASB, Lively...) põem a janela da animação DENTRO da mesa do Windows
+    // (filha da WorkerW/Progman) e ela fica sendo a "janela da frente". Cobrindo o monitor, parecia um app em tela
+    // cheia: o Dock e a barra de menus sumiam e o vidro ficava sem fundo, e como o YASB mantém a janela viva depois da
+    // transição, ficava assim até reiniciar o WacOS (Reddit, 23/11/2026; reproduzido com o mesmo truque do YASB).
+    // Janela filha conta pela de topo dela: sendo a mesa, não é tela cheia.
+    if (HWND root = GetAncestor(fg, GA_ROOT); root && root != fg) {
+        wchar_t rc[64] = {}; GetClassNameW(root, rc, 64);
+        if (mesa::IsDeskClass(rc)) return false;
+        fg = root;
+        if (!IsWindowVisible(fg) || IsIconic(fg) || apps::IsShellWindow(fg)) return false;
+    }
     wchar_t cls[64] = {}; GetClassNameW(fg, cls, 64);
     if (mesa::IsDeskClass(cls) || !wcscmp(cls, L"Shell_TrayWnd")) return false;
     if (IsZoomed(fg) && (GetWindowLongW(fg, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;  // só maximizada
@@ -981,6 +994,9 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         widgets::SettingsChanged();  // Personalizar a Mesa: widgets ligados/desligados
         jogo::Reload();  // modo_jogo e jogos.txt
         palco::Sync();
+        // "Clicar no papel de parede para mostrar a mesa" saiu de "Nunca": com o Shell aberto em "Nunca" o gancho do mouse
+        // nunca era criado e a opção nova só valia depois de reiniciar (Start não faz nada se já estiver ligado)
+        if (!shell::SoDock() && !jogo::Ativo()) revelar::Start();
         return 0;
     }
     if (m == WM_SHELLHOOK && WM_SHELLHOOK) {

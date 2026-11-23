@@ -261,10 +261,29 @@ void HideOriginal(HWND h) {
     {
         std::lock_guard<std::mutex> l(g_mx);
         if (!OffScreen(r)) {
+            // janelas de cópia que já fecharam saem da lista (uma por cópia: crescia sem fim, e um HWND reaproveitado
+            // por outra janela herdava a posição velha)
+            for (auto it = g_saved.begin(); it != g_saved.end();) it = IsWindow(it->first) ? std::next(it) : g_saved.erase(it);
             g_saved[h] = r;
+            // também na própria janela: um Shell encerrado à força (vigia) não a devolve; o novo lê daqui (abaixo)
+            SetPropW(h, L"ShellProgressoX", (HANDLE)(INT_PTR)(r.left + 40000));
+            SetPropW(h, L"ShellProgressoY", (HANDLE)(INT_PTR)(r.top + 40000));
             if (g_anchor.x == INT_MIN && IsWindowVisible(h)) g_anchor = { (r.left + r.right) / 2, (r.top + r.bottom) / 2 };
             int x = GetSystemMetrics(SM_XVIRTUALSCREEN) - (r.right - r.left) - 4000;
             SetWindowPos(h, nullptr, x, r.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        } else if (!g_saved.count(h)) {
+            // já estava fora da tela sem posição guardada aqui: escondida por um Shell anterior encerrado à força. Sem
+            // isto, uma pergunta nela nunca voltava (ShowOriginal não tinha para onde devolver)
+            HANDLE px = GetPropW(h, L"ShellProgressoX"), py = GetPropW(h, L"ShellProgressoY");
+            if (px && py) {
+                int x0 = (int)(INT_PTR)px - 40000, y0 = (int)(INT_PTR)py - 40000;
+                g_saved[h] = { x0, y0, x0 + (r.right - r.left), y0 + (r.bottom - r.top) };
+            } else {  // sem a marca: no meio do monitor principal
+                MONITORINFO mi{ sizeof(mi) };
+                GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
+                int x0 = (mi.rcWork.left + mi.rcWork.right - (r.right - r.left)) / 2, y0 = (mi.rcWork.top + mi.rcWork.bottom - (r.bottom - r.top)) / 2;
+                g_saved[h] = { x0, y0, x0 + (r.right - r.left), y0 + (r.bottom - r.top) };
+            }
         }
         g_hidden.insert(h);
     }
@@ -635,8 +654,23 @@ void OnSnap(std::vector<WinSnap>* snap) {
         for (auto& s : *snap) { RECT r{}; GetWindowRect(s.h, &r); now += L"[vis " + std::to_wstring(s.visible) + L" blocos " + std::to_wstring(s.tiles.size()) + L" pergunta " + std::to_wstring(s.interrupted) + L" fora " + std::to_wstring(OffScreen(r)) + L"] "; }
         if (now != last) { last = now; Log(L"progresso: leitura %ls", now.empty() ? L"(nenhuma janela)" : now.c_str()); }
     }
+    // Janela que a leitura não consegue ler (nenhum bloco: UI Automation falhou ou o processo não deixa) ficava fora
+    // da tela para sempre, sem nada nosso no lugar: uma pergunta de substituir nela simplesmente não aparecia e a
+    // cópia ficava parada. Recém-criada ela também vem vazia, então só depois de 1,5 s sem blocos a do Windows volta.
+    static std::map<HWND, DWORD> semBlocos;
+    for (auto it = semBlocos.begin(); it != semBlocos.end();) it = IsWindow(it->first) ? std::next(it) : semBlocos.erase(it);
     for (auto& s : *snap) {
         if (!s.visible) continue;
+        if (s.tiles.empty() && !s.interrupted) {
+            DWORD agora = GetTickCount();
+            auto [it, novo] = semBlocos.try_emplace(s.h, agora);
+            if (!novo && agora - it->second > 1500) {
+                if (it->second) { Log(L"progresso: janela do Windows sem blocos legíveis há 1,5 s: fica a do Windows"); it->second = 0; }
+                ShowOriginal(s.h, false);
+                continue;
+            }
+            if (it->second == 0) { ShowOriginal(s.h, false); continue; }  // já desistimos dela
+        } else if (semBlocos.count(s.h) && semBlocos[s.h] != 0) semBlocos.erase(s.h);
         if (s.interrupted) ShowOriginal(s.h, true);  // pergunta: responde na janela do Windows
         else HideOriginal(s.h);
         for (auto& t : s.tiles) {

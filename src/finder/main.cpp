@@ -6750,6 +6750,15 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (apertou) g_frenteInput = 1;
             if ((int)(GetTickCount() - g_frenteAte) >= 0 || g_frenteInput || !IsWindowVisible(h)) { KillTimer(h, T_FRENTE); break; }
             HWND fg = GetForegroundWindow();
+            // Pergunta na frente (caixa de mensagem, a janela de copiar/substituir do Windows, o alerta do Mac do Shell,
+            // qualquer janela "sempre por cima"): não é a janela de quem pediu a pasta roubando a frente. Antes o Finder
+            // se punha por cima dela e a pergunta ficava escondida atrás dele.
+            bool pergunta = false;
+            if (fg) {
+                wchar_t fc[64] = {}; GetClassNameW(fg, fc, 64);
+                pergunta = !wcscmp(fc, L"#32770") || !wcscmp(fc, L"OperationStatusWindow") || (GetWindowLongW(fg, GWL_EXSTYLE) & WS_EX_TOPMOST);
+            }
+            if (pergunta) { KillTimer(h, T_FRENTE); break; }
             if (fg && fg != h && GetAncestor(fg, GA_ROOTOWNER) != h) {
                 DWORD ft = GetWindowThreadProcessId(fg, nullptr), me = GetCurrentThreadId();
                 if (ft && ft != me) AttachThreadInput(me, ft, TRUE);

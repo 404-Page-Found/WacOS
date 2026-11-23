@@ -464,7 +464,10 @@ static bool Golden() { bool t = Tahoe(); return t && (g_glassSet ? g_glass.golde
 // vai de uma borda à outra, sem cantos (como no 10.5)
 static bool Leopard() { bool t = Tahoe(); return !t && (g_glassSet ? g_glass.leopard : g_fileLeopard); }
 static bool GoldenIcon(const std::wstring& l) {
-    for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })  // macOS 27: o menu da Apple tem símbolo nestes if (l.rfind(k, 0) == 0) return true;
+    // macOS 27: o menu da Apple tem símbolo nestes. (O if estava no fim do comentário da linha do for: o laço
+    // devolvia false no 1º item e nenhum item ganhava símbolo no Golden Gate.)
+    for (const wchar_t* k : { L"Ajustes", L"Settings", L"System Settings", L"Preferências", L"Preferences", L"Sobre Este", L"About This", L"App Store", L"Microsoft Store" })
+        if (l.rfind(k, 0) == 0) return true;
     return false;
 }
 

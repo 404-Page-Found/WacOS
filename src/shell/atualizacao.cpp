@@ -29,6 +29,8 @@ std::wstring Root() { return shell::dir.substr(0, shell::dir.find_last_of(L'\\')
 
 // Uma checagem (≈ 2 a 10 s, rede): atual= e novo= do script
 void Checar() {
+    // aviso desligado: nem confere (antes rodava o PowerShell e ia à rede a cada 6 h só para não mostrar nada)
+    if (shell::Setting(L"avisar_atualizacao", L"1") == L"0") return;
     std::wstring script = Root() + L"\\tools\\atualizar-github.ps1";
     if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     wchar_t tmp[MAX_PATH], f[MAX_PATH];
@@ -37,7 +39,11 @@ void Checar() {
     std::wstring cmd = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\" -Verificar -Saida \"" + f + L"\" -Bin \"" + shell::dir + L"\"";
     STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
     if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi)) { DeleteFileW(f); return; }
-    WaitForSingleObject(pi.hProcess, 60000);
+    if (WaitForSingleObject(pi.hProcess, 60000) == WAIT_TIMEOUT) {
+        // rede parada: o script não termina; sem encerrar, ele ficava rodando e um a mais a cada 6 h
+        TerminateProcess(pi.hProcess, 1);
+        Log(L"atualização: a conferência passou de 60 s e foi encerrada");
+    }
     CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
     std::wstring atual, novo, erro;
     int n = 0;

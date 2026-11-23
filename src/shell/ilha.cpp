@@ -24,6 +24,7 @@
 // Ocioso tem que ser ocioso: mídia, microfone/câmera, downloads e área de transferência chegam por eventos; o relógio
 // de quadros só roda enquanto a mola mexe; barrinhas (30 q/s), timer (4/s) e Sistema (1/s) só enquanto aparecem.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include "../comum/simbolos.h"
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
@@ -39,6 +40,7 @@
 #include <winrt/Windows.Media.Control.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -572,8 +574,7 @@ std::wstring ShelfFile() {
 void ShelfSave() {
     std::wstring s;
     for (auto& p : g_shelf) s += p + L"\r\n";
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, ShelfFile().c_str(), L"w, ccs=UTF-8") == 0 && f) { fputws(s.c_str(), f); fclose(f); }
+    ajarq::GravarTexto(ShelfFile(), s);  // atômico: o Shell encerrado no meio deixava a prateleira vazia
 }
 
 void ShelfLoad() {
@@ -704,7 +705,14 @@ void SaveClips() {
     for (auto& c : g_clips) { all += c; all.push_back(L'\0'); }
     std::wstring path = ClipsPath();
     if (path.empty()) return;
-    std::thread([all = std::move(all), path] {
+    // Uma gravação por vez e só a mais nova: duas cópias seguidas abriam duas threads; a segunda não conseguia abrir o
+    // .tmp (a primeira o segurava sem compartilhar) e o arquivo ficava com a lista de antes da última cópia
+    static std::mutex gravando;
+    static std::atomic<unsigned> geracao{ 0 };
+    unsigned minha = ++geracao;
+    std::thread([all = std::move(all), path, minha] {
+        std::lock_guard<std::mutex> lk(gravando);
+        if (minha != geracao) return;  // já há uma lista mais nova esperando para gravar
         if (all.empty()) { DeleteFileW(path.c_str()); return; }
         DATA_BLOB in{ (DWORD)(all.size() * sizeof(wchar_t)), (BYTE*)all.data() }, out{};
         if (!CryptProtectData(&in, L"WacOS", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) return;
@@ -721,7 +729,8 @@ void LoadClips() {
     std::wstring path = ClipsPath();
     HANDLE f = path.empty() ? INVALID_HANDLE_VALUE : CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     if (f == INVALID_HANDLE_VALUE) return;
-    std::vector<BYTE> buf(GetFileSize(f, nullptr));
+    DWORD tam = GetFileSize(f, nullptr);  // INVALID_FILE_SIZE (4 GB) virava um vetor gigante e derrubava o Shell
+    std::vector<BYTE> buf(tam == INVALID_FILE_SIZE || tam >= 8 * 1024 * 1024 ? 0 : tam);
     DWORD r = 0; BOOL ok = !buf.empty() && buf.size() < 8 * 1024 * 1024 && ReadFile(f, buf.data(), (DWORD)buf.size(), &r, nullptr);
     CloseHandle(f);
     if (!ok) return;

@@ -17,6 +17,7 @@
 // da mesa ou para outra casa da grade), soltar arquivos de fora, F2 renomeia, Delete vai para a Lixeira,
 // Ctrl+C/X/V, menu de contexto (o nosso, com as extensões do Windows) e o menu do fundo do Mac.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include <dwmapi.h>
 #include "../menu/context_menu.h"
 #include <shlobj.h>
@@ -172,6 +173,30 @@ std::wstring Known(REFKNOWNFOLDERID id) {
 std::wstring Parent(const std::wstring& p) { size_t s = p.find_last_of(L'\\'); return s == std::wstring::npos ? p : p.substr(0, s); }
 
 Mon* Primary() { for (auto& m : g_mons) if (m.primary) return &m; return g_mons.empty() ? nullptr : &g_mons[0]; }
+
+// Dona das operações de arquivo da mesa (soltar, colar, apagar, renomear). Era a própria janela da mesa, que se
+// prende sempre no fundo (WM_WINDOWPOSCHANGING): a janela do Windows com a pergunta "substituir ou pular" e o
+// progresso nascem acima da dona e iam junto para o fundo, atrás de tudo — soltando arquivos do WinRAR na mesa a
+// pergunta "não aparecia" (Reddit) e a cópia ficava parada esperando a resposta. Esta é uma janela escondida do
+// tamanho do monitor principal (as do Windows se centralizam nela), livre na ordem das janelas.
+HWND DonoOperacoes() {
+    static HWND dono;
+    if (dono && IsWindow(dono)) {
+        if (Mon* p = Primary()) SetWindowPos(dono, nullptr, p->r.left, p->r.top, p->r.right - p->r.left, p->r.bottom - p->r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        return dono;
+    }
+    static bool registrada;
+    if (!registrada) {
+        WNDCLASSW wc{}; wc.lpfnWndProc = DefWindowProcW; wc.hInstance = shell::inst; wc.lpszClassName = L"ShellMesaDono";
+        RegisterClassW(&wc);
+        registrada = true;
+    }
+    Mon* p = Primary();
+    RECT r = p ? p->r : RECT{ 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    dono = CreateWindowExW(WS_EX_TOOLWINDOW, L"ShellMesaDono", L"", WS_POPUP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                           nullptr, nullptr, shell::inst, nullptr);
+    return dono ? dono : (p ? p->h : nullptr);
+}
 Mon* MonOf(HWND h) { for (auto& m : g_mons) if (m.h == h) return &m; return nullptr; }
 void Invalidate(Mon& m);
 float Sc() { Mon* p = Primary(); return p && p->h ? GetDpiForWindow(p->h) / 96.f : 1.f; }
@@ -437,15 +462,17 @@ bool Blocked(int col, int row) {
 }
 
 void SavePositions() {
-    FILE* fp = nullptr;
-    if (_wfopen_s(&fp, g_posFile.c_str(), L"w, ccs=UTF-8") || !fp) return;
+    // atômico (.tmp + troca): o Shell encerrado no meio da gravação deixava o mesa.txt vazio (ícones embaralhados)
+    std::wstring s;
+    wchar_t b[96];
     for (auto& [k, v] : g_pos) {
         auto o = g_off.find(k);
         if (o != g_off.end() && (o->second.first != 0 || o->second.second != 0))
-            fwprintf(fp, L"%d,%d,%.1f,%.1f|%ls\n", v.first, v.second, o->second.first, o->second.second, k.c_str());
-        else fwprintf(fp, L"%d,%d|%ls\n", v.first, v.second, k.c_str());
+            swprintf_s(b, L"%d,%d,%.1f,%.1f|", v.first, v.second, o->second.first, o->second.second);
+        else swprintf_s(b, L"%d,%d|", v.first, v.second);
+        s += b; s += k; s += L'\n';
     }
-    fclose(fp);
+    ajarq::GravarTexto(g_posFile, s);
 }
 void LoadPositions() {
     g_pos.clear(); g_off.clear();
@@ -954,8 +981,7 @@ void DeleteSelection(bool permanent) {
     if (sel.empty()) return;
     IFileOperation* op = nullptr;
     if (FAILED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&op)))) return;
-    Mon* p = Primary();
-    op->SetOwnerWindow(p ? p->h : nullptr);
+    op->SetOwnerWindow(DonoOperacoes());
     op->SetOperationFlags(permanent ? FOF_WANTNUKEWARNING : (FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION));
     int n = 0;
     for (int i : sel) {
@@ -1004,8 +1030,7 @@ void EndEdit(bool commit) {
         IFileOperation* op = nullptr; IShellItem* si = nullptr;
         if (SUCCEEDED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&op))) &&
             SUCCEEDED(SHCreateItemFromParsingName(g_items[idx].path.c_str(), nullptr, IID_PPV_ARGS(&si)))) {
-            Mon* p = Primary();
-            op->SetOwnerWindow(p ? p->h : nullptr);
+            op->SetOwnerWindow(DonoOperacoes());
             op->SetOperationFlags(FOF_ALLOWUNDO);
             op->RenameItem(si, text.c_str(), nullptr);
             HRESULT hr = op->PerformOperations();
@@ -1139,7 +1164,7 @@ struct DeskDrop : IDropTarget {
         Redraw();
         if (want == -3) return false;
         std::wstring path = want >= 0 ? g_items[want].path : g_userDesk;
-        ctxmenu::GetUIObject(hwnd, { path }, IID_IDropTarget, (void**)&fwd);
+        ctxmenu::GetUIObject(DonoOperacoes(), { path }, IID_IDropTarget, (void**)&fwd);  // dona livre: a pergunta de substituir não vai para o fundo
         if (fwd) { fwd->DragEnter(obj, keys, pt, eff); return true; }
         *eff = DROPEFFECT_NONE;
         return true;
@@ -1273,7 +1298,7 @@ void BackgroundMenu(HWND h, POINT screen) {
     case ID_INFO: ctxmenu::InvokeVerb(h, Parent(g_userDesk), { g_userDesk }, "properties"); break;
     case ID_PASTE: {
         int c, r; CellAt(client, c, r); g_dropHint = { c, r }; g_dropHintAt = GetTickCount();
-        ctxmenu::InvokeVerb(h, g_userDesk, {}, "paste");
+        ctxmenu::InvokeVerb(DonoOperacoes(), g_userDesk, {}, "paste");
         break;
     }
     case ID_WALL: shell::OpenSettings(L"fundo"); break;
@@ -1459,7 +1484,7 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case VK_ESCAPE: for (auto& it : g_items) it.sel = false; Redraw(); return 0;
         case 'A': if (ctrl) { for (auto& it : g_items) it.sel = true; Redraw(); } return 0;
         case 'C': case 'X': if (ctrl && !sel.empty()) { std::wstring f; auto ps = SelPaths(-1, &f); ctxmenu::InvokeVerb(h, f, ps, w == 'C' ? "copy" : "cut"); } return 0;
-        case 'V': if (ctrl) ctxmenu::InvokeVerb(h, g_userDesk, {}, "paste"); return 0;
+        case 'V': if (ctrl) ctxmenu::InvokeVerb(DonoOperacoes(), g_userDesk, {}, "paste"); return 0;
         case 'N': if (ctrl && shift) { POINT cl{ 0, 0 }; GetCursorPos(&cl); cl.x -= mon->r.left; cl.y -= mon->r.top; NewFolder(cl); } return 0;
         case 'I': if (ctrl && !sel.empty()) { std::wstring f; auto ps = SelPaths(-1, &f); ctxmenu::InvokeVerb(h, f, ps, "properties"); } return 0;
         }

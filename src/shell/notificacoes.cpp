@@ -10,6 +10,7 @@
 // conteúdo por cima (Direct2D na GPU). O Windows não avisa quando chega notificação para app sem pacote
 // (NotificationChanged dá "Elemento não encontrado"), então uma thread relê a lista a cada 2 s com o painel aberto.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include "vidro_wuc.h"
 #include "../menu/context_menu.h"
 #include "../comum/simbolos.h"
@@ -1668,7 +1669,8 @@ std::vector<std::vector<std::wstring>> ReadTsv(const std::wstring& path) {
     return out;
 }
 void ChecarAvisos() {
-    if (!BannersOn()) return;
+    // Sem o "Banners do Mac" os avisos dos apps do Windows saem no aviso do Windows; os do Relógio, Lembretes e
+    // Calendário não têm outro caminho. Antes daqui saía sem conferir: com os banners desligados o alarme não tocava.
     std::wstring done = ShellData(L"avisos-feitos.txt");
     if (!g_avisadosLidos) { g_avisadosLidos = true; for (auto& v : ReadTsv(done)) if (!v.empty()) g_avisados.insert(v[0]); }
     long long now = (long long)time(nullptr) / 60;
@@ -1718,7 +1720,7 @@ void ChecarAvisos() {
                         size_t p = 0; for (int k = 0; k < 4 && p != std::wstring::npos; k++) p = s.find(L'\t', p + 1);
                         if (p != std::wstring::npos && p + 1 < s.size() && s[p + 1] == L'1') s[p + 1] = L'0';
                     }
-            if (!_wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8") && f) { for (auto& s : lines) fwprintf(f, L"%ls\n", s.c_str()); fclose(f); }
+            { std::wstring all; for (auto& s : lines) { all += s; all += L'\n'; } ajarq::GravarTexto(path, all); }  // atômico: são os alarmes do usuário
         }
     }
     if (due.empty()) return;
@@ -1740,7 +1742,9 @@ void BannerShowNote(const Note& n) {
                               [gr](ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F r) { DrawIcon(dc, br, gr, r); },
                               [nn] { OpenApp(nn); })) { Log(L"notificação na ilha: %ls", n.app.c_str()); return; }
     }
-    if (g_open || g_closing || !BannersOn() || !g_bwnd) return;
+    // avisos dos nossos apps (ChecarAvisos: aumid na pasta do WacOS) aparecem mesmo sem os banners do Mac
+    bool nosso = !n.aumid.empty() && n.aumid.rfind(shell::dir + L"\\", 0) == 0;
+    if (g_open || g_closing || (!BannersOn() && !nosso) || !g_bwnd) return;
     bool first = g_bans.empty();
     Ban b;
     b.n = n; b.at = anim::Now(); b.until = GetTickCount64() + BannerMs(); b.y = TOP;
