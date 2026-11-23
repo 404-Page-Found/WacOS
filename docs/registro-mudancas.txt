@@ -1664,3 +1664,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/siri.cpp: a resposta aparece aos poucos, ~110 letras por segundo (no máximo 2,2 s; as longas vão mais rápido);
     a altura do painel já é a do texto inteiro, para ele não crescer aos pulos. Compilado e instalado; não visto na tela.
   DESFAZER: reverter o commit.
+
+[2026-11-23 18:00, hora do PC] Ajustes: página Experimental (pedido do usuário).
+  - src/ajustes/paginas.cpp: página "Experimental" (ícone sparkles, grupo próprio no fim da barra lateral; no Leopard, em
+    Sistema) com o que ainda está em teste: "Barra de título do Mac em todos os apps" (janelas_mac, ligada por padrão e antes
+    sem chave nos Ajustes; mudar reinicia o Shell), "Botões do Mac nos apps com barra própria" (barra_mac_propria, saiu de Mesa e
+    Dock) e "Abrir no lugar da área de trabalho do Windows" (saiu de Geral). Traduções; as descrições antigas perderam o
+    "Experimental." do começo (a tradução antiga sem a primeira frase).
+  Visto: a página pela foto da janela (o ajustes.txt foi guardado e devolvido igual).
+  DESFAZER: reverter o commit.

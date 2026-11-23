@@ -676,8 +676,6 @@ Page Geral() {
                            Uri(L"Histórico de Arquivos", L"control.exe /name Microsoft.FileHistory", 0xE81C, C_GREEN),
                            Uri(L"Transferir ou Redefinir", L"ms-settings:recovery", 0xE777, C_GRAY) }));
     p.groups.push_back(G({ Toggle(L"Abrir ao entrar no Windows", [] { return ShellAutoStartCached(); }, [](bool on) { SetShellAutoStartAsync(on); }),
-                           Toggle(L"Abrir no lugar da área de trabalho do Windows", [] { return ShellDoWindows(); }, [](bool on) { SetShellDoWindows(on); Rebuild(); },
-                                  L"Experimental. O WacOS abre já no login, sem a área de trabalho do Windows piscar antes. Vale no próximo login."),
                            Toggle(L"Abrir pastas no Finder", [] { return Setting(L"finder_padrao", L"1") == L"1"; },
                                   [](bool on) {
                                       SetSetting(L"finder_padrao", on ? L"1" : L"0");
@@ -1836,11 +1834,6 @@ Page MesaDock() {
                            // issue #4: como no Mac, o Finder fica no Alt+Tab mesmo sem janela; desligado, só com janela aberta
                            Toggle(L"Mostrar o Finder no Alt+Tab mesmo sem janelas", [] { return Setting(L"seletor_finder", L"1") != L"0"; },
                                   [](bool v) { SetSetting(L"seletor_finder", v ? L"1" : L"0"); }),
-                           // Edge, Chrome, Figma, Discord, VS Code...: os três botões do Mac na barra deles (WacOSWindow.dll).
-                           // Experimental (22/11/2026, decisão do usuário): desligado por padrão, liga com barra_mac_propria=1
-                           Toggle(L"Botões do Mac nos apps com barra própria", [] { return Setting(L"barra_mac_propria", L"0") == L"1"; },
-                                  [](bool v) { SetSetting(L"barra_mac_propria", v ? L"1" : L"0"); },
-                                  L"Experimental. Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar."),
                            Uri(L"Navegador padrão", L"ms-settings:defaultapps") }, L"Janelas"));
     // Organizador Visual (Stage Manager): só o app da frente na tela, os outros numa faixa à esquerda
     p.groups.push_back(G({ Toggle(L"Organizador Visual", flag(L"organizador", L"0"), setFlag(L"organizador")) }, L"",
@@ -2515,6 +2508,31 @@ Page Impressoras() {
 
 }  // namespace
 
+// ================= Experimental: o que ainda está em teste, num lugar só (pedido do usuário, 23/11/2026)
+static void ReiniciaShell() {
+    static UINT msg = RegisterWindowMessageW(L"ShellReiniciar");
+    HWND sh = FindWindowExW(HWND_MESSAGE, nullptr, L"ShellMensagens", nullptr);
+    if (!sh) sh = FindWindowW(L"ShellMensagens", nullptr);
+    if (sh) PostMessageW(sh, msg, 0, 0);
+}
+Page Experimental() {
+    Page p;
+    p.groups.push_back(Plain(Hero(0xE945, C_ORANGE, L"Experimental", L"Recursos que ainda estão em teste. Podem mudar ou ter falhas: ligue para experimentar e conte o que achou no GitHub do WacOS.")));
+    // a barra de título do Mac nos programas do Windows (WacOSWindow.dll): ligada por padrão; desligar reinicia o Shell
+    Row tit = Toggle(L"Barra de título do Mac em todos os apps", [] { return Setting(L"janelas_mac", L"1") != L"0"; },
+                     [](bool v) { SetSetting(L"janelas_mac", v ? L"1" : L"0"); ReiniciaShell(); },
+                     L"Os programas do Windows ganham a barra de título e os três botões do Mac. Ao mudar, o WacOS reinicia (os apps continuam abertos).");
+    // Edge, Chrome, Figma, Discord, VS Code...: os três botões do Mac na barra deles; desligado por padrão (22/11/2026)
+    Row propria = Toggle(L"Botões do Mac nos apps com barra própria", [] { return Setting(L"barra_mac_propria", L"0") == L"1"; },
+                         [](bool v) { SetSetting(L"barra_mac_propria", v ? L"1" : L"0"); },
+                         L"Edge, Chrome, Figma, Discord, VS Code e outros apps que desenham a própria barra ganham os botões do Mac no lugar dos do Windows. Vale para as janelas abertas depois de mudar.");
+    p.groups.push_back(G({ tit, propria }, L"Janelas"));
+    Row shellWin = Toggle(L"Abrir no lugar da área de trabalho do Windows", [] { return ShellDoWindows(); }, [](bool on) { SetShellDoWindows(on); Rebuild(); },
+                          L"O WacOS abre já no login, sem a área de trabalho do Windows piscar antes. Vale no próximo login.");
+    p.groups.push_back(G({ shellWin }, L"Sistema"));
+    return p;
+}
+
 std::vector<SideItem>& SidebarItems() {
     static std::vector<SideItem> items;
     if (!items.empty()) return items;
@@ -2550,6 +2568,7 @@ std::vector<SideItem>& SidebarItems() {
         { L"Mouse", 0xE962, C_GRAY, Mouse, 5, L"rastreamento clique rolagem", L"mouse" },
         { L"Trackpad", 0xEFA5, C_GRAY, Trackpad, 5, L"touchpad gestos", L"trackpad" },
         { L"Impressoras e Scanners", 0xE749, C_GRAY, Impressoras, 5, L"imprimir scanner", L"impressoras" },
+        { L"Experimental", 0xE945, C_ORANGE, Experimental, 6, L"experimental teste beta barra de título botões shell login", L"experimental" },
         { L"Conta", 0xE77B, C_GRAY, Conta, 9, L"conta usuário perfil", L"conta" },
     };
     return items;
@@ -2559,7 +2578,7 @@ std::vector<SideItem>& SidebarItems() {
 std::wstring SymbolFor(const std::wstring& label) {
     static const std::map<std::wstring, std::wstring> m = {
         { L"Wi‑Fi", L"wifi" }, { L"Rede", L"globe" }, { L"Energia", L"bolt.fill" }, { L"Bateria", L"battery.100percent" },
-        { L"Geral", L"gearshape.fill" }, { L"Acessibilidade", L"accessibility" }, { L"Aparência", L"circle.lefthalf.filled" },
+        { L"Geral", L"gearshape.fill" }, { L"Experimental", L"sparkles" }, { L"Acessibilidade", L"accessibility" }, { L"Aparência", L"circle.lefthalf.filled" },
         { L"Apple Intelligence e Siri", L"apple.intelligence" }, { L"Assistente e Fala", L"apple.intelligence" }, { L"Central de Controle", L"switch.2" },
         { L"Ilha Dinâmica", L"menubar.dock.rectangle" }, { L"Mostrar o uso do microfone e da câmera", L"microphone.fill" },
         { L"Mesa e Dock", L"dock.rectangle" }, { L"Telas", L"sun.max.fill" }, { L"Protetor de Tela", L"photo.on.rectangle.angled" },

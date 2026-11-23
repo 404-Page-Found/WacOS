@@ -1278,7 +1278,7 @@ const std::vector<LeoCat>& LeoCats() {
         { L"Pessoal", { L"aparencia", L"fundo", L"protetor", L"dock", L"central", L"ilha", L"geral", L"spotlight" } },
         { L"Hardware", { L"telas", L"som", L"energia", L"teclado", L"mouse", L"trackpad", L"impressoras", L"bluetooth" } },
         { L"Internet e Rede", { L"rede", L"wifi", L"contas", L"nuvem", L"jogos" } },
-        { L"Sistema", { L"usuarios", L"privacidade", L"senha", L"bloqueio", L"acessibilidade", L"inteligencia", L"notificacoes", L"foco", L"tempo" } },
+        { L"Sistema", { L"usuarios", L"privacidade", L"senha", L"bloqueio", L"acessibilidade", L"inteligencia", L"notificacoes", L"foco", L"tempo", L"experimental" } },
     };
     return cats;
 }
