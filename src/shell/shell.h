@@ -458,6 +458,7 @@ bool On();
 bool Notificacao(const std::wstring& app, const std::wstring& title, const std::wstring& body,
                  std::function<void(ID2D1DeviceContext*, ID2D1SolidColorBrush*, D2D1_RECT_F)> icon, std::function<void()> click);
 bool Volume(float level, bool mute);  // teclas de volume: true = a ilha mostrou (sem o aviso de volume)
+void BotaoMouse(bool down, POINT pt);  // gancho do mouse: botão esquerdo apertado/solto (arrastar arquivo até a Ilha desligada)
 void Brilho(int pct);           // o brilho da tela mudou (qualquer thread): aviso de brilho, como o de volume
 void CapsLock();                // a tecla Caps Lock foi apertada (gancho de teclado do main.cpp)
 void PrivacidadeMudou();        // a bandeja mudou: relê o ícone de privacidade do Windows (tray::PrivacyBits)

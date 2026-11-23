@@ -60,7 +60,16 @@ namespace {
 
 const UINT WM_IL_FRAME = WM_APP + 1, WM_IL_MEDIA = WM_APP + 2, WM_IL_CAPS = WM_APP + 3, WM_IL_PRIV = WM_APP + 4, WM_IL_DOWN = WM_APP + 5, WM_IL_BRI = WM_APP + 6;
 const UINT_PTR TM_HOVER = 1, TM_LEAVE = 2, TM_PEEK = 3, TM_HUD = 4, TM_EQ = 5, TM_PAUSE = 6, TM_GONE = 7, TM_TICK = 8, TM_STATS = 9, TM_CAPS = 10, TM_OLA = 11,
-                TM_FULL = 12;  // conferência da tela cheia que ficou para depois (ilha::SetFullscreen)
+                TM_FULL = 12,  // conferência da tela cheia que ficou para depois (ilha::SetFullscreen)
+                TM_ARRASTO = 13, TM_TEMPOFF = 14;  // Ilha desligada: arrasto de arquivo até o topo (issue #40)
+// Ilha desligada (ilha=0) e "Mostrar ao arrastar arquivos" ligado (ilha_arrastar, padrão 1): enquanto o botão do mouse
+// está apertado e andando, uma faixa invisível (alfa 1) fica no lugar do notch. Com o mouse capturado por quem arrasta ela
+// não pega clique nenhum; um arquivo arrastado até ela liga a Ilha por um tempo (g_temp), já aberta na Estante, e ela
+// some de novo quando fecha.
+const UINT WM_IL_BOTAO = WM_APP + 7;
+HWND g_faixa;
+bool g_temp;
+POINT g_botaoEm;
 ULONGLONG g_fullChecado;   // quando a tela cheia foi conferida (ilha::SetFullscreen)
 bool g_fullPendente;
 
@@ -694,6 +703,41 @@ struct DropTarget : IDropTarget {
     }
 } g_dropTgt;
 
+// a faixa invisível do arrasto: um arquivo chegando liga a Ilha na Estante e a faixa sai do caminho (o arrasto segue
+// para a janela da Ilha, que fica embaixo)
+struct FaixaTarget : IDropTarget {
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** o) override {
+        if (r == IID_IUnknown || r == IID_IDropTarget) { *o = this; return S_OK; }
+        *o = nullptr; return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 2; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* d, DWORD k, POINTL p, DWORD* eff) override {
+        FORMATETC fe{ CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        bool files = d && d->QueryGetData(&fe) == S_OK;
+        *eff = files ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        if (files && (!g_on || g_style == S_AVISO)) {  // desligada, ou no estilo "Só quando houver algo"
+            if (!g_on) g_temp = true;
+            KillTimer(g_wnd, TM_TEMPOFF);
+            Log(L"ilha: arquivo arrastado até o topo com a Ilha desligada: abre a Estante");
+            g_dropTgt.DragEnter(d, k, p, eff);
+            ShowWindow(g_faixa, SW_HIDE);
+        }
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD, POINTL, DWORD* eff) override { *eff = g_temp ? DROPEFFECT_COPY : DROPEFFECT_NONE; return S_OK; }
+    HRESULT STDMETHODCALLTYPE DragLeave() override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* d, DWORD k, POINTL p, DWORD* eff) override { return g_dropTgt.Drop(d, k, p, eff); }
+} g_faixaTgt;
+
+void PoeFaixa() {  // no lugar do notch, no topo do monitor principal
+    MONITORINFO mi{ sizeof(mi) };
+    if (!g_faixa || !GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi)) return;
+    float sc = ui::Scale(g_faixa);
+    int w = (int)std::lround(320 * sc), hh = (int)std::lround(40 * sc), cx = (mi.rcMonitor.left + mi.rcMonitor.right) / 2;
+    SetWindowPos(g_faixa, HWND_TOPMOST, cx - w / 2, mi.rcMonitor.top, w, hh, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+}
+
 // ================= Transferência
 // O histórico ficava só na memória: a cada vez que o Shell reiniciava sobrava só o que estava copiado agora ("fica
 // apenas 1 clipboard salvo", 22/11/2026). Agora fica num arquivo, cifrado para este usuário (DPAPI), com os últimos 20.
@@ -829,6 +873,7 @@ float HeadH() { return Notch() ? g_barPt : 28.f; }   // cabeçalho das abas (no 
 float TopOff() { return Notch() ? 0.f : std::max(0.f, (g_barPt - PILL_H) / 2); }
 
 Mode Want() {
+    if (!g_on && g_temp && !g_full) return g_openOn ? M_OPEN : M_HIDDEN;  // ligada só para o arrasto (g_faixa)
     if (!g_on || g_full) return M_HIDDEN;
     if (g_peekOn) return M_PEEK;
     if (g_hudOn) return M_HUD;
@@ -1883,6 +1928,12 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_IL_CAPS: SetTimer(h, TM_CAPS, 40, nullptr); return 0;
+    case WM_IL_BOTAO:  // revelar.cpp (gancho do mouse): botão esquerdo apertado (w = 1) ou solto (w = 0)
+        if (w && (!g_on || g_style == S_AVISO) && g_faixa && shell::Setting(L"ilha_arrastar", L"1") != L"0") {
+            g_botaoEm = { GET_X_LPARAM(l), GET_Y_LPARAM(l) };
+            SetTimer(h, TM_ARRASTO, 150, nullptr);
+        } else if (!w) { KillTimer(h, TM_ARRASTO); if (g_faixa && IsWindowVisible(g_faixa)) ShowWindow(g_faixa, SW_HIDE); }
+        return 0;
     case WM_IL_BRI:  // brilho.cpp: o brilho da tela mudou (teclas do notebook, Windows); arrastando na Central não mostra
         if (g_on && g_volOn && !g_full && !g_peekOn && g_mode != M_OPEN && !central::IsOpen()) { g_bri = std::clamp((int)w, 0, 100) / 100.f; ShowHud(HUD_BRI, 1500); }
         return 0;  // o Windows ainda não trocou o estado da tecla
@@ -1920,7 +1971,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case TM_CLIP: KillTimer(h, TM_CLIP); ReadClipboard(); if (g_mode == M_OPEN && g_tab == TAB_CLIP && !g_running) Paint(); break;
         case TM_EQ: StepBars(); if (!g_running) Paint(); UpdateTimers(); break;
         case TM_HOVER: KillTimer(h, TM_HOVER); if (g_hoverIn && g_mode != M_OPEN && g_mode != M_PEEK) { if (g_mode == M_TIMER) g_tab = TAB_TIMER; g_openOn = true; Update(); } break;
-        case TM_LEAVE: KillTimer(h, TM_LEAVE); if (!g_hoverIn && !g_dragIn) { Log(L"ilha: ponteiro saiu, fecha"); Close(); if (g_peekOn) SetTimer(h, TM_PEEK, 1500, nullptr); } break;
+        case TM_LEAVE: KillTimer(h, TM_LEAVE); if (!g_hoverIn && !g_dragIn) { Log(L"ilha: ponteiro saiu, fecha"); Close(); if (g_peekOn) SetTimer(h, TM_PEEK, 1500, nullptr); if (g_temp) SetTimer(h, TM_TEMPOFF, 700, nullptr); } break;
+        case TM_TEMPOFF: KillTimer(h, TM_TEMPOFF); if (g_temp && !g_openOn && !g_dragIn && !g_hoverIn) { g_temp = false; Update(); } break;
+        case TM_ARRASTO: {  // botão apertado: andou um pouco (arrasto) e ainda está apertado? A faixa espera o arquivo no topo
+            bool ainda = GetAsyncKeyState(GetSystemMetrics(SM_SWAPBUTTON) ? VK_RBUTTON : VK_LBUTTON) < 0;
+            POINT p; GetCursorPos(&p);
+            if (!ainda) { KillTimer(h, TM_ARRASTO); if (g_faixa) ShowWindow(g_faixa, SW_HIDE); break; }
+            if (!IsWindowVisible(g_faixa) && (std::abs(p.x - g_botaoEm.x) > 12 || std::abs(p.y - g_botaoEm.y) > 12)) PoeFaixa();
+            break;
+        }
         case TM_PEEK: KillTimer(h, TM_PEEK); if (g_hoverIn && g_mode == M_PEEK) break; g_peekOn = false; g_peek = {}; Update(); break;
         case TM_HUD: KillTimer(h, TM_HUD); g_hudOn = false; Update(); break;
         case TM_PAUSE: KillTimer(h, TM_PAUSE); g_pauseHold = false; Update(); break;
@@ -2104,6 +2163,13 @@ bool ilha::Create(HINSTANCE hi) {
     if (GetSystemPowerStatus(&ps) && !(ps.BatteryFlag & 128)) { g_hasBattery = true; g_batAC = ps.ACLineStatus == 1; g_batPct = ps.BatteryLifePercent; }
     ShelfLoad();
     RegisterDragDrop(g_wnd, &g_dropTgt);
+    {   // a faixa invisível do arrasto com a Ilha desligada (issue #40)
+        WNDCLASSW fc{}; fc.lpfnWndProc = DefWindowProcW; fc.hInstance = hi; fc.lpszClassName = L"ShellIlhaArrasto";
+        RegisterClassW(&fc);
+        g_faixa = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED, fc.lpszClassName, L"", WS_POPUP,
+                                  0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
+        if (g_faixa) { SetLayeredWindowAttributes(g_faixa, 0, 1, LWA_ALPHA); RegisterDragDrop(g_faixa, &g_faixaTgt); apps::ours.push_back(g_faixa); }
+    }
     Place();
     ilha::Reload();
     SetTimer(g_wnd, TM_OLA, 2500, nullptr);  // o "olá" depois que a mesa assenta (issue #8)
@@ -2239,6 +2305,8 @@ bool ilha::Volume(float level, bool mute) {
 }
 
 void ilha::Brilho(int pct) { if (g_wnd) PostMessageW(g_wnd, WM_IL_BRI, (WPARAM)pct, 0); }
+
+void ilha::BotaoMouse(bool down, POINT pt) { if (g_wnd) PostMessageW(g_wnd, WM_IL_BOTAO, down ? 1 : 0, MAKELPARAM(pt.x, pt.y)); }
 
 void ilha::CapsLock() { if (g_wnd && g_on) PostMessageW(g_wnd, WM_IL_CAPS, 0, 0); }
 

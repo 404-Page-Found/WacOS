@@ -121,6 +121,9 @@ bool launchpad::AppDoSistema(const std::wstring& name, const std::wstring& parsi
     // "Microsoft.Windows.ControlPanel", "Microsoft.Windows.Shell.RunDialog"...; os pacotes da Store também começam
     // assim ("Microsoft.Windows.Photos_8wekyb3d8bbwe!App", o Fotos) e esses ficam
     if (p.rfind(L"microsoft.windows.", 0) == 0 && p.find(L'!') == std::wstring::npos) return true;
+    // pacotes do próprio Windows (editor cw5n1h2txyewy): Click to Do, Introdução, Backup do Windows, Configurações
+    // (o WacOS tem os Ajustes do Sistema). Issue #40: "o Launchpad tem um monte de pacotes do sistema que não são apps"
+    if (p.find(L"_cw5n1h2txyewy!") != std::wstring::npos) return true;
     std::wstring n = name;
     for (auto& c : n) c = towlower(c);
     for (auto w : { L"ferramentas do windows", L"windows tools", L"painel de controle", L"control panel", L"windows powershell ise",
@@ -138,7 +141,7 @@ bool launchpad::AppDoSistema(const std::wstring& name, const std::wstring& parsi
 
 bool launchpad::Escondido(const std::wstring& name, const std::wstring& parsing) {
     if (Hidden(name)) return true;
-    return shell::Setting(L"launchpad_sem_sistema", L"0") == L"1" && AppDoSistema(name, parsing);
+    return shell::Setting(L"launchpad_sem_sistema", L"1") == L"1" && AppDoSistema(name, parsing);
 }
 
 void launchpad::Ocultar(const std::wstring& name) {
@@ -300,7 +303,8 @@ Geo Layout() {
     g.k = g.H / 1080;
     g.step = 216 * g.k;
     g.rowStep = 166 * g.k;
-    g.icon = 108 * g.k;
+    // launchpad_icones (issue #40: "os ícones são grandes demais"): 1 grande (padrão), 0,85 médio, 0,7 pequeno; a grade fica
+    g.icon = 108 * g.k * (float)std::clamp(_wtof(shell::Setting(L"launchpad_icones", L"1").c_str()), 0.6, 1.0);
     g.top = (liquid::On() ? 178 : 140) * g.k;  // centro da primeira linha (Tahoe: abaixo das categorias)
     g.left = g.W / 2 - g.step * (COLS - 1) / 2;  // centro da primeira coluna
     return g;
@@ -925,7 +929,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             auto mi = [](const std::wstring& t, int id) { ctxmenu::Item i; i.label = t; i.id = id; return i; };
             std::vector<ctxmenu::Item> items;
             ctxmenu::Item sys = mi(Tr(L"Ocultar Apps do Sistema"), 1);
-            sys.checked = shell::Setting(L"launchpad_sem_sistema", L"0") == L"1";
+            sys.checked = shell::Setting(L"launchpad_sem_sistema", L"1") == L"1";
             items.push_back(sys);
             std::vector<std::wstring> hid;
             for (std::wstring s = shell::Setting(L"launchpad_ocultos", L""), part; !s.empty();) {

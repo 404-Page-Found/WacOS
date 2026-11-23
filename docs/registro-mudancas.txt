@@ -1575,3 +1575,31 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   NÃO testado: o login com o WacOS no lugar do Explorador (exige sair da conta), o evento de brilho de verdade (PC de mesa), uma
   chamada real ao Gemini/Groq/OpenAI (sem chave aqui).
   DESFAZER: reverter o commit.
+
+[2026-11-23 15:00, hora do PC] Issues #40, #29 e #24 (depois da build-34).
+  - Cantos Ativos "abre e fecha na hora" (#40): src/menu/context_menu.cpp: os Ajustes abrem o menu no apertar; perto da borda de
+    baixo ele abre para cima, por cima do ponteiro, e o soltar do mesmo clique escolhia o item embaixo. O soltar até 0,5 s depois
+    de abrir, sem o ponteiro andar mais de 3 px, não escolhe nada (vale para todos os menus).
+  - Wi-Fi "não conectado" estando conectado (#40): src/shell/menubar.cpp e central.cpp: desde o Windows 11 24H2 o nome da rede só
+    sai com a permissão de localização; a consulta falhava e isso virava "não conectado". Conectado agora é o estado da placa; sem
+    o nome aparece "Conectado". O nome passa a ser lido como UTF-8 (acentos).
+  - Launchpad com pacotes do sistema (#40): src/shell/launchpad.cpp: "Esconder as ferramentas do Windows" (launchpad_sem_sistema)
+    passa a vir ligado e também tira os pacotes do próprio Windows (_cw5n1h2txyewy: Click to Do, Introdução, Backup do Windows,
+    Configurações).
+  - Barra de tarefas do Windows "aparece às vezes" (#40): src/shell/main.cpp: um gancho EVENT_OBJECT_SHOW esconde na hora a barra que
+    o Explorador mostrar de novo (antes só o tique de 1 s).
+  - Maximizar pulando para dentro e fora da barra (#24): src/shell/limites.cpp: apps de barra própria maximizados passam a borda
+    invisível de redimensionar (~8-11 px) de propósito; isso contava como "por cima da barra" e a correção brigava com o app.
+    Agora só corrige quem passa mais que essa borda.
+  - Ajustes sem barra de rolagem (#29): src/ajustes/main.cpp: o indicador fino do Mac aparece ao rolar e some 0,9 s depois.
+  - Pedidos do #40: "Ocultar e mostrar a barra de menus automaticamente" (barra_ocultar, Ajustes > Central de Controle; a barra não
+    reserva o topo e aparece com o ponteiro encostado no topo); "Tamanho dos ícones do Launchpad" (launchpad_icones: Grande,
+    Médio, Pequeno; Ajustes > Mesa e Dock); Ilha desligada ou no estilo "Só quando houver algo": "Mostrar ao arrastar arquivos"
+    (ilha_arrastar, padrão ligado): com o botão apertado e andando, uma faixa invisível no lugar do notch recebe o arquivo e a
+    Ilha abre na Estante (src/shell/ilha.cpp, revelar.cpp avisa apertar/soltar).
+  Traduções nos 11 idiomas. Compilação completa e instalação.
+  Testado: janela sem moldura do Electron maximizada ficou parada (5 leituras, nenhuma correção no log); a barra some e a área de
+  trabalho vai até o topo com barra_ocultar=1 e volta ao desligar (ajustes.txt devolvido igual); a página da Central de Controle
+  com a opção nova (foto). NÃO testado: o menu dos Cantos (precisa clicar), o Wi-Fi (PC com cabo), a barra aparecendo com o
+  ponteiro no topo, o arrastar até a Ilha, a barra de rolagem (precisa rolar), a barra do Windows reaparecendo.
+  DESFAZER: reverter o commit.

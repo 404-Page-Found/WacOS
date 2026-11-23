@@ -1669,3 +1669,8 @@
 { L"Pensando", L"Думаю" },
 { L"Perguntar à Siri: “", L"Спросить Siri: «" },
 { L"Médio", L"Средний" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"Автоматически скрывать и показывать строку меню" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"Окна занимают весь экран. Наведите указатель на верх экрана, чтобы показать строку меню." },
+{ L"Tamanho dos ícones do Launchpad", L"Размер значков Launchpad" },
+{ L"Mostrar ao arrastar arquivos", L"Показывать при перетаскивании файлов" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"Перетащите файл к верху экрана, и остров откроется на Полке, даже если он не показан постоянно." },

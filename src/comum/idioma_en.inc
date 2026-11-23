@@ -1669,3 +1669,8 @@
 { L"Pensando", L"Thinking" },
 { L"Perguntar à Siri: “", L"Ask Siri: “" },
 { L"Médio", L"Medium" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"Automatically hide and show the menu bar" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"Windows use the whole screen. Move the pointer to the top of the screen to show the menu bar." },
+{ L"Tamanho dos ícones do Launchpad", L"Launchpad icon size" },
+{ L"Mostrar ao arrastar arquivos", L"Show when dragging files" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"Drag a file to the top of the screen and the island opens on the Shelf, even when it is not always shown." },

@@ -1669,3 +1669,8 @@
 { L"Pensando", L"생각 중" },
 { L"Perguntar à Siri: “", L"Siri에게 묻기: “" },
 { L"Médio", L"중간" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"메뉴 막대 자동으로 가리기 및 보기" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"윈도우가 화면 전체를 사용합니다. 포인터를 화면 맨 위로 옮기면 메뉴 막대가 나타납니다." },
+{ L"Tamanho dos ícones do Launchpad", L"Launchpad 아이콘 크기" },
+{ L"Mostrar ao arrastar arquivos", L"파일을 드래그할 때 보기" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"파일을 화면 맨 위로 드래그하면 항상 표시되지 않을 때에도 아일랜드가 선반에서 열립니다." },

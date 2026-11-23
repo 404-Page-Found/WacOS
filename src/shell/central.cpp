@@ -405,10 +405,12 @@ std::wstring Ssid() {
     HANDLE h = nullptr; DWORD ver = 0;
     if (WlanOpenHandle(2, nullptr, &ver, &h) != ERROR_SUCCESS) return L"";
     std::wstring r;
+    bool conectado = false;  // sem a permissão de localização (Windows 11 24H2) o nome não sai, mas a placa diz que está conectada
     PWLAN_INTERFACE_INFO_LIST list = nullptr;
     if (WlanEnumInterfaces(h, nullptr, &list) == ERROR_SUCCESS && list) {
         for (DWORD i = 0; i < list->dwNumberOfItems && r.empty(); i++) {
             if (list->InterfaceInfo[i].isState != wlan_interface_state_connected) continue;
+            conectado = true;
             DWORD sz = 0; PWLAN_CONNECTION_ATTRIBUTES ca = nullptr; WLAN_OPCODE_VALUE_TYPE t;
             if (WlanQueryInterface(h, &list->InterfaceInfo[i].InterfaceGuid, wlan_intf_opcode_current_connection, nullptr, &sz, (PVOID*)&ca, &t) == ERROR_SUCCESS && ca) {
                 auto& s = ca->wlanAssociationAttributes.dot11Ssid;
@@ -422,6 +424,7 @@ std::wstring Ssid() {
         WlanFreeMemory(list);
     }
     WlanCloseHandle(h, nullptr);
+    if (r.empty() && conectado) r = Tr(L"Conectado");
     return r;
 }
 

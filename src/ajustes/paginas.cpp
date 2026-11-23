@@ -1590,7 +1590,12 @@ Page CentralControle() {
                        [](bool v) { SetSetting(L"barra_embaixo", v ? L"1" : L"0"); },
                        L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.");
     baixo.icon = 0xE90E; baixo.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, baixo, todos, priv }));
+    // issue #40: como no Mac, a barra some e as janelas usam o topo da tela; aparece com o ponteiro no topo
+    Row ocultar = Toggle(L"Ocultar e mostrar a barra de menus automaticamente", [] { return Setting(L"barra_ocultar", L"0") == L"1"; },
+                         [](bool v) { SetSetting(L"barra_ocultar", v ? L"1" : L"0"); },
+                         L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.");
+    ocultar.icon = 0xE8A7; ocultar.iconColor = C_GRAY;
+    p.groups.push_back(G({ clock, ocultar, baixo, todos, priv }));
     return p;
 }
 
@@ -1614,6 +1619,10 @@ Page IlhaDinamica() {
         ilha.push_back(Toggle(L"Avisar “Copiado” ao copiar", on(L"ilha_copiado", L"1"), set(L"ilha_copiado"),
                               L"Um aviso rápido na ilha quando você copia um texto, uma imagem ou arquivos."));
     }
+    // issue #40: com a ilha desligada (ou no estilo "Só quando houver algo"), aparece na Estante ao arrastar um arquivo até o topo
+    if (Setting(L"ilha", L"0") != L"1" || Setting(L"ilha_estilo", L"notch") == L"notificacao")
+        ilha.push_back(Toggle(L"Mostrar ao arrastar arquivos", on(L"ilha_arrastar", L"1"), set(L"ilha_arrastar"),
+                              L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra."));
     p.groups.push_back(G(ilha, L"Ilha Dinâmica"));
     if (Setting(L"ilha", L"0") == L"1")
         p.groups.push_back(G({ Note(L"Na ilha também ficam a bolinha laranja (microfone) ou verde (câmera) em uso, o timer (aba Timer: pausar, parar, ±1 minuto) e o histórico do que você copiou (aba Transferência).") }));
@@ -1659,7 +1668,11 @@ Page PersonalizarDock() {
     p.groups.push_back(G({ raio, cor, opac }, L"Fundo"));
     Row ind = Popup(L"Indicador de app aberto", { L"Ponto", L"Traço" }, [] { return Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0; },
                     [](int i) { SetSetting(L"dock_indicador", i == 1 ? L"traco" : L"ponto"); });
-    p.groups.push_back(G({ Flag(L"Mostrar o Launchpad", L"dock_launchpad", L"1"), Flag(L"Mostrar a divisória", L"dock_separador", L"1"),
+    // issue #40: ícones do Launchpad menores (a grade continua a mesma)
+    Row lpIcones = Popup(L"Tamanho dos ícones do Launchpad", { L"Grande", L"Médio", L"Pequeno" },
+                         [] { double v = _wtof(Setting(L"launchpad_icones", L"1").c_str()); return v < 0.78 ? 2 : v < 0.93 ? 1 : 0; },
+                         [](int i) { SetSetting(L"launchpad_icones", i == 2 ? L"0.7" : i == 1 ? L"0.85" : L"1"); });
+    p.groups.push_back(G({ Flag(L"Mostrar o Launchpad", L"dock_launchpad", L"1"), lpIcones, Flag(L"Mostrar a divisória", L"dock_separador", L"1"),
                            Flag(L"Mostrar o nome ao passar o ponteiro", L"dock_rotulos", L"1"), ind,
                            Flag(L"Mostrar indicadores de aplicativos abertos", L"indicadores", L"1"),
                            Flag(L"Animar aplicativos ao abrir", L"animar_abertura", L"1"),

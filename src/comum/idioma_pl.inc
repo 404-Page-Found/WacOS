@@ -1669,3 +1669,8 @@
 { L"Pensando", L"Myślę" },
 { L"Perguntar à Siri: “", L"Zapytaj Siri: „" },
 { L"Médio", L"Średni" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"Automatycznie ukrywaj i pokazuj pasek menu" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"Okna zajmują cały ekran. Przesuń wskaźnik na górę ekranu, aby pokazać pasek menu." },
+{ L"Tamanho dos ícones do Launchpad", L"Rozmiar ikon Launchpada" },
+{ L"Mostrar ao arrastar arquivos", L"Pokazuj podczas przeciągania plików" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"Przeciągnij plik na górę ekranu, a wyspa otworzy się na Półce, nawet gdy nie jest stale widoczna." },

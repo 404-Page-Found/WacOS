@@ -497,6 +497,18 @@ static void HideTaskbars() {
     }, 0);
 }
 
+// A barra do Explorador que ele mostra de novo (Win, notificação, Explorador reiniciado) some na hora. Antes só o tique de
+// 1 s a escondia: ela "aparecia às vezes" por até um segundo (issue #40)
+static void CALLBACK OnBarraWindows(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
+    if (obj != OBJID_WINDOW || child != CHILDID_SELF || g_quitting || shell::nativo || !h) return;
+    wchar_t c[32] = {}; GetClassNameW(h, c, 32);
+    if (wcscmp(c, L"Shell_TrayWnd") && wcscmp(c, L"Shell_SecondaryTrayWnd")) return;
+    DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+    if (pid == GetCurrentProcessId() || apps::IsShellWindow(h)) return;
+    ShowWindowAsync(h, SW_HIDE);
+    if (std::find(g_hiddenBars.begin(), g_hiddenBars.end(), h) == g_hiddenBars.end()) g_hiddenBars.push_back(h);
+}
+
 static void ShowTaskbars() {
     for (HWND h : g_hiddenBars) if (IsWindow(h)) ShowWindowAsync(h, SW_SHOWNOACTIVATE);
     g_hiddenBars.clear();
@@ -1046,6 +1058,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring baixo = shell::Setting(L"barra_embaixo", L"0");
             if (baixo != lastBaixo) { menubar::Displays(); dock::ReloadSettings(); }
             lastBaixo = baixo;
+            static std::wstring lastOcultar = L"?";  // ocultar a barra de menus automaticamente (issue #40)
+            std::wstring ocultar = shell::Setting(L"barra_ocultar", L"0");
+            if (lastOcultar != L"?" && ocultar != lastOcultar) { menubar::Displays(); dock::ReloadSettings(); }
+            lastOcultar = ocultar;
         }
         static int lastLang = -1;
         if (lastLang < 0) lastLang = idioma::Current();
@@ -1330,6 +1346,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     limites::Start();  // janelas não cruzam a barra de menus nem o Dock
     if (!soDock) sombras::Start();
     HideTaskbars();
+    if (!shell::nativo) SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW, nullptr, OnBarraWindows, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     SecondaryTaskbarsOff();  // barra do Windows nos outros monitores: desligada enquanto o Shell roda
     shell::ApplyWorkArea();
 

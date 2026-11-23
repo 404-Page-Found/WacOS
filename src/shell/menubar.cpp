@@ -27,6 +27,7 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include <thread>
 #include "../comum/idioma.h"
 
+static void TiqueOcultar();  // ocultar a barra automaticamente (mais abaixo, fora do namespace)
 namespace {
 
 const float BAR_PT_SEQUOIA = 26;  // altura da barra (telas sem entalhe; um pouco maior que os 24 pt do Mac, para telas grandes)
@@ -295,11 +296,16 @@ bool WifiName(std::wstring& ssid) {
         for (DWORD i = 0; i < list->dwNumberOfItems && !ok; i++) {
             auto& info = list->InterfaceInfo[i];
             if (info.isState != wlan_interface_state_connected) continue;
+            // Conectado é o estado da placa. O nome da rede, desde o Windows 11 24H2, só sai com a permissão de
+            // localização ligada (sem ela a consulta falha): antes isso virava "não conectado" (issue #40)
+            ok = true;
             PWLAN_CONNECTION_ATTRIBUTES ca = nullptr; DWORD sz = 0;
-            if (WlanQueryInterface(h, &info.InterfaceGuid, wlan_intf_opcode_current_connection, nullptr, &sz, (PVOID*)&ca, nullptr) == ERROR_SUCCESS) {
+            if (WlanQueryInterface(h, &info.InterfaceGuid, wlan_intf_opcode_current_connection, nullptr, &sz, (PVOID*)&ca, nullptr) == ERROR_SUCCESS && ca) {
                 auto& s = ca->wlanAssociationAttributes.dot11Ssid;
-                ssid.assign(s.ucSSID, s.ucSSID + s.uSSIDLength);
-                ok = true;
+                std::string a((const char*)s.ucSSID, s.uSSIDLength);  // o nome vem em UTF-8
+                int n = MultiByteToWideChar(CP_UTF8, 0, a.c_str(), (int)a.size(), nullptr, 0);
+                ssid.resize(n);
+                MultiByteToWideChar(CP_UTF8, 0, a.c_str(), (int)a.size(), ssid.data(), n);
                 WlanFreeMemory(ca);
             }
         }
@@ -1368,7 +1374,7 @@ void Click(D2D1_POINT_2F p, bool right) {
     }
     case K_SPOT: spotlight::Toggle(); break;
     case K_NET: {
-        std::wstring ssid = g_st.ssid;
+        std::wstring ssid = g_st.ssid.empty() ? Tr(L"Conectado") : g_st.ssid;  // sem a permissão de localização o nome não vem
         bool wifi = g_st.wifiOn;
         ShowAt(hit, { I(wifi ? L"Wi-Fi: " + ssid : L"Ethernet", 0, true), Sep(), I(Tr(L"Ajustes de Rede…"), 1) }, [](int) { Open(L"ms-settings:network"); });
         break;
@@ -1501,7 +1507,9 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_BARDISPLAYS: menubar::Displays(); return 0;
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
-    case WM_TIMER: RefreshStatus(); Assenta(); menubar::Update(); return 0;
+    case WM_TIMER:
+        if (w == 2) { TiqueOcultar(); return 0; }
+        RefreshStatus(); Assenta(); menubar::Update(); return 0;
     case WM_BARSTATUS: PegaStatus(); menubar::Update(); return 0;
     case WM_SETTINGCHANGE:  // Windows trocou entre claro e escuro
         if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { menubar::ApplyTheme(); dock::ApplyTheme(); }
@@ -1547,6 +1555,51 @@ void menubar::ApplyTheme() {
 }
 static bool g_fsOn;
 static HMONITOR g_fsMon;
+// Ocultar e mostrar automaticamente (barra_ocultar=1, Ajustes > Central de Controle, como no Mac; issue #40): a barra não
+// reserva o topo (as janelas maximizadas vão até em cima) e só aparece com o ponteiro encostado no topo da tela; some
+// quando ele sai dela (e não há menu dela aberto). Com a barra na linha do Dock não vale.
+static bool g_revelada;
+static bool Ocultar() { return shell::Setting(L"barra_ocultar", L"0") == L"1" && !menubar::Embaixo(); }
+static bool Escondida(HWND b, HMONITOR hm) {
+    if (g_fsOn && (!g_fsMon || g_fsMon == hm)) return true;
+    return Ocultar() && !g_revelada;
+}
+static void Revela(bool on) {
+    if (on == g_revelada) return;
+    g_revelada = on;
+    std::vector<HWND> all{ g_bar };
+    all.insert(all.end(), g_extras.begin(), g_extras.end());
+    auto alheias = shell::AlheiasNoTopo();
+    for (HWND b : all) {
+        bool hide = Escondida(b, MonitorFromWindow(b, MONITOR_DEFAULTTONEAREST));
+        if (hide == !IsWindowVisible(b)) continue;
+        ShowWindow(b, hide ? SW_HIDE : SW_SHOWNOACTIVATE);
+        if (!hide) SetWindowPos(b, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
+    shell::DevolveAlheias(alheias);
+}
+// ponteiro no topo de um monitor com barra por ~120 ms: mostra; fora dela (com folga) por ~400 ms: esconde
+static void TiqueOcultar() {
+    if (!Ocultar()) { Revela(true); return; }
+    POINT pt; if (!GetCursorPos(&pt)) return;
+    HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{ sizeof(mi) }; if (!GetMonitorInfoW(hm, &mi)) return;
+    bool temBarra = (mi.dwFlags & MONITORINFOF_PRIMARY) || !g_extras.empty();
+    static DWORD noTopo, fora;
+    DWORD agora = GetTickCount();
+    bool botao = GetAsyncKeyState(VK_LBUTTON) < 0 || GetAsyncKeyState(VK_RBUTTON) < 0;
+    if (!g_revelada) {
+        bool topo = temBarra && pt.y <= mi.rcMonitor.top + 1 && !botao && !(g_fsOn && (!g_fsMon || g_fsMon == hm));
+        if (!topo) { noTopo = 0; return; }
+        if (!noTopo) noTopo = agora;
+        if (agora - noTopo >= 120) { noTopo = 0; fora = 0; Revela(true); }
+        return;
+    }
+    bool perto = pt.y <= mi.rcMonitor.top + menubar::HeightOn(hm) + 12 || g_open >= 0 || ctxmenu::IsOpen();
+    if (perto) { fora = 0; return; }
+    if (!fora) fora = agora;
+    if (agora - fora >= 400) { fora = 0; Revela(false); }
+}
 void menubar::SetFullscreen(bool on, HMONITOR mon) {
     if (!g_bar) return;
     g_fsOn = on; g_fsMon = mon;
@@ -1555,7 +1608,7 @@ void menubar::SetFullscreen(bool on, HMONITOR mon) {
     auto alheias = shell::AlheiasNoTopo();  // as "sempre por cima" de outros apps (issue #33) voltam por cima no fim
     struct Fim { std::vector<HWND>& a; ~Fim() { shell::DevolveAlheias(a); } } fim{ alheias };
     for (HWND b : all) {
-        bool hide = on && (!mon || MonitorFromWindow(b, MONITOR_DEFAULTTONEAREST) == mon);  // só a barra do monitor em tela cheia
+        bool hide = (on && (!mon || MonitorFromWindow(b, MONITOR_DEFAULTTONEAREST) == mon)) || (Ocultar() && !g_revelada);  // só a barra do monitor em tela cheia
         if (hide == !IsWindowVisible(b)) continue;
         ShowWindow(b, hide ? SW_HIDE : SW_SHOWNOACTIVATE);
         if (!hide) SetWindowPos(b, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -1574,6 +1627,7 @@ int menubar::ReservedOn(HMONITOR mon) {
     MONITORINFO mi{ sizeof(mi) };
     bool prim = GetMonitorInfoW(mon, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY);
     if (menubar::Embaixo()) return 0;  // o topo de todos os monitores volta para as janelas
+    if (Ocultar()) return 0;  // ocultar automaticamente: o topo é das janelas, a barra aparece por cima
     if (prim) return Height();
     return AllMonitors() ? HeightOn(mon) : 0;
 }
@@ -1647,9 +1701,15 @@ void menubar::Displays() {
     }
     for (size_t i = 0; i < g_extras.size(); i++) {
         const RECT& r = others[i].r;
-        bool hide = g_fsOn && (!g_fsMon || g_fsMon == others[i].hm);
+        bool hide = Escondida(g_extras[i], others[i].hm);
         SetWindowPos(g_extras[i], HWND_TOPMOST, r.left, r.top, r.right - r.left, HeightOn(others[i].hm),
-                     SWP_NOACTIVATE | (hide ? 0 : SWP_SHOWWINDOW));
+                     SWP_NOACTIVATE | (hide ? SWP_HIDEWINDOW : SWP_SHOWWINDOW));
+    }
+    if (Ocultar()) { g_revelada = false; if (IsWindowVisible(g_bar)) ShowWindow(g_bar, SW_HIDE); for (HWND b : g_extras) ShowWindow(b, SW_HIDE); SetTimer(g_bar, 2, 50, nullptr); }
+    else {
+        KillTimer(g_bar, 2);
+        g_revelada = false;
+        if (!IsWindowVisible(g_bar) && !Escondida(g_bar, prim.hm)) ShowWindow(g_bar, SW_SHOWNOACTIVATE);
     }
     static size_t lastN = (size_t)-1;
     if (lastN != g_extras.size()) { lastN = g_extras.size(); Log(L"barra de menus: %zu monitor(es) a mais", lastN); }

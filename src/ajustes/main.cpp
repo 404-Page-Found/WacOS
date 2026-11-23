@@ -42,7 +42,11 @@ const float SEARCH_H = 28, ACCOUNT_H = 50;
 const float PAD = 20, GROUP_R = 8, GROUP_GAP = 11;
 float ROW_H = 38;
 const UINT WM_APP_REBUILD = WM_APP + 1, WM_APP_BITMAP = WM_APP + 2;
-const UINT_PTR T_REFRESH = 1, T_ANIM = 2, T_CARET = 3, T_FRENTE = 4;  // T_FRENTE: vem para a frente depois de aparecer
+const UINT_PTR T_REFRESH = 1, T_ANIM = 2, T_CARET = 3, T_FRENTE = 4, T_BARRA = 5;  // T_FRENTE: vem para a frente depois de aparecer
+// Indicador de rolagem do Mac (issue #29: "a barra de rolagem nem sempre aparece"; não havia nenhuma): aparece ao rolar
+// e some 0,9 s depois da última rolagem
+DWORD g_barraAte = 0;
+float MaxScroll();
 
 HWND g_hwnd;
 HINSTANCE g_inst;
@@ -1781,6 +1785,12 @@ void Render() {
         aj::Text(c, g_page.title, D2D1::RectF(SIDE_W + (g_tahoe ? 94 : 88), 0, s.width - 20, 50), g_tfTitle, pal.text);
 
     if (g_tahoe && !Golden()) tahoe::Panel(dc, br, PanelRect(s.height), PanelR(), g_dark);  // Golden Gate: sem painel flutuante
+    if (float maxS = MaxScroll(); maxS > 0 && GetTickCount() < g_barraAte && !g_sheet.open) {
+        float top = TOOL_H + 4, bot = s.height - 6, h = bot - top;
+        float bh = std::max(28.f, h * h / (h + maxS)), by = top + (h - bh) * std::clamp(g_scroll / maxS, 0.f, 1.f);
+        br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.38f) : D2D1::ColorF(0, 0, 0, 0.35f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(s.width - 9, by, s.width - 4, by + bh), 2.5f, 2.5f), br);
+    }
     DrawSidebar(c, pal, s.height);
     if (g_sheet.open) { g_hits.clear(); DrawSheet(c, pal); }
     if (winClip) { dc->PopLayer(); tahoe::WindowRim(dc, br, s, winR, g_dark); }
@@ -2093,6 +2103,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (pt.x / g_scale < SIDE_W) g_sideScroll = std::clamp(g_sideScroll + d, 0.f, SideMaxScroll());
         else {
             g_scrollTarget = std::clamp(g_scrollTarget + d, 0.f, MaxScroll());
+            g_barraAte = GetTickCount() + 900; SetTimer(h, T_BARRA, 950, nullptr);
             if (!g_rol.on) { g_rol = {}; g_rol.on = true; QueryPerformanceCounter(&g_rol.ini); g_rol.ult = g_rol.ini; }
             LigaRelogio(h);
         }
@@ -2101,6 +2112,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_TIMER:
         if (w == T_SLIDE) { FlushSlide(); return 0; }
+        if (w == T_BARRA) { KillTimer(h, T_BARRA); Invalidate(); return 0; }  // o indicador de rolagem some
         if (w == T_FRENTE) {  // já à mostra (o Shell terminou a animação de abrir): para a frente de verdade
             KillTimer(h, T_FRENTE);
             if (GetForegroundWindow() != h) { LiberaFrente(); SetForegroundWindow(h); }

@@ -1669,3 +1669,8 @@
 { L"Pensando", L"Düşünüyor" },
 { L"Perguntar à Siri: “", L"Siri'ye sor: “" },
 { L"Médio", L"Orta" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"Menü çubuğunu otomatik olarak gizle ve göster" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"Pencereler tüm ekranı kullanır. Menü çubuğunu göstermek için imleci ekranın üstüne götürün." },
+{ L"Tamanho dos ícones do Launchpad", L"Launchpad simge boyutu" },
+{ L"Mostrar ao arrastar arquivos", L"Dosya sürüklerken göster" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"Bir dosyayı ekranın üstüne sürükleyin; ada her zaman görünmese bile Raf açık olarak görünür." },

@@ -1669,3 +1669,8 @@
 { L"Pensando", L"Pensando" },
 { L"Perguntar à Siri: “", L"Preguntar a Siri: “" },
 { L"Médio", L"Mediano" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"Ocultar y mostrar la barra de menús automáticamente" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"Las ventanas usan toda la pantalla. Lleva el puntero a la parte superior de la pantalla para que aparezca la barra." },
+{ L"Tamanho dos ícones do Launchpad", L"Tamaño de los iconos de Launchpad" },
+{ L"Mostrar ao arrastar arquivos", L"Mostrar al arrastrar archivos" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"Arrastra un archivo a la parte superior de la pantalla y la isla se abre en el Estante, aunque no esté siempre visible." },

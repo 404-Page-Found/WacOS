@@ -1669,3 +1669,8 @@
 { L"Pensando", L"考え中" },
 { L"Perguntar à Siri: “", L"Siri に聞く:「" },
 { L"Médio", L"中" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"メニューバーを自動的に隠す/表示" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"ウインドウが画面全体を使います。ポインタを画面の上端に移動するとメニューバーが表示されます。" },
+{ L"Tamanho dos ícones do Launchpad", L"Launchpad のアイコンサイズ" },
+{ L"Mostrar ao arrastar arquivos", L"ファイルをドラッグしたときに表示" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"ファイルを画面の上端までドラッグすると、常に表示していなくてもアイランドがシェルフで開きます。" },

@@ -2546,7 +2546,7 @@ void AppsMenu(HWND h, LPARAM l) {
     std::vector<ctxmenu::Item> items;
     items.push_back(mi(Tr(g_edit ? L"Concluir Edição" : L"Editar Apps"), 1, !g_edit && !CanArrange()));
     items.push_back(mi(Tr(L"Organizar por Nome"), 2, shell::Setting(L"apps_ordem", L"").empty()));
-    bool semSis = shell::Setting(L"launchpad_sem_sistema", L"0") == L"1";
+    bool semSis = shell::Setting(L"launchpad_sem_sistema", L"1") == L"1";
     ctxmenu::Item sys = mi(Tr(L"Ocultar Apps do Sistema"), 3);  // Painel de Controle, Mapa de Caracteres, Ferramentas do Windows...
     sys.checked = semSis;
     items.push_back(sys);

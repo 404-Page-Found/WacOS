@@ -973,8 +973,16 @@ static void OnMouseMove(Session& s, int li, POINT pt) {
     }
 }
 
+// O soltar do mesmo clique que abriu o menu (quem abre no apertar: os Ajustes) não escolhe nada. Perto da borda de
+// baixo da tela o menu abre para cima, por cima do ponteiro, e o soltar escolhia o item que ficou embaixo dele: o menu
+// "abria e fechava" sem dar para escolher (Cantos Ativos, issue #40). Como no Mac: só vale se o ponteiro andou.
+static DWORD g_openTick; static POINT g_openPt;
 static void OnButtonUp(Session& s, int li, POINT pt) {
     Level& L = s.levels[li];
+    if (li == 0 && GetTickCount() - g_openTick < 500 && abs(pt.x - g_openPt.x) <= 3 && abs(pt.y - g_openPt.y) <= 3) {
+        Log(L"  soltar do clique que abriu o menu: ignorado");
+        return;
+    }
     int i = HitItem(L, pt);
     Log(L"  clique solto no nível %d, item %d", li, i);
     if (i < 0) return;
@@ -1362,6 +1370,7 @@ static MItem* RunMenu(HWND owner, std::vector<MItem>& items, POINT pt) {
     g_plain = g_plainNext; g_plainNext = false;
     g_above = g_aboveNext; g_aboveNext = false;
     g_ses = &s;
+    g_openTick = GetTickCount(); GetCursorPos(&g_openPt);
     OpenLevel(s, &items, pt, nullptr, 0);
     if (g_demo) { s.levels[0].hover = 2; Invalidate(s.levels[0]); }
     MSG msg;

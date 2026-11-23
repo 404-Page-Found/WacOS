@@ -1669,3 +1669,8 @@
 { L"Pensando", L"Denke nach" },
 { L"Perguntar à Siri: “", L"Siri fragen: „" },
 { L"Médio", L"Mittel" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"Menüleiste automatisch aus- und einblenden" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"Fenster nutzen den ganzen Bildschirm. Bewege den Zeiger an den oberen Bildschirmrand, um die Menüleiste einzublenden." },
+{ L"Tamanho dos ícones do Launchpad", L"Größe der Launchpad-Symbole" },
+{ L"Mostrar ao arrastar arquivos", L"Beim Ziehen von Dateien anzeigen" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"Ziehe eine Datei an den oberen Bildschirmrand, und die Insel öffnet sich im Regal, auch wenn sie sonst nicht angezeigt wird." },

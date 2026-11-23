@@ -193,7 +193,13 @@ void limites::Maximizada(HWND h) {
     RECT wa = shell::WorkAreaFor(hm), wr, fb;
     if (!GetWindowRect(h, &wr)) return;
     if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &fb, sizeof(fb)))) fb = wr;
-    if (fb.top >= wa.top - 1 && fb.bottom <= wa.bottom + 1) return;  // dentro da área: nada a fazer
+    // A borda invisível de redimensionar (~8 px a 100%) fica para fora numa maximizada comum, e os apps de barra própria
+    // (Chromium, Spotify, Gerenciador de Tarefas) não têm moldura do DWM: as "bordas" do quadro passam dela de propósito.
+    // Antes isso contava como "por cima da barra": a correção empurrava 8 px, o app maximizava de novo e a janela pulava
+    // para dentro e para fora da barra de menus (issue #24, 23/11/2026). Só corrige quem passa mais que essa borda.
+    UINT dpi = GetDpiForWindow(h);
+    int borda = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi) + 2;
+    if (fb.top >= wa.top - borda && fb.bottom <= wa.bottom + borda) return;  // dentro da área: nada a fazer
     if (feitas.size() > 64) feitas.clear();
     if (antes.size() > 64) antes.clear();
     // a correção vai sem esperar o app (SWP_ASYNCWINDOWPOS): esperando, um app ocupado prendia o Shell inteiro. Enquanto

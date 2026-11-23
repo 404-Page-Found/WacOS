@@ -68,6 +68,7 @@ void Worker() {
     PeekMessageW(&msg, nullptr, 0, 0, PM_NOREMOVE);  // cria a fila antes de o gancho postar
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         POINT pt{ (short)LOWORD(msg.lParam), (short)HIWORD(msg.lParam) };
+        if (msg.message == WM_RV_DOWN || msg.message == WM_RV_UP) ilha::BotaoMouse(msg.message == WM_RV_DOWN, pt);
         if (msg.message == WM_RV_DOWN) {
             if (notificacoes::IsOpen()) {  // diagnóstico: onde o clique cai com a Central aberta (clique que "não chegava")
                 HWND at = WindowFromPoint(pt); wchar_t c[64] = {}; if (at) GetClassNameW(GetAncestor(at, GA_ROOT), c, 64);

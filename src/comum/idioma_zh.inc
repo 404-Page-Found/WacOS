@@ -1669,3 +1669,8 @@
 { L"Pensando", L"正在思考" },
 { L"Perguntar à Siri: “", L"询问 Siri：“" },
 { L"Médio", L"中" },
+{ L"Ocultar e mostrar a barra de menus automaticamente", L"自动隐藏和显示菜单栏" },
+{ L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.", L"窗口使用整个屏幕。将指针移到屏幕顶部即可显示菜单栏。" },
+{ L"Tamanho dos ícones do Launchpad", L"启动台图标大小" },
+{ L"Mostrar ao arrastar arquivos", L"拖移文件时显示" },
+{ L"Arraste um arquivo até o topo da tela e a ilha aparece aberta na Estante, mesmo quando ela não fica à mostra.", L"将文件拖到屏幕顶部，即使岛未一直显示，也会在架子中打开。" },
