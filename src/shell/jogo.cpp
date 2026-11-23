@@ -34,7 +34,12 @@ const wchar_t* PATHS[] = { L"\\steamapps\\common\\", L"\\epic games\\", L"\\riot
 // o que fica em tela cheia e não é jogo (vídeo, apresentação, navegador)
 const wchar_t* NOT_GAMES[] = { L"chrome.exe", L"msedge.exe", L"firefox.exe", L"opera.exe", L"brave.exe", L"vivaldi.exe", L"vlc.exe",
                                L"mpc-hc64.exe", L"mpc-be64.exe", L"mpv.exe", L"potplayermini64.exe", L"powerpnt.exe", L"obs64.exe",
-                               L"steam.exe", L"steamwebhelper.exe", L"epicgameslauncher.exe", L"explorer.exe", L"applicationframehost.exe" };
+                               L"steam.exe", L"steamwebhelper.exe", L"epicgameslauncher.exe", L"explorer.exe", L"applicationframehost.exe",
+                               // os launchers não são jogo: o Riot Client abre no login e fica na frente, e o modo jogo desligava o
+                               // vidro real até reiniciar (22/11/2026). O jogo que ele abre é pego pelo motor ou pela tela cheia.
+                               L"riot client.exe", L"riotclientux.exe", L"riotclientuxrender.exe", L"riotclientservices.exe",
+                               L"eadesktop.exe", L"ealauncher.exe", L"upc.exe", L"ubisoftconnect.exe", L"battle.net.exe",
+                               L"galaxyclient.exe", L"rockstarlauncher.exe", L"epicwebhelper.exe", L"hoyoplay.exe" };
 
 std::wstring Lower(std::wstring s) { for (auto& c : s) c = towlower(c); return s; }
 

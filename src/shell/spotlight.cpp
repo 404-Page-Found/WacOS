@@ -577,7 +577,10 @@ void LoadApps() {
             IShellItem* it = nullptr;
             while (en->Next(1, &it, nullptr) == S_OK) {
                 PWSTR name = nullptr, parse = nullptr;
-                if (SUCCEEDED(it->GetDisplayName(SIGDN_NORMALDISPLAY, &name)) && SUCCEEDED(it->GetDisplayName(SIGDN_PARENTRELATIVEPARSING, &parse)) && !Skip(name))
+                // atalho do Menu Iniciar para um programa que não existe mais (o "Notas" e o "Monitor de Atividade" de
+                // antes do WacOS apontavam para bin\SequoiaNotes.exe: o app aparecia duas vezes, uma delas quebrada)
+                if (SUCCEEDED(it->GetDisplayName(SIGDN_NORMALDISPLAY, &name)) && SUCCEEDED(it->GetDisplayName(SIGDN_PARENTRELATIVEPARSING, &parse)) && !Skip(name) &&
+                    !(parse[0] && parse[1] == L':' && parse[2] == L'\\' && GetFileAttributesW(parse) == INVALID_FILE_ATTRIBUTES))
                     found.push_back({ name, parse, Fold(name) });
                 if (name) CoTaskMemFree(name);
                 if (parse) CoTaskMemFree(parse);

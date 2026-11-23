@@ -1270,3 +1270,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Piscadas (#29): NÃO reproduzidas. pisca.exe (Duplicação de Área de Trabalho, todo quadro, grade 32x16) com uma janela própria movendo e mudando de tamanho e o mouse postado no Dock: ~10 mil quadros, nenhuma piscada do Shell (as marcações eram o movimento da janela de teste e a etiqueta do Dock reagindo ao mouse falso).
   Instalado (hash conferido): WacOSShell.exe, WacOSSettings.exe, WacOSTitleBars.exe. Um passo errado no meio: o WacOSTitleBars.exe do bin principal foi copiado uma vez antes do certo (sobrescrito em seguida pelo deste ramo).
   DESFAZER: reverter os commits deste ramo e reinstalar os três exes de antes.
+
+[2026-11-22 21:15, hora do PC] Vidro sumiu depois do reinício; Notas em dobro no Spotlight.
+  - src/shell/jogo.cpp: o Riot Client abre no login, fica na frente e está numa pasta de jogos: o modo jogo ligava e desligava o vidro real (log 21:06:10). Launchers (Riot Client, EA, Ubisoft Connect, Battle.net, GOG, Rockstar, Epic, HoYoPlay) não são jogo; o jogo que eles abrem continua pego pelo motor ou pela tela cheia. Conferido: reinício das 21:11 com "vidro real: ligado" e sem modo jogo.
+  - Com o vidro real desligado, o Spotlight do Golden Gate cai no vidro de uma peça só, do tamanho da janela (o retângulo grande em volta da barra e do painel). Com o vidro real ligado, conferido em foto: barra e painel separados. NÃO corrigido: o caminho sem vidro real (modo jogo, VM).
+  - src/shell/spotlight.cpp: atalhos do Menu Iniciar para programas que não existem mais saem da lista (Notas e Monitor de Atividade antigos apontavam para bin/SequoiaNotes.exe).
+  DESFAZER: reverter o commit.
