@@ -17,6 +17,7 @@
 // da mesa ou para outra casa da grade), soltar arquivos de fora, F2 renomeia, Delete vai para a Lixeira,
 // Ctrl+C/X/V, menu de contexto (o nosso, com as extensões do Windows) e o menu do fundo do Mac.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include <dwmapi.h>
 #include "../menu/context_menu.h"
 #include <shlobj.h>
@@ -461,15 +462,17 @@ bool Blocked(int col, int row) {
 }
 
 void SavePositions() {
-    FILE* fp = nullptr;
-    if (_wfopen_s(&fp, g_posFile.c_str(), L"w, ccs=UTF-8") || !fp) return;
+    // atômico (.tmp + troca): o Shell encerrado no meio da gravação deixava o mesa.txt vazio (ícones embaralhados)
+    std::wstring s;
+    wchar_t b[96];
     for (auto& [k, v] : g_pos) {
         auto o = g_off.find(k);
         if (o != g_off.end() && (o->second.first != 0 || o->second.second != 0))
-            fwprintf(fp, L"%d,%d,%.1f,%.1f|%ls\n", v.first, v.second, o->second.first, o->second.second, k.c_str());
-        else fwprintf(fp, L"%d,%d|%ls\n", v.first, v.second, k.c_str());
+            swprintf_s(b, L"%d,%d,%.1f,%.1f|", v.first, v.second, o->second.first, o->second.second);
+        else swprintf_s(b, L"%d,%d|", v.first, v.second);
+        s += b; s += k; s += L'\n';
     }
-    fclose(fp);
+    ajarq::GravarTexto(g_posFile, s);
 }
 void LoadPositions() {
     g_pos.clear(); g_off.clear();

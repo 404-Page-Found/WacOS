@@ -64,4 +64,23 @@ inline bool Gravar(const std::wstring& path, const std::map<std::wstring, std::w
     return true;
 }
 
+// Texto pronto (UTF-8 com BOM, como o "w, ccs=UTF-8") num .tmp trocado de uma vez: o dock.txt e o mesa.txt eram
+// regravados direto, e o Shell encerrado no meio (o vigia faz TerminateProcess no Shell travado) deixava o arquivo
+// vazio — o Dock voltava sem nenhum app fixado.
+inline bool GravarTexto(const std::wstring& path, const std::wstring& texto) {
+    std::wstring tmp = path + L".tmp";
+    FILE* fp = nullptr;
+    if (_wfopen_s(&fp, tmp.c_str(), L"w, ccs=UTF-8") || !fp) return false;
+    fputws(texto.c_str(), fp);
+    bool ok = fflush(fp) == 0;
+    fclose(fp);
+    if (!ok) { DeleteFileW(tmp.c_str()); return false; }
+    for (int i = 0; i < 5; i++) {
+        if (MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) return true;
+        Sleep(10);
+    }
+    DeleteFileW(tmp.c_str());
+    return false;
+}
+
 }  // namespace ajarq

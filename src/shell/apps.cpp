@@ -2,6 +2,7 @@
 // os abertos (janelas que apareceriam na barra de tarefas) e os recentes. Abrir, ativar, ocultar,
 // encerrar, fixar, abrir ao iniciar sessão.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include <mutex>
 #include <unordered_map>
 #include <memory>
@@ -270,10 +271,10 @@ App* apps::OfWindow(HWND h) {
 }
 
 void apps::Save() {
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, (DataDir() + L"\\dock.txt").c_str(), L"w, ccs=UTF-8") || !f) return;
-    for (auto& a : list) if (a.pinned && !a.finder) fwprintf(f, L"%ls\t%ls\t%ls\t%ls\n", a.id.c_str(), a.launch.c_str(), a.name.c_str(), a.exe.c_str());
-    fclose(f);
+    // atômico (.tmp + troca): o Shell encerrado no meio da gravação deixava o dock.txt vazio e o Dock sem apps fixos
+    std::wstring s;
+    for (auto& a : list) if (a.pinned && !a.finder) s += a.id + L"\t" + a.launch + L"\t" + a.name + L"\t" + a.exe + L"\n";
+    ajarq::GravarTexto(DataDir() + L"\\dock.txt", s);
 }
 
 void apps::Load(const std::wstring& finderExe) {

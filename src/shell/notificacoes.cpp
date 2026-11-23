@@ -10,6 +10,7 @@
 // conteúdo por cima (Direct2D na GPU). O Windows não avisa quando chega notificação para app sem pacote
 // (NotificationChanged dá "Elemento não encontrado"), então uma thread relê a lista a cada 2 s com o painel aberto.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include "vidro_wuc.h"
 #include "../menu/context_menu.h"
 #include "../comum/simbolos.h"
@@ -1719,7 +1720,7 @@ void ChecarAvisos() {
                         size_t p = 0; for (int k = 0; k < 4 && p != std::wstring::npos; k++) p = s.find(L'\t', p + 1);
                         if (p != std::wstring::npos && p + 1 < s.size() && s[p + 1] == L'1') s[p + 1] = L'0';
                     }
-            if (!_wfopen_s(&f, path.c_str(), L"w, ccs=UTF-8") && f) { for (auto& s : lines) fwprintf(f, L"%ls\n", s.c_str()); fclose(f); }
+            { std::wstring all; for (auto& s : lines) { all += s; all += L'\n'; } ajarq::GravarTexto(path, all); }  // atômico: são os alarmes do usuário
         }
     }
     if (due.empty()) return;

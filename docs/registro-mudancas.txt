@@ -1362,3 +1362,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Revisado sem achar problema: renomear (não sobrescreve nome existente, devolve o .lnk), apagar e esvaziar a Lixeira (pelos verbos do Windows, com a confirmação dele), desfazer.
   Compilado (build completo). NÃO testado na tela (sem cliques simulados).
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:10, hora do PC] Caça a bugs, rodada 5 (Dock, mesa e arquivos do Shell). Só código.
+  - src/comum/ajustes_arquivo.h: ajarq::GravarTexto (texto em .tmp trocado de uma vez).
+  - src/shell/apps.cpp (dock.txt), mesa.cpp (mesa.txt), notificacoes.cpp (relogio.txt, ao desligar um alarme de uma vez) e ilha.cpp (prateleira): eram regravados direto com "w". O vigia encerra o Shell travado com TerminateProcess; caindo no meio da gravação o arquivo ficava vazio: o Dock voltava sem nenhum app fixado, os ícones da mesa se embaralhavam e os alarmes do Relógio sumiam. Agora a gravação é atômica. Testado: ida e volta com acentos e tabs, sem sobrar .tmp.
+  Compilado (build completo). NÃO testado na tela.
+  DESFAZER: reverter o commit.

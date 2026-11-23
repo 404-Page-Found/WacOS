@@ -24,6 +24,7 @@
 // Ocioso tem que ser ocioso: mídia, microfone/câmera, downloads e área de transferência chegam por eventos; o relógio
 // de quadros só roda enquanto a mola mexe; barrinhas (30 q/s), timer (4/s) e Sistema (1/s) só enquanto aparecem.
 #include "shell.h"
+#include "../comum/ajustes_arquivo.h"
 #include "../comum/simbolos.h"
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
@@ -573,8 +574,7 @@ std::wstring ShelfFile() {
 void ShelfSave() {
     std::wstring s;
     for (auto& p : g_shelf) s += p + L"\r\n";
-    FILE* f = nullptr;
-    if (_wfopen_s(&f, ShelfFile().c_str(), L"w, ccs=UTF-8") == 0 && f) { fputws(s.c_str(), f); fclose(f); }
+    ajarq::GravarTexto(ShelfFile(), s);  // atômico: o Shell encerrado no meio deixava a prateleira vazia
 }
 
 void ShelfLoad() {
