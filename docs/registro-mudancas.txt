@@ -1356,3 +1356,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/alertas.cpp: confirmação do Explorador ou do programa respondida pelo alerta do Mac que não fechava depois da resposta ficava escondida em -32000 para sempre (só o TaskDialog voltava). Caso real: Windows em outro idioma, os botões "Sí"/"Ja"/"Oui" não eram achados pela UI Automation, nada era clicado e a operação ficava parada esperando uma pergunta invisível. Agora qualquer resposta tem a rede de segurança (1,5 s; TaskDialog continua com 0,8 s) e os nomes Sim/Não de es, fr, de, it, pl, tr e ru também são reconhecidos.
   Compilado (build completo). NÃO testado na tela.
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:00, hora do PC] Caça a bugs, rodada 4 (Finder). Só código.
+  - src/finder/main.cpp: nos 3 s depois de abrir, o Finder volta para a frente se outra janela pegar o foco sem clique (T_FRENTE, para o Explorador escondido não roubar a frente). Uma pergunta que aparecesse nesse intervalo (caixa de mensagem #32770, a janela de copiar/substituir do Windows, o alerta do Mac do Shell ou qualquer janela "sempre por cima") ficava escondida atrás do Finder. Agora, com uma delas na frente, a defesa para.
+  - Revisado sem achar problema: renomear (não sobrescreve nome existente, devolve o .lnk), apagar e esvaziar a Lixeira (pelos verbos do Windows, com a confirmação dele), desfazer.
+  Compilado (build completo). NÃO testado na tela (sem cliques simulados).
+  DESFAZER: reverter o commit.
