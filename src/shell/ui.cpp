@@ -332,6 +332,33 @@ void ui::GpuFree(GpuSurface& s) {
     s = GpuSurface{ s.hwnd };
 }
 
+// Painéis de tela cheia (Launchpad, Mission Control, Dashboard, Mesas) guardavam os dois buffers do tamanho da tela
+// depois de fechar: ~40 MB cada numa tela 3440x1440, para sempre. Com vídeo integrado isso sai da RAM do PC (8 GB no
+// issue #10). Escondido há 2 minutos, o buffer é solto; a próxima pintura (que esses painéis fazem antes de aparecer)
+// cria outro em poucos ms.
+namespace {
+struct Soltavel { ui::GpuSurface* s; ULONGLONG escondida; };
+std::vector<Soltavel> g_soltaveis;
+}
+void ui::GpuSoltarEscondida(GpuSurface& s) {
+    for (auto& x : g_soltaveis) if (x.s == &s) return;
+    g_soltaveis.push_back({ &s, 0 });
+    static UINT_PTR t = SetTimer(nullptr, 0, 20000, [](HWND, UINT, UINT_PTR, DWORD) {
+        ULONGLONG agora = GetTickCount64();
+        for (auto& x : g_soltaveis) {
+            if (!x.s->swap || !x.s->hwnd || IsWindowVisible(x.s->hwnd)) { x.escondida = 0; continue; }
+            if (!x.escondida) { x.escondida = agora; continue; }
+            if (agora - x.escondida < 120000) continue;
+            wchar_t c[64] = {}; GetClassNameW(x.s->hwnd, c, 64);
+            Log(L"GPU: %ls escondida há 2 min: buffers de %dx%d soltos (~%d MB)", c, x.s->w, x.s->h, (int)(2.0 * x.s->w * x.s->h * 4 / (1024 * 1024)));
+            GpuFree(*x.s);  // fica a hwnd; GpuBegin cria tudo de novo
+            if (g_dcomp) g_dcomp->Commit();
+            x.escondida = 0;
+        }
+    });
+    (void)t;
+}
+
 // Relógio de quadros: uma thread que espera a composição da tela (DwmFlush) e avisa a janela.
 namespace {
 // Parado, a thread dorme num evento (antes acordava a cada 8 ms para sempre: ~125 vezes por segundo por

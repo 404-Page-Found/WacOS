@@ -121,6 +121,7 @@ bool DecodeStream(const winrt::Windows::Storage::Streams::IRandomAccessStream& s
     return ok;
 }
 
+std::atomic<DWORD> g_rapidoAte{ 0 };  // GetTickCount até quando relê depressa (toast do Windows acabou de aparecer)
 void Worker() {
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     wun::Management::UserNotificationListener l{ nullptr };
@@ -218,8 +219,15 @@ void Worker() {
             { std::lock_guard<std::mutex> k(g_mx); g_data = std::move(notes); g_access = access; for (auto& [a, p] : logos) g_logos[a] = std::move(p); }
             if (g_wnd) PostMessageW(g_wnd, WM_NC_DATA, 0, 0);
         }
+        // Quanto esperar. Cada leitura faz o Windows montar TODAS as notificações de novo (wpnapps + msxml6 lendo o XML de cada
+        // uma, mesmo as que já lemos): a 1 por segundo com o painel fechado era ~2% de um núcleo do Shell parado (23/11/2026,
+        // 203 ms de CPU a cada 10 s, o maior gasto do Shell ocioso). Painel aberto: 1 s. Toast novo do Windows na tela
+        // (OnToast): acorda na hora e relê a cada 0,4 s por 3 s (o banner do Mac sai junto). Fora isso, a cada 10 s.
+        DWORD espera = 10000;
+        if (g_wnd && IsWindowVisible(g_wnd)) espera = 1000;
+        if ((LONG)(g_rapidoAte.load() - GetTickCount()) > 0) espera = 400;
         std::unique_lock<std::mutex> k(g_mx);
-        g_cv.wait_for(k, std::chrono::milliseconds(1000), [] { return g_wake; });
+        g_cv.wait_for(k, std::chrono::milliseconds(espera), [] { return g_wake; });
         g_wake = false;
     }
 }
@@ -1868,6 +1876,8 @@ void CALLBACK OnToast(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWORD
     g_toastRect = r;
     g_toastMoved = true;
     SetWindowPos(h, nullptr, -32000, -32000, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    g_rapidoAte = GetTickCount() + 3000;  // notificação nova: a leitura (Worker) vem já, e depressa por 3 s
+    Wake();
 }
 
 LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {

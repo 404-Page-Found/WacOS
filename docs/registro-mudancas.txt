@@ -1351,3 +1351,26 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Instalado: WacOSShell/Settings/Finder/Screenshot (os anteriores em SequoiaBinariosAntigos\otim-antes-*.exe).
   DESFAZER: reverter o commit; para voltar os exes: copiar SequoiaBinariosAntigos\otim-antes-*.exe para Programs\WacOS\bin (sem o prefixo)
   e reiniciar o Shell. O modo leve sozinho: modo_leve=0 no ajustes.txt.
+
+[2026-11-23 03:45, hora do PC] Desempenho, 2a rodada: o Shell parado, memória e buffers de tela cheia.
+  Medido antes (Shell parado, usuário sem mexer há 36 min): 3,0-3,4% de um núcleo. Por thread (10 s): uma thread gastava 203 ms
+  (2% de um núcleo) acordando ~1.600 vezes/s; a da interface 16 ms. Memória privada comprometida 345 MB, com um bloco de 35.393.536
+  bytes (o papel de parede 4096x2160 inteiro). Handles/GDI/USER estáveis em 26 min (1708 -> 1662, GDI 96, USER 184): sem vazamento.
+  Partida: "fontes: carregadas em 4640 ms" foi um arranque a frio e já fica fora da interface (78 ms com o disco quente); nada mudado.
+  - src/shell/notificacoes.cpp: a thread era a leitura das notificações do Windows (UserNotificationListener: pilhas em wpnapps.dll e
+    msxml6.dll). A cada 1 s, mesmo com a Central fechada, GetNotificationsAsync remontava TODAS as notificações (o XML de cada uma).
+    Agora: Central aberta 1 s; fechada 10 s; quando o toast do Windows aparece (OnToast, que já existia para esconder o toast e mostrar
+    o banner do Mac) acorda na hora e relê a cada 0,4 s por 3 s, então o banner não atrasa.
+  - src/shell/missioncontrol.cpp: o papel de parede das miniaturas das Mesas era lido no tamanho original na partida (4096x2160 = 34 MB)
+    e ficava na memória até a 1a abertura do Mission Control (e depois como bitmap da GPU do mesmo tamanho). Agora é reduzido para
+    1024 px na própria thread que lê.
+  - src/shell/ui.cpp (ui::GpuSoltarEscondida) + launchpad.cpp, missioncontrol.cpp, dashboard.cpp, espacos.cpp: os painéis de tela cheia
+    seguravam os dois buffers do tamanho da tela para sempre depois de fechar (~37 MB cada aqui). Escondido há 2 min, o buffer é solto;
+    eles pintam antes de aparecer, então o buffer volta na próxima abertura. Log: "GPU: <classe> escondida há 2 min: buffers ... soltos".
+  Medido depois (mesmas condições, 30 s): 0,89% de um núcleo (a thread das notificações sumiu da lista; nenhuma passa de 125 ms em 30 s).
+  Memória privada comprometida 314 MB e o bloco de 35 MB não existe mais. Mission Control aberto e fechado pela mensagem ShellAbrirPainel
+  2: aos 2 min o log mostrou "ShellMissionControl ... 3440x1440 soltos (~37 MB)"; reaberto em seguida, normal (foto conferida).
+  Visto e deixado: 4 threads do driver da NVIDIA acordam ~98 vezes/s cada (uma por dispositivo D3D), mas com CPU desprezível;
+  a janela de fundo do Dock recebe ~30 avisos de posição em rajadas de 300 ms a cada poucos segundos sem mudar de lugar (barato; fica
+  para investigar). Banner de notificação NÃO conferido na tela (sem notificação real durante o teste).
+  DESFAZER: reverter o commit; o exe anterior está em SequoiaBinariosAntigos\inst-*-WacOSShell.exe.

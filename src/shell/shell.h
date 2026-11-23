@@ -89,6 +89,7 @@ ID2D1DeviceContext* Gpu();                 // contexto compartilhado (criado na 
 ID2D1DeviceContext* GpuBegin(GpuSurface& s, int w, int h, float scale);  // já limpo e com BeginDraw
 void GpuEnd(GpuSurface& s);                       // EndDraw + Present (sem esperar a tela)
 void GpuFree(GpuSurface& s);
+void GpuSoltarEscondida(GpuSurface& s);  // painel de tela cheia: solta os buffers depois de 2 min escondido (pinte antes de mostrar)
 // Desloca o conteúdo dentro da janela (px): a janela pode encolher/crescer sem recriar a imagem.
 void GpuOffset(GpuSurface& s, float x, float y);
 void GpuScale(GpuSurface& s, float scale, float cx, float cy);  // escala o desenho em volta de (cx, cy) px (animação dos painéis)
