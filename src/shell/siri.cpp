@@ -320,7 +320,8 @@ float ForcaBrilho(double now) {
     return k >= 1 ? 0.f : (1 - k) * (1 - k);
 }
 bool Animando(double now) {
-    return g_closing || g_busy || !anim::PanelIn(now - g_openAt).done || now - g_answerAt < 950;
+    double digitar = g_a.size() / std::max(110.0, g_a.size() / 2.2) * 1000.0;  // o tempo da resposta "digitando"
+    return g_closing || g_busy || !anim::PanelIn(now - g_openAt).done || now - g_answerAt < std::max(950.0, digitar + 50);
 }
 
 void Paint() {
@@ -330,7 +331,14 @@ void Paint() {
     bool dark = ui::Dark();
     float textW = W - PAD * 2 - ORB - 14;
     std::wstring a = g_busy ? std::wstring(Tr(L"Pensando")) + std::wstring((size_t)(g_pontos % 3 + 1), L'.') : g_a;
-    float qh = AlturaTexto(g_q, g_tfQ, textW), ah = AlturaTexto(a, g_tfA, textW);
+    float ah = AlturaTexto(a, g_tfA, textW);  // a altura é a do texto inteiro: o painel não cresce aos pulos enquanto ele "digita"
+    // a resposta aparece como se fosse digitada (issue #38): ~110 letras por segundo, no máximo 2,2 s (as longas vão mais rápido)
+    if (!g_busy && !g_entrada && g_answerAt > 0) {
+        double vel = std::max(110.0, g_a.size() / 2.2);
+        size_t n = (size_t)std::max(0.0, (now - g_answerAt) / 1000.0 * vel);
+        if (n < a.size()) { a = a.substr(0, n); if (n && IS_HIGH_SURROGATE(a.back())) a.pop_back(); }
+    }
+    float qh = AlturaTexto(g_q, g_tfQ, textW);
     g_contentH = PAD + qh + 8 + ah + PAD;
     if (g_entrada) {  // só o campo: uma linha (ou mais, se o texto quebrar)
         qh = 0; ah = std::max(AlturaTexto(g_texto.empty() ? L"M" : g_texto, g_tfA, textW), 20.f);

@@ -1659,3 +1659,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Compilação completa e instalação. NÃO visto na tela: o relógio em 12 horas (o usuário estava num jogo em tela cheia, a barra
   some), a pesquisa na web (a cota grátis do Gemini da conta acabou hoje).
   DESFAZER: reverter o commit.
+
+[2026-11-23 17:40, hora do PC] Siri: a resposta aparece digitando (pedido do #38).
+  - src/shell/siri.cpp: a resposta aparece aos poucos, ~110 letras por segundo (no máximo 2,2 s; as longas vão mais rápido);
+    a altura do painel já é a do texto inteiro, para ele não crescer aos pulos. Compilado e instalado; não visto na tela.
+  DESFAZER: reverter o commit.
