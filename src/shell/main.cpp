@@ -420,14 +420,18 @@ static void LoadSettings() {
     CoTaskMemFree(p);
     FILE* fp = nullptr;
     if (_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") || !fp) return;
+    // Do zero a cada leitura: uma linha tirada do arquivo (ajuste de volta ao padrão) continuava valendo com o valor
+    // antigo até reiniciar o Shell (23/11/2026: ocultar=1 apagado deixava o Dock sem reserva na área de trabalho).
+    std::map<std::wstring, std::wstring> novo;
     wchar_t line[512];
     while (fgetws(line, 512, fp)) {
         std::wstring s = line;
         while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r' || s.back() == L' ')) s.pop_back();
         size_t eq = s.find(L'=');
-        if (eq != std::wstring::npos && s[0] != L'#') g_settings[s.substr(0, eq)] = s.substr(eq + 1);
+        if (eq != std::wstring::npos && s[0] != L'#') novo[s.substr(0, eq)] = s.substr(eq + 1);
     }
     fclose(fp);
+    g_settings = std::move(novo);
     backdrop::Reload();  // Transparência e Efeitos (Liquid Glass, reduzir transparência, tinta)
     anim::reduceMotion = shell::Setting(L"reduzir_movimento", L"0") == L"1";
 }

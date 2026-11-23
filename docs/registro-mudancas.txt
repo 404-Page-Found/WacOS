@@ -1311,3 +1311,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/dialogs.cpp: a original só conta como "já na pasta escolhida" quando a barra de endereço traz o caminho (pelo nome de pasta especial pode ser outra de mesmo nome); nesse caso recebe só o nome. Antes do OK confere de novo a pasta (se saiu, vai o caminho inteiro) e, se o nome não entrou no campo, procura o campo de novo e tenta outra vez. Log com a pasta da original e a escolhida.
   ScreenRec não reproduzido aqui (app não instalado); pedido o log ao usuário.
   DESFAZER: reverter o commit.
+
+[2026-11-23 02:05, hora do PC] Ajuste tirado do ajustes.txt continuava valendo.
+  - src/shell/main.cpp: LoadSettings lê para um mapa novo e troca o inteiro. Antes, uma linha apagada (ajuste de volta ao padrão) ficava com o valor antigo até reiniciar o Shell. Visto no teste do issue #24: ocultar=1 apagado deixou o Dock sem reserva e o Chrome maximizado por baixo dele (o ajuste do usuário foi devolvido: sem a linha ocultar).
+  - Issue #24 (Chromium/Spotify maximizados com o Dock ocultando sozinho): não reproduzido com janelas Electron descartáveis (com e sem moldura): ficam entre a barra de menus e a borda de baixo. Pedir detalhes ao usuário.
+  DESFAZER: reverter o commit.
