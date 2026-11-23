@@ -1387,3 +1387,19 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   apagada depois. Instalado: WacOSFinder.exe (o anterior em SequoiaBinariosAntigos\otim-r3-antes-WacOSFinder.exe); a reserva antiga
   foi fechada (WM_CLOSE) e o Shell abriu outra com o exe novo.
   DESFAZER: reverter o commit; voltar o exe anterior e fechar a reserva do Finder.
+
+[2026-11-23 04:00, hora do PC] Desempenho, 4a rodada: o Shell parado acordando à toa; Spotlight medido.
+  Medido antes: a thread da interface acordava 84-88 vezes por segundo com o ponteiro parado no meio da tela. Duas leituras do ponteiro
+  rodavam o tempo todo: a Nota Rápida a cada 30 ms (33/s) e os Cantos Ativos a cada 50 ms (20/s).
+  - src/shell/notarapida.cpp e cantos.cpp: intervalo adaptativo. Perto do canto (a menos de 240 px) ou com o quadrado da nota à mostra,
+    o ritmo de antes (30 e 50 ms); longe, 150 ms. Do meio da tela até o canto o ponteiro leva mais que isso.
+  Medido depois (contador "Context Switches/sec" da thread, 15 s, ponteiro parado): 58 acordares por segundo. CPU do Shell parado
+  0,99% de um núcleo (logo depois de reiniciar ficou em 2,6% por meio minuto, o arranque).
+  Visto e deixado:
+  - Spotlight: banco de testes com o indice.db real (943.495 itens, copiado pelo WMI para C:\Users\Public e rodado fora do Shell):
+    a busca leva 14-20 ms por consulta (numa thread, cancelável a cada tecla). Um laço mais enxuto ganhou só ~10%: não mudado.
+  - A thread interna do leitor de notificações do Windows (wpnapps.dll, criada pelo shcore) ainda acorda ~210 vezes/s, mas gasta
+    63-78 ms a cada 10-30 s depois da 2a rodada (antes 203 ms a cada 10 s). É do Windows.
+  - barras.cpp tem um temporizador de 16 ms, mas só no modo nativo (fora do padrão).
+  Instalado: WacOSShell.exe. NÃO conferido na tela: Cantos Ativos e Nota Rápida disparando (sem mexer no mouse do PC).
+  DESFAZER: reverter o commit.

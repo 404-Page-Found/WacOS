@@ -12,6 +12,8 @@
 namespace {
 
 const UINT_PTR T_CANTO = 0x4341;
+UINT_PTR g_timer;  // sem janela: o Windows dá o número do temporizador (o T_CANTO é ignorado)
+UINT g_ritmo = 50;  // intervalo atual (Tick)
 int g_armed = -1;          // canto onde o ponteiro está (já disparou); -1 = fora de todos
 DWORD g_arriveAt;          // chegou ao canto (uma pequena espera evita disparos ao passar raspando)
 int g_pending = -1;
@@ -54,6 +56,12 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
     MONITORINFO mi{ sizeof(mi) };
     if (!GetMonitorInfoW(MonitorFromPoint(p, MONITOR_DEFAULTTONEAREST), &mi)) return;
     RECT m = mi.rcMonitor;
+    {   // 50 ms perto de um canto (a menos de 240 px); longe, 150 ms: o ponteiro parado no meio da tela acordava a interface 20
+        // vezes por segundo à toa (23/11/2026). Do meio da tela até o canto o ponteiro leva mais que isso.
+        bool perto = (p.x <= m.left + 240 || p.x >= m.right - 240) && (p.y <= m.top + 240 || p.y >= m.bottom - 240);
+        UINT ms = perto || g_pending >= 0 ? 50 : 150;
+        if (ms != g_ritmo && g_timer) { g_ritmo = ms; g_timer = SetTimer(nullptr, g_timer, ms, Tick); }
+    }
     const int E = 2;  // px de folga
     bool L = p.x <= m.left + E, R = p.x >= m.right - 1 - E, T = p.y <= m.top + E, B = p.y >= m.bottom - 1 - E;
     int c = T && L ? 0 : T && R ? 1 : B && L ? 2 : B && R ? 3 : -1;
@@ -70,15 +78,14 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
 
 }  // namespace
 
-static UINT_PTR g_timer;  // sem janela: o Windows dá o número do temporizador (o T_CANTO é ignorado)
 void cantos::Start() {
-    g_timer = SetTimer(nullptr, T_CANTO, 50, Tick);
+    g_timer = SetTimer(nullptr, T_CANTO, 50, Tick); g_ritmo = 50;
 }
 
 // modo jogo (jogo.cpp): sem ler o ponteiro 20 vezes por segundo enquanto o jogo roda
 void cantos::Pausar(bool p) {
     if (p && g_timer) { KillTimer(nullptr, g_timer); g_timer = 0; }
-    else if (!p && !g_timer) g_timer = SetTimer(nullptr, T_CANTO, 50, Tick);
+    else if (!p && !g_timer) { g_timer = SetTimer(nullptr, T_CANTO, 50, Tick); g_ritmo = 50; }
 }
 
 bool cantos::NotaRapida() { return ActionOf(3) == L"nota"; }
