@@ -11,6 +11,7 @@
 #include <windowsx.h>
 #include <thread>
 #include <atomic>
+#include <mutex>
 #include <algorithm>
 #include <cmath>
 
@@ -67,6 +68,21 @@ bool ModeloSumiu(DWORD status, const std::wstring& msg) {
                               L"invalid model", L"unknown model", L"model_not_found", L"is not a valid model" })
         if (l.find(w) != std::wstring::npos) return true;
     return false;
+}
+
+// Gemini sem cota para a pesquisa no Google (issue #42): no plano grátis do AI Studio a cota da pesquisa dos Gemini 3
+// em diante é zero, e a pergunta voltava 429 "quota". Antes o WacOS trocava de modelo (para o preferido da lista, um
+// Gemini 3) e a pesquisa continuava sem cota. Agora pergunta de novo no mesmo modelo, sem a pesquisa, e lembra disso
+// até o Shell reiniciar (sem gastar uma pergunta recusada a cada vez).
+std::mutex g_semBuscaMx;
+std::vector<std::wstring> g_semBusca;
+bool SemBusca(const std::wstring& modelo) {
+    std::lock_guard<std::mutex> l(g_semBuscaMx);
+    return std::find(g_semBusca.begin(), g_semBusca.end(), modelo) != g_semBusca.end();
+}
+void GuardaSemBusca(const std::wstring& modelo) {
+    std::lock_guard<std::mutex> l(g_semBuscaMx);
+    if (std::find(g_semBusca.begin(), g_semBusca.end(), modelo) == g_semBusca.end()) g_semBusca.push_back(modelo);
 }
 
 // outro modelo da lista para esta pergunta: estável (sem preview/omni/exp/latest/lite), da mesma família (Flash no Gemini)
@@ -133,6 +149,8 @@ std::wstring Pergunta(const std::wstring& q, bool& erro, int num) {
     SecureZeroMemory(chave.data(), chave.size() * sizeof(wchar_t));
     siri::Resposta r;
     bool web = shell::Setting(L"siri_web", L"1") != L"0";
+    if (web && pv.fmt == siri::F_GEMINI && SemBusca(modelo)) web = false;  // já se sabe: sem cota para a pesquisa
+    bool tirouBusca = false;
     for (int tentativa = 0; tentativa < 3; tentativa++) {
         std::string body;
         std::wstring caminho = pv.caminho;
@@ -167,6 +185,11 @@ std::wstring Pergunta(const std::wstring& q, bool& erro, int num) {
         std::wstring msgErro = siri::ErroDoServico(r.corpo), lm = msgErro;
         for (auto& c : lm) c = (wchar_t)towlower(c);
         bool semCota = r.status == 429 && lm.find(L"quota") != std::wstring::npos;
+        if (semCota && web && pv.fmt == siri::F_GEMINI) {  // primeiro sem a pesquisa, no modelo escolhido (issue #42)
+            web = false; tirouBusca = true;
+            Log(L"siri: sem cota em %ls com a pesquisa na web; de novo sem ela", modelo.c_str());
+            continue;
+        }
         if (semCota) {
             std::wstring e; auto lista = siri::ListaModelos(p, e);
             std::wstring outro = !lista.empty() && lista[0] != modelo ? lista[0] : Reserva(lista, modelo, pv.fmt == siri::F_GEMINI);
@@ -190,6 +213,8 @@ std::wstring Pergunta(const std::wstring& q, bool& erro, int num) {
             shell::SetSetting((L"siri_modelos_" + std::to_wstring(p)).c_str(), junta);
         });
     }
+    // sem a pesquisa deu certo: era só a cota dela (a cota geral do modelo zerada também daria 429 sem a pesquisa)
+    if (tirouBusca && !r.falha && r.status >= 200 && r.status < 300) GuardaSemBusca(modelo);
     SecureZeroMemory(cab.data(), cab.size() * sizeof(wchar_t));  // a chave ia no cabeçalho
     if (r.falha) {
         if (pv.porta != 443) return std::wstring(Tr(L"Não deu para falar com o app neste PC. Ele está aberto?")) + L" (" + pv.nome + L")";
