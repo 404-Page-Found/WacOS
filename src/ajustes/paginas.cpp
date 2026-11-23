@@ -1504,9 +1504,30 @@ static std::wstring TextoCopiado() {
     size_t i = 0; while (i < t.size() && iswspace(t[i])) i++;
     return t.substr(i);
 }
+// a lista de modelos do serviço (siri::ListaModelos) numa thread: guarda em siri_modelos_<n> e, se o modelo escolhido não está
+// nela (saiu do ar), troca pelo preferido da lista
+static std::atomic<int> g_siriBuscando{ 0 };
+static std::wstring g_siriErro;
+static void SiriBuscaModelos(int prov) {
+    if (g_siriBuscando.exchange(prov)) return;
+    Rebuild();
+    std::thread([prov] {
+        std::wstring erro;
+        auto l = siri::ListaModelos(prov, erro);
+        if (!l.empty()) {
+            std::wstring junta; for (auto& m : l) junta += (junta.empty() ? L"" : L"|") + m;
+            SetSetting((L"siri_modelos_" + std::to_wstring(prov)).c_str(), junta);
+            std::wstring atual = Setting(L"siri_modelo", L"");
+            if (_wtoi(Setting(L"siri_provedor", L"0").c_str()) == prov && std::find(l.begin(), l.end(), atual) == l.end()) SetSetting(L"siri_modelo", l[0]);
+            g_siriErro.clear();
+        } else g_siriErro = erro;
+        g_siriBuscando = 0;
+        aj::Rebuild();
+    }).detach();
+}
 Page Inteligencia() {
     Page p;
-    p.groups.push_back(Plain(Hero(0xE720, C_PURPLE, L"Siri", L"Pergunte pelo Spotlight: digite a pergunta e escolha \"Perguntar à Siri\". A Siri usa um serviço de IA com a sua própria chave.")));
+    p.groups.push_back(Plain(Hero(0xE720, C_PURPLE, L"Siri", L"Pergunte pelo Spotlight: digite a pergunta e escolha \"Perguntar à Siri\". A Siri usa um serviço de IA com a sua própria chave, um modelo no próprio PC ou um app de IA que já está instalado.")));
     const auto& provs = siri::Provedores();
     int prov = std::clamp(_wtoi(Setting(L"siri_provedor", L"0").c_str()), 0, (int)provs.size() - 1);
     std::vector<std::wstring> nomes;
@@ -1514,36 +1535,60 @@ Page Inteligencia() {
     Row rp = Popup(L"Serviço", nomes, [prov] { return prov; }, [](int i) {
         SetSetting(L"siri_provedor", std::to_wstring(i));
         const auto& v = siri::Provedores();
-        SetSetting(L"siri_modelo", i > 0 && i < (int)v.size() && !v[i].modelos.empty() ? v[i].modelos[0] : L"");
+        if (i <= 0 || i >= (int)v.size()) { Rebuild(); return; }
+        // o modelo: o primeiro da última lista que o serviço deu, ou a sugestão
+        std::wstring lista = Setting((L"siri_modelos_" + std::to_wstring(i)).c_str(), L"");
+        std::wstring primeiro = lista.substr(0, lista.find(L'|'));
+        SetSetting(L"siri_modelo", !primeiro.empty() ? primeiro : !v[i].modelos.empty() ? std::wstring(v[i].modelos[0]) : L"");
+        // sem chave a pedir (local) ou com a chave já colada: busca a lista atual
+        if (*v[i].caminhoModelos && (!v[i].precisaChave || !siri::LeChave(i).empty())) SiriBuscaModelos(i);
         Rebuild();
     });
     std::vector<Row> rows{ rp };
+    std::wstring nota;
     if (prov > 0) {
         const auto& pv = provs[prov];
-        std::wstring atual = Setting(L"siri_modelo", pv.modelos.empty() ? L"" : pv.modelos[0]);
-        std::vector<std::wstring> ms;
-        for (auto m : pv.modelos) ms.push_back(m);
-        if (!atual.empty() && std::find(ms.begin(), ms.end(), atual) == ms.end()) ms.push_back(atual);
-        int sel = (int)(std::find(ms.begin(), ms.end(), atual) - ms.begin());
-        rows.push_back(Popup(L"Modelo", ms, [sel] { return sel; }, [ms](int i) { if (i >= 0 && i < (int)ms.size()) SetSetting(L"siri_modelo", ms[i]); Rebuild(); }));
-        rows.push_back(Button(L"Usar outro modelo", L"Colar nome", [] {
-            std::wstring t = TextoCopiado();
-            if (!t.empty() && t.size() < 120 && t.find_first_of(L" \r\n\t\"") == std::wstring::npos) SetSetting(L"siri_modelo", t);
-            Rebuild();
-        }, L"Copie o nome do modelo no site do serviço e cole aqui."));
-        if (pv.precisaChave) {
-            std::wstring k = siri::LeChave();
-            rows.push_back(Button(L"Chave da API", L"Colar chave", [] {
+        if (pv.fmt == siri::F_CLI) {
+            nota = std::wstring(Tr(L"Usa o app instalado neste PC, com a conta que já está entrada nele (sem chave aqui). As respostas demoram um pouco mais.")) + L" " + pv.site;
+        } else {
+            // a lista do serviço (a última que veio) ou as sugestões
+            std::vector<std::wstring> ms;
+            std::wstring lista = Setting((L"siri_modelos_" + std::to_wstring(prov)).c_str(), L"");
+            for (size_t a = 0; a < lista.size();) {
+                size_t b = lista.find(L'|', a); if (b == std::wstring::npos) b = lista.size();
+                if (b > a) ms.push_back(lista.substr(a, b - a));
+                a = b + 1;
+            }
+            if (ms.empty()) for (auto m : pv.modelos) ms.push_back(m);
+            if (ms.size() > 60) ms.resize(60);  // o OpenRouter tem centenas: os 60 primeiros (o preferido vem antes)
+            std::wstring atual = Setting(L"siri_modelo", ms.empty() ? L"" : ms[0].c_str());
+            if (!atual.empty() && std::find(ms.begin(), ms.end(), atual) == ms.end()) ms.insert(ms.begin(), atual);
+            if (!ms.empty()) {
+                int sel = (int)(std::find(ms.begin(), ms.end(), atual) - ms.begin());
+                rows.push_back(Popup(L"Modelo", ms, [sel] { return sel; }, [ms](int i) { if (i >= 0 && i < (int)ms.size()) SetSetting(L"siri_modelo", ms[i]); Rebuild(); }));
+            }
+            std::wstring det = g_siriBuscando ? Tr(L"Buscando os modelos…")
+                             : !g_siriErro.empty() ? std::wstring(Tr(L"Não deu para buscar:")) + L" " + g_siriErro
+                             : Tr(L"Busca no serviço os modelos que a sua conta pode usar agora.");
+            rows.push_back(Button(L"Lista de modelos", L"Atualizar", [prov] { SiriBuscaModelos(prov); }, det));
+            rows.push_back(Button(L"Usar outro modelo", L"Colar nome", [] {
                 std::wstring t = TextoCopiado();
-                if (!t.empty() && t.size() < 400 && t.find_first_of(L" \r\n\t") == std::wstring::npos) siri::GravaChave(t);
+                if (!t.empty() && t.size() < 120 && t.find_first_of(L" \r\n\t\"") == std::wstring::npos) SetSetting(L"siri_modelo", t);
                 Rebuild();
-            }, k.empty() ? Tr(L"Nenhuma chave. Copie a chave e clique em Colar chave.") : siri::ChaveMascarada(k)));
-            if (!k.empty()) rows.push_back(Button(L"Apagar a chave deste PC", L"Apagar", [] { siri::GravaChave(L""); Rebuild(); }));
+            }, L"Copie o nome do modelo no site do serviço e cole aqui."));
+            if (pv.precisaChave) {
+                std::wstring k = siri::LeChave(prov);
+                rows.push_back(Button(L"Chave da API", L"Colar chave", [prov] {
+                    std::wstring t = TextoCopiado();
+                    if (!t.empty() && t.size() < 400 && t.find_first_of(L" \r\n\t") == std::wstring::npos && siri::GravaChave(prov, t)) SiriBuscaModelos(prov);
+                    Rebuild();
+                }, k.empty() ? Tr(L"Nenhuma chave. Copie a chave e clique em Colar chave.") : siri::ChaveMascarada(k)));
+                if (!k.empty()) rows.push_back(Button(L"Apagar a chave deste PC", L"Apagar", [prov] { siri::GravaChave(prov, L""); Rebuild(); }));
+                nota = std::wstring(Tr(L"Pegue a chave no site do serviço e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço.")) + L" " + pv.site;
+            } else nota = std::wstring(Tr(L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.")) + L" " + pv.site;
         }
     }
-    p.groups.push_back(G(rows, L"Siri",
-        prov == 4 ? L"O Ollama roda no próprio PC (ollama.com): as perguntas não saem dele."
-                  : L"Copie a chave no site do serviço (o Gemini e o Groq têm chave grátis) e use \"Colar chave\". A chave fica cifrada nesta conta do Windows, e as perguntas vão direto do PC para o serviço."));
+    p.groups.push_back(G(rows, L"Siri", nota));
     p.groups.push_back(Plain(Hero(0xE720, C_PURPLE, L"Assistente e Fala", L"No Windows, o assistente é o Copilot e o reconhecimento de fala fica nos ajustes de Fala.")));
     p.groups.push_back(G({ Uri(L"Copilot", L"ms-copilot:", 0xE99A, C_PURPLE), Uri(L"Fala", L"ms-settings:speech", 0xE720, C_GRAY) }));
     return p;
@@ -1575,6 +1620,10 @@ Page CentralControle() {
     Row clock = Popup(L"Relógio", { L"Dia, data e hora", L"Só a hora" }, [] { return Setting(L"relogio_curto", L"0") == L"1" ? 1 : 0; },
                       [](int i) { SetSetting(L"relogio_curto", i == 1 ? L"1" : L"0"); });
     clock.icon = 0xE787; clock.iconColor = C_GRAY;
+    // issue #38: os segundos no relógio da barra
+    Row segundos = Toggle(L"Mostrar os segundos", [] { return Setting(L"relogio_segundos", L"0") == L"1"; },
+                          [](bool v) { SetSetting(L"relogio_segundos", v ? L"1" : L"0"); });
+    segundos.icon = 0xE916; segundos.iconColor = C_GRAY;
     // Reddit (dougnite, 20/11/2026): sem barra nos monitores secundários (o topo deles volta para as janelas)
     Row todos = Toggle(L"Mostrar a barra de menus em todos os monitores", [] { return Setting(L"barra_todos_monitores", L"1") != L"0"; },
                        [](bool v) { SetSetting(L"barra_todos_monitores", v ? L"1" : L"0"); },
@@ -1595,7 +1644,7 @@ Page CentralControle() {
                          [](bool v) { SetSetting(L"barra_ocultar", v ? L"1" : L"0"); },
                          L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.");
     ocultar.icon = 0xE8A7; ocultar.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, ocultar, baixo, todos, priv }));
+    p.groups.push_back(G({ clock, segundos, ocultar, baixo, todos, priv }));
     return p;
 }
 

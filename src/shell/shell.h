@@ -280,6 +280,7 @@ void Stop();
 }
 namespace central {  // Central de Controle: painel embaixo do ícone da barra de menus (central.cpp)
 bool Create(HINSTANCE hi);
+void BrilhoPasso(int dir);  // teclas de brilho (F14/F15): -1/+1 de 16 passos, DDC/CI ou WMI, aviso na Ilha
 void Toggle();
 bool IsOpen();
 }

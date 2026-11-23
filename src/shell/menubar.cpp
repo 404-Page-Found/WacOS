@@ -507,10 +507,14 @@ std::wstring ClockText() {
         swprintf_s(buf, L"%ls %ls", dd.c_str(), tm);
         return buf;
     }
-    if (shell::Setting(L"relogio_curto", L"0") == L"1") swprintf_s(buf, L"%02d:%02d", st.wHour, st.wMinute);
-    else if (idioma::En()) swprintf_s(buf, L"%ls %ls %d  %02d:%02d", d.c_str(), m.c_str(), st.wDay, st.wHour, st.wMinute);  // Tue Nov 10
-    else if (idioma::Pt()) swprintf_s(buf, L"%ls %d de %ls  %02d:%02d", d.c_str(), st.wDay, m.c_str(), st.wHour, st.wMinute);
-    else swprintf_s(buf, L"%ls  %02d:%02d", idioma::Date(st, idioma::D_WEEKDAY_SHORT).c_str(), st.wHour, st.wMinute);  // ven. 20 nov., 11月20日(金)
+    // relogio_segundos (issue #38, como "Mostrar segundos" do Mac): 14:05:09
+    wchar_t hm[16];
+    if (shell::Setting(L"relogio_segundos", L"0") == L"1") swprintf_s(hm, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+    else swprintf_s(hm, L"%02d:%02d", st.wHour, st.wMinute);
+    if (shell::Setting(L"relogio_curto", L"0") == L"1") swprintf_s(buf, L"%ls", hm);
+    else if (idioma::En()) swprintf_s(buf, L"%ls %ls %d  %ls", d.c_str(), m.c_str(), st.wDay, hm);  // Tue Nov 10
+    else if (idioma::Pt()) swprintf_s(buf, L"%ls %d de %ls  %ls", d.c_str(), st.wDay, m.c_str(), hm);
+    else swprintf_s(buf, L"%ls  %ls", idioma::Date(st, idioma::D_WEEKDAY_SHORT).c_str(), hm);  // ven. 20 nov., 11月20日(金)
     return buf;
 }
 
@@ -1509,7 +1513,12 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
         if (w == 2) { TiqueOcultar(); return 0; }
-        RefreshStatus(); Assenta(); menubar::Update(); return 0;
+        RefreshStatus(); Assenta(); menubar::Update();
+        if (shell::Setting(L"relogio_segundos", L"0") == L"1") {  // com segundos: o tique cai logo depois da virada do segundo
+            SYSTEMTIME agora; GetLocalTime(&agora);
+            SetTimer(h, 1, 1000 - agora.wMilliseconds + 15, nullptr);
+        }
+        return 0;
     case WM_BARSTATUS: PegaStatus(); menubar::Update(); return 0;
     case WM_SETTINGCHANGE:  // Windows trocou entre claro e escuro
         if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { menubar::ApplyTheme(); dock::ApplyTheme(); }

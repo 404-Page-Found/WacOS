@@ -90,6 +90,11 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
         // teclas de volume (Fn + F-teclas): o Shell muda o volume em 16 passos e mostra o aviso do Mac
         // (o painel do Windows não aparece). Só essas três teclas: os atalhos Ctrl+Alt+Shift+F11/F12 seguem livres.
         auto* k = (KBDLLHOOKSTRUCT*)l;
+        // F14/F15: as teclas de brilho do teclado do Mac (e um atalho para teclados de PC com teclas programáveis); issue #38
+        if (k->dwExtraInfo != KEY_MARK && (k->vkCode == VK_F14 || k->vkCode == VK_F15)) {
+            if (w == WM_KEYDOWN || w == WM_SYSKEYDOWN) PostMessageW(g_msg, WM_APP_VOLUME, k->vkCode, 0);
+            return 1;
+        }
         if (k->dwExtraInfo != KEY_MARK && (k->vkCode == VK_VOLUME_UP || k->vkCode == VK_VOLUME_DOWN || k->vkCode == VK_VOLUME_MUTE)) {
             if (w == WM_KEYDOWN || w == WM_SYSKEYDOWN) {
                 bool fine = GetAsyncKeyState(VK_SHIFT) < 0 && GetAsyncKeyState(VK_MENU) < 0;
@@ -1225,7 +1230,9 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     case WM_APP_WINKEY: mesa::WinKey((UINT)w); return 0;
     case WM_APP_CAPTURA: Screenshot((int)w, l != 0); return 0;
-    case WM_APP_VOLUME: som::Key((UINT)w, l != 0); return 0;
+    case WM_APP_VOLUME:
+        if (w == VK_F14 || w == VK_F15) { central::BrilhoPasso(w == VK_F15 ? 1 : -1); return 0; }  // brilho (issue #38)
+        som::Key((UINT)w, l != 0); return 0;
     case WM_SYSCOMMAND:
         if ((w & 0xFFF0) == SC_TASKLIST) {  // Ctrl+Esc com o Shell como Taskman (sem Explorador): Launchpad
             shell::LiberaFrente();
