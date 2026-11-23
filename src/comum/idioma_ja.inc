@@ -1690,3 +1690,8 @@
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"この PC で動作します: 質問は PC の外に出ません。質問する前にアプリを開いてください。" },
 { L"Mostrar os segundos", L"秒を表示" },
 { L"Pergunte à Siri…", L"Siri に聞く…" },
+{ L"Formato da hora", L"時刻の形式" },
+{ L"24 horas", L"24 時間" },
+{ L"12 horas (AM/PM)", L"12 時間 (AM/PM)" },
+{ L"Pesquisar na web", L"Web を検索" },
+{ L"Para notícias, clima e o que aconteceu hoje, o Gemini pesquisa no Google antes de responder.", L"ニュースや天気、今日の出来事については、Gemini が回答前に Google で検索します。" },

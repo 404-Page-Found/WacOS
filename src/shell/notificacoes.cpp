@@ -402,7 +402,7 @@ Pal Colors() {
 }
 
 // ================= textos
-std::wstring Hm(const SYSTEMTIME& t) { wchar_t b[16]; swprintf_s(b, L"%d:%02d", t.wHour, t.wMinute); return b; }
+std::wstring Hm(const SYSTEMTIME& t) { return shell::Hora(t); }  // 12 ou 24 horas (issue #43)
 
 std::wstring When(long long ft) {
     if (!ft) return L"";

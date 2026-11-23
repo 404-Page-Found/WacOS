@@ -1690,3 +1690,8 @@
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"이 PC에서 실행됩니다: 질문이 PC 밖으로 나가지 않습니다. 질문하기 전에 앱을 여세요." },
 { L"Mostrar os segundos", L"초 표시" },
 { L"Pergunte à Siri…", L"Siri에게 묻기…" },
+{ L"Formato da hora", L"시간 형식" },
+{ L"24 horas", L"24시간" },
+{ L"12 horas (AM/PM)", L"12시간(AM/PM)" },
+{ L"Pesquisar na web", L"웹 검색" },
+{ L"Para notícias, clima e o que aconteceu hoje, o Gemini pesquisa no Google antes de responder.", L"뉴스, 날씨, 오늘 일어난 일에 대해 Gemini가 답하기 전에 Google에서 검색합니다." },

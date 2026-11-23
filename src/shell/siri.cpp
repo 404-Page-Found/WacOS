@@ -130,12 +130,15 @@ std::wstring Pergunta(const std::wstring& q, bool& erro) {
     std::wstring cab = siri::Cabecalhos(pv, chave);
     SecureZeroMemory(chave.data(), chave.size() * sizeof(wchar_t));
     siri::Resposta r;
+    bool web = shell::Setting(L"siri_web", L"1") != L"0";
     for (int tentativa = 0; tentativa < 3; tentativa++) {
         std::string body;
         std::wstring caminho = pv.caminho;
         if (pv.fmt == siri::F_GEMINI) {
             size_t m = caminho.find(L"{m}"); if (m != std::wstring::npos) caminho.replace(m, 3, modelo);
-            body = "{\"systemInstruction\":{\"parts\":[{\"text\":" + siri::JStr(sistema) + "}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":" + siri::JStr(q) + "}]}]}";
+            body = "{\"systemInstruction\":{\"parts\":[{\"text\":" + siri::JStr(sistema) + "}]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":" + siri::JStr(q) + "}]}]" +
+                   // siri_web (issue #42): o Gemini pesquisa no Google antes de responder (notícias, tempo, resultados de hoje)
+                   (web ? ",\"tools\":[{\"google_search\":{}}]}" : "}");
         } else if (pv.fmt == siri::F_ANTHROPIC) {
             body = "{\"model\":" + siri::JStr(modelo) + ",\"max_tokens\":1024,\"system\":" + siri::JStr(sistema) +
                    ",\"messages\":[{\"role\":\"user\",\"content\":" + siri::JStr(q) + "}]}";
@@ -146,6 +149,10 @@ std::wstring Pergunta(const std::wstring& q, bool& erro) {
         r = siri::Http(pv, L"POST", caminho, cab, body);
         Log(L"siri: %ls %ls -> %lu (%zu bytes, erro %lu)", pv.nome, modelo.c_str(), r.status, r.corpo.size(), r.falha);
         if (r.falha || tentativa >= 2) break;
+        if (web && r.status == 400 && pv.fmt == siri::F_GEMINI) {  // o modelo não aceita a pesquisa: de novo, sem ela
+            std::wstring m = siri::ErroDoServico(r.corpo); for (auto& c : m) c = (wchar_t)towlower(c);
+            if (m.find(L"search") != std::wstring::npos || m.find(L"tool") != std::wstring::npos) { web = false; Log(L"siri: %ls sem a pesquisa na web", modelo.c_str()); continue; }
+        }
         if (r.status == 503 || r.status == 500 || r.status == 529) {  // sobrecarregado: de novo; depois, outro modelo da lista (só nesta pergunta)
             if (!tentativa) { Sleep(1500); continue; }
             std::wstring e; auto lista = siri::ListaModelos(p, e);

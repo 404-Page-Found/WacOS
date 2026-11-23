@@ -1690,3 +1690,8 @@
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"在此电脑上运行：你的问题不会离开电脑。提问前请先打开应用。" },
 { L"Mostrar os segundos", L"显示秒" },
 { L"Pergunte à Siri…", L"询问 Siri…" },
+{ L"Formato da hora", L"时间格式" },
+{ L"24 horas", L"24 小时制" },
+{ L"12 horas (AM/PM)", L"12 小时制（上午/下午）" },
+{ L"Pesquisar na web", L"搜索网络" },
+{ L"Para notícias, clima e o que aconteceu hoje, o Gemini pesquisa no Google antes de responder.", L"对于新闻、天气和今天发生的事，Gemini 会在回答前先用 Google 搜索。" },

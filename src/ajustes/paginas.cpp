@@ -1571,6 +1571,9 @@ Page Inteligencia() {
                              : !g_siriErro.empty() ? std::wstring(Tr(L"Não deu para buscar:")) + L" " + g_siriErro
                              : Tr(L"Busca no serviço os modelos que a sua conta pode usar agora.");
             rows.push_back(Button(L"Lista de modelos", L"Atualizar", [prov] { SiriBuscaModelos(prov); }, det));
+            if (pv.fmt == siri::F_GEMINI)  // issue #42: respostas com a pesquisa do Google (o Gemini deixa pela própria API)
+                rows.push_back(Toggle(L"Pesquisar na web", [] { return Setting(L"siri_web", L"1") != L"0"; }, [](bool v) { SetSetting(L"siri_web", v ? L"1" : L"0"); },
+                                      L"Para notícias, clima e o que aconteceu hoje, o Gemini pesquisa no Google antes de responder."));
             rows.push_back(Button(L"Usar outro modelo", L"Colar nome", [] {
                 std::wstring t = TextoCopiado();
                 if (!t.empty() && t.size() < 120 && t.find_first_of(L" \r\n\t\"") == std::wstring::npos) SetSetting(L"siri_modelo", t);
@@ -1623,6 +1626,11 @@ Page CentralControle() {
     Row clock = Popup(L"Relógio", { L"Dia, data e hora", L"Só a hora" }, [] { return Setting(L"relogio_curto", L"0") == L"1" ? 1 : 0; },
                       [](int i) { SetSetting(L"relogio_curto", i == 1 ? L"1" : L"0"); });
     clock.icon = 0xE787; clock.iconColor = C_GRAY;
+    // issue #43: 24 horas ou 12 horas (AM/PM); Automático segue o formato de hora do Windows
+    Row formato = Popup(L"Formato da hora", { L"Automático", L"24 horas", L"12 horas (AM/PM)" },
+                        [] { auto v = Setting(L"relogio_formato", L"auto"); return v == L"24" ? 1 : v == L"12" ? 2 : 0; },
+                        [](int i) { SetSetting(L"relogio_formato", i == 1 ? L"24" : i == 2 ? L"12" : L"auto"); });
+    formato.icon = 0xE916; formato.iconColor = C_GRAY;
     // issue #38: os segundos no relógio da barra
     Row segundos = Toggle(L"Mostrar os segundos", [] { return Setting(L"relogio_segundos", L"0") == L"1"; },
                           [](bool v) { SetSetting(L"relogio_segundos", v ? L"1" : L"0"); });
@@ -1647,7 +1655,7 @@ Page CentralControle() {
                          [](bool v) { SetSetting(L"barra_ocultar", v ? L"1" : L"0"); },
                          L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.");
     ocultar.icon = 0xE8A7; ocultar.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, segundos, ocultar, baixo, todos, priv }));
+    p.groups.push_back(G({ clock, formato, segundos, ocultar, baixo, todos, priv }));
     return p;
 }
 

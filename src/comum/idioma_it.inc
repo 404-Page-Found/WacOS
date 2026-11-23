@@ -1690,3 +1690,8 @@
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"Funziona su questo PC: le domande non escono da qui. Apri l'app prima di chiedere." },
 { L"Mostrar os segundos", L"Mostra i secondi" },
 { L"Pergunte à Siri…", L"Chiedi a Siri…" },
+{ L"Formato da hora", L"Formato ora" },
+{ L"24 horas", L"24 ore" },
+{ L"12 horas (AM/PM)", L"12 ore (AM/PM)" },
+{ L"Pesquisar na web", L"Cerca sul web" },
+{ L"Para notícias, clima e o que aconteceu hoje, o Gemini pesquisa no Google antes de responder.", L"Per notizie, meteo e quello che è successo oggi, Gemini cerca su Google prima di rispondere." },

@@ -507,10 +507,9 @@ std::wstring ClockText() {
         swprintf_s(buf, L"%ls %ls", dd.c_str(), tm);
         return buf;
     }
-    // relogio_segundos (issue #38, como "Mostrar segundos" do Mac): 14:05:09
-    wchar_t hm[16];
-    if (shell::Setting(L"relogio_segundos", L"0") == L"1") swprintf_s(hm, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
-    else swprintf_s(hm, L"%02d:%02d", st.wHour, st.wMinute);
+    // relogio_segundos (issue #38, como "Mostrar segundos" do Mac): 14:05:09; relogio_formato (issue #43): 2:05 PM
+    std::wstring hora = shell::Hora(st, shell::Setting(L"relogio_segundos", L"0") == L"1");
+    const wchar_t* hm = hora.c_str();
     if (shell::Setting(L"relogio_curto", L"0") == L"1") swprintf_s(buf, L"%ls", hm);
     else if (idioma::En()) swprintf_s(buf, L"%ls %ls %d  %ls", d.c_str(), m.c_str(), st.wDay, hm);  // Tue Nov 10
     else if (idioma::Pt()) swprintf_s(buf, L"%ls %d de %ls  %ls", d.c_str(), st.wDay, m.c_str(), hm);
@@ -878,8 +877,7 @@ void Render() {
         float w = ui::TextWidth(tfN, t) + 2 * PAD;
         if (r - w - (18 + 2 * PAD) < limD) {  // embaixo com pouco espaço: só a hora, para a Central de Controle caber
             SYSTEMTIME st; GetLocalTime(&st);
-            wchar_t hm[16]; swprintf_s(hm, L"%02d:%02d", st.wHour, st.wMinute);
-            t = hm; w = ui::TextWidth(tfN, t) + 2 * PAD;
+            t = shell::Hora(st); w = ui::TextWidth(tfN, t) + 2 * PAD;
         }
         add(D2D1::RectF(r - w, 0, r, H), K_CLOCK, 0);
         br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
@@ -1636,6 +1634,38 @@ void menubar::SetFullscreen(bool on, HMONITOR mon) {
         if (!hide) SetWindowPos(b, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 }
+bool shell::Hora12() {
+    std::wstring f = shell::Setting(L"relogio_formato", L"auto");
+    if (f == L"12") return true;
+    if (f == L"24") return false;
+    // automático: o formato de hora do Windows ("h:mm tt" = 12 horas; "HH:mm" = 24)
+    static std::wstring lido; static bool doze = false; static ULONGLONG quando = 0;
+    if (!quando || GetTickCount64() - quando > 60000) {
+        wchar_t b[80] = {};
+        GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STIMEFORMAT, b, 80);
+        lido = b; quando = GetTickCount64();
+        doze = lido.find(L'h') != std::wstring::npos;
+    }
+    return doze;
+}
+std::wstring shell::Hora(const SYSTEMTIME& st, bool segundos, bool ampm) {
+    wchar_t b[48];
+    if (!shell::Hora12()) {
+        if (segundos) swprintf_s(b, L"%02d:%02d:%02d", st.wHour, st.wMinute, st.wSecond);
+        else swprintf_s(b, L"%02d:%02d", st.wHour, st.wMinute);
+        return b;
+    }
+    int h = st.wHour % 12; if (!h) h = 12;
+    wchar_t sufixo[16] = {};  // AM/PM do idioma do Windows (ou AM/PM)
+    if (!GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, st.wHour < 12 ? LOCALE_S1159 : LOCALE_S2359, sufixo, 16) || !sufixo[0])
+        wcscpy_s(sufixo, st.wHour < 12 ? L"AM" : L"PM");
+    if (segundos) swprintf_s(b, L"%d:%02d:%02d", h, st.wMinute, st.wSecond);
+    else swprintf_s(b, L"%d:%02d", h, st.wMinute);
+    std::wstring r = b;
+    if (ampm) r += std::wstring(L" ") + sufixo;
+    return r;
+}
+
 int menubar::Height() { return g_bar ? (int)std::lround(BAR_PT * ui::Scale(g_bar)) : (int)std::lround(BAR_PT * GetDpiForSystem() / 96.f); }
 int menubar::HeightOn(HMONITOR mon) {
     UINT dx = 96, dy = 96;

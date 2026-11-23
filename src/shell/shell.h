@@ -669,6 +669,10 @@ void Quit(const wchar_t* why);  // sai do shell e devolve a barra do Windows
 void ApplyWorkArea();
 std::wstring Setting(const wchar_t* key, const wchar_t* def);
 void SetSetting(const wchar_t* key, const std::wstring& value);
+// A hora no formato escolhido (relogio_formato: auto = o do Windows, 24 ou 12; issue #43): "14:05" ou "2:05 PM".
+// segundos: com os segundos; ampm: false tira o AM/PM (o relógio grande da tela de bloqueio, como no Mac)
+std::wstring Hora(const SYSTEMTIME& st, bool segundos = false, bool ampm = true);
+bool Hora12();
 RECT WorkAreaFor(HMONITOR mon);  // a área de trabalho que o Shell reserva (barra de menus em cima, Dock embaixo), px
 bool NaoIncomodar(HMONITOR mon);  // app em tela cheia nesse monitor (nullptr = qualquer um) ou Windows em "não incomodar"
 void Sound(const wchar_t* name);

@@ -226,7 +226,8 @@ std::wstring DateText() {
 }
 std::wstring TimeText() {
     SYSTEMTIME st; GetLocalTime(&st);
-    wchar_t t[32]; swprintf_s(t, L"%d:%02d", st.wHour, st.wMinute);
+    std::wstring hora = shell::Hora(st, false, false);  // 12 ou 24 horas (issue #43); o relógio grande sem AM/PM, como no Mac
+    const wchar_t* t = hora.c_str();
     return t;
 }
 

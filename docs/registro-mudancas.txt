@@ -1648,3 +1648,14 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     digitar no campo (as letras mandadas pelo teste não chegaram; o usuário estava usando a Siri ao mesmo tempo), o ícone na
     barra (escondida pela tela cheia do jogo). A cota grátis do Gemini da conta acabou durante os testes (429 em todos os Flash).
   DESFAZER: reverter o commit.
+
+[2026-11-23 17:35, hora do PC] Issues #43 e #42: relógio em 12 horas, pesquisa na web na Siri (Gemini).
+  - #43: shell::Hora (src/shell/menubar.cpp) monta a hora em 24 ou 12 horas (relogio_formato: auto = o formato de hora do
+    Windows, "h" minúsculo = 12 horas; 24; 12). AM/PM do idioma do Windows (LOCALE_S1159/S2359). Vale na barra de menus, na tela
+    de bloqueio (sem AM/PM, como no Mac) e nos horários das notificações. Ajustes > Central de Controle > Formato da hora.
+  - #42: Ajustes > Apple Intelligence e Siri > Pesquisar na web (siri_web, padrão ligado, só no Gemini): o pedido leva
+    "tools": [{"google_search": {}}] e o Gemini pesquisa antes de responder; se o modelo recusar (400 falando de search/tool), a
+    pergunta vai de novo sem a pesquisa.
+  Compilação completa e instalação. NÃO visto na tela: o relógio em 12 horas (o usuário estava num jogo em tela cheia, a barra
+  some), a pesquisa na web (a cota grátis do Gemini da conta acabou hoje).
+  DESFAZER: reverter o commit.

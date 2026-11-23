@@ -1690,3 +1690,8 @@
 { L"Roda no próprio PC: as perguntas não saem dele. Abra o app antes de perguntar.", L"Bu bilgisayarda çalışır: sorularınız dışarı çıkmaz. Sormadan önce uygulamayı açın." },
 { L"Mostrar os segundos", L"Saniyeleri göster" },
 { L"Pergunte à Siri…", L"Siri'ye sorun…" },
+{ L"Formato da hora", L"Saat biçimi" },
+{ L"24 horas", L"24 saat" },
+{ L"12 horas (AM/PM)", L"12 saat (ÖÖ/ÖS)" },
+{ L"Pesquisar na web", L"Web'de ara" },
+{ L"Para notícias, clima e o que aconteceu hoje, o Gemini pesquisa no Google antes de responder.", L"Haberler, hava durumu ve bugün olanlar için Gemini yanıt vermeden önce Google'da arar." },
