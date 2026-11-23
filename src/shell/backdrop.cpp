@@ -496,6 +496,8 @@ void Poll(bool refresh = true);  // refresh: relê a lista de janelas (só quand
 std::mutex areasMx;
 std::vector<RECT> areasSnap;
 std::atomic<int> st_frames, st_composes, st_redraws, st_skipped;  // contagem a cada 10 s (diagnóstico de CPU)
+std::atomic<int> st_fora;  // quadros de janelas que não passam atrás de nenhuma peça (limitadas a 4/s)
+std::atomic<bool> g_semRitmo{ false };  // ajuste escondido vidro_ritmo=0: as capturas sem limite de quadros (backdrop::Reload)
 double st_msSoma, st_msMax;  // tempo das montagens (com os redesenhos das peças) nesses 10 s, na thread da interface
 std::map<std::wstring, int> st_frameBy;               // quadros por classe de janela atrás das peças
 // quadro novo de uma janela que não é o papel de parede (Progman/WorkerW/SequoiaMesa). Só o papel de parede animado
@@ -505,6 +507,7 @@ std::atomic<bool> st_nonDesk{ true };
 std::mutex st_mx;
 void Dump();
 double CapturasMb(size_t& n);  // memória de vídeo segura pelas capturas (2 quadros por janela)
+std::wstring Ritmos();          // quantas capturas em cada ritmo de quadros
 
 // esconde (ou mostra) da captura todas as janelas do Shell que ficam por cima; a mesa (papel de parede) não
 void ApplyAffinity() {
@@ -565,8 +568,8 @@ LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring by;
             { std::lock_guard<std::mutex> lk(st_mx); for (auto& [k, v] : st_frameBy) by += k + L"=" + std::to_wstring(v) + L" "; st_frameBy.clear(); }
             int nm = st_composes.exchange(0);
-            Log(L"vidro real: 10 s: %d quadros (atrás das peças: %ls; %d ignorados, mudança longe do vidro), %d montagens (média %.2f ms, máx %.1f ms), %d redesenhos de peça",
-                st_frames.exchange(0), by.c_str(), st_skipped.exchange(0), nm, nm ? st_msSoma / nm : 0.0, st_msMax, st_redraws.exchange(0));
+            Log(L"vidro real: 10 s: %d quadros (atrás das peças: %ls; %d ignorados, mudança longe do vidro), %d montagens (média %.2f ms, máx %.1f ms), %d redesenhos de peça; capturas: %ls; %d quadros de janelas fora do vidro",
+                st_frames.exchange(0), by.c_str(), st_skipped.exchange(0), nm, nm ? st_msSoma / nm : 0.0, st_msMax, st_redraws.exchange(0), Ritmos().c_str(), st_fora.exchange(0));
             st_msSoma = st_msMax = 0;
             if (tick % 240 == 0) {  // a cada minuto: quanto de memória de vídeo as capturas seguram (2 quadros por janela)
                 size_t nCaps = 0;
@@ -616,11 +619,12 @@ struct WinCap {
     // compositor encrencado ela demora segundos ou não volta (22/11/2026, pilha do travamento: rg::RefreshWindows ->
     // WinCap::Close -> GraphicsCapture!...EnterCriticalSection). Na thread da interface, o vigia via o Shell parado por
     // 5 s e o reiniciava, de novo e de novo.
+    int ritmo = 0;                                 // intervalo mínimo entre quadros pedido à captura, ms (ver FrameArrived)
+    ULONGLONG toqueAt = GetTickCount64();          // último quadro que mudou atrás de alguma peça
     void Close() {
-        auto s = std::move(session); auto p = std::move(pool);
-        session = nullptr; pool = nullptr;
+        wgc::GraphicsCaptureSession s{ nullptr }; wgc::Direct3D11CaptureFramePool p{ nullptr };
         wgc::Direct3D11CaptureFrame f{ nullptr };
-        { std::lock_guard<std::mutex> lk(m); f = std::move(frame); frame = nullptr; }
+        { std::lock_guard<std::mutex> lk(m); s = std::move(session); p = std::move(pool); session = nullptr; pool = nullptr; f = std::move(frame); frame = nullptr; }
         if (!s && !p && !f) return;
         std::thread([s = std::move(s), p = std::move(p), f = std::move(f)]() mutable {
             try { if (s) s.Close(); } catch (...) {}
@@ -631,6 +635,11 @@ struct WinCap {
 };
 std::vector<std::shared_ptr<WinCap>> caps;  // de baixo para cima
 std::map<HWND, DWORD> capFailed;            // janelas que a captura recusa (de administrador): tenta de novo depois
+std::wstring Ritmos() {  // quantas capturas em cada ritmo (para o log de 10 s)
+    int cheio = 0, dez = 0, quatro = 0;
+    for (auto& c : caps) (c->ritmo == 0 ? cheio : c->ritmo == 100 ? dez : quatro)++;
+    return std::to_wstring(cheio) + L" cheio, " + std::to_wstring(dez) + L" a 10/s, " + std::to_wstring(quatro) + L" a 4/s";
+}
 double CapturasMb(size_t& n) {
     double mb = 0;
     for (auto& c : caps) mb += 2.0 * c->size.Width * c->size.Height * 4 / (1024 * 1024);
@@ -676,6 +685,23 @@ std::shared_ptr<WinCap> StartCap(HWND h) {
                 c->size = cs;
                 try { pl.Recreate(wdev, FMT, 2, cs); } catch (...) {}
             }
+            // Quantos quadros desta janela o DWM entrega (Windows 11 24H2+, MinUpdateInterval). Antes era cada quadro dela: um
+            // vídeo no Chrome maximizado (que encosta na barra e no Dock) mandava ~58 por segundo e 471 de 581 em 10 s eram jogados
+            // fora por mudar longe do vidro (23/11/2026). Agora: mudando perto de uma peça, ritmo cheio; 1 s seguido mudando só
+            // longe dela, 10 por segundo (o primeiro quadro que toca o vidro chega em até 0,1 s e volta o ritmo cheio); fora de
+            // trás de qualquer peça (coberta, longe da barra e do Dock), 4 por segundo. Trocado aqui (thread da captura), não na
+            // da interface: chamar a captura de lá faz o COM processar mensagens.
+            auto ritmo = [&c](int ms) {
+                if (g_semRitmo) ms = 0;  // vidro_ritmo=0: sem limite (como antes)
+                if (ms == c->ritmo) return;
+                wgc::GraphicsCaptureSession s{ nullptr };
+                { std::lock_guard<std::mutex> lk(c->m); s = c->session; }  // a chamada fica fora da trava (a montagem a usa)
+                if (!s) return;
+                try { s.MinUpdateInterval(std::chrono::milliseconds(ms)); } catch (...) {}
+                c->ritmo = ms;
+            };
+            const ULONGLONG agora = GetTickCount64();
+            if (!c->relevant) { ritmo(250); st_fora++; }
             // vídeo tocando numa janela longe da barra e do Dock: quadro novo não muda o vidro
             st_frames++;
             if (c->relevant) {  // a parte que mudou passa atrás de alguma peça? (sem a informação: assume que sim)
@@ -695,6 +721,8 @@ std::shared_ptr<WinCap> StartCap(HWND h) {
                         }
                     }
                 } catch (...) {}
+                if (touches) c->toqueAt = agora;
+                ritmo(agora - c->toqueAt < 1000 ? 0 : 100);
                 if (!touches) { st_skipped++; return; }  // o quadro fica guardado (a próxima montagem já usa o mais novo)
             }
             c->fresh = true;
@@ -1570,6 +1598,7 @@ void backdrop::Reload() {
     s.real = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1" && !rg::semCaptura;  // aparece nas gravações (montado pelas janelas)
     // modo jogo (jogo.cpp): o vidro real remontava o fundo a cada quadro do jogo atrás das peças; fica o vidro comum
     if (jogo::Ativo()) s.real = false;
+    rg::g_semRitmo = shell::Setting(L"vidro_ritmo", L"1") == L"0";
     // modo leve (leve.cpp: PC fraco ou na bateria): também sem o vidro real, e o fosco sem o desfoque extra (MakeFrost)
     leve::Atualizar();
     bool leveMudou = g_leveFosco != leve::Ativo();

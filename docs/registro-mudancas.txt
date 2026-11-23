@@ -1682,3 +1682,24 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Revisado sem achar problema: JSON da Siri (JStr escapa aspas, barras e controles; JLe desfaz \uXXXX com pares), chave por DPAPI, Wi-Fi (handles do WLAN fechados), relógio de 12 h, menu que ignora o soltar do clique que abriu.
   Testado: RodaCli com um cmd que abre um ping longo, cancelado em 1 s: nenhum ping sobrou; caminho normal devolve a saída e o código 0. Compilado (build completo). NÃO conferido na tela nem com o Codex/Claude Code reais.
   DESFAZER: reverter o commit.
+[2026-11-23 18:20, hora do PC] Desempenho, 7a rodada (depois de juntar o main até e6869ab: Siri, brilho, barra que se oculta, faixa da Ilha).
+  Junção: o main já continha este branch; avanço direto, sem conflito. As otimizações anteriores continuam no código.
+  Varredura do código novo: a Siri só pede quadros com o painel aberto, fechando ou pensando; a barra que se oculta só lê o ponteiro
+  (50 ms) com barra_ocultar=1; o gancho de EVENT_OBJECT_SHOW (barra do Windows) sai cedo; o brilho espera o evento do WMI numa thread;
+  o SetSetting continua gravando numa thread. Nenhum temporizador ou relógio de quadros ficando ligado à toa.
+  Achado no log do vidro real: o Shell recebia ~58 quadros/s de um Chrome maximizado (encosta na barra e no Dock, então conta como
+  "atrás do vidro") e 471 de 581 em 10 s eram jogados fora por mudar longe do vidro; e toda janela capturada fora do vidro entregava
+  todos os quadros que pintava. Cada quadro é uma cópia feita pelo DWM para o Shell.
+  - src/shell/backdrop.cpp: ritmo por captura (GraphicsCaptureSession::MinUpdateInterval, Windows 11 24H2+), trocado na thread da
+    captura (fora da trava da janela): mudando perto de uma peça, ritmo cheio; 1 s seguido mudando só longe dela, 10 quadros/s (o
+    primeiro que toca o vidro chega em até 0,1 s e volta o ritmo cheio); fora de trás de qualquer peça, 4 quadros/s. A linha de 10 s
+    do log ganhou "capturas: N cheio, N a 10/s, N a 4/s; N quadros de janelas fora do vidro". Ajuste escondido vidro_ritmo=0 desliga
+    o limite (como antes).
+  Medido (mesmo exe, janela Tk animando a ~60 quadros/s no meio da tela por 10 s, 2 vezes cada; ajustes.txt lido antes e devolvido
+  igual, hash conferido): quadros de janelas fora do vidro em 10 s: com o limite 79 e 70; sem o limite (vidro_ritmo=0) 686 e 833.
+  O CPU do próprio Shell não dá para comparar nestes testes: o usuário estava usando o PC (Chrome, Siri, Alt+Tab) e os números
+  variaram de 297 a 766 ms nas duas formas; o ganho maior é no dwm.exe (as cópias), que não dá para medir de dentro do contêiner.
+  Visto: às 17:52 a interface parou 1,3-1,6 s duas vezes desenhando a barra de menus (menubar::Update -> ui::Begin/ui::End esperando
+  a GPU), com o PC em uso; não é do vidro (pilhas resolvidas pelo PDB). Fica para olhar se repetir.
+  Não medido: o Shell parado depois da mudança (outra sessão instalou outro WacOSShell.exe às 18:14:50 e reiniciou o Shell no meio).
+  DESFAZER: reverter o commit, ou vidro_ritmo=0 no ajustes.txt.
