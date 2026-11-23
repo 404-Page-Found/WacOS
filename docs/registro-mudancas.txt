@@ -1703,3 +1703,13 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   a GPU), com o PC em uso; não é do vidro (pilhas resolvidas pelo PDB). Fica para olhar se repetir.
   Não medido: o Shell parado depois da mudança (outra sessão instalou outro WacOSShell.exe às 18:14:50 e reiniciou o Shell no meio).
   DESFAZER: reverter o commit, ou vidro_ritmo=0 no ajustes.txt.
+
+[2026-11-23 18:30, hora do PC] Issue #38: Dock inteligente só com a janela em foco; apps abertos a partir da pasta deles.
+  - src/shell/dock.cpp (WindowOverDock): no modo "Quando uma janela encostar nele" só conta a janela em foco e as janelas do
+    mesmo dono (diálogos dela); janela de trás encostando não esconde mais o Dock, e com a mesa ou o WacOS na frente ele aparece.
+  - src/shell/main.cpp (shell::PastaDoApp, shell::Abrir), launchpad.cpp e spotlight.cpp: programas abertos pelo Launchpad,
+    Spotlight e Dock começam na pasta do .exe (do item da pasta Aplicativos: System.Link.TargetParsingPath; do atalho; do .exe).
+    Antes começavam na pasta do WacOS, e jogos que leem os arquivos ao lado (DELTARUNE) não abriam.
+  Compilado e instalado. Visto: a propriedade do caminho existe nos itens de Aplicativos dos jogos do PC. NÃO visto: abrir um
+  jogo pelo Launchpad (não abro programas do usuário), o Dock inteligente na tela.
+  DESFAZER: reverter o commit.

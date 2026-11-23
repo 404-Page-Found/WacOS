@@ -2386,6 +2386,8 @@ void Open(int row, bool reveal) {
         if (SUCCEEDED(SHParseDisplayName(target.c_str(), nullptr, &pidl, 0, nullptr))) {
             SHELLEXECUTEINFOW se{ sizeof(se) };
             se.fMask = SEE_MASK_IDLIST; se.lpIDList = pidl; se.nShow = SW_SHOWNORMAL;
+            std::wstring pasta = shell::PastaDoApp(target);  // jogos que só abrem a partir da pasta deles (issue #38)
+            if (!pasta.empty()) se.lpDirectory = pasta.c_str();
             ShellExecuteExW(&se);
             CoTaskMemFree(pidl);
         }

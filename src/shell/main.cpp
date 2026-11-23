@@ -6,6 +6,7 @@
 #include "../comum/ajustes_arquivo.h"
 #include "../menu/context_menu.h"
 #include <shlobj.h>
+#include <propkey.h>
 #include <dwmapi.h>
 #include <share.h>
 #include <cstdarg>
@@ -445,10 +446,30 @@ void shell::OpenSettings(const std::wstring& page) {
 
 // ShellExecute numa thread: na thread da interface ele chegou a segurar o Shell 3,2 s (abrir o Ajustes pela Ilha com o
 // disco ocupado; pilha de 22/11/2026 19:54, issue #32). A thread espera o ShellExecute terminar (SEE_MASK_NOASYNC).
+std::wstring shell::PastaDoApp(const std::wstring& alvo) {
+    auto pastaDoExe = [](std::wstring p) -> std::wstring {
+        if (p.size() > 1 && p.front() == L'"') p = p.substr(1, p.find(L'"', 1) - 1);
+        if (p.size() < 5 || _wcsicmp(p.c_str() + p.size() - 4, L".exe") || p.find(L":\\") == std::wstring::npos) return L"";
+        size_t b = p.find_last_of(L'\\');
+        return b == std::wstring::npos ? L"" : p.substr(0, b);
+    };
+    if (std::wstring d = pastaDoExe(alvo); !d.empty()) return d;
+    // item da pasta Aplicativos ou atalho: o caminho do programa que ele abre (System.Link.TargetParsingPath)
+    std::wstring r;
+    IShellItem2* it = nullptr;
+    if (SUCCEEDED(SHCreateItemFromParsingName(alvo.c_str(), nullptr, IID_PPV_ARGS(&it)))) {
+        PWSTR t = nullptr;
+        if (SUCCEEDED(it->GetString(PKEY_Link_TargetParsingPath, &t)) && t) { r = pastaDoExe(t); CoTaskMemFree(t); }
+        it->Release();
+    }
+    return r;
+}
+
 void shell::Abrir(const wchar_t* verb, const wchar_t* file, const wchar_t* args, const wchar_t* dir, int show) {
     if (!file) return;
     AllowSetForegroundWindow(ASFW_ANY);  // o app aberto pela thread vem para a frente como antes
     std::wstring v = verb ? verb : L"", f = file, a = args ? args : L"", d = dir ? dir : L"";
+    if (d.empty() && f.size() > 4 && !_wcsicmp(f.c_str() + f.size() - 4, L".exe")) d = shell::PastaDoApp(f);  // a pasta do programa (issue #38)
     bool temVerbo = verb != nullptr;
     std::thread([v, f, a, d, show, temVerbo] {
         HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

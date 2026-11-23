@@ -677,6 +677,9 @@ void SetSetting(const wchar_t* key, const std::wstring& value);
 // segundos: com os segundos; ampm: false tira o AM/PM (o relógio grande da tela de bloqueio, como no Mac)
 std::wstring Hora(const SYSTEMTIME& st, bool segundos = false, bool ampm = true);
 bool Hora12();
+// A pasta do programa por trás de um item da pasta Aplicativos ("shell:AppsFolder\..."), de um atalho ou de um .exe:
+// jogos e apps que leem os arquivos "ao lado" só abrem a partir da pasta deles (issue #38: DELTARUNE). Vazio se não é exe.
+std::wstring PastaDoApp(const std::wstring& alvo);
 RECT WorkAreaFor(HMONITOR mon);  // a área de trabalho que o Shell reserva (barra de menus em cima, Dock embaixo), px
 bool NaoIncomodar(HMONITOR mon);  // app em tela cheia nesse monitor (nullptr = qualquer um) ou Windows em "não incomodar"
 void Sound(const wchar_t* name);

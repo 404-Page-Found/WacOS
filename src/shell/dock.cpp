@@ -665,15 +665,21 @@ float BounceOffset(const App& a) {
     return 0;
 }
 
-// Ocultação inteligente: alguma janela de app (não minimizada, nesta mesa) cobre a área do Dock à mostra?
+// Ocultação inteligente: a janela em foco (ou um diálogo dela) cobre a área do Dock à mostra?
 // Como a "ocultação inteligente" dos docks do Windows: janela maximizada ou arrastada até embaixo esconde o Dock.
 bool WindowOverDock() {
     RECT dk = ToScreenRect({ g_bg.left, WinH() - (g_tile + PAD_TOP + PAD_BOTTOM + MARGIN), g_bg.right, WinH() });
     if (dk.right <= dk.left) return false;
-    struct C { RECT dk; bool hit; } c{ dk, false };
+    // só o app em foco conta (issue #38: "só a que tem o foco"): a janela da frente e as janelas do mesmo dono (os
+    // diálogos dela). Uma janela de trás encostando no Dock não o esconde mais; a mesa ou o WacOS na frente o mostram.
+    HWND fg = GetForegroundWindow();
+    HWND fgRoot = fg ? GetAncestor(fg, GA_ROOTOWNER) : nullptr;
+    if (!fgRoot || apps::IsShellWindow(fgRoot) || shell::Nossa(fgRoot)) return false;
+    struct C { RECT dk; bool hit; HWND raiz; } c{ dk, false, fgRoot };
     EnumWindows([](HWND h, LPARAM p) -> BOOL {
         auto* c = (C*)p;
         if (!IsWindowVisible(h) || IsIconic(h) || apps::IsShellWindow(h) || shell::Nossa(h)) return TRUE;
+        if (GetAncestor(h, GA_ROOTOWNER) != c->raiz) return TRUE;  // de outro app (ou de trás)
         LONG_PTR ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
         bool app = apps::IsAppWindow(h);
         // diálogo de um app (janela com dona) também conta; menus, dicas e camadas transparentes não
