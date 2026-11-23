@@ -1376,3 +1376,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Conferido: as janelas de Abrir/Salvar deixadas fora da tela já eram recuperadas por dialogs::Start; o Organizador Visual não esconde janelas (minimiza).
   Compilado (build completo). NÃO testado na tela (precisaria derrubar o Shell instalado).
   DESFAZER: reverter o commit.
+
+[2026-11-23 04:35, hora do PC] Caça a bugs, rodada 7 (instalador e desinstalador). Só código.
+  - src/setup/main.cpp: "Apagar também os meus ajustes do WacOS" apagava a pasta %APPDATA%\Shell inteira, que guarda também os documentos do usuário: as notas do Notas, os lembretes, os eventos do Calendário, os contatos, os alarmes do Relógio, os favoritos das Fotos e a assinatura da Pré-Visualização. Quem marcava "ajustes" perdia tudo isso sem aviso. Agora saem só os ajustes e caches; os documentos ficam, e o texto da opção diz isso (com espaço para as duas linhas).
+  - Conferido: a pasta da instalação é sempre %LOCALAPPDATA%\Programs\WacOS (não há como apagar outra); instalar e atualizar não sobrescrevem um ajustes.txt existente.
+  Conferido na tela pelo --foto do WacOSSetup (página Desinstalar, claro e escuro): o texto cabe e não encosta na opção de baixo. A remoção em si não foi executada.
+  Compilado (build completo).
+  DESFAZER: reverter o commit.
