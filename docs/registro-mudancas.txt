@@ -1298,3 +1298,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/janelas/macjanela.cpp: uma thread vigia na DLL esconde pelo DWM (cloak) a sombra, a moldura e a barra de um app travado e mostra de novo quando ele volta (antes ficavam no lugar antigo ao lado da janela "fantasma" do Windows).
   Compilado. Instalação adiada: o usuário estava jogando. NÃO conferido na tela (sem testes com o usuário no PC). Piscadas aleatórias (#29) e o gênio piscando ao redimensionar: sem reprodução, pedido vídeo.
   DESFAZER: reverter o commit.
+
+[2026-11-22 23:50, hora do PC] Testes na tela e dois ajustes.
+  - src/shell/ilha.cpp: o "olá" desistia se a ilha estivesse ocupada (aberta pelo ponteiro) na hora; agora tenta de novo a cada 2 s por até 1 min. Conferido: apareceu (en).
+  - src/shell/genio.cpp: os níveis menores (Half) também vão para a thread; só o nível 0 sobe antes de a janela se mexer. Janela de 3426 px: preparo de 115 ms para 57-78 ms; níveis na tela 30 ms e médias 60 ms depois do começo (log).
+  - Conferido: o gênio ao ocultar pelo Dock (log) e a sombra de app travado (Electron descartável travado 9 s: Ghost aos 5,5 s, sombra com cloak=1; voltou, cloak=0).
+  DESFAZER: reverter o commit.

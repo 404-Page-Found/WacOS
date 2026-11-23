@@ -1909,8 +1909,13 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case TM_STATS: SampleStats(); if (!g_running) Paint(); break;
         case TM_OLA: {  // o "olá" ao ligar: uma vez por sessão do Windows (o Shell reiniciando não repete)
             KillTimer(h, TM_OLA);
-            if (!g_on || g_full || g_peekOn || g_mode == M_OPEN || shell::Setting(L"ilha_ola", L"1") == L"0") break;
-            if (GlobalFindAtomW(L"WacOS.IlhaOla")) break;
+            if (!g_on || shell::Setting(L"ilha_ola", L"1") == L"0" || GlobalFindAtomW(L"WacOS.IlhaOla")) break;
+            static int tentativas;
+            if (g_full || g_peekOn || g_hudOn || g_mode == M_OPEN || g_hoverIn) {  // ocupada (aberta, aviso, tela cheia): tenta de novo por até 1 min
+                if (++tentativas < 30) SetTimer(h, TM_OLA, 2000, nullptr);
+                else GlobalAddAtomW(L"WacOS.IlhaOla");
+                break;
+            }
             GlobalAddAtomW(L"WacOS.IlhaOla");
             static const wchar_t* ola[] = { L"olá", L"hello", L"hola", L"bonjour", L"hallo", L"ciao", L"こんにちは", L"你好", L"안녕하세요", L"привет", L"cześć", L"merhaba" };
             int l = idioma::Current();

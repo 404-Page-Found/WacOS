@@ -142,6 +142,7 @@ struct Medias { unsigned gen = 0; int n = 0; std::vector<uint32_t> px[MAX_LEVELS
 unsigned g_gen;  // muda a cada começo e limpeza: resultado de uma animação antiga é descartado
 bool Upload(const std::vector<uint32_t>& px, int w, int hh, IDCompositionSurface** out);
 void RowAvg(const std::vector<uint32_t>& in, int w, int h, int n, std::vector<uint32_t>& out);
+void Half(const std::vector<uint32_t>& in, int w, int h, std::vector<uint32_t>& out, int& ow, int& oh);
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l);
 
@@ -249,10 +250,19 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_GN_MEDIA && h == g_wnd) {  // as cópias em média chegaram da thread: sobem para a placa e entram por baixo
         std::unique_ptr<Medias> md((Medias*)l);
         if (!md || md->gen != g_gen || !g_active) return 0;
+        if (w == 1) {  // os níveis menores
+            for (int k = 1; k < md->n && k < g_levels; k++)
+                if (!g_surf[k] && !Upload(md->px[k], md->w[k], md->h[k], &g_surf[k]) && g_surf[k]) { g_surf[k]->Release(); g_surf[k] = nullptr; }
+            for (auto& s : g_strips) if (s.level > 0 && g_surf[s.level]) s.v->SetContent(g_surf[s.level]);
+            g_dev->Commit();
+            Log(L"gênio (compositor): níveis menores na tela %.0f ms depois do começo", anim::Now() - g_a.t0);
+            return 0;
+        }
         for (int k = 0; k < md->n && k < g_levels; k++)
             if (!g_avg[k] && !Upload(md->px[k], md->w[k], md->h[k], &g_avg[k]) && g_avg[k]) { g_avg[k]->Release(); g_avg[k] = nullptr; }
         for (auto& s : g_strips) if (s.v2 && g_avg[s.level]) s.v2->SetContent(g_avg[s.level]);
         g_dev->Commit();
+        Log(L"gênio (compositor): médias na tela %.0f ms depois do começo", anim::Now() - g_a.t0);
         return 0;
     }
     return DefWindowProcW(h, m, w, l);
@@ -395,15 +405,16 @@ bool Start(HWND h) {
     auto stripsOf = [&](int lvl) { return lvl == 0 ? n0 : std::max(10, (int)std::lround(n0 * std::pow(0.55f, (float)lvl))); };
     g_gen++;
     auto md = std::make_unique<Medias>(); md->gen = g_gen;
+    // Só o nível 0 (a foto inteira) sobe agora; os menores só aparecem com a janela já estreita no funil e são feitos
+    // na thread junto com as médias (numa janela de 3424 x 1296 o preparo todo levava 115 ms, 22/11/2026)
+    if (!Upload(lv, lw, lh, &g_surf[0])) { Log(L"gênio (compositor): superfície falhou; motor antigo"); Clear(); return false; }
     for (g_levels = 0; g_levels < MAX_LEVELS; g_levels++) {
-        if (!Upload(lv, lw, lh, &g_surf[g_levels])) break;
         dims[g_levels][0] = lw; dims[g_levels][1] = lh;
         md->w[g_levels] = lw; md->h[g_levels] = lh; md->strips[g_levels] = stripsOf(g_levels);
-        if (lw < 24) { md->px[g_levels] = std::move(lv); g_levels++; break; }
-        std::vector<uint32_t> nx; int nw, nh; Half(lv, lw, lh, nx, nw, nh);
-        md->px[g_levels] = std::move(lv);
-        lv = std::move(nx); lw = nw; lh = nh;
+        if (lw < 24) { g_levels++; break; }
+        lw = std::max(1, (lw + 1) / 2);  // as medidas de Half
     }
+    md->px[0] = std::move(lv);
     md->n = g_levels;
     if (!g_levels) { Log(L"gênio (compositor): superfície falhou; motor antigo"); Clear(); return false; }
     const double tLv = anim::Now() - t0;  // foto + níveis + cópias em média, já na placa
@@ -425,7 +436,7 @@ bool Start(HWND h) {
             float top = v0 * lh2, bot = v1 * lh2;          // as linhas da foto (deste nível) desta faixa
             Strip st; st.level = lvl;
             if (FAILED(g_dev->CreateVisual(&st.v))) { Clear(); return false; }
-            st.v->SetContent(g_surf[lvl]);
+            if (g_surf[lvl]) st.v->SetContent(g_surf[lvl]);  // os níveis menores entram quando a thread terminar
             const float bh = bot - top;
             // 1 linha por baixo da seguinte (as bordas agora batem; mais que isso a perspectiva pode virar do avesso)
             const D2D_RECT_F clip{ 0.f, top, lw2, i + 1 < n ? std::min(lh2, bot + 1.f) : bot };
@@ -517,6 +528,11 @@ bool Start(HWND h) {
         HWND wnd = g_wnd;
         Medias* job = md.release();
         std::thread([wnd, job]() {
+            // 1) os níveis menores (metade da largura de cada anterior), que entram logo
+            for (int k = 1; k < job->n; k++) { int nw, nh; Half(job->px[k - 1], job->w[k - 1], job->h[k - 1], job->px[k], nw, nh); }
+            Medias* niveis = new Medias(*job);
+            if (!PostMessageW(wnd, WM_GN_MEDIA, 1, (LPARAM)niveis)) delete niveis;
+            // 2) as cópias em média de cada nível
             for (int k = 0; k < job->n; k++) { std::vector<uint32_t> av; RowAvg(job->px[k], job->w[k], job->h[k], job->strips[k], av); job->px[k] = std::move(av); }
             if (!PostMessageW(wnd, WM_GN_MEDIA, 0, (LPARAM)job)) delete job;
         }).detach();
