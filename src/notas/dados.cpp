@@ -494,7 +494,7 @@ struct Parser {
 
 // número no formato do Brasil: 1.800 / 2,5 / 0,333333
 std::wstring Format(double v, bool money) {
-    if (!std::isfinite(v)) return L"Erro";
+    if (!std::isfinite(v)) return Tr(L"Erro");  // aparece na nota (Notas Matemáticas): no idioma da interface
     wchar_t b[64];
     if (money) swprintf_s(b, L"%.2f", v);
     else {

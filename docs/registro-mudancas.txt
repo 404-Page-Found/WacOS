@@ -1341,3 +1341,13 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Tradução: filtros das janelas de abrir/salvar (Ajustes, Pré-Visualização, QuickTime, TextEdit), "Escolher" (ícone próprio), repetição dos alarmes do Relógio e o erro do Direct2D no Ajustes passavam sem Tr() ou sem par no dicionário; os 8 textos novos estão nos 11 dicionários.
   Compilado (shell, ajustes, apps, preview, janelas 32/64). NÃO instalado nem conferido na tela: só os testes acima.
   DESFAZER: reverter o commit.
+
+[2026-11-23 03:35, hora do PC] Caça a bugs, segunda rodada (branch claude/caca-bugs-4d948f). Nada mudou no sistema: só código.
+  - src/shell/mesa.cpp: soltar, colar, apagar e renomear na mesa usavam a janela da mesa como dona da operação. Ela se prende sempre no fundo, e a janela do Windows com a pergunta "substituir ou pular" (e o progresso) nasce acima da dona e ia junto para trás de tudo: arrastando arquivos do WinRAR para a mesa a pergunta "não aparecia" (Reddit) e a cópia ficava parada esperando. Agora a dona é uma janela escondida do tamanho do monitor principal (DonoOperacoes), livre na ordem das janelas.
+  - src/shell/progresso.cpp: janela de progresso do Windows que a UI Automation não conseguia ler (nenhum bloco) ficava fora da tela para sempre, sem nada nosso no lugar; uma pergunta dentro dela não aparecia. Depois de 1,5 s sem blocos legíveis, a do Windows volta para a tela.
+  - src/setup/main.cpp (WacOSSetup, atualizar): download cortado no meio (rede caiu) era aceito como completo e, sem o SHA-256 publicado, o pacote truncado seguia para a instalação; agora só vale com o tamanho do Content-Length e todas as gravações certas (senão apaga e avisa "sem conexão"). Se o arquivo de destino não abrisse, o zip inteiro ia para a memória e a função dizia "ok".
+  - src/ajustes/main.cpp: o segundo Ajustes aberto manda a página para o primeiro com tempo-limite (o primeiro travado deixava o segundo processo parado para sempre).
+  - src/notas/dados.cpp: o "Erro" das Notas Matemáticas sai no idioma da interface.
+  Conferido sem achar problema: SendMessage para outros processos nos apps (só a do Ajustes), menus criados e destruídos, handles e objetos GDI dos apps, textos dos apps (as tabelas passam por Tr no desenho).
+  Compilado (build completo). NÃO instalado nem testado na tela; o caso do WinRAR não foi reproduzido (WinRAR não instalado, sem arrastar simulado).
+  DESFAZER: reverter o commit.

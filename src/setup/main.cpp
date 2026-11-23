@@ -684,13 +684,24 @@ static std::string HttpGet(const wstring& host, const wstring& path, const wchar
         wchar_t len[32] = {}; DWORD ln = sizeof(len); ULONGLONG total = 0;
         if (WinHttpQueryHeaders(r, WINHTTP_QUERY_CONTENT_LENGTH, nullptr, len, &ln, nullptr)) total = _wcstoui64(len, nullptr, 10);
         if (code == 200) {
-            if (!outFile.empty()) f = CreateFileW(outFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+            if (!outFile.empty()) {
+                f = CreateFileW(outFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, 0, nullptr);
+                // sem o arquivo o pacote inteiro ia para a memória e a resposta dizia "ok" sem nada no disco
+                if (f == INVALID_HANDLE_VALUE) { WinHttpCloseHandle(r); if (c) WinHttpCloseHandle(c); WinHttpCloseHandle(s); return body; }
+            }
             std::vector<char> buf(1 << 16); ULONGLONG got = 0; DWORD n = 0;
+            bool escreveu = true;
             while (WinHttpReadData(r, buf.data(), (DWORD)buf.size(), &n) && n) {
-                if (f != INVALID_HANDLE_VALUE) { DWORD w; WriteFile(f, buf.data(), n, &w, nullptr); } else body.append(buf.data(), n);
+                if (f != INVALID_HANDLE_VALUE) { DWORD w = 0; if (!WriteFile(f, buf.data(), n, &w, nullptr) || w != n) { escreveu = false; break; } } else body.append(buf.data(), n);
                 got += n; if (prog) prog(got, total);
             }
-            if (f != INVALID_HANDLE_VALUE) { CloseHandle(f); body = "ok"; }
+            if (f != INVALID_HANDLE_VALUE) {
+                CloseHandle(f);
+                // Conexão que caiu no meio terminava o laço como se o download tivesse acabado: sem o SHA-256 publicado,
+                // o pacote cortado seguia para a instalação. Só vale inteiro (o tamanho do Content-Length) e gravado.
+                if (escreveu && (!total || got == total)) body = "ok";
+                else DeleteFileW(outFile.c_str());
+            }
         }
     }
     if (r) WinHttpCloseHandle(r); if (c) WinHttpCloseHandle(c); WinHttpCloseHandle(s);
@@ -793,7 +804,8 @@ static void DoUpdate() {
     });
     if (ok.empty()) {
         wchar_t b[200];
-        if (g_httpCode) swprintf_s(b, T(L"O download falhou (HTTP %lu). Tente de novo.", L"The download failed (HTTP %lu). Try again."), g_httpCode);
+        // 200 com falha: a conexão caiu no meio (vai a mensagem de sem conexão)
+        if (g_httpCode && g_httpCode != 200) swprintf_s(b, T(L"O download falhou (HTTP %lu). Tente de novo.", L"The download failed (HTTP %lu). Try again."), g_httpCode);
         else wcscpy_s(b, T(L"O download falhou (sem conexão com o GitHub). Tente de novo.", L"The download failed (couldn't reach GitHub). Try again."));
         Fail(b); g_workOk = false; g_workDone = true; return;
     }

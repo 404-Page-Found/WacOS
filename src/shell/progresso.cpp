@@ -638,8 +638,23 @@ void OnSnap(std::vector<WinSnap>* snap) {
         for (auto& s : *snap) { RECT r{}; GetWindowRect(s.h, &r); now += L"[vis " + std::to_wstring(s.visible) + L" blocos " + std::to_wstring(s.tiles.size()) + L" pergunta " + std::to_wstring(s.interrupted) + L" fora " + std::to_wstring(OffScreen(r)) + L"] "; }
         if (now != last) { last = now; Log(L"progresso: leitura %ls", now.empty() ? L"(nenhuma janela)" : now.c_str()); }
     }
+    // Janela que a leitura não consegue ler (nenhum bloco: UI Automation falhou ou o processo não deixa) ficava fora
+    // da tela para sempre, sem nada nosso no lugar: uma pergunta de substituir nela simplesmente não aparecia e a
+    // cópia ficava parada. Recém-criada ela também vem vazia, então só depois de 1,5 s sem blocos a do Windows volta.
+    static std::map<HWND, DWORD> semBlocos;
+    for (auto it = semBlocos.begin(); it != semBlocos.end();) it = IsWindow(it->first) ? std::next(it) : semBlocos.erase(it);
     for (auto& s : *snap) {
         if (!s.visible) continue;
+        if (s.tiles.empty() && !s.interrupted) {
+            DWORD agora = GetTickCount();
+            auto [it, novo] = semBlocos.try_emplace(s.h, agora);
+            if (!novo && agora - it->second > 1500) {
+                if (it->second) { Log(L"progresso: janela do Windows sem blocos legíveis há 1,5 s: fica a do Windows"); it->second = 0; }
+                ShowOriginal(s.h, false);
+                continue;
+            }
+            if (it->second == 0) { ShowOriginal(s.h, false); continue; }  // já desistimos dela
+        } else if (semBlocos.count(s.h) && semBlocos[s.h] != 0) semBlocos.erase(s.h);
         if (s.interrupted) ShowOriginal(s.h, true);  // pergunta: responde na janela do Windows
         else HideOriginal(s.h);
         for (auto& t : s.tiles) {

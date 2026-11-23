@@ -2268,7 +2268,9 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     if (HWND other = FindWindowW(L"AjustesJanela", nullptr)) {
         COPYDATASTRUCT cd{ 0x414A5354, (DWORD)(page.size() * sizeof(wchar_t)), (void*)page.c_str() };
         AllowSetForegroundWindow(ASFW_ANY);
-        SendMessageW(other, WM_COPYDATA, 0, (LPARAM)&cd);
+        // com tempo-limite: o Ajustes aberto e travado deixava este segundo processo parado para sempre
+        DWORD_PTR r = 0;
+        SendMessageTimeoutW(other, WM_COPYDATA, 0, (LPARAM)&cd, SMTO_ABORTIFHUNG, 3000, &r);
         return 0;
     }
 
