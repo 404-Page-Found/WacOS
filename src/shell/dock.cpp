@@ -2041,7 +2041,9 @@ void dock::OpenDownloadsStack() {
 
 void dock::Raise() {  // por cima de janelas de tela inteira nossas (Launchpad)
     if (!g_icons) return;
+    auto alheias = shell::AlheiasNoTopo();
     SetWindowPos(g_back, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     SetWindowPos(g_icons, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     MenusPorCima();
+    shell::DevolveAlheias(alheias);
 }

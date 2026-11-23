@@ -1552,6 +1552,8 @@ void menubar::SetFullscreen(bool on, HMONITOR mon) {
     g_fsOn = on; g_fsMon = mon;
     std::vector<HWND> all{ g_bar };
     all.insert(all.end(), g_extras.begin(), g_extras.end());
+    auto alheias = shell::AlheiasNoTopo();  // as "sempre por cima" de outros apps (issue #33) voltam por cima no fim
+    struct Fim { std::vector<HWND>& a; ~Fim() { shell::DevolveAlheias(a); } } fim{ alheias };
     for (HWND b : all) {
         bool hide = on && (!mon || MonitorFromWindow(b, MONITOR_DEFAULTTONEAREST) == mon);  // só a barra do monitor em tela cheia
         if (hide == !IsWindowVisible(b)) continue;
@@ -1620,7 +1622,7 @@ void menubar::Displays() {
     const bool baixo = menubar::Embaixo();
     if (!AllMonitors() || baixo) others.clear();
     Assenta();
-    if (!baixo) SetWindowPos(g_bar, HWND_TOPMOST, prim.r.left, prim.r.top, prim.r.right - prim.r.left, HeightOn(prim.hm), SWP_NOACTIVATE);
+    if (!baixo) { auto alheias = shell::AlheiasNoTopo(); SetWindowPos(g_bar, HWND_TOPMOST, prim.r.left, prim.r.top, prim.r.right - prim.r.left, HeightOn(prim.hm), SWP_NOACTIVATE); shell::DevolveAlheias(alheias); }
     // sobrando (monitor desligado): fecha
     while (g_extras.size() > others.size()) {
         HWND b = g_extras.back();

@@ -632,6 +632,12 @@ inline void Restaurar(HWND h) { ShowWindow(h, SW_RESTORE); if (IsIconic(h)) Post
 // apertado e solto, mas Alt sozinho, ao soltar, liga a barra de menus do app da frente (o Firefox abria com a barra
 // Arquivo/Editar/Exibir à mostra, igual ao F10; issue #8). Uma tecla sem função (vkE8) no meio desfaz isso. Marcadas
 // como nossas: o gancho do teclado do Shell deixa passar.
+// Janelas "sempre por cima" de outros programas que estão acima de todas as nossas visíveis (uma ilha dinâmica de outro
+// app, um widget flutuante). Ao subir o Dock, a barra de menus ou a camada do revelar, elas iam para baixo da barra e
+// sumiam (issue #33: a ilha do Vibrance sumia ao clicar na mesa). Pega antes de subir as nossas; DevolveAlheias as põe
+// de volta por cima, na mesma ordem.
+std::vector<HWND> AlheiasNoTopo();
+void DevolveAlheias(const std::vector<HWND>& v);
 inline void LiberaFrente() {
     const ULONG_PTR M = 0x53484C4C;
     keybd_event(VK_MENU, 0, 0, M); keybd_event(0xE8, 0, 0, M); keybd_event(0xE8, 0, KEYEVENTF_KEYUP, M); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, M);

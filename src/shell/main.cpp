@@ -5,6 +5,7 @@
 #include "../comum/simbolos.h"
 #include "../menu/context_menu.h"
 #include <shlobj.h>
+#include <dwmapi.h>
 #include <share.h>
 #include <cstdarg>
 #include <map>
@@ -499,6 +500,30 @@ static void SecondaryTaskbarsRestore() {
 
 // Área de trabalho de cada monitor: a barra de menus em cima (todos têm a sua) e o Dock embaixo (só no
 // monitor dele). O SPI_SETWORKAREA vale para o monitor que contém o retângulo.
+std::vector<HWND> shell::AlheiasNoTopo() {
+    std::vector<HWND> v;  // de cima para baixo
+    DWORD eu = GetCurrentProcessId();
+    for (HWND w = GetTopWindow(nullptr); w && v.size() < 32; w = GetWindow(w, GW_HWNDNEXT)) {
+        if (!(GetWindowLongW(w, GWL_EXSTYLE) & WS_EX_TOPMOST)) break;  // acabou a faixa das "sempre por cima"
+        if (!IsWindowVisible(w)) continue;
+        DWORD pid = 0; GetWindowThreadProcessId(w, &pid);
+        if (pid == eu) break;  // daqui para baixo já estavam abaixo das nossas
+        DWORD cloak = 0; DwmGetWindowAttribute(w, DWMWA_CLOAKED, &cloak, sizeof(cloak));
+        if (cloak) continue;
+        wchar_t c[64] = {}; GetClassNameW(w, c, 64);
+        if (!wcscmp(c, L"tooltips_class32") || !wcscmp(c, L"#32768") || !wcscmp(c, L"Shell_TrayWnd") || !wcscmp(c, L"Shell_SecondaryTrayWnd")) continue;
+        RECT r; if (!GetWindowRect(w, &r) || r.right - r.left < 2 || r.bottom - r.top < 2) continue;
+        v.push_back(w);
+    }
+    return v;
+}
+
+void shell::DevolveAlheias(const std::vector<HWND>& v) {
+    for (auto it = v.rbegin(); it != v.rend(); ++it)  // de baixo para cima: a de cima termina por cima
+        if (IsWindow(*it) && IsWindowVisible(*it))
+            SetWindowPos(*it, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
+}
+
 RECT shell::WorkAreaFor(HMONITOR hm) {
     MONITORINFO mi{ sizeof(mi) };
     if (!GetMonitorInfoW(hm, &mi)) return {};

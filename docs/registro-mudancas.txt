@@ -1316,3 +1316,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src/shell/main.cpp: LoadSettings lê para um mapa novo e troca o inteiro. Antes, uma linha apagada (ajuste de volta ao padrão) ficava com o valor antigo até reiniciar o Shell. Visto no teste do issue #24: ocultar=1 apagado deixou o Dock sem reserva e o Chrome maximizado por baixo dele (o ajuste do usuário foi devolvido: sem a linha ocultar).
   - Issue #24 (Chromium/Spotify maximizados com o Dock ocultando sozinho): não reproduzido com janelas Electron descartáveis (com e sem moldura): ficam entre a barra de menus e a borda de baixo. Pedir detalhes ao usuário.
   DESFAZER: reverter o commit.
+
+[2026-11-23 02:55, hora do PC] Issue #33 (Hackinmac): a ilha do Vibrance (outro app, "sempre por cima") sumia ao clicar na mesa.
+  - src/shell/main.cpp + shell.h: shell::AlheiasNoTopo() pega as janelas "sempre por cima" de outros programas que estão acima de todas as nossas visíveis; shell::DevolveAlheias() as põe de volta por cima, na mesma ordem (assíncrono).
+  - src/shell/dock.cpp (dock::Raise), menubar.cpp (volta da tela cheia e Displays) e revelar.cpp (ShowOverlay): pegam antes de subir as nossas e devolvem depois.
+  Testado: janela Tk descartável "sempre por cima" no meio do topo continuou acima do Dock e da barra com o Launchpad abrindo e fechando por mensagem. Não testado: o clique na mesa (sem cliques simulados) e o Vibrance (não instalado).
+  DESFAZER: reverter o commit.

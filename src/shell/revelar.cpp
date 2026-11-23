@@ -256,6 +256,8 @@ void PlaceThumbs(float k) {
 
 // mostra a camada com a mesa e as janelas na posição k
 void ShowOverlay(float k) {
+    auto alheias = shell::AlheiasNoTopo();  // a camada, o Dock e a barra sobem: as "sempre por cima" de outros apps voltam por cima (issue #33)
+    struct Fim { std::vector<HWND>& a; ~Fim() { shell::DevolveAlheias(a); } } fim{ alheias };
     ClearThumbs();
     FreePhotos();
     SetWindowPos(g_ov, HWND_TOPMOST, g_ovRect.left, g_ovRect.top, g_ovRect.right - g_ovRect.left, g_ovRect.bottom - g_ovRect.top, SWP_NOACTIVATE);
