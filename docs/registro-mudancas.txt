@@ -1750,3 +1750,14 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     Log novo: "siri: sem cota em <modelo> com a pesquisa na web; de novo sem ela".
   Compilado (build.cmd shell). NÃO instalado nem testado com uma chave real (não tenho chave do plano grátis).
   DESFAZER: reverter o commit.
+[2026-11-23 20:35] Organizador Visual (Stage Manager) com o motor do stage-manager-for-windows (pedido do usuário):
+  - src/shell/palco.cpp reescrito: porte para C++ do motor de e1roy/stage-manager-for-windows (MIT; crédito em
+    THIRD-PARTY-NOTICES.md). As janelas fora do palco são ESTACIONADAS fora da área de trabalho (só movidas, sem
+    minimizar nem redesenhar) em vez de escondidas; o diário %APPDATA%\Shell\palco-estacionadas.txt traz tudo de volta
+    se o Shell cair (palco::Recupera na abertura). Diálogos andam com a janela dona; as que voltam sozinhas são
+    estacionadas de novo; as que não chegam em casa são mandadas de novo e encaixadas na tela. Modelo do palco do
+    stage.go (grupos da faixa, de onde o app veio, recentes; fechar o app do palco traz o anterior). Shift+clique no
+    cartão junta o app ao palco. Miniaturas da faixa ao vivo. Só o monitor principal; sem as animações de voo.
+  - limites.cpp e main.cpp (ApplyWorkArea): ignoram as janelas estacionadas (palco::Estacionada), senão elas voltavam.
+  Compilado e instalado. NÃO visto ligado: ligar estaciona as janelas do usuário; fica para ele ligar na Central.
+  DESFAZER: reverter o commit (o palco.cpp anterior escondia com apps::Hide).

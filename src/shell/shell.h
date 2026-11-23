@@ -493,6 +493,8 @@ bool On();
 void Sync();    // liga/desliga conforme o ajuste
 void Toggle();  // Central de Controle
 void Stop();    // Shell saindo: devolve as janelas
+bool Estacionada(HWND h);  // a janela está fora da tela esperando na faixa (não mexer nela)
+void Recupera();  // Shell abrindo: as que uma execução anterior deixou estacionadas voltam (pelo diário)
 }
 namespace quicklook {  // Quick Look (quicklook.cpp): painel só com a prévia de um arquivo (espaço abre e fecha)
 void Toggle(const std::wstring& path, bool activate = true);

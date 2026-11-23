@@ -22,6 +22,7 @@ bool Candidate(HWND h) {
     if ((st & WS_CHILD) || (ex & (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST))) return false;
     if (!(st & WS_CAPTION) && !(st & WS_THICKFRAME)) return false;  // popups sem moldura (menus, avisos, splash)
     if (shell::Nossa(h)) return false;
+    if (palco::Estacionada(h)) return false;  // o Organizador Visual a deixou fora da tela de propósito
     if (GetPropW(h, L"MacJanelaAmpliada")) return false;  // ampliada pelo botão verde: já ocupa a área certa
     return true;
 }

@@ -702,7 +702,8 @@ void shell::ApplyWorkArea() {
         if (!IsWindowVisible(h) || apps::IsShellWindow(h)) return TRUE;
         wchar_t c[64]; GetClassNameW(h, c, 64);
         if (!wcscmp(c, L"Shell_TrayWnd") || !wcscmp(c, L"Shell_SecondaryTrayWnd") || mesa::IsDeskClass(c)) return TRUE;
-        if (IsZoomed(h)) SendMessageTimeoutW(h, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0, SMTO_ABORTIFHUNG, 200, nullptr);
+        // estacionada pelo Organizador Visual: reencaixada, a maximizada voltaria para a tela
+        if (IsZoomed(h) && !palco::Estacionada(h)) SendMessageTimeoutW(h, WM_SETTINGCHANGE, SPI_SETWORKAREA, 0, SMTO_ABORTIFHUNG, 200, nullptr);
         return TRUE;
     }, 0);
 }
@@ -1413,6 +1414,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (!soDock) ponteiro::Start();  // sacudir o mouse: o ponteiro cresce para achar
     ponteiro::TemaLeopard(liquid::Leopard());  // tema Leopard: o cursor do Mac OS X (ou devolve o de antes)
     genio::Create(hi);  // efeito gênio ao minimizar
+    palco::Recupera();  // o Shell caiu com janelas estacionadas: voltam antes de tudo
     if (!soDock) palco::Sync();  // Organizador Visual (Stage Manager), se ligado
     if (!soDock) widgets::Create(hi);  // widgets na mesa (abaixo de todas as janelas)
     // a tela de bloqueio do WacOS saiu (21/11/2026): bloquear usa o do Windows (bloqueio::Lock)
