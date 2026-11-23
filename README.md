@@ -28,6 +28,10 @@ macOS Sequoia look, or the classic **Mac OS X Leopard** (2007) Aqua look.
 Everything is native C++ (Win32, Direct2D, DirectComposition). No Electron, no web views. It uses about 750 MB of RAM
 and under 1% CPU on a 3440×1440 desktop.
 
+
+
+https://github.com/user-attachments/assets/02e58b90-9ccb-4b63-852a-8c0ebd2c3375
+
 **Contents:** [Screenshots](#screenshots) · [Features](#features) · [Install](#install) · [Is it safe?](#is-it-safe) ·
 [Roadmap](#roadmap) · [Support the project](#support-the-project) · [Build](#build) · [License](#license)
 
