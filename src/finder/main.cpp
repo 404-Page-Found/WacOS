@@ -1062,6 +1062,24 @@ static void ApplyFilter() {
     g_scroll = g_scrollTarget = std::min(g_scroll, MaxScroll());
 }
 
+// Etiquetas lidas numa thread depois que a lista aparece. Cada uma é um fluxo NTFS do próprio arquivo (tags.cpp): abrir
+// o fluxo de cada item na thread da interface custava 885 ms para a System32 (5.113 itens, 23/11/2026), e a janela só
+// aparecia depois disso (num HD, segundos). As bolinhas chegam logo depois, pela WM_APP_TAGS.
+static const UINT WM_APP_TAGS = WM_APP + 31;  // lParam: std::vector<std::pair<std::wstring, unsigned>>* (só os com etiqueta)
+static void PedirEtiquetas(const std::vector<Entry>& list) {
+    if (list.empty() || !g_hwnd) return;
+    auto paths = std::make_shared<std::vector<std::wstring>>();
+    paths->reserve(list.size());
+    for (auto& e : list) paths->push_back(e.path);
+    HWND h = g_hwnd;
+    std::thread([h, paths] {
+        SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);  // disco em segundo plano (miniaturas vão antes)
+        auto* out = new std::vector<std::pair<std::wstring, unsigned>>();
+        for (auto& p : *paths) if (unsigned m = tags::Read(p)) out->emplace_back(p, m);
+        if (out->empty() || !PostMessageW(h, WM_APP_TAGS, 0, (LPARAM)out)) delete out;
+    }).detach();
+}
+
 static std::vector<Entry> ReadEntries(const std::wstring& folder) {
     std::vector<Entry> out;
     WIN32_FIND_DATAW fd;
@@ -1080,7 +1098,7 @@ static std::vector<Entry> ReadEntries(const std::wstring& folder) {
             e.mtime = ((ULONGLONG)fd.ftLastWriteTime.dwHighDateTime << 32) | fd.ftLastWriteTime.dwLowDateTime;
             e.size = ((ULONGLONG)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
             e.ctime = ((ULONGLONG)fd.ftCreationTime.dwHighDateTime << 32) | fd.ftCreationTime.dwLowDateTime;
-            e.tags = tags::Read(e.path);
+            e.tags = 0;  // vem depois, numa thread (PedirEtiquetas)
             e.label = e.name;
             if (!e.dir && e.label.size() > 4 && !_wcsicmp(e.label.c_str() + e.label.size() - 4, L".lnk")) e.label.resize(e.label.size() - 4);
             if (e.dir) for (auto& [p, g] : g_emblems) if (SamePath(p, e.path)) { e.emblem = g; break; }
@@ -1094,10 +1112,17 @@ static std::vector<Entry> ReadEntries(const std::wstring& folder) {
         if (a.dir != b.dir) return a.dir;
         return StrCmpLogicalW(a.name.c_str(), b.name.c_str()) < 0;
     });
+    PedirEtiquetas(out);
     return out;
 }
 
-static void ReadFolder() { g_all = ReadEntries(g_folder); }
+static void ReadFolder() {
+    // relendo a mesma pasta (arquivo novo, renomeado): as etiquetas já conhecidas ficam até a thread confirmar (sem piscar)
+    std::unordered_map<std::wstring, unsigned> antes;
+    for (auto& e : g_all) if (e.tags) antes[e.path] = e.tags;
+    g_all = ReadEntries(g_folder);
+    if (!antes.empty()) for (auto& e : g_all) if (auto it = antes.find(e.path); it != antes.end()) e.tags = it->second;
+}
 
 static void WatchFolder() {
     if (g_notifyId) { SHChangeNotifyDeregister(g_notifyId); g_notifyId = 0; }
@@ -6822,6 +6847,15 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SetTimer(h, T_DRIVES, 300, nullptr);
         }
         return TRUE;
+    case WM_APP_TAGS: {  // etiquetas lidas pela thread (PedirEtiquetas)
+        std::unique_ptr<std::vector<std::pair<std::wstring, unsigned>>> r((std::vector<std::pair<std::wstring, unsigned>>*)l);
+        std::unordered_map<std::wstring, unsigned> m;
+        for (auto& [p, t] : *r) m[p] = t;
+        auto aplica = [&m](std::vector<Entry>& v) { for (auto& e : v) if (auto it = m.find(e.path); it != m.end()) e.tags = it->second; };
+        aplica(g_all); aplica(g_items); aplica(g_childItems);
+        Invalidate();
+        return 0;
+    }
     case WM_APP_CHANGE: {
         PIDLIST_ABSOLUTE* pidls; LONG ev;
         HANDLE lock = SHChangeNotification_Lock((HANDLE)w, (DWORD)l, &pidls, &ev);

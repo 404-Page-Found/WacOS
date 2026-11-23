@@ -1374,3 +1374,16 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   a janela de fundo do Dock recebe ~30 avisos de posição em rajadas de 300 ms a cada poucos segundos sem mudar de lugar (barato; fica
   para investigar). Banner de notificação NÃO conferido na tela (sem notificação real durante o teste).
   DESFAZER: reverter o commit; o exe anterior está em SequoiaBinariosAntigos\inst-*-WacOSShell.exe.
+
+[2026-11-23 03:50, hora do PC] Desempenho, 3a rodada: Finder abrindo pasta grande.
+  Medido antes (abrir C:\Windows\System32, 5.113 itens, pelo arquivos.log): 885 ms a frio e janela na tela em 929 ms; com o disco
+  quente 86-141 ms e janela em 121-176 ms. O tempo ia em tags::Read: o fluxo NTFS ":Arquivos.Etiquetas" de CADA item era aberto na
+  thread da interface (5.113 CreateFile que falham), antes de a janela aparecer.
+  - src/finder/main.cpp: ReadEntries não lê mais as etiquetas; PedirEtiquetas lê numa thread (prioridade de segundo plano) e manda só
+    as que existem (WM_APP_TAGS), aplicadas em g_all, g_items e g_childItems. Relendo a mesma pasta, as etiquetas já conhecidas ficam
+    até a thread confirmar (as bolinhas não piscam).
+  Medido depois (mesmas condições, 3 vezes, disco quente): 17 ms e janela na tela em 46-49 ms. Conferido na tela: pasta de teste em
+  C:\Users\Public com um arquivo de etiqueta vermelha (fluxo gravado direto, sem mexer em etiquetas.txt): a bolinha aparece; pasta
+  apagada depois. Instalado: WacOSFinder.exe (o anterior em SequoiaBinariosAntigos\otim-r3-antes-WacOSFinder.exe); a reserva antiga
+  foi fechada (WM_CLOSE) e o Shell abriu outra com o exe novo.
+  DESFAZER: reverter o commit; voltar o exe anterior e fechar a reserva do Finder.
