@@ -30,7 +30,7 @@ and under 1% CPU on a 3440×1440 desktop.
 
 https://github.com/user-attachments/assets/02e58b90-9ccb-4b63-852a-8c0ebd2c3375
 
-**Contents:** [Screenshots](#screenshots) · [Features](#features) · [Install](#install) · [Is it safe?](#is-it-safe) ·
+**Contents:** [Screenshots](#screenshots) · [Features](#features) · [Siri with AI](#siri-with-ai) · [Install](#install) · [Is it safe?](#is-it-safe) ·
 [Roadmap](#roadmap) · [Support the project](#support-the-project) · [Build](#build) · [License](#license)
 
 ## Screenshots
@@ -135,6 +135,8 @@ themes).
 - **Built-in apps**: System Settings, Activity Monitor (with memory pressure), Terminal, Calculator, Notes,
   Reminders, Calendar, TextEdit, Preview, Photos, Music, QuickTime Player, Clock, Weather, Contacts,
   Time Machine, Screenshot and Force Quit.
+- **Siri with AI** (new): ask by typing or by voice, from Spotlight, the menu bar or Win+S. Uses the AI service you
+  choose with your own key, a model running on your PC, or an AI app you already have. See [Siri with AI](#siri-with-ai).
 - **Memory management like macOS**: memory pressure, App Nap and purgeable memory.
 - **Themes**: macOS 27 Golden Gate, macOS Tahoe, macOS Sequoia and Mac OS X Leopard.
 - **Dynamic Island** (optional, System Settings > Control Center): music, timers, notifications and volume in a pill
@@ -151,6 +153,29 @@ themes).
   **Clock** with custom cities and alarms.
 - **12 languages**: English (default), Portuguese, Spanish, French, German, Italian, Japanese, Chinese, Korean,
   Russian, Polish and Turkish (System Settings > General > Language). Dates follow the language too.
+
+## Siri with AI
+
+New in WacOS: **Siri** that actually answers, powered by the AI you choose. The answer appears in a glass panel at
+the top of the screen, word by word, with the Apple Intelligence glow running around it while it thinks.
+
+- **Ask from anywhere:** press **Win+S**, click the Siri icon in the menu bar, or type a question in Spotlight and pick
+  **Ask Siri**. Start typing after an answer to ask the next one.
+- **Talk to it:** click the microphone and speak. Dictation uses Windows' own speech recognition, in the WacOS language.
+- **Your AI, your key:** Google Gemini, OpenAI, Anthropic Claude, Groq, OpenRouter, Mistral, DeepSeek or xAI Grok with
+  your own API key. The model list comes from the service, so new models show up with **Refresh**.
+- **Fully local, if you want:** Ollama or LM Studio running a model on your PC, with nothing leaving it.
+- **No key at all:** use the Codex or Claude Code app you're already signed in to on your PC.
+- **Search the web** with Gemini, for questions about what's happening now.
+- **Writing Tools in Notes** use the same AI to proofread, rewrite or summarize your text, pull out key points, or
+  turn it into a list or a table.
+
+**Privacy:** WacOS has no server. Your question goes straight from your PC to the service you picked (or stays on
+your PC with a local model). Your key is encrypted with Windows (DPAPI) for your user only, and it's never written to
+the settings file or the log.
+
+Turn it on in **System Settings > Apple Intelligence & Siri**: pick a service, paste your key and choose a model.
+Gemini and Groq have free plans that are enough to get started.
 
 ## Install
 
