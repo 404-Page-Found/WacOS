@@ -3,6 +3,8 @@
 // Fica igual entre as versões do WacOS: ocupa UM lugar na tabela de DLLs de gancho do Windows, para sempre, e trocar
 // a WacOSWindow.dll não gasta lugar nenhum (LoadLibrary). NÃO MUDE ESTE ARQUIVO À TOA: cada binário diferente da
 // carregadora ocupa outro lugar (o Shell nomeia a cópia pelo conteúdo, e a compilação é determinística, /Brepro).
+// Compilada SEM a CRT (build.cmd: /GS- /NODEFAULTLIB /ENTRY:DllMain): só funções do kernel32 e do user32 aqui. Com a
+// CRT estática e sem informação de versão, antivírus a marcavam como cavalo de Troia (falso positivo, 24/11/2026).
 #include <windows.h>
 #include "../comum/gancho_mapa.h"
 

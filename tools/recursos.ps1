@@ -32,7 +32,9 @@ $itens = @(
     'WacOSTitleBars|WacOS Title Bars|',
     'WacOSSetup|WacOS Setup|repo:docs\logo-256.png',
     'WacOSWindow|WacOS Window Frames|',
-    'WacOSWindow32|WacOS Window Frames (32-bit)|'
+    'WacOSWindow32|WacOS Window Frames (32-bit)|',
+    'WacOSGancho|WacOS Window Frames Loader|',
+    'WacOSGancho32|WacOS Window Frames Loader (32-bit)|'
 )
 
 # .ico com várias resoluções, cada uma guardada como PNG (aceito desde o Vista)
@@ -65,7 +67,7 @@ function Make-Ico([string]$png, [string]$ico) {
 
 foreach ($linha in $itens) {
     $nome, $desc, $png = $linha.Split('|')
-    $ext = if ($nome -like 'WacOSWindow' -or $nome -like 'WacOSWindow32') { 'dll' } else { 'exe' }
+    $ext = if ($nome -like 'WacOSWindow*' -or $nome -like 'WacOSGancho*') { 'dll' } else { 'exe' }
     $iconLine = ''
     # "repo:<caminho>": um PNG do próprio repositório (o logo do WacOS, docs\logo-256.png) em vez do pacote de ícones
     $pngPath = if ($png -like 'repo:*') { Join-Path (Split-Path $PSScriptRoot -Parent) $png.Substring(5) } elseif ($png) { Join-Path $pack $png } else { '' }

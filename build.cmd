@@ -33,7 +33,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\versao.ps1 >nul 2>nul
 rem icones e descricoes (VERSIONINFO) de cada programa
 set "RES=bin\obj\res"
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\recursos.ps1 -Out %RES% >nul || exit /b 1
-for %%n in (WacOSShell WacOSFinder WacOSSettings WacOSActivityMonitor WacOSTerminal WacOSCalculator WacOSNotes WacOSScreenshot WacOSPreview WacOSReminders WacOSCalendar WacOSTextEdit WacOSClock WacOSWeather WacOSContacts WacOSPhotos WacOSTimeMachine WacOSMusic WacOSQuickTime WacOSForceQuit WacOSTitleBars WacOSSetup WacOSWindow WacOSWindow32) do (
+for %%n in (WacOSShell WacOSFinder WacOSSettings WacOSActivityMonitor WacOSTerminal WacOSCalculator WacOSNotes WacOSScreenshot WacOSPreview WacOSReminders WacOSCalendar WacOSTextEdit WacOSClock WacOSWeather WacOSContacts WacOSPhotos WacOSTimeMachine WacOSMusic WacOSQuickTime WacOSForceQuit WacOSTitleBars WacOSSetup WacOSWindow WacOSWindow32 WacOSGancho WacOSGancho32) do (
   rc /nologo /fo %RES%\%%n.res %RES%\%%n.rc >nul || exit /b 1
 )
 
@@ -50,13 +50,15 @@ if /i "%1"=="dialogo" (
 if /i "%1"=="janelas" (
   rem barra de titulo do Mac nas janelas dos outros programas: DLL de 64 bits e de 32 (esta roda no rundll32 de 32 bits do Windows)
   cl %CFLAGS% /LD src\janelas\macjanela.cpp src\janelas\controles.cpp %RES%\WacOSWindow.res /Fe:bin\WacOSWindow.dll /link /IMPLIB:bin\obj\WacOSWindow.lib %LIBS% || exit /b 1
-  rem a carregadora fixa do gancho (src\janelas\gancho.cpp): determinística (/Brepro) para o mesmo código dar o mesmo arquivo
-  cl /nologo /O2 /W3 /utf-8 /DUNICODE /D_UNICODE /Brepro /Fo:bin\obj\gancho.obj /LD src\janelas\gancho.cpp /Fe:bin\WacOSGancho.dll /link /Brepro /IMPLIB:bin\obj\WacOSGancho.lib user32.lib || exit /b 1
+  rem a carregadora fixa do gancho (src\janelas\gancho.cpp): determinística (/Brepro) para o mesmo código dar o mesmo arquivo.
+  rem Sem a CRT (/GS- /NODEFAULTLIB, entrada na DllMain) e com a informação de versão: com a CRT estática inteira e sem
+  rem versão, antivírus (Kaspersky, CrowdStrike) a marcavam como cavalo de Troia (falso positivo).
+  cl /nologo /O2 /W3 /GS- /utf-8 /DUNICODE /D_UNICODE /Brepro /Fo:bin\obj\gancho.obj /LD src\janelas\gancho.cpp %RES%\WacOSGancho.res /Fe:bin\WacOSGancho.dll /link /Brepro /NODEFAULTLIB /ENTRY:DllMain /IMPLIB:bin\obj\WacOSGancho.lib kernel32.lib user32.lib || exit /b 1
   call :titulos || exit /b 1
   call "%VSDIR%\VC\Auxiliary\Build\vcvarsall.bat" x86 >nul || exit /b 1
   if not exist bin\obj32 mkdir bin\obj32
   cl /nologo /EHsc /O2 /W3 /std:c++20 /utf-8 /DUNICODE /D_UNICODE /Fo:bin\obj32\ /LD src\janelas\macjanela.cpp src\janelas\controles.cpp %RES%\WacOSWindow32.res /Fe:bin\WacOSWindow32.dll /link /IMPLIB:bin\obj32\WacOSWindow32.lib %LIBS% || exit /b 1
-  cl /nologo /O2 /W3 /utf-8 /DUNICODE /D_UNICODE /Brepro /Fo:bin\obj32\gancho.obj /LD src\janelas\gancho.cpp /Fe:bin\WacOSGancho32.dll /link /Brepro /IMPLIB:bin\obj32\WacOSGancho32.lib user32.lib || exit /b 1
+  cl /nologo /O2 /W3 /GS- /utf-8 /DUNICODE /D_UNICODE /Brepro /Fo:bin\obj32\gancho.obj /LD src\janelas\gancho.cpp %RES%\WacOSGancho32.res /Fe:bin\WacOSGancho32.dll /link /Brepro /NODEFAULTLIB /ENTRY:DllMain /IMPLIB:bin\obj32\WacOSGancho32.lib kernel32.lib user32.lib || exit /b 1
   exit /b 0
 )
 

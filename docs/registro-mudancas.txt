@@ -1790,3 +1790,15 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Leitura testada num programa à parte (cpu 10-13, gpu 3-5, mem 43-45, disco 93). Compilado e instalado.
   NÃO visto na barra: o WacOS está fechado a pedido do usuário. Temperatura e uso de IA (pedidos no issue) não.
   DESFAZER: reverter o commit.
+[2026-11-24 03:40] Antivírus marcando o WacOS (VirusTotal da build-32, a única analisada lá):
+  - WacOSGancho.dll 5/66 (Kaspersky "VHO:Trojan.Win32.Sdum.gen", CrowdStrike ML 60%, Cynet, Rising, SecureAge;
+    etiquetas detect-debug-environment, long-sleeps, obfuscated) e WacOSGancho32.dll 3/71 (CrowdStrike, Cynet,
+    SecureAge). Os .exe com 1-2 são Bkav e SecureAge (marcam qualquer .exe sem assinatura): nada a fazer no código.
+  - Causa provável: a carregadora é um "lê caminho de memória compartilhada + LoadLibrary + GetProcAddress" sem
+    informação de versão, com a CRT estática inteira (101 KB; é de lá que vêm as rotinas de depurador/sleep).
+  - build.cmd + tools\recursos.ps1: as duas carregadoras ganham VERSIONINFO (WacOS Window Frames Loader) e são
+    compiladas sem a CRT (/GS- /NODEFAULTLIB /ENTRY:DllMain): 4,6 KB e 4 KB, só kernel32 + user32. gancho.cpp: só o
+    comentário. Testado à parte (64 e 32 bits): carrega a DLL do mapa e repassa o GetMsgProc.
+  - Binário novo = nome novo da cópia (CopiaPorConteudo): gasta UM lugar a mais na tabela de ganchos até reiniciar.
+  NÃO verificado no VirusTotal (não enviei arquivo nenhum) nem com o WacOS aberto (fechado a pedido do usuário).
+  DESFAZER: reverter o commit e rodar build.cmd janelas.
