@@ -1624,6 +1624,25 @@ Page Inteligencia() {
         }
     }
     p.groups.push_back(G(rows, L"Siri", nota));
+    {   // issue #38: instruções personalizadas (o que a Siri sabe sobre você e como responder), num .txt editável
+        std::wstring ins = siri::Instrucoes();
+        std::wstring det = ins.empty() ? std::wstring(Tr(L"Nenhuma. Escreva o que a Siri deve saber sobre você e como ela deve responder."))
+                                       : (ins.size() > 90 ? ins.substr(0, 90) + L"…" : ins);
+        for (auto& c : det) if (c == L'\r' || c == L'\n') c = L' ';
+        p.groups.push_back(G({ Button(L"Instruções personalizadas", L"Editar…", [] {
+            std::wstring f = siri::ArquivoInstrucoes();
+            if (f.empty()) return;
+            if (GetFileAttributesW(f.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                FILE* fp = nullptr;
+                if (!_wfopen_s(&fp, f.c_str(), L"w, ccs=UTF-8") && fp) {
+                    fwprintf(fp, L"%ls\n%ls\n\n", Tr(L"# Instruções personalizadas da Siri: escreva abaixo o que ela deve saber sobre você e como deve responder."),
+                             Tr(L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta."));
+                    fclose(fp);
+                }
+            }
+            ShellExecuteW(nullptr, L"open", f.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }, det) }, L"", Tr(L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).")));
+    }
     p.groups.push_back(Plain(Hero(0xE720, C_PURPLE, L"Assistente e Fala", L"No Windows, o assistente é o Copilot e o reconhecimento de fala fica nos ajustes de Fala.")));
     p.groups.push_back(G({ Uri(L"Copilot", L"ms-copilot:", 0xE99A, C_PURPLE), Uri(L"Fala", L"ms-settings:speech", 0xE720, C_GRAY) }));
     return p;

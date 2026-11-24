@@ -104,8 +104,8 @@ std::wstring Reserva(const std::vector<std::wstring>& lista, const std::wstring&
 }
 
 std::wstring PerguntaCli(const siri::Provedor& pv, const std::wstring& q, bool& erro, int num) {
-    const std::wstring instr = L"Answer briefly and clearly, in the same language as the question, in plain text without Markdown. "
-                               L"Do not run commands or edit files. Question: ";
+    const std::wstring instr = siri::ComInstrucoes(L"Answer briefly and clearly, in the same language as the question, in plain text without Markdown. "
+                                                   L"Do not run commands or edit files.") + L"\n\nQuestion: ";
     DWORD codigo = 0; bool tempo = false;
     wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
     std::wstring ultima = std::wstring(tmp) + L"WacOS-Siri\\ultima.txt";
@@ -149,8 +149,8 @@ std::wstring Pergunta(const std::wstring& q, bool& erro, int num) {
         std::wstring e; auto l = siri::ListaModelos(p, e);
         if (!l.empty()) modelo = l[0];
     }
-    const std::wstring sistema = L"You are Siri inside WacOS, a macOS-style desktop for Windows. Answer briefly and clearly, "
-                                 L"in the same language as the question. Use plain text, without Markdown.";
+    const std::wstring sistema = siri::ComInstrucoes(L"You are Siri inside WacOS, a macOS-style desktop for Windows. Answer briefly and clearly, "
+                                                     L"in the same language as the question. Use plain text, without Markdown.");
     std::wstring cab = siri::Cabecalhos(pv, chave);
     SecureZeroMemory(chave.data(), chave.size() * sizeof(wchar_t));
     siri::Resposta r;

@@ -70,6 +70,39 @@ inline const std::vector<Provedor>& Provedores() {
 
 // ---------------------------------------------------------------- chave (DPAPI)
 // uma chave por serviço: siri-chave-<n>.bin (o Gemini, o primeiro, continua no siri-chave.bin da build-34)
+// Instruções personalizadas da Siri (issue #38: "custom instructions"): um texto livre em %APPDATA%\Shell\
+// siri-instrucoes.txt (o que a Siri deve saber sobre a pessoa e como responder), que vai junto com toda pergunta, em
+// qualquer serviço. Os Ajustes criam o arquivo com um cabeçalho e o abrem no editor; as linhas que começam com # são
+// comentários. No máximo 8000 caracteres.
+inline std::wstring ArquivoInstrucoes() {
+    PWSTR p = nullptr; std::wstring d;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell"; CoTaskMemFree(p); }
+    return d.empty() ? L"" : d + L"\\siri-instrucoes.txt";
+}
+inline std::wstring Instrucoes() {
+    std::wstring f = ArquivoInstrucoes(), out;
+    FILE* fp = nullptr;
+    if (f.empty() || _wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") || !fp) return L"";
+    wchar_t line[2048];
+    while (fgetws(line, 2048, fp)) {
+        std::wstring s = line;
+        if (!s.empty() && s[0] == 0xFEFF) s.erase(0, 1);
+        if (!s.empty() && s[0] == L'#') continue;
+        out += s;
+        if (out.size() > 8000) { out.resize(8000); break; }
+    }
+    fclose(fp);
+    while (!out.empty() && iswspace(out.back())) out.pop_back();
+    while (!out.empty() && iswspace(out.front())) out.erase(0, 1);
+    return out;
+}
+inline std::wstring ComInstrucoes(const std::wstring& sistema) {
+    std::wstring i = Instrucoes();
+    if (i.empty()) return sistema;
+    return sistema + L"\n\nCustom instructions from the user (follow them, and use what they say about the user when it "
+                     L"helps the answer):\n" + i;
+}
+
 inline std::wstring ArquivoChave(int prov) {
     PWSTR p = nullptr; std::wstring d;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell"; CoTaskMemFree(p); }

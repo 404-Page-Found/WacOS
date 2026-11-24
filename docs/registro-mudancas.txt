@@ -1856,3 +1856,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Não feitos: tela de bloqueio (já respondido na thread) e os ícones do macOS 27 (Google Drive de terceiros).
   Compilado e o Shell novo instalado e aberto sem erro; os menus e a folha não foram abertos na tela (sem clique simulado).
   DESFAZER: reverter o commit, build.cmd e copiar de novo; apagar %APPDATA%\Shell\nomes-apps.txt.
+[2026-11-24 19:35] Issue #38 (pedido: instruções personalizadas para a Siri; a pessoa usa Ollama):
+  - src\comum\siri.h: siri::Instrucoes() lê %APPDATA%\Shell\siri-instrucoes.txt (linhas com # ignoradas, até 8000
+    caracteres) e ComInstrucoes() junta ao prompt de sistema. src\shell\siri.cpp: vale nos serviços por HTTP (Gemini,
+    Claude, OpenAI e compatíveis, Ollama) e nos apps locais (Codex, Claude Code).
+  - Ajustes > Apple Intelligence e Siri > "Instruções personalizadas" > Editar…: cria o arquivo com um cabeçalho e o
+    abre no editor padrão; a linha mostra o começo do texto. Traduções nos 11 idiomas. Não testado na tela.
+  DESFAZER: reverter o commit e compilar; apagar siri-instrucoes.txt.
