@@ -159,6 +159,8 @@ themes).
 New in WacOS: **Siri** that actually answers, powered by the AI you choose. The answer appears in a glass panel at
 the top of the screen, word by word, with the Apple Intelligence glow running around it while it thinks.
 
+<p align="center"><img src="docs/screenshots/siri-demo.gif" alt="Siri answering a question on WacOS" width="600"></p>
+
 - **Ask from anywhere:** press **Win+S**, click the Siri icon in the menu bar, or type a question in Spotlight and pick
   **Ask Siri**. Start typing after an answer to ask the next one.
 - **Talk to it:** click the microphone and speak. Dictation uses Windows' own speech recognition, in the WacOS language.
