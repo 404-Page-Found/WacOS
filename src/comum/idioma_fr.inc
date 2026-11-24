@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# Les lignes qui commencent par # sont ignorées. Enregistrez le fichier ; c’est pris en compte dès la question suivante." },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"Envoyées avec chaque question, quel que soit le service (modèles locaux compris)." },
 { L"Editar…", L"Modifier…" },
+{ L"Ocultar o app", L"Masquer l’app" },
+{ L"Digitação por voz do Windows", L"Saisie vocale de Windows" },

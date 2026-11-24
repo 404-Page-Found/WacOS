@@ -2561,6 +2561,9 @@ Page Teclado() {
                            Uri(L"Digitação", L"ms-settings:typing", 0xE765, C_GRAY) }, L"Entrada de Texto"));
     p.groups.push_back(G({ Toggle(L"Atalhos do Mac para apps", [] { return Setting(L"atalhos_mac", L"1") == L"1"; },
                                   [](bool on) { SetSetting(L"atalhos_mac", on ? L"1" : L"0"); }),
+                           Popup(L"Win+H", { L"Ocultar o app", L"Digitação por voz do Windows" },
+                                 [] { return Setting(L"atalho_win_h", L"ocultar") == L"voz" ? 1 : 0; },
+                                 [](int i) { SetSetting(L"atalho_win_h", i == 1 ? L"voz" : L"ocultar"); }),
                            Note(L"Win+Q encerra o app, Win+H oculta o app e Win+W fecha a janela, como Command no Mac. Desligado, esses atalhos voltam ao Windows.") },
                          L"Atalhos"));
     return p;

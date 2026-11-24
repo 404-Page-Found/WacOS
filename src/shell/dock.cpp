@@ -714,6 +714,27 @@ bool WindowOverDock() {
     // diálogos dela). Uma janela de trás encostando no Dock não o esconde mais; a mesa ou o WacOS na frente o mostram.
     HWND fg = GetForegroundWindow();
     HWND fgRoot = fg ? GetAncestor(fg, GA_ROOTOWNER) : nullptr;
+    // A mesa em foco (clicou na área de trabalho): o Dock aparece, como antes, a não ser que um app acabou de abrir.
+    bool mesaNaFrente = false;
+    if (fgRoot) { wchar_t cls[64] = {}; GetClassNameW(fgRoot, cls, 64); mesaNaFrente = mesa::IsDeskClass(cls); }
+    // issue #64: o Chrome aberto pelo Dock aparecia por cima sem receber o foco (o Windows não deixa um app tirar o foco
+    // de outro, e o foco ficava na mesa ou no app de antes), e o Dock continuava por cima dele até clicar no Chrome. Vale
+    // a janela de app mais à frente na tela, que é a do foco quase sempre; uma de trás continua sem contar (issue #38).
+    {
+        HWND top = nullptr;
+        for (HWND h = GetTopWindow(nullptr); h; h = GetWindow(h, GW_HWNDNEXT)) {
+            if (!IsWindowVisible(h) || IsIconic(h) || apps::IsShellWindow(h) || shell::Nossa(h) || !apps::IsAppWindow(h)) continue;
+            DWORD cl = 0; DwmGetWindowAttribute(h, DWMWA_CLOAKED, &cl, sizeof(cl)); if (cl) continue;
+            if (GetWindowLongPtrW(h, GWL_EXSTYLE) & WS_EX_TOPMOST) continue;  // "sempre por cima" (players, utilitários)
+            top = h; break;
+        }
+        if (top && mesaNaFrente) {  // na mesa: só um app aberto agora há pouco (o Chrome que acabou de abrir pelo Dock)
+            App* a = apps::OfWindow(top);
+            if (!a || !a->abertoEm || GetTickCount() - a->abertoEm > 15000) top = nullptr;
+        }
+        if (top) fgRoot = GetAncestor(top, GA_ROOTOWNER);
+        else if (mesaNaFrente) return false;
+    }
     if (!fgRoot || apps::IsShellWindow(fgRoot) || shell::Nossa(fgRoot)) return false;
     struct C { RECT dk; bool hit; HWND raiz; } c{ dk, false, fgRoot };
     EnumWindows([](HWND h, LPARAM p) -> BOOL {

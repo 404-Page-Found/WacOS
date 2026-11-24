@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# 以 # 开头的行会被忽略。保存文件后，从下一个问题开始生效。" },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"每次提问时都会一起发送，适用于任何服务（包括本地模型）。" },
 { L"Editar…", L"编辑…" },
+{ L"Ocultar o app", L"隐藏 App" },
+{ L"Digitação por voz do Windows", L"Windows 语音输入" },

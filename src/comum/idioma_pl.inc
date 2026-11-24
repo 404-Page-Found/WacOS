@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# Wiersze zaczynające się od # są pomijane. Zapisz plik; działa od następnego pytania." },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"Wysyłane z każdym pytaniem, w każdej usłudze (także modele lokalne)." },
 { L"Editar…", L"Edytuj…" },
+{ L"Ocultar o app", L"Ukryj aplikację" },
+{ L"Digitação por voz do Windows", L"Pisanie głosowe Windows" },

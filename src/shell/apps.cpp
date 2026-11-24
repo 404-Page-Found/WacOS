@@ -1068,7 +1068,7 @@ static bool Heal(App& a) {
 // ativador: tudo numa thread com uma cópia do app (issue #32: na thread da interface cada passo podia esperar o disco).
 static void LaunchNow(App a, const std::wstring& args);
 void apps::Launch(App& a, const std::wstring& args) {
-    a.launchedAt = GetTickCount();
+    a.launchedAt = a.abertoEm = GetTickCount();
     AllowSetForegroundWindow(ASFW_ANY);  // o app aberto pela thread vem para a frente
     std::thread([c = a, args] {
         HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

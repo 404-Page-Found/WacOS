@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# # で始まる行は無視されます。ファイルを保存すると次の質問から反映されます。" },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"どのサービスでも（ローカルモデルを含む）、質問ごとに送信されます。" },
 { L"Editar…", L"編集…" },
+{ L"Ocultar o app", L"App を非表示" },
+{ L"Digitação por voz do Windows", L"Windows の音声入力" },

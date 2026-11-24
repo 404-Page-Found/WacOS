@@ -1863,3 +1863,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Ajustes > Apple Intelligence e Siri > "Instruções personalizadas" > Editar…: cria o arquivo com um cabeçalho e o
     abre no editor padrão; a linha mostra o começo do texto. Traduções nos 11 idiomas. Não testado na tela.
   DESFAZER: reverter o commit e compilar; apagar siri-instrucoes.txt.
+[2026-11-24 20:20] Issue #64:
+  - Dock com ocultação inteligente ficava por cima do Chrome até clicar nele: o app aberto pelo Dock aparece sem
+    receber o foco (fica na mesa ou no app de antes), e WindowOverDock só olhava a janela do foco. Agora vale a janela
+    de app mais à frente (sem as "sempre por cima"); com a mesa em foco, só se o app dela foi aberto há até 15 s
+    (App::abertoEm, que não zera quando a janela aparece). dock.cpp, apps.cpp, shell.h.
+  - Win+H: Ajustes > Teclado > "Win+H": Ocultar o app (padrão, o Cmd+H do Mac) ou Digitação por voz do Windows
+    (atalho_win_h=voz; o Win+H passa para o Windows). main.cpp, paginas.cpp, traduções.
+  Não testado na tela.
+  DESFAZER: reverter o commit e compilar.

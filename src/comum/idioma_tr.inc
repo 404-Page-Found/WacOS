@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# # ile başlayan satırlar yok sayılır. Dosyayı kaydedin; bir sonraki sorudan itibaren geçerlidir." },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"Her soruyla birlikte, her serviste (yerel modeller dahil) gönderilir." },
 { L"Editar…", L"Düzenle…" },
+{ L"Ocultar o app", L"Uygulamayı gizle" },
+{ L"Digitação por voz do Windows", L"Windows sesle yazma" },

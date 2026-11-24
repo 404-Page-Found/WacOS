@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# #으로 시작하는 줄은 무시됩니다. 파일을 저장하면 다음 질문부터 적용됩니다." },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"모든 서비스(로컬 모델 포함)에서 질문할 때마다 함께 전송됩니다." },
 { L"Editar…", L"편집…" },
+{ L"Ocultar o app", L"앱 가리기" },
+{ L"Digitação por voz do Windows", L"Windows 음성 입력" },

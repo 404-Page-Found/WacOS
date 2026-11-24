@@ -1760,3 +1760,5 @@
 { L"# Linhas que começam com # são ignoradas. Salve o arquivo; vale já na próxima pergunta.", L"# Строки, начинающиеся с #, игнорируются. Сохраните файл; действует со следующего вопроса." },
 { L"Vão junto com cada pergunta, em qualquer serviço (inclusive os modelos no PC).", L"Отправляются с каждым вопросом, для любого сервиса (включая локальные модели)." },
 { L"Editar…", L"Изменить…" },
+{ L"Ocultar o app", L"Скрыть приложение" },
+{ L"Digitação por voz do Windows", L"Голосовой ввод Windows" },

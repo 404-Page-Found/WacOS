@@ -155,6 +155,7 @@ struct App {
     std::vector<BYTE> icon; // BGRA pré-multiplicado
     bool mac = false;       // ícone do pacote do Sequoia (já tem a margem do Mac: desenha no tamanho cheio)
     DWORD launchedAt = 0;   // pulando enquanto abre
+    DWORD abertoEm = 0;     // quando foi aberto pelo Shell (não zera ao aparecer a janela; Dock, issue #64)
     DWORD attentionAt = 0;  // pediu atenção (janela piscando)
     DWORD lastActive = 0;
 };
