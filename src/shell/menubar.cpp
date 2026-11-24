@@ -19,6 +19,9 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include <shellscalingapi.h>
 #include <iphlpapi.h>
 #pragma comment(lib, "iphlpapi.lib")
+#include <pdh.h>
+#include <pdhmsg.h>
+#pragma comment(lib, "pdh.lib")
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -39,7 +42,7 @@ const float PAD_SEQUOIA = 10;     // espaço de cada lado de um ícone de status
 #define PAD (liquid::On() ? 8.f : PAD_SEQUOIA)
 
 bool g_overflow;  // macOS 27: algum ícone da bandeja não coube na barra (mostra a »)
-enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT, K_SIRI };
+enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT, K_SIRI, K_STATS };
 struct Hit { D2D1_RECT_F r; Kind kind; int index; };
 
 HWND g_bar, g_owner;            // g_bar: a barra do monitor principal
@@ -324,7 +327,62 @@ struct Status {
     HKL hkl = nullptr;
     DWORD btAt = 0;
     std::wstring ssid;
+    int cpu = -1, gpu = -1, ram = -1, disk = -1;  // issue #44: uso em % (-1 = não lido)
 } g_st;
+
+// issue #44: o que a barra mostra do uso do sistema (bits: 1 CPU, 2 GPU, 4 memória, 8 disco). Quem decide é a
+// interface (lê os Ajustes); a thread do status só lê o que estiver ligado.
+std::atomic<int> g_usoQuer{ 0 };
+void LerUso(Status& st) {
+    int q = g_usoQuer.load();
+    // CPU: tempo ocupado entre duas leituras (a cada segundo)
+    static ULONGLONG ocioso0, total0;
+    if (q & 1) {
+        FILETIME fi, fk, fu;
+        if (GetSystemTimes(&fi, &fk, &fu)) {
+            auto v = [](FILETIME f) { return ((ULONGLONG)f.dwHighDateTime << 32) | f.dwLowDateTime; };
+            ULONGLONG ocioso = v(fi), total = v(fk) + v(fu);  // o tempo do núcleo já inclui o ocioso
+            if (total0 && total > total0) st.cpu = (int)std::lround(100.0 * (1.0 - (double)(ocioso - ocioso0) / (double)(total - total0)));
+            st.cpu = std::clamp(st.cpu, -1, 100);
+            ocioso0 = ocioso; total0 = total;
+        }
+    } else { st.cpu = -1; total0 = 0; }
+    // GPU: o contador "GPU Engine" do Windows (o mesmo do Gerenciador de Tarefas), motor 3D somado de todos os apps
+    static PDH_HQUERY pq; static PDH_HCOUNTER pc; static bool pdhOk, pdhTentou;
+    if (q & 2) {
+        if (!pdhTentou) {
+            pdhTentou = true;
+            pdhOk = PdhOpenQueryW(nullptr, 0, &pq) == ERROR_SUCCESS &&
+                    PdhAddEnglishCounterW(pq, L"\\GPU Engine(*engtype_3D)\\Utilization Percentage", 0, &pc) == ERROR_SUCCESS;
+            if (pdhOk) PdhCollectQueryData(pq);
+        } else if (pdhOk && PdhCollectQueryData(pq) == ERROR_SUCCESS) {
+            DWORD sz = 0, n = 0;
+            if (PdhGetFormattedCounterArrayW(pc, PDH_FMT_DOUBLE, &sz, &n, nullptr) == PDH_MORE_DATA && sz) {
+                std::vector<BYTE> buf(sz);
+                auto* it = (PDH_FMT_COUNTERVALUE_ITEM_W*)buf.data();
+                if (PdhGetFormattedCounterArrayW(pc, PDH_FMT_DOUBLE, &sz, &n, it) == ERROR_SUCCESS) {
+                    double soma = 0;
+                    for (DWORD i = 0; i < n; i++) if (it[i].FmtValue.CStatus == PDH_CSTATUS_VALID_DATA || it[i].FmtValue.CStatus == PDH_CSTATUS_NEW_DATA) soma += it[i].FmtValue.doubleValue;
+                    st.gpu = std::clamp((int)std::lround(soma), 0, 100);
+                }
+            }
+        }
+    } else st.gpu = -1;
+    // memória: a carga que o Windows informa
+    if (q & 4) { MEMORYSTATUSEX ms{ sizeof(ms) }; st.ram = GlobalMemoryStatusEx(&ms) ? (int)ms.dwMemoryLoad : -1; }
+    else st.ram = -1;
+    // disco: quanto do disco do Windows está ocupado (a cada 30 s; muda devagar)
+    static DWORD discoAt;
+    if (q & 8) {
+        if (!discoAt || st.disk < 0 || GetTickCount() - discoAt > 30000) {
+            discoAt = GetTickCount();
+            wchar_t win[MAX_PATH] = L"C:\\";
+            if (GetWindowsDirectoryW(win, MAX_PATH) >= 3) win[3] = 0;
+            ULARGE_INTEGER livre{}, total{};
+            st.disk = GetDiskFreeSpaceExW(win, nullptr, &total, &livre) && total.QuadPart ? (int)std::lround(100.0 * (1.0 - (double)livre.QuadPart / (double)total.QuadPart)) : -1;
+        }
+    } else { st.disk = -1; discoAt = 0; }
+}
 
 bool WifiName(std::wstring& ssid);
 std::atomic<bool> g_audioStale{ false };  // a saída padrão mudou: relê o objeto de áudio já
@@ -369,6 +427,7 @@ void LerStatus(Status& st) {
         if (radio) CloseHandle(radio);
         if (f) BluetoothFindRadioClose(f);
     }
+    LerUso(st);
     // som: volume e mudo a cada segundo (barato, no objeto guardado); a saída padrão e se é um fone a cada 10 s
     bool fresh = false;
     if (g_audioStale.exchange(false)) audioAt = 0;
@@ -426,13 +485,16 @@ void PedeStatus() {
                     const Status& a = g_stLido;
                     mudou = a.wlan != st.wlan || a.wifiOn != st.wifiOn || a.wired != st.wired || a.batt != st.batt || a.charging != st.charging ||
                             a.pct != st.pct || a.bt != st.bt || a.sound != st.sound || a.muted != st.muted || a.phones != st.phones ||
-                            a.vol != st.vol || a.ssid != st.ssid;
+                            a.vol != st.vol || a.ssid != st.ssid || a.cpu != st.cpu || a.gpu != st.gpu || a.ram != st.ram || a.disk != st.disk;
                     g_stLido = st;
                 }
                 if (mudou && g_bar) PostMessageW(g_bar, WM_BARSTATUS, 0, 0);
             }
         }).detach();
     });
+    // issue #44: o que ler do uso do sistema (os Ajustes só são lidos aqui, na thread da interface)
+    g_usoQuer = (shell::Setting(L"barra_cpu", L"0") == L"1" ? 1 : 0) | (shell::Setting(L"barra_gpu", L"0") == L"1" ? 2 : 0) |
+                (shell::Setting(L"barra_memoria", L"0") == L"1" ? 4 : 0) | (shell::Setting(L"barra_disco", L"0") == L"1" ? 8 : 0);
     SetEvent(pedido);
 }
 
@@ -975,6 +1037,31 @@ void Render() {
             g->Release();
         }
     }
+    // issue #44: uso do sistema, como os apps de monitor do Mac (Stats, iStat Menus): o nome pequeno em cima e a
+    // porcentagem embaixo, um ao lado do outro (CPU, GPU, memória, disco). Clique: Monitor de Atividade.
+    {
+        struct Uso { const wchar_t* chave; const wchar_t* nome; int v; };
+        Uso usos[4] = { { L"barra_cpu", L"CPU", g_st.cpu }, { L"barra_gpu", L"GPU", g_st.gpu },
+                        { L"barra_memoria", L"MEM", g_st.ram }, { L"barra_disco", L"SSD", g_st.disk } };
+        int n = 0;
+        for (auto& u : usos) if (shell::Setting(u.chave, L"0") == L"1") n++;
+        if (n) {
+            static IDWriteTextFormat* tfNome = ui::Format(7.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+            static IDWriteTextFormat* tfValor = ui::Format(10.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
+            const float cw = 30, gap = 4;
+            auto bx = slot(n * cw + (n - 1) * gap, K_STATS, 0);
+            float x = bx.left, cy = H / 2;
+            for (auto& u : usos) {
+                if (shell::Setting(u.chave, L"0") != L"1") continue;
+                wchar_t val[8];
+                if (u.v < 0) wcscpy_s(val, L"–"); else swprintf_s(val, L"%d%%", u.v);
+                std::wstring nome = Tr(u.nome);
+                if (tfNome) rt->DrawTextW(nome.c_str(), (UINT32)nome.size(), tfNome, D2D1::RectF(x - 4, cy - 10.5f, x + cw + 4, cy), br);
+                if (tfValor) rt->DrawTextW(val, (UINT32)wcslen(val), tfValor, D2D1::RectF(x - 4, cy - 2.5f, x + cw + 4, cy + 11), br);
+                x += cw + gap;
+            }
+        }
+    }
     UINT px = (UINT)std::lround(17 * sc);
     for (int i = (int)tray::icons.size() - 1; i >= 0; i--) {
         auto& t = tray::icons[i];
@@ -1384,6 +1471,7 @@ void Click(D2D1_POINT_2F p, bool right) {
     }
     case K_SPOT: spotlight::Toggle(); break;
     case K_SIRI: siri::Abrir(); break;
+    case K_STATS: shell::OpenMonitor(); break;  // issue #44: o uso do sistema abre o Monitor de Atividade
     case K_NET: {
         std::wstring ssid = g_st.ssid.empty() ? Tr(L"Conectado") : g_st.ssid;  // sem a permissão de localização o nome não vem
         bool wifi = g_st.wifiOn;

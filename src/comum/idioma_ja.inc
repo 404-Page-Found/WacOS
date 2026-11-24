@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+Space" },
 { L"Ctrl+Espaço", L"Ctrl+Space" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"Alt+Space または Ctrl+Space にすると、Win+Space は Windows のキーボード言語の切り替えに戻ります。" },
+{ L"Uso do Sistema", L"システムの使用状況" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"メニューバーに使用率をパーセントで表示し、毎秒更新します。ディスクは Windows のドライブの使用領域です。クリックするとアクティビティモニタが開きます。" },

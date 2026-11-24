@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+空格" },
 { L"Ctrl+Espaço", L"Ctrl+空格" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"使用 Alt+空格 或 Ctrl+空格 时，Win+空格 恢复为 Windows 的切换键盘语言。" },
+{ L"Uso do Sistema", L"系统使用情况" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"在菜单栏以百分比显示使用情况，每秒更新。磁盘为 Windows 所在磁盘的已用空间。点按可打开活动监视器。" },

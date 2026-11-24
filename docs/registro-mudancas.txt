@@ -1781,3 +1781,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     da rolagem. Agora o caminho é lido uma vez, ao montar a página (a cada 2,5 s no máximo).
   Compilado e instalado (WacOSSettings.exe). NÃO visto na tela: o WacOS está fechado a pedido do usuário.
   DESFAZER: reverter o commit.
+[2026-11-24 02:30] Issue #44: uso do sistema na barra de menus (CPU, GPU, memória, disco):
+  - shell\menubar.cpp: LerUso (na thread do status, a cada segundo) lê a CPU (GetSystemTimes), a GPU (contador PDH
+    "GPU Engine(*engtype_3D)"), a memória (GlobalMemoryStatusEx) e o espaço ocupado no disco do Windows (a cada 30 s).
+    Só lê o que estiver ligado (g_usoQuer). Item K_STATS: nome pequeno em cima e % embaixo; clique abre o Monitor de
+    Atividade. Chaves barra_cpu, barra_gpu, barra_memoria, barra_disco (todas 0 por padrão).
+  - ajustes\paginas.cpp: grupo "Uso do Sistema" em Central de Controle. Traduções nos idioma_*.inc.
+  Leitura testada num programa à parte (cpu 10-13, gpu 3-5, mem 43-45, disco 93). Compilado e instalado.
+  NÃO visto na barra: o WacOS está fechado a pedido do usuário. Temperatura e uso de IA (pedidos no issue) não.
+  DESFAZER: reverter o commit.

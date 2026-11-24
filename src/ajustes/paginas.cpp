@@ -1660,6 +1660,16 @@ Page CentralControle() {
     barGlass.icon = 0xE790; barGlass.iconColor = C_BLUE;
     barGlass.enabled = Setting(L"liquid_glass", L"0") == L"1" && Setting(L"reduzir_transparencia", L"0") != L"1" && Setting(L"leopard", L"0") != L"1";
     p.groups.push_back(G({ tray, barGlass }, L"Barra de Menus", L"Ícones que os aplicativos põem na área de notificação do Windows."));
+    // issue #44: uso do sistema na barra (como o Stats e o iStat Menus no Mac)
+    auto uso = [](const wchar_t* rotulo, const wchar_t* chave, wchar_t icone) {
+        std::wstring k = chave;
+        Row r = Toggle(rotulo, [k] { return Setting(k.c_str(), L"0") == L"1"; }, [k](bool v) { SetSetting(k.c_str(), v ? L"1" : L"0"); });
+        r.icon = icone; r.iconColor = C_GRAY;
+        return r;
+    };
+    p.groups.push_back(G({ uso(L"CPU", L"barra_cpu", 0xE950), uso(L"GPU", L"barra_gpu", 0xE7F4), uso(L"Memória", L"barra_memoria", 0xE964),
+                           uso(L"Disco", L"barra_disco", 0xEDA2) },
+                         L"Uso do Sistema", L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade."));
     Row clock = Popup(L"Relógio", { L"Dia, data e hora", L"Só a hora" }, [] { return Setting(L"relogio_curto", L"0") == L"1" ? 1 : 0; },
                       [](int i) { SetSetting(L"relogio_curto", i == 1 ? L"1" : L"0"); });
     clock.icon = 0xE787; clock.iconColor = C_GRAY;

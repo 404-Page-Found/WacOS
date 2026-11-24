@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+Espacio" },
 { L"Ctrl+Espaço", L"Ctrl+Espacio" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"Con Alt+Espacio o Ctrl+Espacio, Win+Espacio vuelve a cambiar el idioma del teclado en Windows." },
+{ L"Uso do Sistema", L"Uso del sistema" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"Muestra el uso en porcentaje en la barra de menús, actualizado cada segundo. El disco es el espacio ocupado en el disco de Windows. Haz clic para abrir el Monitor de Actividad." },

@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+Space" },
 { L"Ctrl+Espaço", L"Ctrl+Space" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"Alt+Space 또는 Ctrl+Space를 쓰면 Win+Space는 다시 Windows의 키보드 언어 전환이 됩니다." },
+{ L"Uso do Sistema", L"시스템 사용량" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"메뉴 막대에 사용량을 백분율로 표시하며 매초 업데이트됩니다. 디스크는 Windows 드라이브의 사용 공간입니다. 클릭하면 활성 상태 보기가 열립니다." },

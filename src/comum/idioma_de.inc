@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+Leertaste" },
 { L"Ctrl+Espaço", L"Strg+Leertaste" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"Mit Alt+Leertaste oder Strg+Leertaste wechselt Win+Leertaste in Windows wieder die Tastatursprache." },
+{ L"Uso do Sistema", L"Systemauslastung" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"Zeigt die Auslastung in Prozent in der Menüleiste, jede Sekunde aktualisiert. Festplatte ist der belegte Platz auf dem Windows-Laufwerk. Klicken öffnet die Aktivitätsanzeige." },

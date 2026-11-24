@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+Пробел" },
 { L"Ctrl+Espaço", L"Ctrl+Пробел" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"С Alt+Пробел или Ctrl+Пробел сочетание Win+Пробел снова переключает язык клавиатуры в Windows." },
+{ L"Uso do Sistema", L"Использование системы" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"Показывает использование в процентах в строке меню, обновляется каждую секунду. Диск — занятое место на диске Windows. Нажмите, чтобы открыть Мониторинг системы." },

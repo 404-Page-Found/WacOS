@@ -1742,3 +1742,5 @@
 { L"Alt+Espaço", L"Alt+Boşluk" },
 { L"Ctrl+Espaço", L"Ctrl+Boşluk" },
 { L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows.", L"Alt+Boşluk veya Ctrl+Boşluk seçilince Win+Boşluk yeniden Windows’ta klavye dilini değiştirir." },
+{ L"Uso do Sistema", L"Sistem Kullanımı" },
+{ L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade.", L"Kullanımı menü çubuğunda yüzde olarak gösterir, her saniye güncellenir. Disk, Windows sürücüsünde kullanılan alandır. Etkinlik Monitörü’nü açmak için tıklayın." },
