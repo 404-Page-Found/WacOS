@@ -1375,6 +1375,9 @@ void Run(int id, App* app) {
 }
 
 int g_closedHit = -1; DWORD g_closedHitAt;  // o título cujo menu acabou de fechar (clicar nele de novo só fecha)
+// trocando de menu pelo ponteiro (issue #58): o menu novo abre logo em seguida, então o app da frente não recebe a
+// frente de volta no meio (ganhava e perdia a frente a cada título: a janela dele piscava)
+bool g_trocando = false;
 void ShowAt(int hit, const std::vector<ctxmenu::Item>& items, std::function<void(int)> done) {
     g_open = hit;
     g_openBar = Cur();
@@ -1393,7 +1396,8 @@ void ShowAt(int hit, const std::vector<ctxmenu::Item>& items, std::function<void
     g_closedHit = hit; g_closedHitAt = GetTickCount();
     g_open = -1;
     Render();
-    if (g_fg && IsWindow(g_fg)) SetForegroundWindow(g_fg);
+    if (g_trocando) g_trocando = false;
+    else if (g_fg && IsWindow(g_fg)) SetForegroundWindow(g_fg);
     if (id) done(id);
 }
 
@@ -1679,6 +1683,7 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             const Hit& t = g_hits[i];
             if (i == g_open || (t.kind != K_LOGO && t.kind != K_APP && t.kind != K_MENU)) continue;
             if (p.x < t.r.left || p.x >= t.r.right || p.y < t.r.top || p.y >= t.r.bottom) continue;
+            g_trocando = true;
             ctxmenu::Close();
             LONG cx = (LONG)std::lround((t.r.left + t.r.right) / 2 * sc), cy = (LONG)std::lround((t.r.top + t.r.bottom) / 2 * sc);
             PostMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(cx, cy));
