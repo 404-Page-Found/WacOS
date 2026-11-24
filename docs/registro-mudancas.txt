@@ -1831,3 +1831,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     nativo. Agora, se o Explorador devolve a área de trabalho 3 vezes em 1 s (a briga), o Shell desliga o ocultar
     automático na hora; ele volta ao sair (SecondaryTaskbarsRestore, como antes). Não testado (WacOS fechado).
   DESFAZER: reverter o commit e rodar build.cmd shell.
+[2026-11-24 17:55] Issue #52 (Liquid Glass virando o vidro fosco; o log mandado pelo usuário, GTX 1080 Ti):
+  - src\shell\backdrop.cpp: logo ao iniciar, sem app aberto, as únicas janelas eram a mesa (SequoiaMesa/Progman) e a
+    barra do Windows, que a captura recusa sempre; em 3 s o vidro real concluía "a captura não funciona aqui" e ficava
+    fosco até reiniciar, embora o papel de parede já estivesse por baixo. Agora, com o papel de parede por baixo, só
+    desiste se a captura de uma janela de APP for recusada (appRecusada). Não testado (WacOS fechado).
+  DESFAZER: reverter o commit e rodar build.cmd shell.

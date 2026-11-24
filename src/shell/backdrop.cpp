@@ -756,11 +756,15 @@ std::vector<HWND> pending;
 winrt::com_ptr<ID2D1Bitmap1> g_papel;  // o papel de parede da mesa, por baixo do fundo (issue #31; Compose)
 std::vector<RECT> GlassAreas();
 bool capJaFuncionou = false;  // alguma montagem já teve janela com quadro (a captura funciona neste PC)
+bool appRecusada = false;     // a captura de uma janela de app (não a mesa nem a barra do Windows) foi recusada
 
 void RefreshWindows() {
     {   // sem captura nenhuma (todas recusadas, nenhuma aberta) por 3 s: também desiste
+        // Com o papel de parede por baixo (g_papel) o fundo não fica preto: logo ao iniciar, sem app aberto, as únicas
+        // janelas são a mesa e a barra do Windows (recusadas sempre), e o vidro desistia até reiniciar num PC em que a
+        // captura funciona (issue #52, GTX 1080 Ti). Aí espera uma janela de app de verdade ser recusada.
         static DWORD semCaps = 0;
-        if (!caps.empty() || capFailed.empty()) semCaps = 0;
+        if (!caps.empty() || capFailed.empty() || (g_papel && !appRecusada)) semCaps = 0;
         else if (!semCaps) semCaps = GetTickCount();
         else if (GetTickCount() - semCaps > 3000 && !capJaFuncionou) semCaptura = true;
     }
@@ -772,6 +776,8 @@ void RefreshWindows() {
             if (!capFailed.count(h)) { wchar_t cl[64] = {}; GetClassNameW(h, cl, 64); Log(L"vidro real: captura recusada para %ls", cl); }
             {   // a mesa (o papel de parede) é o fundo de quase tudo: sem ela o vidro fica preto onde não há janela atrás
                 wchar_t cl[64] = {}; GetClassNameW(h, cl, 64);
+                if (wcscmp(cl, L"SequoiaMesa") && wcscmp(cl, L"Progman") && wcscmp(cl, L"WorkerW") && wcscmp(cl, L"Shell_TrayWnd") &&
+                    wcscmp(cl, L"Shell_SecondaryTrayWnd")) appRecusada = true;
                 if (!capJaFuncionou && !g_papel && (!wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW"))) semCaptura = true;
             }
             capFailed[h] = GetTickCount();
@@ -1092,6 +1098,7 @@ void Compose() {
         // Só desiste se a captura NUNCA funcionou: com ela já funcionando, um fundo vazio é passageiro (a Captura
         // de Tela, um jogo em tela cheia ou o bloqueio cobrindo tudo) e antes desligava o vidro até reiniciar.
         if (!keep.empty()) { vazio = 0; capJaFuncionou = true; }
+        else if (g_papel && !appRecusada) vazio = 0;  // o papel de parede está por baixo: o fundo não é preto (issue #52)
         else if (!vazio) vazio = GetTickCount();
         else if (GetTickCount() - vazio > 3000 && !capJaFuncionou) semCaptura = true;
     }
