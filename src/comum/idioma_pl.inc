@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"Pokaż pasek ścieżki" },
 { L"Usar como Imagem da Mesa", L"Ustaw jako obrazek biurka" },
 { L"Não foi possível usar esta imagem na mesa", L"Nie można użyć tego obrazka na biurku" },
+{ L"Renomear…", L"Zmień nazwę…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"Nowa nazwa pojawi się w Docku, Launchpadzie i na pasku menu. Zostaw puste, aby wrócić do oryginalnej nazwy." },
+{ L"Apps", L"Aplikacje" },

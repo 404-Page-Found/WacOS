@@ -200,6 +200,11 @@ std::wstring PackIconByName(const std::wstring& name, const std::wstring& exe = 
 std::wstring CustomIconDir();                                              // com a barra no fim
 std::wstring CustomIcon(const std::wstring& name, const std::wstring& exe);  // o PNG escolhido, ou ""
 bool HasCustomIcon(const std::wstring& name, const std::wstring& exe);
+// Nome próprio do app (pedido no Discord, 24/11/2026: "renomear apps"): %APPDATA%\Shell\nomes-apps.txt, uma linha
+// "chave<TAB>nome" por chave (as mesmas do ícone próprio: o .exe e o nome original). Vale no Dock, no Launchpad e na
+// barra de menus. Renomear abre os Ajustes com o campo de texto (o Shell não tem campo de digitar nos alertas).
+std::wstring NomeVisivel(const std::wstring& name, const std::wstring& exe);
+void Renomear(const std::wstring& name, const std::wstring& exe);
 void ChooseIcon(const std::wstring& name, const std::wstring& exe);   // janela de Abrir (outra thread); avisa "ShellIconeMudou"
 void RestoreIcon(const std::wstring& name, const std::wstring& exe);  // apaga o ícone próprio; avisa "ShellIconeMudou"
 void ReloadIcons();  // Dock, Alt+Tab e Launchpad relêem os ícones (thread da interface)

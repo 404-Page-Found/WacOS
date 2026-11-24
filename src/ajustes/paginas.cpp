@@ -22,7 +22,7 @@
 #pragma comment(lib, "mfuuid.lib")
 
 void AskText(const std::wstring& title, const std::wstring& message, const std::wstring& okLabel, bool password,
-             std::function<void(const std::wstring&)> ok);
+             std::function<void(const std::wstring&)> ok, const std::wstring& prefill = L"");
 
 using namespace aj;
 

@@ -27,6 +27,10 @@ static void LiberaFrente() {
     keybd_event(VK_MENU, 0, 0, 0); keybd_event(0xE8, 0, 0, 0); keybd_event(0xE8, 0, KEYEVENTF_KEYUP, 0); keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
 }
 
+// a folha com campo de texto (mais abaixo, fora do namespace)
+void AskText(const std::wstring& title, const std::wstring& message, const std::wstring& okLabel, bool password,
+             std::function<void(const std::wstring&)> ok, const std::wstring& prefill);
+
 namespace {
 
 // ---- Medidas (pt), tiradas da referência
@@ -2043,6 +2047,7 @@ void LigaRelogio(HWND h) {
     }).detach();
 }
 
+bool PedidoRenomear(const std::wstring& id);  // Renomear… do Dock e do Launchpad (mais abaixo)
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_QUADRO) {
         g_quadroPendente = false;
@@ -2260,7 +2265,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (cd->dwData == 0x414A5354 && cd->cbData) {
             std::wstring id((const wchar_t*)cd->lpData, cd->cbData / sizeof(wchar_t));
             int i = SidebarIndexFor(id);
-            if (i >= 0) SelectSide(i);
+            if (PedidoRenomear(id)) {}
+            else if (i >= 0) SelectSide(i);
             else if (id == L"atualizacao") { int g = SidebarIndexFor(L"geral"); if (g >= 0) SelectSide(g); OpenUpdatePage(); }
         }
         if (IsIconic(h)) ShowWindow(h, SW_RESTORE);
@@ -2290,6 +2296,53 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_DESTROY: shadow::Destroy(); PostQuitMessage(0); return 0;
     }
     return DefWindowProcW(h, m, w, l);
+}
+
+// Renomear um app (pedido no Discord, 24/11/2026): o Dock e o Launchpad abrem os Ajustes com
+// --pagina="renomear:<nome atual>|<chave>|<chave>..." (as chaves do ícone próprio: o .exe e o nome original). A folha
+// de texto vem preenchida; o nome novo vai para %APPDATA%\Shell\nomes-apps.txt ("chave<TAB>nome"), que o Shell relê
+// sozinho. Vazio = volta ao nome original.
+bool PedidoRenomear(const std::wstring& id) {
+    if (id.rfind(L"renomear:", 0) != 0) return false;
+    std::vector<std::wstring> p;
+    for (size_t a = 9;;) { size_t b = id.find(L'|', a); p.push_back(id.substr(a, b == std::wstring::npos ? b : b - a)); if (b == std::wstring::npos) break; a = b + 1; }
+    if (p.size() < 2) return true;
+    std::wstring atual = p[0];
+    std::vector<std::wstring> chaves(p.begin() + 1, p.end());
+    if (int d = SidebarIndexFor(L"dock"); d >= 0) SelectSide(d);
+    ::AskText(std::wstring(Tr(L"Renomear")) + L" “" + atual + L"”", Tr(L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original."),
+            L"Renomear", false, [chaves](const std::wstring& novo0) {
+        std::wstring novo = novo0;
+        for (auto& c : novo) if (c == L'\t' || c == L'\r' || c == L'\n') c = L' ';
+        while (!novo.empty() && novo.back() == L' ') novo.pop_back();
+        while (!novo.empty() && novo.front() == L' ') novo.erase(0, 1);
+        std::wstring f = g_settingsPath.substr(0, g_settingsPath.find_last_of(L'\\')) + L"\\nomes-apps.txt";
+        std::vector<std::wstring> linhas;
+        FILE* fp = nullptr;
+        if (!_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") && fp) {
+            wchar_t line[1024];
+            while (fgetws(line, 1024, fp)) {
+                std::wstring s = line;
+                while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r')) s.pop_back();
+                size_t tab = s.find(L'\t');
+                if (tab == std::wstring::npos) continue;
+                bool minha = false;
+                for (auto& k : chaves) if (!_wcsicmp(s.substr(0, tab).c_str(), k.c_str())) minha = true;
+                if (!minha) linhas.push_back(s);
+            }
+            fclose(fp);
+        }
+        if (!novo.empty()) for (auto& k : chaves) linhas.push_back(k + L"\t" + novo);
+        if (!_wfopen_s(&fp, f.c_str(), L"w, ccs=UTF-8") && fp) {
+            for (auto& l : linhas) fwprintf(fp, L"%ls\n", l.c_str());
+            fclose(fp);
+        }
+        if (HWND sh = FindWindowW(L"ShellMensagens", nullptr)) {  // o Dock e o Launchpad redesenham já
+            static UINT m = RegisterWindowMessageW(L"ShellIconeMudou");
+            PostMessageW(sh, m, 0, 0);
+        }
+    }, atual);
+    return true;
 }
 
 std::wstring PageArg(int argc, wchar_t** argv) {
@@ -2325,10 +2378,11 @@ void aj::ButtonFace(Ctx& c, D2D1_RECT_F b, const std::wstring& label) { DrawButt
 
 // Pedido de senha (Wi-Fi) e parecidos: folha por cima do conteúdo, como no Mac.
 void AskText(const std::wstring& title, const std::wstring& message, const std::wstring& okLabel, bool password,
-             std::function<void(const std::wstring&)> ok) {
+             std::function<void(const std::wstring&)> ok, const std::wstring& prefill) {
     g_sheet.open = true;
     g_sheet.title = title; g_sheet.message = message; g_sheet.okLabel = okLabel; g_sheet.password = password;
-    g_sheet.field.SetText(L"", false);
+    g_sheet.field.SetText(prefill, false);
+    if (!prefill.empty()) g_sheet.field.Select(0, (int)prefill.size());
     g_sheet.ok = ok;
     g_caretAt = GetTickCount();
     SetTimer(g_hwnd, T_CARET, 530, nullptr);
@@ -2406,6 +2460,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     ShowPage();
     g_leoAll = page.empty();  // Leopard: abre no Mostrar Todos, a não ser que tenham pedido um painel
     if (page == L"atualizacao") OpenUpdatePage();
+    PedidoRenomear(page);
 
     // escondida (cloak) até o primeiro quadro estar pronto: sem isso a janela aparecia com a área da
     // direita ainda vazia e transparente (o que estava atrás aparecia através dela por alguns quadros)

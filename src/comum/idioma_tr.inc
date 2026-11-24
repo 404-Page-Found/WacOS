@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"Yol Çubuğunu Göster" },
 { L"Usar como Imagem da Mesa", L"Masaüstü Resmi Olarak Ayarla" },
 { L"Não foi possível usar esta imagem na mesa", L"Bu resim masaüstünde kullanılamadı" },
+{ L"Renomear…", L"Yeniden Adlandır…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"Yeni ad Dock’ta, Launchpad’de ve menü çubuğunda görünür. Özgün ada dönmek için boş bırakın." },
+{ L"Apps", L"Uygulamalar" },

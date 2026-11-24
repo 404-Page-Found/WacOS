@@ -35,6 +35,8 @@ static ID2D1Bitmap* StyledBitmap(ID2D1RenderTarget* rt, UINT w, UINT h, const st
 
 namespace {
 
+struct LApp;
+std::wstring NomeDe(const LApp& a);  // o nome escolhido (Renomear…), mais abaixo
 struct LApp {
     std::wstring name, parsing;   // parsing: o que vem depois de shell:AppsFolder\ (AUMID ou caminho)
     UINT w = 0, h = 0;
@@ -42,6 +44,10 @@ struct LApp {
     bool mac = false;             // ícone do pacote do Sequoia
     ID2D1Bitmap* bmp = nullptr;
 };
+std::wstring NomeDe(const LApp& a) {
+    bool exe = a.parsing.size() > 4 && !_wcsicmp(a.parsing.c_str() + a.parsing.size() - 4, L".exe");
+    return apps::NomeVisivel(a.name, exe ? a.parsing : L"");
+}
 
 const UINT WM_LP_READY = WM_APP + 20, WM_LP_FRAME = WM_APP + 21;
 const int COLS = 7, ROWS = 5, PER_PAGE = COLS * ROWS;
@@ -524,7 +530,8 @@ void PaintApps(ID2D1DeviceContext* dc, const Geo& g, float ease) {
             if (a.bmp && ir.bottom > clip.top && ir.top < clip.bottom) dc->DrawBitmap(a.bmp, ir, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
             if (list[k] == g_press) { br->SetColor(D2D1::ColorF(0, 0, 0, 0.25f)); dc->FillRoundedRectangle(D2D1::RoundedRect(ir, art * 0.22f, art * 0.22f), br); }
             br->SetColor(text);
-            dc->DrawTextW(a.name.c_str(), (UINT32)a.name.size(), g_apLabel, D2D1::RectF(cx - cell / 2 + 4, y + AP_ICON + 10, cx + cell / 2 - 4, y + AP_ICON + 28), br);
+            std::wstring nome = NomeDe(a);
+            dc->DrawTextW(nome.c_str(), (UINT32)nome.size(), g_apLabel, D2D1::RectF(cx - cell / 2 + 4, y + AP_ICON + 10, cx + cell / 2 - 4, y + AP_ICON + 28), br);
             g_apHits.push_back({ D2D1::RectF(cx - cell / 2 + 6, y, cx + cell / 2 - 6, y + AP_ROW - 6), 0, list[k] });
         }
         y += AP_ROW + 8;
@@ -656,18 +663,19 @@ void Paint() {
                              DWRITE_TRIMMING t{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 }; IDWriteInlineObject* d = nullptr; ui::dw->CreateEllipsisTrimmingSign(f, &d); f->SetTrimming(&t, d); if (d) d->Release(); }
                     return f;
                 }();
+                std::wstring nome = NomeDe(a);
                 if (liquid::Leopard() && tfLeo) {
                     br->SetColor(D2D1::ColorF(0, 0, 0, 0.75f));
-                    dc->DrawTextW(a.name.c_str(), (UINT32)a.name.size(), tfLeo, D2D1::RectF(lr.left, lr.top + 1.5f, lr.right, lr.bottom + 1.5f), br);
+                    dc->DrawTextW(nome.c_str(), (UINT32)nome.size(), tfLeo, D2D1::RectF(lr.left, lr.top + 1.5f, lr.right, lr.bottom + 1.5f), br);
                     br->SetColor(D2D1::ColorF(1, 1, 1, 0.98f));
-                    dc->DrawTextW(a.name.c_str(), (UINT32)a.name.size(), tfLeo, lr, br);
+                    dc->DrawTextW(nome.c_str(), (UINT32)nome.size(), tfLeo, lr, br);
                     if (g_jiggle) dc->SetTransform(base);
                     continue;
                 }
                 br->SetColor(D2D1::ColorF(0, 0, 0, 0.35f));  // sombra leve do texto
-                dc->DrawTextW(a.name.c_str(), (UINT32)a.name.size(), g_tfLabel, D2D1::RectF(lr.left, lr.top + 1, lr.right, lr.bottom + 1), br);
+                dc->DrawTextW(nome.c_str(), (UINT32)nome.size(), g_tfLabel, D2D1::RectF(lr.left, lr.top + 1, lr.right, lr.bottom + 1), br);
                 br->SetColor(D2D1::ColorF(1, 1, 1, 0.96f));
-                dc->DrawTextW(a.name.c_str(), (UINT32)a.name.size(), g_tfLabel, lr, br);
+                dc->DrawTextW(nome.c_str(), (UINT32)nome.size(), g_tfLabel, lr, br);
                 if (g_jiggle) dc->SetTransform(base);
             }
             }
@@ -965,6 +973,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         std::vector<ctxmenu::Item> extra{ { Tr(L"Ocultar do Launchpad"), 2, false, false, false, L"", {}, 0xED1A },
                                           { Tr(L"Alterar Ícone…"), 3, false, false, false, L"", {}, 0xEB9F } };
         if (apps::HasCustomIcon(name, exe)) extra.push_back({ Tr(L"Restaurar Ícone Original"), 4, false, false, false, L"", {}, 0xE7A7 });
+        extra.push_back({ Tr(L"Renomear…"), 5, false, false, false, L"", {}, 0xE8AC });  // pedido no Discord
         ctxmenu::ExtraNext(extra);
         auto res = ctxmenu::Show(h, sp, L"shell:AppsFolder", { path }, GetKeyState(VK_SHIFT) < 0);
         ctxmenu::ExtraNext({});
@@ -972,6 +981,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (res.extra == 2) { launchpad::Ocultar(name); { std::lock_guard<std::mutex> lk(g_mu); Filter(); } Paint(); return 0; }
         if (res.extra == 3) { Close(); apps::ChooseIcon(name, exe); return 0; }  // o Launchpad cobre a tela: fecha antes da janela de Abrir
         if (res.extra == 4) { apps::RestoreIcon(name, exe); return 0; }
+        if (res.extra == 5) { Close(); apps::Renomear(name, exe); return 0; }
         if (res.chosen) Close();
         return 0;
     }

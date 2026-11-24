@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"显示路径栏" },
 { L"Usar como Imagem da Mesa", L"设定桌面图片" },
 { L"Não foi possível usar esta imagem na mesa", L"无法将此图片用作桌面" },
+{ L"Renomear…", L"重新命名…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"新名称会显示在程序坞、启动台和菜单栏中。留空可恢复原名称。" },
+{ L"Apps", L"App" },

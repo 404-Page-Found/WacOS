@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"Mostrar barra de ruta" },
 { L"Usar como Imagem da Mesa", L"Usar como imagen del escritorio" },
 { L"Não foi possível usar esta imagem na mesa", L"No se pudo usar esta imagen en el escritorio" },
+{ L"Renomear…", L"Renombrar…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"El nuevo nombre aparece en el Dock, el Launchpad y la barra de menús. Déjalo vacío para volver al nombre original." },
+{ L"Apps", L"Apps" },

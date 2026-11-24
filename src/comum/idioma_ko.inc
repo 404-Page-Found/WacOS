@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"경로 막대 보기" },
 { L"Usar como Imagem da Mesa", L"데스크탑 사진 설정" },
 { L"Não foi possível usar esta imagem na mesa", L"이 사진을 데스크탑에 사용할 수 없습니다" },
+{ L"Renomear…", L"이름 변경…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"새 이름은 Dock, Launchpad 및 메뉴 막대에 표시됩니다. 비워 두면 원래 이름으로 돌아갑니다." },
+{ L"Apps", L"앱" },

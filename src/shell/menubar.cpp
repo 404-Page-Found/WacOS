@@ -2006,7 +2006,7 @@ void menubar::Update() {
         }
     }
     App* a = ActiveApp();
-    g_appName = a ? a->name : L"Finder";
+    g_appName = a ? (a->finder ? a->name : apps::NomeVisivel(a->name, a->exe.empty() ? a->id : a->exe)) : L"Finder";
     if (wchar_t cls[32] = {}; g_fg && GetClassNameW(g_fg, cls, 32) && !wcscmp(cls, L"AjustesJanela")) g_appName = TrPick(L"Ajustes do Sistema", L"System Settings");
     g_hmenu = (g_fg && !g_finderActive) ? GetMenu(g_fg) : nullptr;
     if (!g_hmenu && g_fg && !g_finderActive) g_hmenu = (HMENU)GetPropW(g_fg, L"MacJanelaMenu");  // tirada da janela pela MacJanela.dll

@@ -1844,3 +1844,15 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - README: seção "Siri with AI" e a demo (docs\screenshots\siri-demo.gif/.mp4, só o painel). O commit com a gravação
     da mesa inteira foi tirado do histórico do main (force push com a proteção liberada e religada a pedido do usuário).
   DESFAZER: reverter o commit e rodar build.cmd shell.
+[2026-11-24 15:45] Pedidos do canal #feature-requests do Discord:
+  - Ícone do Launchpad (IggY): dock.cpp, botão direito no Launchpad do Dock > Opções > Alterar Ícone… / Restaurar Ícone
+    Original / Remover do Dock (o mesmo ícone próprio dos apps: icones-dock\Launchpad.png); Abrir.
+  - Renomear apps (Becky Prim): Dock e Launchpad > Renomear… abre os Ajustes (--pagina="renomear:<nome>|<chaves>") com a
+    folha de texto preenchida; o nome vai para %APPDATA%\Shell\nomes-apps.txt ("chave<TAB>nome", as chaves do ícone
+    próprio). apps::NomeVisivel relê o arquivo se mudou (no máximo 1x/s) e vale no Dock, no Launchpad e na barra de menus.
+    Vazio volta ao original.
+  - Mixer de volume (^ ^): som.cpp, o menu Som ganha a seção "Apps" com um controle por app que está tocando som (sessões
+    de áudio da saída padrão juntas por .exe, até 8, sem os sons do sistema); atualiza a cada 0,5 s.
+  - Não feitos: tela de bloqueio (já respondido na thread) e os ícones do macOS 27 (Google Drive de terceiros).
+  Compilado e o Shell novo instalado e aberto sem erro; os menus e a folha não foram abertos na tela (sem clique simulado).
+  DESFAZER: reverter o commit, build.cmd e copiar de novo; apagar %APPDATA%\Shell\nomes-apps.txt.

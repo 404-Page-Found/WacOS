@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"パスバーを表示" },
 { L"Usar como Imagem da Mesa", L"デスクトップピクチャを設定" },
 { L"Não foi possível usar esta imagem na mesa", L"このイメージをデスクトップに使用できませんでした" },
+{ L"Renomear…", L"名称変更…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"新しい名前は Dock、Launchpad、メニューバーに表示されます。空にすると元の名前に戻ります。" },
+{ L"Apps", L"App" },

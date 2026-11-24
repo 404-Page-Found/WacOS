@@ -497,6 +497,59 @@ static std::vector<std::wstring> CustomKeys(const std::wstring& name, const std:
     if (std::wstring n = IconKey(name); !n.empty() && (k.empty() || _wcsicmp(n.c_str(), k[0].c_str()))) k.push_back(n);
     return k;
 }
+static std::mutex g_nomesMx;
+static std::map<std::wstring, std::wstring> g_nomes;  // chave (minúsculas) -> nome escolhido
+static std::wstring ArquivoNomes() {
+    std::wstring d = apps::CustomIconDir();  // ...\Shell\icones-dock\ -> ...\Shell\nomes-apps.txt
+    if (d.size() < 13) return L"";
+    return d.substr(0, d.size() - 12) + L"nomes-apps.txt";
+}
+// relê o arquivo se ele mudou (conferido no máximo uma vez por segundo: o Dock pede o nome a cada quadro)
+static void LeNomes() {
+    static ULONGLONG quando = 0, gravado = 0;
+    ULONGLONG agora = GetTickCount64();
+    if (quando && agora - quando < 1000) return;
+    quando = agora;
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    std::wstring f = ArquivoNomes();
+    ULONGLONG t = (!f.empty() && GetFileAttributesExW(f.c_str(), GetFileExInfoStandard, &fa))
+                      ? ((ULONGLONG)fa.ftLastWriteTime.dwHighDateTime << 32 | fa.ftLastWriteTime.dwLowDateTime) : 0;
+    if (t == gravado) return;
+    gravado = t;
+    std::map<std::wstring, std::wstring> m;
+    FILE* fp = nullptr;
+    if (t && !_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") && fp) {
+        wchar_t line[1024];
+        while (fgetws(line, 1024, fp)) {
+            std::wstring s = line;
+            while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r')) s.pop_back();
+            if (!s.empty() && s[0] == 0xFEFF) s.erase(0, 1);
+            size_t tab = s.find(L'\t');
+            if (tab == std::wstring::npos || tab == 0 || tab + 1 >= s.size()) continue;
+            m[Lower(s.substr(0, tab))] = s.substr(tab + 1);
+        }
+        fclose(fp);
+    }
+    std::lock_guard<std::mutex> lk(g_nomesMx);
+    g_nomes.swap(m);
+}
+std::wstring apps::NomeVisivel(const std::wstring& name, const std::wstring& exe) {
+    LeNomes();
+    std::lock_guard<std::mutex> lk(g_nomesMx);
+    if (g_nomes.empty()) return name;
+    for (auto& k : CustomKeys(name, exe)) {
+        auto it = g_nomes.find(Lower(k));
+        if (it != g_nomes.end()) return it->second;
+    }
+    return name;
+}
+void apps::Renomear(const std::wstring& name, const std::wstring& exe) {
+    auto limpa = [](std::wstring s) { for (auto& c : s) if (c == L'|' || c == L'"') c = L' '; return s; };
+    std::wstring pedido = L"renomear:" + limpa(NomeVisivel(name, exe));
+    for (auto& k : CustomKeys(name, exe)) pedido += L"|" + limpa(k);
+    shell::Abrir(L"open", (shell::dir + L"\\" EXE_SETTINGS).c_str(), (L"\"--pagina=" + pedido + L"\"").c_str());
+}
+
 std::wstring apps::CustomIcon(const std::wstring& name, const std::wstring& exe) {
     std::wstring dir = CustomIconDir();
     if (dir.empty()) return L"";

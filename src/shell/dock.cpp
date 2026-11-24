@@ -635,6 +635,26 @@ std::wstring IconExe(const App& a) { return a.finder ? L"" : a.exe.empty() ? a.i
 std::wstring CustomIconPath(const App& a) { return apps::CustomIcon(IconName(a), IconExe(a)); }
 std::map<std::wstring, bool> g_customIcon;  // app -> tem ícone próprio (desenhado como os do pacote)
 
+// O ícone próprio do Launchpad no Dock (pedido no Discord, 24/11/2026): Launchpad.png na pasta dos ícones próprios,
+// escolhido pelo botão direito > Alterar Ícone…; nullptr = o do pacote
+ID2D1Bitmap* LaunchpadProprio(ID2D1RenderTarget* rt) {
+    if (g_bmpRt != rt) { for (auto& [k, b] : g_bmps) if (b) b->Release(); g_bmps.clear(); g_bmpRt = rt; }
+    auto ck = g_bmps.find(L"proprio:launchpad");
+    if (ck != g_bmps.end()) return ck->second;
+    auto known = g_customIcon.find(L"launchpad:");
+    if (known != g_customIcon.end() && !known->second) return nullptr;
+    std::wstring f = apps::CustomIcon(L"Launchpad", L"");
+    UINT w = 0, h = 0; std::vector<BYTE> px;
+    bool ok = !f.empty() && ui::LoadPng(f, w, h, px);
+    g_customIcon[L"launchpad:"] = ok;
+    if (!ok) return nullptr;
+    std::wstring st = ui::IconStyle();
+    if (st != L"padrao") ui::StyleIcon(w, h, px, st);
+    ID2D1Bitmap* b = ui::Bitmap(rt, w, h, px);
+    g_bmps[L"proprio:launchpad"] = b;
+    return b;
+}
+
 ID2D1Bitmap* IconBitmap(ID2D1RenderTarget* rt, App& a) {
     if (g_bmpRt != rt) { for (auto& [k, b] : g_bmps) if (b) b->Release(); g_bmps.clear(); g_bmpRt = rt; }
     {
@@ -737,8 +757,8 @@ bool Animating() {
 
 std::wstring Label(const Item& it) {
     if (it.kind == I_GHOST) return L"";
-    if (it.kind == I_APP) return apps::list[it.app].name;
-    if (it.kind == I_MINWIN) { wchar_t t[200] = {}; GetWindowTextW(it.win, t, 200); return t[0] ? t : apps::list[it.app].name; }
+    if (it.kind == I_APP) return apps::NomeVisivel(IconName(apps::list[it.app]), IconExe(apps::list[it.app]));
+    if (it.kind == I_MINWIN) { wchar_t t[200] = {}; GetWindowTextW(it.win, t, 200); return t[0] ? t : apps::NomeVisivel(IconName(apps::list[it.app]), IconExe(apps::list[it.app])); }
     if (it.kind == I_DOWNLOADS) return L"Downloads";
     if (it.kind == I_LAUNCHPAD) return LEO_DOCK ? Tr(L"Aplicativos") : L"Launchpad";  // Leopard: a pasta Aplicativos
     if (it.kind == I_TRASH) return Tr(L"Lixeira");
@@ -1155,6 +1175,7 @@ void Paint() {
             if (drew) continue;
             b = PackBitmap(rt, L"folder downloads"); mac = b != nullptr;
         }
+        else if (it.kind == I_LAUNCHPAD && !LEO_DOCK && (b = LaunchpadProprio(rt)) != nullptr) mac = true;
         else { b = PackBitmap(rt, it.kind == I_LAUNCHPAD ? L"Launchpad" : it.kind == I_DOWNLOADS ? L"folder downloads" : g_trashFull ? L"trashfull@2x" : L"trashempty@2x"); mac = b != nullptr; }
         // ícones do pacote do Sequoia já têm a margem do Mac; os do Windows (recortados) ficam com o mesmo corpo visual
         float art = s * (mac ? ART_PACK : ART_WIN);
@@ -1389,7 +1410,21 @@ void ContextMenu(int i) {
         Paint();
         return;
     }
-    if (it.kind == I_LAUNCHPAD) return;
+    if (it.kind == I_LAUNCHPAD) {  // como no Mac (Abrir, Opções); e o ícone próprio, pedido no Discord
+        if (LEO_DOCK) return;
+        bool proprio = !apps::CustomIcon(L"Launchpad", L"").empty();
+        ctxmenu::Item opts = MI(Tr(L"Opções"), 0);
+        opts.sub.push_back(MI(Tr(L"Alterar Ícone…"), 2));
+        if (proprio) opts.sub.push_back(MI(Tr(L"Restaurar Ícone Original"), 3));
+        opts.sub.push_back(MSep());
+        opts.sub.push_back(MI(Tr(L"Remover do Dock"), 4));
+        int id = ShowMenu(i, { opts, MSep(), MI(Tr(L"Abrir"), 1) });
+        if (id == 1) launchpad::Toggle();
+        else if (id == 2) apps::ChooseIcon(L"Launchpad", L"");
+        else if (id == 3) apps::RestoreIcon(L"Launchpad", L"");
+        else if (id == 4) { shell::SetSetting(L"dock_launchpad", L"0"); dock::ReloadSettings(); }
+        return;
+    }
     if (it.kind == I_TRASH) {
         int id = ShowMenu(i, { MI(Tr(L"Abrir"), 1), MSep(), MI(Tr(L"Esvaziar Lixeira…"), 2, false, !g_trashFull) });
         if (id == 1) OpenFinder(L"shell:RecycleBinFolder");  // a Lixeira no Finder
@@ -1447,6 +1482,7 @@ void ContextMenu(int i) {
     opts.sub.push_back(MSep());
     opts.sub.push_back(MI(Tr(L"Alterar Ícone…"), 18));
     if (!CustomIconPath(a).empty()) opts.sub.push_back(MI(Tr(L"Restaurar Ícone Original"), 19));
+    if (!a.finder) opts.sub.push_back(MI(Tr(L"Renomear…"), 22));  // pedido no Discord
     m.push_back(opts);
     m.push_back(MSep());
     if (!a.wins.empty()) {
@@ -1468,6 +1504,7 @@ void ContextMenu(int i) {
     case 11: apps::SetOpenAtLogin(*ap, !apps::OpenAtLogin(*ap)); break;
     case 12: apps::ShowInFinder(*ap); break;
     case 18: apps::ChooseIcon(IconName(*ap), IconExe(*ap)); break;
+    case 22: apps::Renomear(IconName(*ap), IconExe(*ap)); break;
     case 19: apps::RestoreIcon(IconName(*ap), IconExe(*ap)); break;
     case 13: missioncontrol::ToggleApp(ap->id, ap->name); break;  // como no Mac: o Exposé do app
     case 14: apps::Hide(*ap); break;

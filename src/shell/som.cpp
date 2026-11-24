@@ -12,6 +12,7 @@
 #include <dwmapi.h>
 #include <mmdeviceapi.h>
 #include <endpointvolume.h>
+#include <audiopolicy.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <algorithm>
 #include <cmath>
@@ -102,6 +103,79 @@ void Read(bool outs) {
         }
     }
     en->Release();
+}
+
+// ---- volume por app (mixer de volume, pedido no Discord, 24/11/2026): as sessões de áudio da saída padrão, juntas
+// por programa (o Chrome tem várias), como o Mixer de Volume do Windows. Os sons do sistema ficam de fora (o volume
+// geral já é deles). O nome é o do app no Dock quando ele está lá (com o nome escolhido em Renomear…), senão o do .exe.
+struct AppVol { std::wstring exe, name; float vol = 1; bool mute = false; std::vector<ISimpleAudioVolume*> vs; };
+std::vector<AppVol> g_apps;
+const size_t MAX_APPS = 8;
+void SoltaApps() { for (auto& a : g_apps) for (auto* v : a.vs) v->Release(); g_apps.clear(); }
+std::wstring NomeDoApp(const std::wstring& exe) {
+    std::wstring low = exe; for (auto& c : low) c = towlower(c);
+    for (auto& a : apps::list) {
+        std::wstring e = a.exe; for (auto& c : e) c = towlower(c);
+        if (!e.empty() && e == low) return a.finder ? a.name : apps::NomeVisivel(a.name, a.exe);
+    }
+    std::wstring n = exe.substr(exe.find_last_of(L'\\') + 1);
+    if (n.size() > 4 && !_wcsicmp(n.c_str() + n.size() - 4, L".exe")) n.resize(n.size() - 4);
+    if (!n.empty()) n[0] = towupper(n[0]);
+    return apps::NomeVisivel(n, exe);
+}
+void ReadApps() {
+    SoltaApps();
+    IMMDeviceEnumerator* en = nullptr;
+    if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&en)))) return;
+    IMMDevice* d = nullptr;
+    IAudioSessionManager2* mg = nullptr;
+    IAudioSessionEnumerator* se = nullptr;
+    if (SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eConsole, &d)) &&
+        SUCCEEDED(d->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&mg)) &&
+        SUCCEEDED(mg->GetSessionEnumerator(&se))) {
+        int n = 0; se->GetCount(&n);
+        for (int i = 0; i < n; i++) {
+            IAudioSessionControl* c = nullptr;
+            if (FAILED(se->GetSession(i, &c))) continue;
+            IAudioSessionControl2* c2 = nullptr;
+            AudioSessionState st = AudioSessionStateExpired;
+            c->GetState(&st);
+            if (st != AudioSessionStateExpired && SUCCEEDED(c->QueryInterface(IID_PPV_ARGS(&c2))) && c2->IsSystemSoundsSession() != S_OK) {
+                DWORD pid = 0; c2->GetProcessId(&pid);
+                std::wstring exe;
+                if (pid && pid != GetCurrentProcessId())
+                    if (HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+                        wchar_t p[MAX_PATH]; DWORD len = MAX_PATH;
+                        if (QueryFullProcessImageNameW(ph, 0, p, &len)) exe = p;
+                        CloseHandle(ph);
+                    }
+                ISimpleAudioVolume* sv = nullptr;
+                if (!exe.empty() && SUCCEEDED(c->QueryInterface(IID_PPV_ARGS(&sv)))) {
+                    auto it = std::find_if(g_apps.begin(), g_apps.end(), [&](const AppVol& a) { return !_wcsicmp(a.exe.c_str(), exe.c_str()); });
+                    if (it == g_apps.end() && g_apps.size() < MAX_APPS) {
+                        AppVol a; a.exe = exe; a.name = NomeDoApp(exe);
+                        BOOL m = FALSE; sv->GetMasterVolume(&a.vol); sv->GetMute(&m); a.mute = m != FALSE;
+                        a.vs.push_back(sv);
+                        g_apps.push_back(std::move(a));
+                    } else if (it != g_apps.end()) it->vs.push_back(sv);
+                    else sv->Release();
+                }
+            }
+            if (c2) c2->Release();
+            c->Release();
+        }
+    }
+    if (se) se->Release();
+    if (mg) mg->Release();
+    if (d) d->Release();
+    en->Release();
+    std::sort(g_apps.begin(), g_apps.end(), [](const AppVol& a, const AppVol& b) { return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; });
+}
+void SetAppVolume(size_t i, float v) {
+    if (i >= g_apps.size()) return;
+    v = std::clamp(v, 0.f, 1.f);
+    for (auto* s : g_apps[i].vs) { s->SetMasterVolume(v, nullptr); s->SetMute(v <= 0.001f, nullptr); }
+    g_apps[i].vol = v; g_apps[i].mute = v <= 0.001f;
 }
 
 void SetVolume(float v) {
@@ -264,7 +338,12 @@ struct Hit { int id; D2D1_RECT_F r; };
 std::vector<Hit> g_hits;
 
 float SepY2() { return ROWS_Y + ROW_H * (float)g_au.outs.size() + 6; }
-float MenuH() { return SepY2() + 33; }
+const float APP_H = 30, APP_L = 128;  // linhas da seção Apps; o controle de cada app começa em APP_L
+float AppsH() { return g_apps.empty() ? 0.f : 26 + APP_H * (float)g_apps.size() + 4; }
+float SepY3() { return SepY2() + AppsH(); }
+float MenuH() { return SepY3() + 33; }
+int g_dragApp = -1;  // arrastando o controle de um app (índice em g_apps)
+enum { H_APP0 = 3000 };
 float MenuR() { return liquid::On() ? 14.f : 10.f; }
 float Sc() { return ui::Scale(g_m.wnd); }
 
@@ -399,6 +478,29 @@ void PaintMenu() {
     }
     float s2 = SepY2();
     sep(s2);
+    if (!g_apps.empty()) {  // Apps: um controle de volume para cada app que está tocando som
+        Text(dc, br, Tr(L"Apps"), D2D1::RectF(14, s2 + 3, MW - 14, s2 + 23), g_tfHead, p.text2);
+        for (size_t i = 0; i < g_apps.size(); i++) {
+            const AppVol& a = g_apps[i];
+            float y = s2 + 26 + APP_H * i, cy = y + APP_H / 2;
+            Text(dc, br, a.name, D2D1::RectF(14, y, APP_L - 8, y + APP_H), g_tfRow, p.text);
+            float l = APP_L, r = MW - 18, v = a.mute ? 0.f : a.vol;
+            float kx = l + 7 + v * (r - l - 14);
+            br->SetColor(p.sep);
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(l, cy - 2, r, cy + 2), 2, 2), br);
+            br->SetColor(BLUE);
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(l, cy - 2, kx, cy + 2), 2, 2), br);
+            D2D1_RECT_F k = D2D1::RectF(kx - 7, cy - 7, kx + 7, cy + 7);
+            Shadow(dc, br, k, 7, 0.16f);
+            br->SetColor(g_dragApp == (int)i ? D2D1::ColorF(0.93f, 0.93f, 0.94f) : D2D1::ColorF(1, 1, 1));
+            dc->FillEllipse(D2D1::Ellipse({ kx, cy }, 7, 7), br);
+            br->SetColor(D2D1::ColorF(0, 0, 0, dark ? 0.25f : 0.12f));
+            dc->DrawEllipse(D2D1::Ellipse({ kx, cy }, 6.75f, 6.75f), br, 0.5f);
+            g_hits.push_back({ H_APP0 + (int)i, D2D1::RectF(l - 8, y + 2, r + 8, y + APP_H - 2) });
+        }
+        s2 = SepY3();
+        sep(s2);
+    }
     D2D1_RECT_F set = D2D1::RectF(5, s2 + 5, MW - 5, s2 + 28);
     if (g_hover == H_SETTINGS) { br->SetColor(p.hover); dc->FillRoundedRectangle(D2D1::RoundedRect(set, 6, 6), br); }
     Text(dc, br, Tr(L"Ajustes de Som…"), D2D1::RectF(14, set.top, MW - 14, set.bottom), g_tfRow, p.text);
@@ -432,6 +534,8 @@ void CloseMenu() {
     g_closedAt = GetTickCount();
     if (g_drag) { g_drag = false; ReleaseCapture(); }
     g_press = 0; g_stretch = 0; g_hover = -1;
+    if (g_dragApp >= 0) { g_dragApp = -1; ReleaseCapture(); }
+    SoltaApps();
     KillTimer(g_m.wnd, T_POLL);
     ui::FrameClock(g_m.wnd, WM_SOM_FRAME, false);
     GlassHide(g_m);
@@ -468,10 +572,18 @@ LRESULT CALLBACK MenuProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_TIMER:  // volume mudado por fora (teclas, outros apps) aparece no controle
-        if (w == T_POLL && g_open && !g_drag) {
+        if (w == T_POLL && g_open && !g_drag && g_dragApp < 0) {
             float v = g_au.vol; bool mu = g_au.mute; size_t n = g_au.outs.size();
             Read(false);
-            if (v != g_au.vol || mu != g_au.mute || n != g_au.outs.size()) PaintMenu();
+            std::wstring antes; for (auto& a : g_apps) antes += a.exe + L"|" + std::to_wstring(a.vol) + L"|";
+            ReadApps();
+            std::wstring depois; for (auto& a : g_apps) depois += a.exe + L"|" + std::to_wstring(a.vol) + L"|";
+            if (antes != depois) {  // um app começou ou parou de tocar: o menu muda de altura
+                RECT wr; GetWindowRect(h, &wr);
+                float sc = Sc();
+                GlassPlace(g_m, wr.left, wr.top, (int)std::lround(MW * sc), (int)std::lround(MenuH() * sc), false);
+            }
+            if (v != g_au.vol || mu != g_au.mute || n != g_au.outs.size() || antes != depois) PaintMenu();
         }
         return 0;
     case WM_LBUTTONDOWN: {
@@ -481,6 +593,11 @@ LRESULT CALLBACK MenuProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_drag = true; g_lastKx = -1; g_lastFrame = anim::Now();
             SetCapture(h);
             DragTo(p.x);
+        } else if (id >= H_APP0 && id < H_APP0 + (int)g_apps.size()) {
+            g_dragApp = id - H_APP0;
+            SetCapture(h);
+            SetAppVolume((size_t)g_dragApp, (p.x - APP_L - 7) / (MW - 18 - APP_L - 14));
+            PaintMenu();
         } else if (id == H_SETTINGS) {
             CloseMenu();
             shell::OpenSettings(L"som");
@@ -500,6 +617,7 @@ LRESULT CALLBACK MenuProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEMOVE: {
         D2D1_POINT_2F p = Pt(h, l);
         if (g_drag) { DragTo(p.x); return 0; }
+        if (g_dragApp >= 0) { SetAppVolume((size_t)g_dragApp, (p.x - APP_L - 7) / (MW - 18 - APP_L - 14)); PaintMenu(); return 0; }
         TRACKMOUSEEVENT tme{ sizeof(tme), TME_LEAVE, h, 0 }; TrackMouseEvent(&tme);
         int id = HitAt(p);
         int hv = (id == H_SETTINGS || (id >= 0 && id < (int)g_au.outs.size())) ? id : -1;
@@ -508,6 +626,7 @@ LRESULT CALLBACK MenuProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSELEAVE: if (g_hover != -1) { g_hover = -1; PaintMenu(); } return 0;
     case WM_LBUTTONUP:
+        if (g_dragApp >= 0) { g_dragApp = -1; ReleaseCapture(); PaintMenu(); return 0; }
         if (g_drag) {
             g_drag = false; g_lastKx = -1;
             ReleaseCapture();
@@ -516,7 +635,10 @@ LRESULT CALLBACK MenuProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             Animate();
         }
         return 0;
-    case WM_CAPTURECHANGED: if (g_drag && (HWND)l != h) { g_drag = false; g_lastKx = -1; Animate(); } return 0;
+    case WM_CAPTURECHANGED:
+        if (g_dragApp >= 0 && (HWND)l != h) { g_dragApp = -1; PaintMenu(); }
+        if (g_drag && (HWND)l != h) { g_drag = false; g_lastKx = -1; Animate(); }
+        return 0;
     case WM_MOUSEWHEEL:
         SetVolume((g_au.mute ? 0 : g_au.vol) + GET_WHEEL_DELTA_WPARAM(w) / 120.f / 32.f);
         PaintMenu();
@@ -708,6 +830,7 @@ void som::Toggle(RECT icon) {
     if (GetTickCount() - g_closedAt < 300) return;  // o clique no ícone acabou de fechar o menu (perdeu o foco)
     HideHud();
     Read(true);
+    ReadApps();
     g_icon = icon;
     MW = liquid::On() ? 308.f : 320.f; TRACK_R = MW - 38;
     g_open = true;

@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"Pfadleiste einblenden" },
 { L"Usar como Imagem da Mesa", L"Als Schreibtischhintergrund festlegen" },
 { L"Não foi possível usar esta imagem na mesa", L"Dieses Bild konnte nicht als Hintergrund verwendet werden" },
+{ L"Renomear…", L"Umbenennen …" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"Der neue Name erscheint im Dock, im Launchpad und in der Menüleiste. Leer lassen, um zum ursprünglichen Namen zurückzukehren." },
+{ L"Apps", L"Apps" },

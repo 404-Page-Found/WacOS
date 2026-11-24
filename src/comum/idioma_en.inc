@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"Show Path Bar" },
 { L"Usar como Imagem da Mesa", L"Set Desktop Picture" },
 { L"Não foi possível usar esta imagem na mesa", L"Couldn't use this picture on the desktop" },
+{ L"Renomear…", L"Rename…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"The new name shows in the Dock, Launchpad and the menu bar. Leave it empty to go back to the original name." },
+{ L"Apps", L"Apps" },

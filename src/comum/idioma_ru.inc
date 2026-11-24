@@ -1751,3 +1751,6 @@
 { L"Mostrar Barra de Caminho", L"Показать строку пути" },
 { L"Usar como Imagem da Mesa", L"Установить картинку рабочего стола" },
 { L"Não foi possível usar esta imagem na mesa", L"Не удалось использовать эту картинку для рабочего стола" },
+{ L"Renomear…", L"Переименовать…" },
+{ L"O nome novo aparece no Dock, no Launchpad e na barra de menus. Deixe vazio para voltar ao nome original.", L"Новое имя появится в Dock, Launchpad и строке меню. Оставьте пустым, чтобы вернуть исходное имя." },
+{ L"Apps", L"Приложения" },
