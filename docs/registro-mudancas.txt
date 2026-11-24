@@ -1894,3 +1894,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - #68: Ajustes > Central de Controle > "Altura da barra de menus" (Menor -3 pt / Padrão / Maior +6 pt, barra_altura);
     menubar.cpp BAR_PT soma BarExtra(); main.cpp refaz as barras e a área de trabalho quando muda. Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-24 23:15] Issue #38 (a Siri disse 14:37 quando eram 23:56): siri.cpp Contexto() manda junto com cada pergunta a data
+  e a hora locais com o fuso e o tempo da cidade do widget (widgets::ResumoTempo, o mesmo Open-Meteo da mesa), nos
+  serviços por HTTP e nos apps locais. Não testado na tela.
+  DESFAZER: reverter o commit e rodar build.cmd shell.

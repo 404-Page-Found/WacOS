@@ -413,6 +413,8 @@ bool Remove(int index);
 bool MoveWindow(HWND h, int index);  // leva a janela (de qualquer programa) para outra mesa
 }
 namespace widgets {  // widgets da mesa: Relógio Mundial, Tempo, Relógio, Calendário, Nascer do Sol (widgets.cpp)
+// o tempo de agora em uma frase (inglês, para a Siri: issue #38), ou "" se ainda não chegou
+std::wstring ResumoTempo();
 void Create(HINSTANCE hi);
 std::vector<RECT> Areas();  // onde estão (tela): os ícones da mesa não ficam embaixo deles
 void EditMenu(POINT pt);    // "Editar Widgets…": ligar/desligar cada widget (também sem nenhum na tela)

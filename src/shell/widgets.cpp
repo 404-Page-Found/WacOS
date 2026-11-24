@@ -63,6 +63,24 @@ Weather g_wx;
 std::atomic<bool> g_fetching{ false };
 
 std::wstring City() { static cidade::Padrao def; return shell::Setting(L"tempoCidade", def.nome.c_str()); }  // sem cidade: a do fuso do Windows
+}  // namespace
+
+// Para a Siri (issue #38: ela não sabia nada do PC): a condição do código WMO do Open-Meteo, em inglês (o modelo responde
+// no idioma da pergunta)
+std::wstring widgets::ResumoTempo() {
+    Weather w;
+    { std::lock_guard<std::mutex> lk(g_mx); w = g_wx; }
+    if (!w.ok) return L"";
+    int c = w.code;
+    const wchar_t* cond = c == 0 ? L"clear sky" : c <= 2 ? L"partly cloudy" : c == 3 ? L"overcast" : c <= 48 ? L"fog"
+                        : c <= 57 ? L"drizzle" : c <= 67 ? L"rain" : c <= 77 ? L"snow" : c <= 82 ? L"rain showers"
+                        : c <= 86 ? L"snow showers" : L"thunderstorm";
+    wchar_t b[300];
+    swprintf_s(b, L"Weather now in %ls: %.0f°C, %ls; today's high %.0f°C, low %.0f°C.", City().c_str(), w.temp, cond, w.hi, w.lo);
+    return b;
+}
+
+namespace {
 
 std::string Section(const std::string& j, const char* key) {
     size_t p = j.find(std::string("\"") + key + "\":{");

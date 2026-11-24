@@ -103,9 +103,25 @@ std::wstring Reserva(const std::vector<std::wstring>& lista, const std::wstring&
     return alt;
 }
 
+// O que a Siri precisa saber do PC (issue #38: perguntou a hora e ela inventou 14:37 às 23:56): a data e a hora daqui,
+// com o fuso, e o tempo da cidade do widget (o mesmo que a mesa mostra). Vai junto com cada pergunta.
+std::wstring Contexto() {
+    SYSTEMTIME st; GetLocalTime(&st);
+    wchar_t data[120] = {}, hora[40] = {};
+    GetDateFormatEx(L"en-US", 0, &st, L"dddd, MMMM d, yyyy", data, 120, nullptr);
+    GetTimeFormatEx(L"en-US", 0, &st, L"HH:mm", hora, 40);
+    TIME_ZONE_INFORMATION tz{}; DWORD z = GetTimeZoneInformation(&tz);
+    long bias = -(tz.Bias + (z == TIME_ZONE_ID_DAYLIGHT ? tz.DaylightBias : 0));
+    wchar_t b[400];
+    swprintf_s(b, L"Current local date and time on the user's PC: %ls, %ls (UTC%c%02ld:%02ld).", data, hora, bias < 0 ? L'-' : L'+', std::labs(bias) / 60, std::labs(bias) % 60);
+    std::wstring s = b;
+    if (std::wstring t = widgets::ResumoTempo(); !t.empty()) s += L" " + t;
+    return s;
+}
+
 std::wstring PerguntaCli(const siri::Provedor& pv, const std::wstring& q, bool& erro, int num) {
     const std::wstring instr = siri::ComInstrucoes(L"Answer briefly and clearly, in the same language as the question, in plain text without Markdown. "
-                                                   L"Do not run commands or edit files.") + L"\n\nQuestion: ";
+                                                   L"Do not run commands or edit files. " + Contexto()) + L"\n\nQuestion: ";
     DWORD codigo = 0; bool tempo = false;
     wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
     std::wstring ultima = std::wstring(tmp) + L"WacOS-Siri\\ultima.txt";
@@ -150,7 +166,7 @@ std::wstring Pergunta(const std::wstring& q, bool& erro, int num) {
         if (!l.empty()) modelo = l[0];
     }
     const std::wstring sistema = siri::ComInstrucoes(L"You are Siri inside WacOS, a macOS-style desktop for Windows. Answer briefly and clearly, "
-                                                     L"in the same language as the question. Use plain text, without Markdown.");
+                                                     L"in the same language as the question. Use plain text, without Markdown. " + Contexto());
     std::wstring cab = siri::Cabecalhos(pv, chave);
     SecureZeroMemory(chave.data(), chave.size() * sizeof(wchar_t));
     siri::Resposta r;
