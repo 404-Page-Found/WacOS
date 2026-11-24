@@ -1762,3 +1762,5 @@
 { L"Editar…", L"Modifica…" },
 { L"Ocultar o app", L"Nascondi l’app" },
 { L"Digitação por voz do Windows", L"Digitazione vocale di Windows" },
+{ L"Mostrar o Finder", L"Mostra il Finder" },
+{ L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"Se disattivato, il Finder appare nel Dock solo con una finestra aperta." },

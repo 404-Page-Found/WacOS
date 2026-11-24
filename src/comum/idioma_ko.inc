@@ -1762,3 +1762,5 @@
 { L"Editar…", L"편집…" },
 { L"Ocultar o app", L"앱 가리기" },
 { L"Digitação por voz do Windows", L"Windows 음성 입력" },
+{ L"Mostrar o Finder", L"Finder 보기" },
+{ L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"끄면 Finder는 윈도우가 열려 있을 때만 Dock에 나타납니다." },

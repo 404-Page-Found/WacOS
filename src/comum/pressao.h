@@ -23,7 +23,11 @@ inline PressaoMemoria MedirPressao() {
     PERFORMANCE_INFORMATION pi{ sizeof(pi) };
     if (GetPerformanceInfo(&pi, sizeof(pi)) && pi.CommitLimit) p.commit = (double)pi.CommitTotal / (double)pi.CommitLimit;
     p.livre = (double)ms.ullAvailPhys / (double)ms.ullTotalPhys;
-    p.nivel = (p.livre < 0.05 || p.commit > 0.95) ? 2 : (p.livre < 0.12 || p.commit > 0.88) ? 1 : 0;
+    // Commit perto do limite com RAM sobrando (arquivo de paginação pequeno ou desligado): o Discord mostrou o alerta de
+    // "sem memória" com 40% da RAM em uso (24/11/2026). Aí só é crítico quando o limite está mesmo no fim (98,5%) ou
+    // a RAM livre também está baixa; antes disso é amarelo (o Shell solta o que dá, sem a janela).
+    bool commitCritico = p.commit > 0.985 || (p.commit > 0.95 && p.livre < 0.25);
+    p.nivel = (p.livre < 0.05 || commitCritico) ? 2 : (p.livre < 0.12 || p.commit > 0.88) ? 1 : 0;
     float v = (float)std::max((0.40 - p.livre) / 0.40, (p.commit - 0.55) / 0.45);
     v = std::clamp(v, 0.06f, 1.f);  // o Mac sempre mostra uma faixa verde baixa
     if (p.nivel == 1) v = std::max(v, 0.62f);

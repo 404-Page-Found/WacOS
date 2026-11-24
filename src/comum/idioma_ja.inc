@@ -1762,3 +1762,5 @@
 { L"Editar…", L"編集…" },
 { L"Ocultar o app", L"App を非表示" },
 { L"Digitação por voz do Windows", L"Windows の音声入力" },
+{ L"Mostrar o Finder", L"Finder を表示" },
+{ L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"オフにすると、Finder はウインドウが開いているときだけ Dock に表示されます。" },

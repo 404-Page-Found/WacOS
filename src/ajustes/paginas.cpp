@@ -1804,7 +1804,8 @@ Page PersonalizarDock() {
     Row lpIcones = Popup(L"Tamanho dos ícones do Launchpad", { L"Grande", L"Médio", L"Pequeno" },
                          [] { double v = _wtof(Setting(L"launchpad_icones", L"1").c_str()); return v < 0.78 ? 2 : v < 0.93 ? 1 : 0; },
                          [](int i) { SetSetting(L"launchpad_icones", i == 2 ? L"0.7" : i == 1 ? L"0.85" : L"1"); });
-    p.groups.push_back(G({ Flag(L"Mostrar o Launchpad", L"dock_launchpad", L"1"), lpIcones, Flag(L"Mostrar a divisória", L"dock_separador", L"1"),
+    p.groups.push_back(G({ Flag(L"Mostrar o Finder", L"dock_finder", L"1", L"Desligado, o Finder só aparece no Dock com uma janela aberta."),
+                           Flag(L"Mostrar o Launchpad", L"dock_launchpad", L"1"), lpIcones, Flag(L"Mostrar a divisória", L"dock_separador", L"1"),
                            Flag(L"Separar os apps abertos que não estão no Dock", L"dock_separar_abertos", L"1"),
                            Flag(L"Pôr os ícones fora do formato num quadrado cinza (Tahoe e Golden Gate)", L"dock_icones_cinza", L"1"),
                            Flag(L"Mostrar o nome ao passar o ponteiro", L"dock_rotulos", L"1"), ind,

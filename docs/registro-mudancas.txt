@@ -1872,3 +1872,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     (atalho_win_h=voz; o Win+H passa para o Windows). main.cpp, paginas.cpp, traduções.
   Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-24 20:50] Issue #65 e #bug-reports do Discord:
+  - #65: o Finder pode sair do Dock (Ajustes > Mesa e Dock > Personalizar > "Mostrar o Finder", dock_finder=0; ou
+    botão direito no Finder > Opções > Manter no Dock). Sem ele, o Finder só aparece com janela aberta; o Launchpad
+    continua no começo. A pasta Downloads já tinha a opção. Botões da janela à direita: não feito (no #65 fica na lista).
+  - Discord "Running out of Memory": o alerta de "sem memória" aparecia com 40% da RAM em uso. pressao.h: o commit perto
+    do limite (arquivo de paginação pequeno/desligado) só vira crítico com 98,5% ou com a RAM livre abaixo de 25%;
+    antes disso é amarelo (o Shell solta memória sem abrir a janela).
+  Não testado na tela.
+  DESFAZER: reverter o commit e compilar.

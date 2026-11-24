@@ -1762,3 +1762,5 @@
 { L"Editar…", L"Düzenle…" },
 { L"Ocultar o app", L"Uygulamayı gizle" },
 { L"Digitação por voz do Windows", L"Windows sesle yazma" },
+{ L"Mostrar o Finder", L"Finder’ı göster" },
+{ L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"Kapalıyken Finder yalnızca bir penceresi açıkken Dock’ta görünür." },

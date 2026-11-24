@@ -31,6 +31,9 @@ int g_vidroCor = 0;          // dock_cor: 0 automática, 1 clara, 2 escura, 3 co
 bool g_mostraSep = true;     // dock_separador: a divisória antes de Downloads e da Lixeira
 bool g_separaAbertos = true; // dock_separar_abertos: a divisória entre os fixos e os abertos que não estão no Dock (issue #49)
 bool g_mostraLaunchpad = true;  // dock_launchpad: o Launchpad logo depois do Finder
+// issue #65 (quem usa outro gerenciador de arquivos): dock_finder=0 tira o Finder do Dock; ele só aparece com janela
+// aberta, como um app que não está no Dock. O Launchpad continua no começo.
+bool g_mostraFinder = true;
 int g_indicador = 0;         // dock_indicador: 0 ponto, 1 traço
 bool g_minNoIcone = false;   // dock_minimizar_no_icone (issue #8): minimizada vai para o ícone do app, sem miniatura no Dock
 bool g_rotulos = true;       // dock_rotulos: o nome do app ao passar o ponteiro
@@ -289,7 +292,7 @@ void BuildItems() {
     for (int i = 0; i < (int)apps::list.size(); i++) {
         auto& a = apps::list[i];
         // sem divisória entre fixos e abertos: uma só, antes de Downloads e Lixeira
-        g_items.push_back({ I_APP, i });
+        if (!(a.finder && !g_mostraFinder && a.wins.empty())) g_items.push_back({ I_APP, i });
         if (a.finder && !LEO_DOCK && g_mostraLaunchpad) g_items.push_back({ I_LAUNCHPAD, -1 });  // como no Mac: Launchpad logo depois do Finder
     }
     {   // quem entrou e quem saiu desde a última vez
@@ -1496,7 +1499,7 @@ void ContextMenu(int i) {
     if (!a.finder) {
         if (a.pinned || (a.recent && a.wins.empty())) opts.sub.push_back(MI(Tr(L"Remover do Dock"), 17));  // fixos e recentes, como no Mac
         if (!a.pinned || !a.wins.empty()) opts.sub.push_back(MI(Tr(L"Manter no Dock"), 10, a.pinned));
-    }
+    } else opts.sub.push_back(MI(Tr(L"Manter no Dock"), 23, g_mostraFinder));  // issue #65: o Finder pode sair do Dock
     opts.sub.push_back(MI(Tr(L"Abrir ao Iniciar Sessão"), 11, apps::OpenAtLogin(a)));
     opts.sub.push_back(MI(Tr(L"Mostrar no Finder"), 12));
     // ícone próprio (pedido do Reddit, 20/11/2026): escolher uma imagem ou voltar ao original
@@ -1526,6 +1529,7 @@ void ContextMenu(int i) {
     case 12: apps::ShowInFinder(*ap); break;
     case 18: apps::ChooseIcon(IconName(*ap), IconExe(*ap)); break;
     case 22: apps::Renomear(IconName(*ap), IconExe(*ap)); break;
+    case 23: shell::SetSetting(L"dock_finder", g_mostraFinder ? L"0" : L"1"); dock::ReloadSettings(); break;
     case 19: apps::RestoreIcon(IconName(*ap), IconExe(*ap)); break;
     case 13: missioncontrol::ToggleApp(ap->id, ap->name); break;  // como no Mac: o Exposé do app
     case 14: apps::Hide(*ap); break;
@@ -1962,6 +1966,7 @@ static void ReadSettings() {
     g_mostraSep = shell::Setting(L"dock_separador", L"1") != L"0";
     g_separaAbertos = shell::Setting(L"dock_separar_abertos", L"1") != L"0";
     g_mostraLaunchpad = shell::Setting(L"dock_launchpad", L"1") != L"0";
+    g_mostraFinder = shell::Setting(L"dock_finder", L"1") != L"0";
     g_indicador = shell::Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0;
     g_minNoIcone = shell::Setting(L"dock_minimizar_no_icone", L"0") == L"1";
     g_rotulos = shell::Setting(L"dock_rotulos", L"1") != L"0";

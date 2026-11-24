@@ -1762,3 +1762,5 @@
 { L"Editar…", L"编辑…" },
 { L"Ocultar o app", L"隐藏 App" },
 { L"Digitação por voz do Windows", L"Windows 语音输入" },
+{ L"Mostrar o Finder", L"显示访达" },
+{ L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"关闭后，访达只在有窗口打开时出现在程序坞中。" },
