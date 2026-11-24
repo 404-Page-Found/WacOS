@@ -1107,7 +1107,16 @@ Page AparenciaGolden() {
     const bool liquidOn = Setting(L"liquid_glass", L"0") == L"1", goldenOn = liquidOn && Setting(L"golden_gate", L"0") == L"1";
     Row prev; prev.kind = Kind::Custom; prev.height = 196;
     prev.enabled = !reduce;
-    prev.draw = [](Ctx& c, D2D1_RECT_F rr) {
+    // issue #33 ("no Tahoe ou no Golden Gate, rolar a Aparência enlouquece"): a foto era procurada A CADA QUADRO, e
+    // onde a foto do Golden Gate não existe (no PC de quem baixou) isso perguntava o papel de parede ao Explorador por
+    // COM, entre processos, a cada quadro da rolagem. Agora é lido uma vez, ao montar a página.
+    std::wstring photo;
+    {
+        wchar_t prof[MAX_PATH];
+        if (GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) photo = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\macOS 27\\macos-27-golden-4096x2160-27635.jpg";
+        if (photo.empty() || GetFileAttributesW(photo.c_str()) == INVALID_FILE_ATTRIBUTES) photo = sys::Wallpaper();
+    }
+    prev.draw = [photo](Ctx& c, D2D1_RECT_F rr) {
         Text(c, L"Liquid Glass", D2D1::RectF(rr.left + 10, rr.top + 9.5f, rr.left + 160, rr.top + 29.5f), c.body, c.text);
         float w = 267.5f, h = 179.5f;
         D2D1_RECT_F t = D2D1::RectF(rr.right - 10 - w, rr.top + 11, rr.right - 10, rr.top + 11 + h);
@@ -1117,10 +1126,6 @@ Page AparenciaGolden() {
         c.br->SetColor(D2D1::ColorF(0.45f, 0.62f, 0.80f, 1));
         c.dc->FillRectangle(t, c.br);
         D2D1_RECT_F card = D2D1::RectF(t.left, t.bottom - 34.5f, t.right, t.bottom);
-        std::wstring photo;
-        wchar_t prof[MAX_PATH];
-        if (GetEnvironmentVariableW(L"USERPROFILE", prof, MAX_PATH)) photo = std::wstring(prof) + L"\\Pictures\\Wallpapers macOS\\macOS 27\\macos-27-golden-4096x2160-27635.jpg";
-        if (photo.empty() || GetFileAttributesW(photo.c_str()) == INVALID_FILE_ATTRIBUTES) photo = sys::Wallpaper();
         if (ID2D1Bitmap* b = BitmapFromFile(photo, 640)) {  // a foto ocupa o que fica acima do cartão
             auto s2 = b->GetSize();
             float ph = card.top - t.top, k = std::max(w / s2.width, ph / s2.height);

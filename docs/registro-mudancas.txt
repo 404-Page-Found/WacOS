@@ -1775,3 +1775,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     Dock do Tahoe, dock_icones_cinza) agora vale no Launchpad e no Spotlight e tem a opção nos Ajustes.
   Compilado (shell, ajustes) e instalado. NÃO visto na tela: o WacOS foi fechado pelo usuário antes do teste.
   DESFAZER: reverter o commit.
+[2026-11-23 23:15] Issue #33 (Tahoe/Golden Gate: rolar a página Aparência dos Ajustes "enlouquece"):
+  - ajustes\paginas.cpp (AparenciaGolden): a prévia do Liquid Glass procurava a foto a cada quadro; sem a foto do
+    Golden Gate (o caso de quem baixou) chamava sys::Wallpaper() (COM com o Explorador, entre processos) a cada quadro
+    da rolagem. Agora o caminho é lido uma vez, ao montar a página (a cada 2,5 s no máximo).
+  Compilado e instalado (WacOSSettings.exe). NÃO visto na tela: o WacOS está fechado a pedido do usuário.
+  DESFAZER: reverter o commit.
