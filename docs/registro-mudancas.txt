@@ -1802,3 +1802,27 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Binário novo = nome novo da cópia (CopiaPorConteudo): gasta UM lugar a mais na tabela de ganchos até reiniciar.
   NÃO verificado no VirusTotal (não enviei arquivo nenhum) nem com o WacOS aberto (fechado a pedido do usuário).
   DESFAZER: reverter o commit e rodar build.cmd janelas.
+[2026-11-24 15:30] PR #55 (cooblg, fonte para coreano/japonês/chinês, fecha o #54): revisado e mergeado a pedido do
+  usuário. Compilado inteiro numa worktree à parte (build.cmd + janelas, sem erro) e testado à parte: hangul -> Malgun
+  Gothic, kana -> Yu Gothic UI, emoji continua Segoe UI Emoji. DESFAZER: git revert -m 1 0a681fa.
+[2026-11-24 16:40] Issues #49 #53 #56 #58 #60 #61 (nada visto na tela: o WacOS segue fechado a pedido do usuário):
+  - #60 src\shell\main.cpp KeyHook: o soltar do Win perdido (solto em janela de administrador, UAC...) deixava g_winDown
+    preso: Shift+S abria a Captura de Tela e ←/→ mandavam a janela para a metade da tela. Agora confere o estado real do
+    Win (GetAsyncKeyState) a cada tecla; o mesmo para o Alt do seletor de apps.
+  - #60 Finder: removendo todos os favoritos, os padrões voltavam (arquivo vazio = sem arquivo). Ctrl+, (Finder >
+    Ajustes…) não fazia nada: agora abre um menu com o que aparece na barra lateral (pastas padrão, OneDrive, Locais,
+    Etiquetas; lateralNuvem/lateralLocais/lateralEtiquetas no opcoes.txt), arquivos ocultos e barra de caminho. Discos:
+    "X disponíveis de Y" na coluna Tamanho, na prévia e embaixo do nome em Este Computador.
+  - #58 Finder: "Usar como Imagem da Mesa" no menu de uma imagem (avisa o Shell como os Ajustes e grava no Windows).
+    menubar.cpp: com um menu da barra aberto, passar o ponteiro em outro título abre o dele (como no Mac).
+  - #61 Ajustes: o indicador de rolagem aparece com o ponteiro na borda direita, fica mais largo, dá para arrastar e
+    clicar no trilho pula uma tela; PgUp/PgDn/Home/End/Espaço rolam.
+  - #53 menubar.cpp: em tela cheia (fora de jogo: classe de motor, programa de jogo ou D3D exclusivo) a barra aparece
+    com o ponteiro no topo e some ao sair. Ajustes > Central de Controle > "Mostrar a barra de menus em tela cheia"
+    (barra_tela_cheia, padrão 1).
+  - #49 apps.cpp: app fixado cujo atalho tem um AUMID e a janela outro (Zen/Firefox) aparecia duas vezes: junta pelo .exe
+    também quando os dois são AUMID, menos navegadores do Chromium (PWAs), apps da Loja e o ApplicationFrameHost.
+  - #56 genio.cpp: janela com as capas de canto do Mac (MacJanelaCanto) usa o raio delas (12 pt, 16 no Tahoe) na foto
+    do gênio; era o de 8 px do Windows e o canto saía pontudo.
+  - traduções novas nos 11 idiomas.
+  DESFAZER: reverter o commit e compilar (build.cmd e build.cmd janelas).

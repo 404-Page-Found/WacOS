@@ -3,6 +3,7 @@
 // encerrar, fixar, abrir ao iniciar sessão.
 #include "shell.h"
 #include "../comum/ajustes_arquivo.h"
+#include "../comum/jogos.h"
 #include <mutex>
 #include <unordered_map>
 #include <memory>
@@ -337,6 +338,20 @@ void apps::Load(const std::wstring& finderExe) {
     Save();
 }
 
+// issue #49: o Zen (e o Firefox e outros do Gecko) dão à janela um AUMID próprio (um código da pasta de instalação),
+// diferente do AUMID do atalho fixado no Dock: os dois ids eram "aumid:" e o .exe igual não juntava, e o Zen aparecia
+// duas vezes. Junta pelo .exe também nesse caso, menos onde um .exe tem vários apps de verdade: navegadores do Chromium
+// (cada app da web/PWA tem o AUMID dele), apps da Loja e o hospedeiro dos apps UWP.
+static bool ExeDeUmApp(const std::wstring& exeLower) {
+    static std::unordered_map<std::wstring, bool> cache;
+    auto it = cache.find(exeLower);
+    if (it != cache.end()) return it->second;
+    bool um = !exeLower.empty() && exeLower.find(L"\\windowsapps\\") == std::wstring::npos &&
+              exeLower.find(L"applicationframehost.exe") == std::wstring::npos && !jogos::ProgramaChromium(exeLower);
+    cache[exeLower] = um;
+    return um;
+}
+
 bool apps::Refresh() {
     struct Ctx {
         std::map<std::wstring, std::vector<AppWin>> found;  // id -> janelas (ordem Z)
@@ -350,8 +365,11 @@ bool apps::Refresh() {
         // janela de um app fixo pelo .exe (inclusive app da Loja fixado pelo caminho dentro de WindowsApps, que
         // agora chega com o AUMID do processo): usa o id do fixo, senão aparecia duas vezes no Dock
         std::wstring exe = Lower(ExeOfWindow(h));
-        for (auto& a : list)
-            if (a.id != id && !a.exe.empty() && Lower(a.exe) == exe && (id.rfind(L"aumid:", 0) != 0 || a.id.rfind(L"aumid:", 0) != 0)) { id = a.id; break; }
+        bool idFixo = false;  // um ícone do Dock já tem exatamente este id (ex.: o atalho da janela anônima do Firefox)
+        for (auto& a : list) if (a.id == id && a.pinned) { idFixo = true; break; }
+        if (!idFixo) for (auto& a : list)
+            if (a.id != id && !a.exe.empty() && Lower(a.exe) == exe &&
+                (id.rfind(L"aumid:", 0) != 0 || a.id.rfind(L"aumid:", 0) != 0 || (a.pinned && ExeDeUmApp(exe)))) { id = a.id; break; }
         // app fixo que se atualizou enquanto o Shell rodava (o .exe novo está numa pasta de versão nova): é o mesmo
         // ícone do Dock, e o caminho guardado passa a ser o novo
         if (id.rfind(L"aumid:", 0) != 0 && exe.find_first_of(L"0123456789") != std::wstring::npos)

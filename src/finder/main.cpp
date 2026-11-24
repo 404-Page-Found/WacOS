@@ -403,6 +403,8 @@ static bool g_pathBarUser;  // a barra de caminho das janelas normais (o Abrir/S
 // arquivos ocultos à mostra (Cmd+Shift+. no Mac; aqui Ctrl+Shift+., ou o menu do fundo da pasta). Os protegidos do
 // sistema (ocultos E de sistema: desktop.ini, $Recycle.Bin...) continuam escondidos, como no Explorador (issue #5)
 static bool g_showHidden = false;
+// o que aparece na barra lateral além dos Favoritos (Ajustes do Finder, Ctrl+,; issue #60)
+static bool g_sideCloud = true, g_sideDrives = true, g_sideTags = true;
 static bool g_pathBar = false;  // barra de caminho embaixo: desligada, como no Finder (Ctrl+Alt+P liga)   // tamanho do texto: ícones / lista e colunas
 // Leopard: a lista do 10.5 tem linhas de 19 com o ícone de 16 (sem o tamanho grande do Finder novo)
 static float ListRowH() { return tahoe::Leopard() ? 19.f : g_listLarge ? 36.f : 24.f; }
@@ -2885,8 +2887,23 @@ static float TextWidth(const std::wstring& s, IDWriteTextFormat* tf) {
     return w;
 }
 
+// issue #60: o espaço dos discos ("120 GB disponíveis de 476 GB"), como o Finder mostra com "Mostrar Informações do
+// Item". Só discos locais (fixos e removíveis): o de rede pode demorar a responder.
+static std::wstring DriveInfo(const std::wstring& path) {
+    if (path.size() != 3 || path[1] != L':' || path[2] != L'\\') return L"";
+    UINT type = GetDriveTypeW(path.c_str());
+    if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE) return L"";
+    ULARGE_INTEGER fr{}, total{};
+    if (!GetDiskFreeSpaceExW(path.c_str(), &fr, &total, nullptr) || !total.QuadPart) return L"";
+    wchar_t a[64], b[64], out[160];
+    StrFormatByteSizeW((LONGLONG)fr.QuadPart, a, 64);
+    StrFormatByteSizeW((LONGLONG)total.QuadPart, b, 64);
+    swprintf_s(out, Tr(L"%ls disponíveis de %ls"), a, b);
+    return out;
+}
+
 static std::wstring SizeText(const Entry& e) {
-    if (e.dir) return L"--";
+    if (e.dir) { std::wstring d = DriveInfo(e.path); return d.empty() ? L"--" : d; }
     wchar_t b[64];
     StrFormatByteSizeW((LONGLONG)e.size, b, 64);
     return b;
@@ -3143,7 +3160,7 @@ static void DrawPreview(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
     float y = top + size + 16;
     br->SetColor(pal.text);
     dc->DrawTextW(e.label.c_str(), (UINT32)e.label.size(), g_tfPreviewName, D2D1::RectF(area.left + 16, y, area.right - 16, y + 40), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    std::wstring info = e.dir ? KindName(e) : KindName(e) + L" · " + SizeText(e);  // pasta: sem o "--"
+    std::wstring info = e.dir ? (DriveInfo(e.path).empty() ? KindName(e) : KindName(e) + L" · " + DriveInfo(e.path)) : KindName(e) + L" · " + SizeText(e);  // pasta: sem o "--"
     std::wstring date = Tr(L"Modificado: ") + DateText(e.mtime);
     br->SetColor(pal.text2);
     dc->DrawTextW(info.c_str(), (UINT32)info.size(), g_tfPreviewInfo, D2D1::RectF(area.left + 12, y + 42, area.right - 12, y + 60), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
@@ -3355,6 +3372,16 @@ static void DrawIconGrid(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
             br->SetColor(pal.text);
         }
         dc->DrawTextLayout({ lr.left, lr.top }, tl, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        if (g_tagView == VIEW_COMPUTER) {  // discos: o espaço livre embaixo do nome, em azul (issue #60)
+            DWRITE_TEXT_METRICS m{}; tl->GetMetrics(&m);
+            std::wstring info = DriveInfo(e.path);
+            if (!info.empty() && m.lineCount == 1) {
+                g_tfLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                br->SetColor(pal.accent);
+                float y = lr.top + m.top + m.height + 1;
+                dc->DrawTextW(info.c_str(), (UINT32)info.size(), g_tfLabel, D2D1::RectF(lr.left - 20, y, lr.right + 20, y + m.height + 2), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+        }
         if (float dots = TagDotsWidth(e.tags)) {  // etiquetas antes da primeira linha do nome
             float x0, y0; DWRITE_HIT_TEST_METRICS hm;
             tl->HitTestTextPosition(0, FALSE, &x0, &y0, &hm);
@@ -4758,6 +4785,9 @@ static void OpenNewWindow(const std::wstring& folder) {
     ShellExecuteW(nullptr, nullptr, exe, (L"\"" + folder + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
 }
 
+static bool ImagemDeMesa(const std::wstring& p);
+static void UsarComoMesa(const std::wstring& p);
+
 // Clique direito num item da barra lateral, como no Finder.
 static void ShowSidebarMenu(int s, POINT screen) {
     SideEntry e = g_side[s];
@@ -4900,7 +4930,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     std::vector<Item> items;
     std::vector<IAssocHandler*> handlers;
     enum { M_OPEN = 1, M_OPENTAB, M_TRASH, M_INFO, M_RENAME, M_ZIP, M_DUP, M_ALIAS, M_QL, M_COPY, M_SHARE, M_MORE, M_NEWFOLDER, M_PASTE,
-           M_VIEWOPTS, M_TERMINAL, M_TAGNONE, M_RUNPS, M_RUNADMIN, M_COPYPATH, M_HIDDEN, M_TAG0 = 40, M_SORT0 = 60, M_OTHER = 99, M_WITH0 = 100,
+           M_VIEWOPTS, M_TERMINAL, M_TAGNONE, M_RUNPS, M_RUNADMIN, M_COPYPATH, M_HIDDEN, M_WALLPAPER, M_TAG0 = 40, M_SORT0 = 60, M_OTHER = 99, M_WITH0 = 100,
            M_PCOLOR0 = 200, M_PEMOJI0 = 220, M_PRESET = 260 };
     if (!paths.empty()) {
         bool allDirs = true;
@@ -4963,6 +4993,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
         items.push_back(I(Tr(L"Copiar"), M_COPY, L"", 0xE8C8));
         items.push_back(I(CopyPathLabel(paths), M_COPYPATH, L"", 0xE71B));
         items.push_back(I(Tr(L"Compartilhar…"), M_SHARE, L"", 0xE72D));
+        if (paths.size() == 1 && ImagemDeMesa(paths[0])) items.push_back(I(Tr(L"Usar como Imagem da Mesa"), M_WALLPAPER, L"", 0xE91B));  // issue #58
         items.push_back(sep);
         {   // fileira de bolinhas das etiquetas, como no Tahoe; ✓ nas que todos os selecionados já têm
             Item dots; dots.label = L" ";
@@ -5065,6 +5096,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     case M_COPY: RunVerb("copy"); break;
     case M_COPYPATH: CopyPathnames(paths.empty() ? std::vector<std::wstring>{ folder } : paths); break;
     case M_SHARE: RunVerb("windows.modernshare"); break;
+    case M_WALLPAPER: UsarComoMesa(paths[0]); break;
     case M_TAGNONE: SetTag(paths, -1, false); break;
     case M_NEWFOLDER: NewFolder(); break;
     case M_PASTE: if (FAILED(PasteInto(g_hwnd, folder))) Flash(Tr(L"Nada para colar")); break;
@@ -5085,6 +5117,28 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
     }
     }
     Invalidate();
+}
+
+// "Usar como Imagem da Mesa" (issue #58), como no Finder: o Shell é avisado primeiro (a mesa dele troca na hora; é o
+// mesmo recado dos Ajustes, sys::SetWallpaper) e o Windows grava o novo papel de parede.
+static bool ImagemDeMesa(const std::wstring& p) {
+    std::wstring ext; StemOf(p, &ext);
+    for (auto& c : ext) c = towlower(c);
+    for (auto x : { L".jpg", L".jpeg", L".png", L".bmp", L".gif", L".tif", L".tiff", L".webp", L".heic", L".jfif" }) if (ext == x) return true;
+    return false;
+}
+static void UsarComoMesa(const std::wstring& p) {
+    if (HWND sh = FindWindowW(L"ShellMensagens", nullptr)) {
+        COPYDATASTRUCT cd{ 0x4C504150 /*'PAPL'*/, (DWORD)((p.size() + 1) * sizeof(wchar_t)), (void*)p.c_str() };
+        DWORD_PTR r = 0;
+        SendMessageTimeoutW(sh, WM_COPYDATA, 0, (LPARAM)&cd, SMTO_ABORTIFHUNG, 300, &r);
+    }
+    IDesktopWallpaper* dw = nullptr;
+    bool ok = SUCCEEDED(CoCreateInstance(__uuidof(DesktopWallpaper), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&dw))) && dw
+                  ? SUCCEEDED(dw->SetWallpaper(nullptr, p.c_str()))
+                  : SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)p.c_str(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) != FALSE;
+    if (dw) dw->Release();
+    if (!ok) Flash(Tr(L"Não foi possível usar esta imagem na mesa"));
 }
 
 // keyboard: menu da seleção atual; keepPoint: usa `screen` como está (botão de ações).
@@ -5303,6 +5357,7 @@ static void SaveOptions() {
              g_listLarge, g_colSize, g_colKind, g_colDate, g_colCreated, g_relDates, g_colIcons, g_colPreview, g_pick.on ? g_pathBarUser : g_pathBar);
     if (g_sideWidthSet) fwprintf(f, L"larguraLateral=%g\n", Lay::SIDEBAR_W);
     fwprintf(f, L"ocultos=%d\n", g_showHidden ? 1 : 0);
+    fwprintf(f, L"lateralNuvem=%d\nlateralLocais=%d\nlateralEtiquetas=%d\n", g_sideCloud, g_sideDrives, g_sideTags);
     if (g_groupDl >= 0) fwprintf(f, L"grupoDownloads=%d\n", g_groupDl);
     if (g_hwnd && !g_reserva && !g_pick.on && IsWindowVisible(g_hwnd)) {
         // retângulo de tela de verdade (o da colocação é relativo à área de trabalho: vinha 24 px acima)
@@ -5338,6 +5393,9 @@ static void LoadOptions() {
         else if (k == L"textoLista") g_rowTextSize = std::clamp((float)v, 10.f, 16.f);
         else if (k == L"previa") g_showThumbs = v != 0;
         else if (k == L"ocultos") g_showHidden = v != 0;
+        else if (k == L"lateralNuvem") g_sideCloud = v != 0;
+        else if (k == L"lateralLocais") g_sideDrives = v != 0;
+        else if (k == L"lateralEtiquetas") g_sideTags = v != 0;
         else if (k == L"barraCaminho") { g_pathBar = v != 0; Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0); }
         else if (k == L"larguraLateral") { Lay::SIDEBAR_W = std::clamp((float)v, Lay::SIDEBAR_MIN, Lay::SIDEBAR_MAX); g_sideWidthSet = true; }
         else if (k == L"listaGrande") g_listLarge = v != 0;
@@ -6019,6 +6077,8 @@ static void PickerSelectionChanged() {
 }
 
 static LRESULT OnLaunchRequest(const COPYDATASTRUCT* cd);  // reserva recebendo um pedido (mais abaixo)
+static void FinderSettings();
+
 static bool HandleKey(UINT vk) {
     bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0, alt = GetKeyState(VK_MENU) < 0;
     g_caretOn = true;
@@ -6074,6 +6134,7 @@ static bool HandleKey(UINT vk) {
     if (ctrl && (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)) { SetIconSize(g_icon - 16); return true; }
     if (ctrl && vk == 'A') { for (auto& e : g_items) e.sel = true; Invalidate(); return true; }
     if (ctrl && vk == 'Z') { Undo(); return true; }
+    if (ctrl && !shift && vk == VK_OEM_COMMA) { FinderSettings(); return true; }
     if (ctrl && shift && vk == VK_OEM_PERIOD) {  // Mostrar/Ocultar arquivos ocultos (Cmd+Shift+. no Mac)
         g_showHidden = !g_showHidden;
         SaveOptions();
@@ -6950,7 +7011,9 @@ static void LoadFavorites() {
             g_favs.push_back({ s.substr(a + 1, b - a - 1), s.substr(b + 1), (wchar_t)wcstoul(s.substr(0, a).c_str(), nullptr, 16) });
         }
         fclose(f);
-        if (!g_favs.empty()) return;
+        // issue #60: o arquivo existe = a lista é a da pessoa, mesmo vazia (removendo todos, os padrões voltavam
+        // ao abrir o Finder de novo)
+        return;
     }
     // padrão: os mesmos do Finder, com as pastas do Windows
     struct KF { const KNOWNFOLDERID* id; const wchar_t* label; wchar_t glyph; };
@@ -7026,12 +7089,13 @@ static void BuildSidebar() {
     }
 
     // OneDrive faz o papel do iCloud Drive
-    std::wstring cloud = KnownFolder(FOLDERID_SkyDrive);
+    std::wstring cloud = g_sideCloud ? KnownFolder(FOLDERID_SkyDrive) : L"";
     if (!cloud.empty() && GetFileAttributesW(cloud.c_str()) != INVALID_FILE_ATTRIBUTES) {
         g_side.push_back({ L"OneDrive", L"", 0, true });
         g_side.push_back({ L"OneDrive", cloud, 0xE753, false });
     }
 
+    if (g_sideDrives) {
     g_side.push_back({ Tr(L"Locais"), L"", 0, true });
     { SideEntry pc{ Tr(L"Este Computador"), L"", 0xE7F4, false }; pc.tag = VIEW_COMPUTER; g_side.push_back(pc); }
     DWORD drives = GetLogicalDrives();
@@ -7044,13 +7108,16 @@ static void BuildSidebar() {
         std::wstring label = SHGetFileInfoW(root.c_str(), 0, &sfi, sizeof(sfi), SHGFI_DISPLAYNAME) ? sfi.szDisplayName : root;
         g_side.push_back({ label, root, (wchar_t)(type == DRIVE_REMOVABLE ? 0xE88E : 0xEDA2), false });
     }
+    }
 
+    if (g_sideTags) {
     g_side.push_back({ Tr(L"Etiquetas"), L"", 0, true });
     for (int t = 0; t < tags::COUNT; t++) {
         SideEntry e{ Tr(tags::names[t]), L"", 0, false };
         e.tagColor = tags::colors[t];
         e.tag = t;
         g_side.push_back(e);
+    }
     }
     }  // (não Leopard)
 
@@ -7099,6 +7166,72 @@ static void RemoveFavorite(int fav) {
     g_favs.erase(g_favs.begin() + fav);
     SaveFavorites();
     BuildSidebar();
+}
+
+// Ajustes do Finder (Ctrl+,, "Finder > Ajustes…" na barra de menus; issue #60: não fazia nada). Como a aba "Barra
+// Lateral" dos Ajustes do Finder do Mac: o que aparece na barra lateral, e mais as duas opções de visualização globais.
+static void FinderSettings() {
+    struct KF { const KNOWNFOLDERID* id; const wchar_t* label; wchar_t glyph; };
+    const KF defs[] = {
+        { &FOLDERID_Recent, L"Recentes", 0xE823 }, { &FOLDERID_CommonPrograms, L"Aplicativos", 0xE71D },
+        { &FOLDERID_Desktop, L"Mesa", 0xE7F4 }, { &FOLDERID_Documents, L"Documentos", 0xE8A5 },
+        { &FOLDERID_Downloads, L"Downloads", 0xE896 }, { &FOLDERID_Pictures, L"Imagens", 0xE91B },
+        { &FOLDERID_Music, L"Músicas", 0xE8D6 }, { &FOLDERID_Videos, L"Vídeos", 0xE714 }, { &FOLDERID_Profile, nullptr, 0xE80F },
+    };
+    const int N = (int)(sizeof(defs) / sizeof(defs[0]));
+    auto nome = [](const std::wstring& p) { return p.substr(p.find_last_of(L'\\') + 1); };
+    std::vector<std::wstring> paths(N);
+    std::vector<ctxmenu::Item> items;
+    ctxmenu::Item head; head.label = Tr(L"Mostrar na barra lateral:"); head.disabled = true; items.push_back(head);
+    for (int i = 0; i < N; i++) {
+        paths[i] = KnownFolder(*defs[i].id);
+        if (paths[i].empty()) continue;
+        ctxmenu::Item it; it.id = 1 + i; it.icon = defs[i].glyph;
+        it.label = defs[i].label ? Tr(defs[i].label) : nome(paths[i]);
+        for (auto& f : g_favs) if (!_wcsicmp(f.path.c_str(), paths[i].c_str())) it.checked = true;
+        items.push_back(it);
+    }
+    ctxmenu::Item sep; sep.separator = true;
+    items.push_back(sep);
+    std::wstring cl = KnownFolder(FOLDERID_SkyDrive);
+    if (!cl.empty() && GetFileAttributesW(cl.c_str()) != INVALID_FILE_ATTRIBUTES) { ctxmenu::Item c; c.label = L"OneDrive"; c.id = 40; c.checked = g_sideCloud; c.icon = 0xE753; items.push_back(c); }
+    { ctxmenu::Item c; c.label = Tr(L"Locais"); c.id = 41; c.checked = g_sideDrives; c.icon = 0xEDA2; items.push_back(c); }
+    { ctxmenu::Item c; c.label = Tr(L"Etiquetas"); c.id = 42; c.checked = g_sideTags; c.icon = 0xE8EC; items.push_back(c); }
+    items.push_back(sep);
+    { ctxmenu::Item c; c.label = Tr(L"Mostrar Arquivos Ocultos"); c.id = 50; c.checked = g_showHidden; c.shortcut = L"Ctrl+Shift+."; items.push_back(c); }
+    { ctxmenu::Item c; c.label = Tr(L"Mostrar Barra de Caminho"); c.id = 51; c.checked = g_pathBar; c.shortcut = L"Ctrl+Alt+P"; items.push_back(c); }
+    RECT wr; GetWindowRect(g_hwnd, &wr);
+    POINT pt{ wr.left + (wr.right - wr.left) / 2 - (LONG)(110 * g_scale), wr.top + (LONG)(60 * g_scale) };
+    int id = ctxmenu::ShowItems(g_hwnd, pt, items);
+    if (id >= 1 && id <= N) {
+        const std::wstring& p = paths[id - 1];
+        auto it = std::find_if(g_favs.begin(), g_favs.end(), [&](const Fav& f) { return !_wcsicmp(f.path.c_str(), p.c_str()); });
+        if (it != g_favs.end()) g_favs.erase(it);
+        else {
+            // volta no lugar dele entre os padrões (antes do primeiro padrão que vem depois dele na lista)
+            size_t at = g_favs.size();
+            for (int j = id; j < N && at == g_favs.size(); j++)
+                for (size_t k = 0; k < g_favs.size(); k++) if (!paths[j].empty() && !_wcsicmp(g_favs[k].path.c_str(), paths[j].c_str())) { at = k; break; }
+            const KF& d = defs[id - 1];
+            g_favs.insert(g_favs.begin() + at, { d.label ? Tr(d.label) : nome(p), p, d.glyph });
+        }
+        SaveFavorites();
+        BuildSidebar();
+    } else if (id >= 40 && id <= 42) {
+        bool& v = id == 40 ? g_sideCloud : id == 41 ? g_sideDrives : g_sideTags;
+        v = !v;
+        SaveOptions();
+        BuildSidebar();
+    } else if (id == 50) {
+        g_showHidden = !g_showHidden;
+        SaveOptions();
+        Reload();
+    } else if (id == 51) {
+        g_pathBar = !g_pathBar;
+        Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0);
+        SaveOptions();
+    }
+    Invalidate();
 }
 
 static void MoveFavorite(int from, int to) {  // `to` = posição de inserção antes de remover

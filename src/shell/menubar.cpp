@@ -29,6 +29,7 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include <mutex>
 #include <thread>
 #include "../comum/idioma.h"
+#include "../comum/jogos.h"
 
 static void TiqueOcultar();  // ocultar a barra automaticamente (mais abaixo, fora do namespace)
 namespace {
@@ -1666,6 +1667,25 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_cur = keep;
         return 0;
     }
+    case WM_MOUSEMOVE: {
+        // issue #58: com um menu da barra aberto, passar o ponteiro por outro título abre o menu dele, como no Mac
+        // (fecha o aberto e a barra recebe um clique no título novo depois que o laço do menu terminar)
+        if (g_open < 0 || h != g_openBar || !ctxmenu::IsOpen() || g_open >= (int)g_hits.size()) return 0;
+        Kind ko = g_hits[g_open].kind;
+        if (ko != K_LOGO && ko != K_APP && ko != K_MENU) return 0;
+        float sc = ui::Scale(h);
+        D2D1_POINT_2F p{ (short)LOWORD(l) / sc, (short)HIWORD(l) / sc };
+        for (int i = 0; i < (int)g_hits.size(); i++) {
+            const Hit& t = g_hits[i];
+            if (i == g_open || (t.kind != K_LOGO && t.kind != K_APP && t.kind != K_MENU)) continue;
+            if (p.x < t.r.left || p.x >= t.r.right || p.y < t.r.top || p.y >= t.r.bottom) continue;
+            ctxmenu::Close();
+            LONG cx = (LONG)std::lround((t.r.left + t.r.right) / 2 * sc), cy = (LONG)std::lround((t.r.top + t.r.bottom) / 2 * sc);
+            PostMessageW(h, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(cx, cy));
+            break;
+        }
+        return 0;
+    }
     case WM_BARDISPLAYS: menubar::Displays(); return 0;
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
@@ -1724,13 +1744,17 @@ void menubar::ApplyTheme() {
 }
 static bool g_fsOn;
 static HMONITOR g_fsMon;
+// issue #53: em tela cheia, como no Mac ("Em Tela Cheia Somente"), a barra aparece com o ponteiro encostado no topo e
+// some quando ele sai. Nunca em jogo (classe de motor, programa de jogo ou Direct3D exclusivo: a barra por cima tirava
+// o jogo da tela cheia) nem com a tela travada. barra_tela_cheia=0 volta a escondê-la de vez.
+static bool g_fsRevela;
 // Ocultar e mostrar automaticamente (barra_ocultar=1, Ajustes > Central de Controle, como no Mac; issue #40): a barra não
 // reserva o topo (as janelas maximizadas vão até em cima) e só aparece com o ponteiro encostado no topo da tela; some
 // quando ele sai dela (e não há menu dela aberto). Com a barra na linha do Dock não vale.
 static bool g_revelada;
 static bool Ocultar() { return shell::Setting(L"barra_ocultar", L"0") == L"1" && !menubar::Embaixo(); }
 static bool Escondida(HWND b, HMONITOR hm) {
-    if (g_fsOn && (!g_fsMon || g_fsMon == hm)) return true;
+    if (g_fsOn && (!g_fsMon || g_fsMon == hm)) return !(g_fsRevela && g_revelada);
     return Ocultar() && !g_revelada;
 }
 static void Revela(bool on) {
@@ -1749,7 +1773,7 @@ static void Revela(bool on) {
 }
 // ponteiro no topo de um monitor com barra por ~120 ms: mostra; fora dela (com folga) por ~400 ms: esconde
 static void TiqueOcultar() {
-    if (!Ocultar()) { Revela(true); return; }
+    if (!Ocultar() && !(g_fsOn && g_fsRevela)) { Revela(true); KillTimer(g_bar, 2); return; }
     POINT pt; if (!GetCursorPos(&pt)) return;
     HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{ sizeof(mi) }; if (!GetMonitorInfoW(hm, &mi)) return;
@@ -1758,7 +1782,7 @@ static void TiqueOcultar() {
     DWORD agora = GetTickCount();
     bool botao = GetAsyncKeyState(VK_LBUTTON) < 0 || GetAsyncKeyState(VK_RBUTTON) < 0;
     if (!g_revelada) {
-        bool topo = temBarra && pt.y <= mi.rcMonitor.top + 1 && !botao && !(g_fsOn && (!g_fsMon || g_fsMon == hm));
+        bool topo = temBarra && pt.y <= mi.rcMonitor.top + 1 && !botao && !(g_fsOn && !g_fsRevela && (!g_fsMon || g_fsMon == hm));
         if (!topo) { noTopo = 0; return; }
         if (!noTopo) noTopo = agora;
         if (agora - noTopo >= 120) { noTopo = 0; fora = 0; Revela(true); }
@@ -1771,13 +1795,27 @@ static void TiqueOcultar() {
 }
 void menubar::SetFullscreen(bool on, HMONITOR mon) {
     if (!g_bar) return;
-    g_fsOn = on; g_fsMon = mon;
+    bool revela = false;
+    if (on && mon && !bloqueio::Active() && shell::Setting(L"barra_tela_cheia", L"1") == L"1") {
+        QUERY_USER_NOTIFICATION_STATE q{};
+        bool d3d = SUCCEEDED(SHQueryUserNotificationState(&q)) && q == QUERY_USER_NOTIFICATION_STATE::QUNS_RUNNING_D3D_FULL_SCREEN;
+        HWND fg = GetForegroundWindow();
+        wchar_t cls[64] = {}, path[MAX_PATH] = {};
+        GetClassNameW(fg, cls, 64);
+        DWORD pid = 0; GetWindowThreadProcessId(fg, &pid);
+        if (HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) { DWORD n = MAX_PATH; QueryFullProcessImageNameW(ph, 0, path, &n); CloseHandle(ph); }
+        revela = !d3d && !jogos::ClasseDeJogo(cls) && path[0] && !jogos::ProgramaDeJogo(path);
+    }
+    if (on && (!g_fsOn || g_fsMon != mon || revela != g_fsRevela)) g_revelada = false;  // entrou em tela cheia: começa escondida
+    if (!on && g_fsOn && !Ocultar()) g_revelada = true;
+    g_fsOn = on; g_fsMon = mon; g_fsRevela = revela;
+    if (revela) SetTimer(g_bar, 2, 50, nullptr);
     std::vector<HWND> all{ g_bar };
     all.insert(all.end(), g_extras.begin(), g_extras.end());
     auto alheias = shell::AlheiasNoTopo();  // as "sempre por cima" de outros apps (issue #33) voltam por cima no fim
     struct Fim { std::vector<HWND>& a; ~Fim() { shell::DevolveAlheias(a); } } fim{ alheias };
     for (HWND b : all) {
-        bool hide = (on && (!mon || MonitorFromWindow(b, MONITOR_DEFAULTTONEAREST) == mon)) || (Ocultar() && !g_revelada);  // só a barra do monitor em tela cheia
+        bool hide = Escondida(b, MonitorFromWindow(b, MONITOR_DEFAULTTONEAREST));  // só a barra do monitor em tela cheia
         if (hide == !IsWindowVisible(b)) continue;
         ShowWindow(b, hide ? SW_HIDE : SW_SHOWNOACTIVATE);
         if (!hide) SetWindowPos(b, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);

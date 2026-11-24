@@ -48,6 +48,12 @@ const UINT_PTR T_REFRESH = 1, T_ANIM = 2, T_CARET = 3, T_FRENTE = 4, T_BARRA = 5
 // e some 0,9 s depois da última rolagem
 DWORD g_barraAte = 0;
 float MaxScroll();
+// issue #61 (sem roda do mouse não havia como rolar): como no Mac, o indicador também aparece com o ponteiro na borda
+// direita do conteúdo, fica mais largo e dá para arrastar; clicar no trilho pula uma tela. PgUp/PgDn/Home/End/Espaço rolam.
+bool g_barraHover = false;
+float g_barraPega = -1;  // arrastando: distância do clique ao topo do indicador (DIP); < 0 sem arrasto
+void BarraGeo(float maxS, float& top, float& h, float& by, float& bh);
+void LigaRelogio(HWND h);
 
 HWND g_hwnd;
 HINSTANCE g_inst;
@@ -1795,11 +1801,17 @@ void Render() {
         aj::Text(c, g_page.title, D2D1::RectF(SIDE_W + (g_tahoe ? 94 : 88), 0, s.width - 20, 50), g_tfTitle, pal.text);
 
     if (g_tahoe && !Golden()) tahoe::Panel(dc, br, PanelRect(s.height), PanelR(), g_dark);  // Golden Gate: sem painel flutuante
-    if (float maxS = MaxScroll(); maxS > 0 && GetTickCount() < g_barraAte && !g_sheet.open) {
-        float top = TOOL_H + 4, bot = s.height - 6, h = bot - top;
-        float bh = std::max(28.f, h * h / (h + maxS)), by = top + (h - bh) * std::clamp(g_scroll / maxS, 0.f, 1.f);
-        br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.38f) : D2D1::ColorF(0, 0, 0, 0.35f));
-        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(s.width - 9, by, s.width - 4, by + bh), 2.5f, 2.5f), br);
+    if (float maxS = MaxScroll(); maxS > 0 && (GetTickCount() < g_barraAte || g_barraHover || g_barraPega >= 0) && !g_sheet.open) {
+        float top, h, by, bh;
+        BarraGeo(maxS, top, h, by, bh);
+        bool largo = g_barraHover || g_barraPega >= 0;
+        if (largo) {  // o trilho do Mac ao passar o ponteiro
+            br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, 0.08f) : D2D1::ColorF(0, 0, 0, 0.05f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(s.width - 13, top, s.width - 2, top + h), 5.5f, 5.5f), br);
+        }
+        br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, largo ? 0.5f : 0.38f) : D2D1::ColorF(0, 0, 0, largo ? 0.45f : 0.35f));
+        float x0 = largo ? s.width - 11 : s.width - 9, x1 = largo ? s.width - 4 : s.width - 4, rr = (x1 - x0) / 2;
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x0, by, x1, by + bh), rr, rr), br);
     }
     DrawSidebar(c, pal, s.height);
     if (g_sheet.open) { g_hits.clear(); DrawSheet(c, pal); }
@@ -1998,6 +2010,19 @@ void Click(D2D1_POINT_2F p, bool right) {
 }
 
 float MaxScroll() { return std::max(0.f, g_contentH - (ClientDip().height - TOOL_H)); }
+// o indicador de rolagem: trilho (top, h) e o pedaço (by, bh), em DIP
+void BarraGeo(float maxS, float& top, float& h, float& by, float& bh) {
+    top = TOOL_H + 4; h = ClientDip().height - 6 - top;
+    bh = std::max(28.f, h * h / (h + maxS)); by = top + (h - bh) * std::clamp(g_scroll / maxS, 0.f, 1.f);
+}
+bool NaBarra(D2D1_POINT_2F p) { return !g_sheet.open && MaxScroll() > 0 && p.x >= ClientDip().width - 14 && p.y > TOOL_H; }
+void RolaPara(float y, bool suave) {
+    g_scrollTarget = std::clamp(y, 0.f, MaxScroll());
+    if (!suave) g_scroll = g_scrollTarget;
+    g_barraAte = GetTickCount() + 900; SetTimer(g_hwnd, T_BARRA, 950, nullptr);
+    if (suave) LigaRelogio(g_hwnd);
+    Invalidate();
+}
 float SideMaxScroll() { return std::max(0.f, g_sideH - (ClientDip().height - ACCOUNT_Y)); }
 
 // Rolagem no ritmo da tela (issue #29: "rolar engasga, principalmente nos Ajustes"). O passo vinha do SetTimer, que
@@ -2089,6 +2114,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEMOVE: {
         D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
         if (g_drag.g >= 0 && (w & MK_LBUTTON)) { SliderTo({ H_SLIDER, g_drag.track, g_drag.g, g_drag.r }, p.x); return 0; }
+        if (g_barraPega >= 0) {
+            if (!(w & MK_LBUTTON)) { g_barraPega = -1; ReleaseCapture(); Invalidate(); return 0; }
+            float maxS = MaxScroll(), top, hh, by, bh;
+            BarraGeo(maxS, top, hh, by, bh);
+            if (hh > bh) RolaPara((p.y - g_barraPega - top) / (hh - bh) * maxS, false);
+            return 0;
+        }
+        if (bool nb = NaBarra(p); nb != g_barraHover) { g_barraHover = nb; Invalidate(); }
         bool hl = p.x >= 10 && p.x < 84 && p.y < 40;
         ampliacao::Verde(h, hl && p.x >= 58 && p.x < 81);
         if (hl != g_hoverLights) { g_hoverLights = hl; Invalidate(); }
@@ -2100,10 +2133,26 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         SetCursor(LoadCursorW(nullptr, ht && ht->kind == H_SEARCH ? IDC_IBEAM : IDC_ARROW));
         return 0;
     }
-    case WM_MOUSELEAVE: ampliacao::Verde(h, false); if (g_hoverLights) { g_hoverLights = false; Invalidate(); } return 0;
+    case WM_MOUSELEAVE:
+        ampliacao::Verde(h, false);
+        if (g_hoverLights || g_barraHover) { g_hoverLights = g_barraHover = false; Invalidate(); }
+        return 0;
     case WM_SETCURSOR: if (LOWORD(l) == HTCLIENT) return TRUE; break;
-    case WM_LBUTTONDOWN: SetFocus(h); Click(ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l)), false); return 0;
+    case WM_LBUTTONDOWN: {
+        SetFocus(h);
+        D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
+        if (NaBarra(p)) {
+            float maxS = MaxScroll(), top, hh, by, bh;
+            BarraGeo(maxS, top, hh, by, bh);
+            if (p.y >= by && p.y <= by + bh) { g_barraPega = p.y - by; SetCapture(h); Invalidate(); }
+            else RolaPara(g_scrollTarget + (p.y < by ? -1 : 1) * (ClientDip().height - TOOL_H - 40), true);  // o trilho: uma tela
+            return 0;
+        }
+        Click(p, false);
+        return 0;
+    }
     case WM_LBUTTONUP:
+        if (g_barraPega >= 0) { g_barraPega = -1; ReleaseCapture(); Invalidate(); return 0; }
         if (g_drag.g >= 0) { g_drag.g = g_drag.r = -1; g_sliding = false; FlushSlide(); ReleaseCapture(); ShowPage(); Invalidate(); }
         return 0;
     case WM_MOUSEWHEEL: {
@@ -2177,6 +2226,12 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (w == VK_ESCAPE) { g_search.SetText(L"", false); g_searchFocus = false; UpdateSideVisible(); Invalidate(); return 0; }
             if (w == VK_RETURN && !g_sideVisible.empty()) { SelectSide(g_sideVisible[0]); return 0; }
             if (g_search.OnKey((UINT)w, shift, ctrl)) { g_caretAt = GetTickCount(); UpdateSideVisible(); Invalidate(); }
+            return 0;
+        }
+        if (w == VK_NEXT || w == VK_PRIOR || w == VK_HOME || w == VK_END || w == VK_SPACE) {  // rola o conteúdo
+            float tela = ClientDip().height - TOOL_H - 40;
+            float y = w == VK_HOME ? 0 : w == VK_END ? MaxScroll() : g_scrollTarget + ((w == VK_PRIOR || (w == VK_SPACE && shift)) ? -tela : tela);
+            RolaPara(y, true);
             return 0;
         }
         if (w == VK_UP || w == VK_DOWN) {  // anda pela barra lateral

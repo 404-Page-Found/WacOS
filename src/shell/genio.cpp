@@ -309,6 +309,19 @@ bool Snap(HWND h, bool show, std::vector<uint32_t>& px, int& w, int& hh) {
             // opaca, com os cantos arredondados das janelas do Windows 11 (maximizada não tem)
             UINT dpi = GetDpiForWindow(h); if (!dpi) dpi = 96;
             float r = g_a.maxed ? 0.f : 8.f * dpi / 96;
+            // issue #56: janela com as "capas" de canto do Mac (MacJanelaCanto, a DLL das barras: canto de 12 pt, 16 no
+            // Tahoe/Golden Gate) — a foto vem sem as capas, e com o canto de 8 px do Windows o gênio saía pontudo
+            if (!g_a.maxed) {
+                struct B { HWND dono; bool achou; } b{ h, false };
+                EnumWindows([](HWND w, LPARAM p) -> BOOL {
+                    auto* bb = (B*)p;
+                    if (GetWindow(w, GW_OWNER) != bb->dono) return TRUE;
+                    wchar_t c[32] = {}; GetClassNameW(w, c, 32);
+                    if (!wcscmp(c, L"MacJanelaCanto")) { bb->achou = true; return FALSE; }
+                    return TRUE;
+                }, (LPARAM)&b);
+                if (b.achou) r = (liquid::On() ? 16.f : 12.f) * dpi / 96;
+            }
             for (auto& c : px) c |= 0xFF000000;
             if (r > 0) {
                 int R = (int)std::ceil(r);

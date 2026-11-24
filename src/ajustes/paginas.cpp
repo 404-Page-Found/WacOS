@@ -1703,7 +1703,12 @@ Page CentralControle() {
                          [](bool v) { SetSetting(L"barra_ocultar", v ? L"1" : L"0"); },
                          L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.");
     ocultar.icon = 0xE8A7; ocultar.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, formato, segundos, ocultar, baixo, todos, priv }));
+    // issue #53: em tela cheia (fora de jogos) a barra aparece com o ponteiro no topo, como no Mac
+    Row telaCheia = Toggle(L"Mostrar a barra de menus em tela cheia", [] { return Setting(L"barra_tela_cheia", L"1") == L"1"; },
+                           [](bool v) { SetSetting(L"barra_tela_cheia", v ? L"1" : L"0"); },
+                           L"Com um app em tela cheia, leve o ponteiro até o topo da tela para a barra aparecer. Nunca em jogos.");
+    telaCheia.icon = 0xE740; telaCheia.iconColor = C_GRAY;
+    p.groups.push_back(G({ clock, formato, segundos, ocultar, telaCheia, baixo, todos, priv }));
     return p;
 }
 

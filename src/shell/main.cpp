@@ -154,6 +154,17 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
         if (k->dwExtraInfo != KEY_MARK) {
             bool down = w == WM_KEYDOWN || w == WM_SYSKEYDOWN;
             bool win = k->vkCode == VK_LWIN || k->vkCode == VK_RWIN;
+            // issue #60: o "soltar" do Win às vezes não passa por aqui (solto numa janela de administrador, no UAC, na
+            // tela do Ctrl+Alt+Del...). Aí o gancho achava que o Win seguia apertado: Shift+S abria a Captura de Tela e
+            // ←/→ jogavam a janela para a metade da tela. O Win desce sempre para o Windows (CallNextHookEx), então o
+            // estado real dele vale aqui; o mesmo para o Alt do seletor de apps.
+            if (!win && g_winDown && GetAsyncKeyState(VK_LWIN) >= 0 && GetAsyncKeyState(VK_RWIN) >= 0) {
+                g_winDown = false; g_capKey = 0; g_macKeyVk = 0;
+            }
+            if (g_altTab && k->vkCode != VK_LMENU && k->vkCode != VK_RMENU && k->vkCode != VK_MENU && GetAsyncKeyState(VK_MENU) >= 0) {
+                g_altTab = false;
+                PostMessageW(g_msg, WM_APP_SWITCH_END, 0, 0);
+            }
             if (win) {
                 auto mods = [] { return GetAsyncKeyState(VK_CONTROL) < 0 || GetAsyncKeyState(VK_SHIFT) < 0 || GetAsyncKeyState(VK_MENU) < 0; };
                 if (shell::nativo) {
