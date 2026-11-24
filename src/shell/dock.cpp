@@ -29,6 +29,7 @@ float g_raioPct = -1;        // dock_raio: arredondamento do fundo, 0 (reto) a 1
 float g_vidroOpac = -1;      // dock_opacidade: tinta do vidro, 0 (só o desfoque) a 1 (sólido)
 int g_vidroCor = 0;          // dock_cor: 0 automática, 1 clara, 2 escura, 3 cor de destaque
 bool g_mostraSep = true;     // dock_separador: a divisória antes de Downloads e da Lixeira
+bool g_separaAbertos = true; // dock_separar_abertos: a divisória entre os fixos e os abertos que não estão no Dock (issue #49)
 bool g_mostraLaunchpad = true;  // dock_launchpad: o Launchpad logo depois do Finder
 int g_indicador = 0;         // dock_indicador: 0 ponto, 1 traço
 bool g_minNoIcone = false;   // dock_minimizar_no_icone (issue #8): minimizada vai para o ícone do app, sem miniatura no Dock
@@ -322,6 +323,18 @@ void BuildItems() {
             g_items.insert(g_items.begin() + at, gitem);
         }
     }
+    // issue #49: os apps abertos que não estão no Dock (e os recentes) ficam depois de uma divisória, como no Mac com
+    // "Mostrar apps sugeridos e recentes": os fixos de um lado, os outros do outro. dock_separar_abertos=0 tira.
+    if (g_separaAbertos && !LEO_DOCK) {
+        bool temFixo = false;
+        for (size_t k = 0; k < g_items.size(); k++) {
+            if (g_items[k].kind != I_APP) continue;
+            const auto& a = apps::list[g_items[k].app];
+            if (a.pinned || a.finder) { temFixo = true; continue; }
+            if (temFixo) g_items.insert(g_items.begin() + k, Item{ I_SEP, -1 });
+            break;
+        }
+    }
     if (g_mostraSep || LEO_DOCK) g_items.push_back({ I_SEP, -1 });
     // Leopard: a pasta Aplicativos (que abre o Launchpad) fica à direita, depois da divisória, junto de Downloads e da
     // Lixeira, como as Pilhas do 10.5
@@ -549,6 +562,13 @@ bool IsTileShaped(UINT w, UINT h, const std::vector<BYTE>& px) {
     return true;
 }
 
+std::vector<BYTE> Jail(UINT w, UINT h, const std::vector<BYTE>& src, bool dark);
+}  // namespace
+void dock::Cela(UINT w, UINT h, std::vector<BYTE>& px) {
+    if (!TAHOE_DOCK || shell::Setting(L"dock_icones_cinza", L"1") != L"1" || IsTileShaped(w, h, px)) return;
+    px = Jail(w, h, px, ui::IconStyle() == L"escuro");
+}
+namespace {
 // Tahoe: ícone fora do formato vai para dentro de um quadrado arredondado cinza (como o macOS 26 faz com os apps
 // que não foram atualizados). O desenho fica a 70% no meio. Pixels BGRA pré-multiplicados.
 std::vector<BYTE> Jail(UINT w, UINT h, const std::vector<BYTE>& src, bool dark) {
@@ -1882,6 +1902,7 @@ static void ReadSettings() {
     std::wstring cor = shell::Setting(L"dock_cor", L"auto");
     g_vidroCor = cor == L"clara" ? 1 : cor == L"escura" ? 2 : cor == L"destaque" ? 3 : 0;
     g_mostraSep = shell::Setting(L"dock_separador", L"1") != L"0";
+    g_separaAbertos = shell::Setting(L"dock_separar_abertos", L"1") != L"0";
     g_mostraLaunchpad = shell::Setting(L"dock_launchpad", L"1") != L"0";
     g_indicador = shell::Setting(L"dock_indicador", L"ponto") == L"traco" ? 1 : 0;
     g_minNoIcone = shell::Setting(L"dock_minimizar_no_icone", L"0") == L"1";

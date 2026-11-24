@@ -964,7 +964,7 @@ ID2D1Bitmap* IconFor(ID2D1RenderTarget* rt, const Result& r) {
         if (now - g_uploadFrame > 8) { g_uploadFrame = now; g_uploads = 0; }
         if (g_uploads >= 3) { if (g_wnd) PostMessageW(g_wnd, WM_SP_ICON, 0, 0); return nullptr; }  // pede outro quadro
         g_uploads++;
-        if (r.kind == K_APP) { std::wstring st = ui::IconStyle(); if (st != L"padrao") ui::StyleIcon(ic.w, ic.h, ic.px, st); }  // Tahoe: Escuro/Transparente/Tingido também aqui
+        if (r.kind == K_APP) { dock::Cela(ic.w, ic.h, ic.px); std::wstring st = ui::IconStyle(); if (st != L"padrao") ui::StyleIcon(ic.w, ic.h, ic.px, st); }  // issue #45: o quadrado cinza também  // Tahoe: Escuro/Transparente/Tingido também aqui
         ic.bmp = ui::Bitmap(rt, ic.w, ic.h, ic.px); ic.px.clear(); ic.px.shrink_to_fit();
     }
     return ic.bmp;

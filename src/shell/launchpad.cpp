@@ -13,8 +13,10 @@
 // Tahoe: o estilo dos ícones (Escuro, Transparente, Tingido) também no Launchpad, como no Dock
 static ID2D1Bitmap* StyledBitmap(ID2D1RenderTarget* rt, UINT w, UINT h, const std::vector<BYTE>& px) {
     std::wstring st = ui::IconStyle();  // (StyleCheck, mais abaixo, solta os ícones quando o estilo ou a cor mudam)
-    if (st == L"padrao") return ui::Bitmap(rt, w, h, px);
-    std::vector<BYTE> c = px; ui::StyleIcon(w, h, c, st);
+    std::vector<BYTE> c = px;
+    dock::Cela(w, h, c);  // issue #45: o quadrado cinza do macOS 26, como no Dock
+    if (st == L"padrao") return ui::Bitmap(rt, w, h, c);
+    ui::StyleIcon(w, h, c, st);
     return ui::Bitmap(rt, w, h, c);
 }
 #include "../comum/simbolos.h"

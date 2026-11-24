@@ -656,7 +656,16 @@ void QueueIcons() {
     int gen = g_iconGen.load();
     int px = (int)std::lround(ICON * Sc());
     HWND ctl = g_ctl;
-    std::thread([todo, gen, px, ctl] {
+    // issue #48: a pasta do tema (a mesma do Finder): Tahoe e Golden Gate com a do MacTahoe, Leopard com a azul do 10.5.
+    // Antes a mesa usava sempre o ícone do sistema (a pasta do Sequoia do pacote de ícones).
+    std::wstring pastaTema;
+    if (liquid::Leopard() || liquid::On()) {
+        wchar_t e[MAX_PATH]; GetModuleFileNameW(nullptr, e, MAX_PATH);
+        std::wstring d = e; d = d.substr(0, d.find_last_of(L'\\')); d = d.substr(0, d.find_last_of(L'\\'));  // bin\ -> a pasta do WacOS
+        pastaTema = d + (liquid::Leopard() ? L"\\icones\\leopard\\folder default.png" : L"\\icones\\tahoe\\folder default.png");
+        if (GetFileAttributesW(pastaTema.c_str()) == INVALID_FILE_ATTRIBUTES) pastaTema.clear();
+    }
+    std::thread([todo, gen, px, ctl, pastaTema] {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         int n = 0;
         for (auto& p : todo) {
@@ -665,9 +674,9 @@ void QueueIcons() {
             // nativo: pasta comum com a pasta do Mac (do pacote de ícones). Sem isto vinha o ícone de pasta do Windows,
             // que na VM (sem a troca de ícones do sistema do PC) é uma folha branca. Pasta com ícone próprio (desktop.ini) fica.
             bool got = false;
-            DWORD at = shell::nativo ? GetFileAttributesW(p.c_str()) : INVALID_FILE_ATTRIBUTES;
+            DWORD at = shell::nativo || !pastaTema.empty() ? GetFileAttributesW(p.c_str()) : INVALID_FILE_ATTRIBUTES;
             if (at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY) && GetFileAttributesW((p + L"\\desktop.ini").c_str()) == INVALID_FILE_ATTRIBUTES) {
-                std::wstring png = ui::PackIcon(L"folder default");
+                std::wstring png = !pastaTema.empty() ? pastaTema : ui::PackIcon(L"folder default");
                 got = !png.empty() && ui::LoadPng(png, l.w, l.h, l.px);
             }
             if (!got && !ui::FileImage(p, px, l.w, l.h, l.px)) continue;
@@ -2023,6 +2032,11 @@ void mesa::SettingsChanged() {
     if (g_ctl) { g_closeTries = 0; Tick(); }
     { static int lastIcons = -1; int on = IconesOn() ? 1 : 0; if (lastIcons >= 0 && on != lastIcons && Primary()) Redraw(); lastIcons = on; }  // ícones ligados/desligados nos Ajustes
     if (LerMedidas() && Primary()) { ForgetIcons(); QueueIcons(); Redraw(); }  // tamanho do ícone, grade ou texto mudou
+    {   // issue #48: trocou o tema: as pastas da mesa trocam junto
+        static int temaAntes = -1; int tema = liquid::Leopard() ? 2 : liquid::On() ? 1 : 0;
+        if (temaAntes >= 0 && tema != temaAntes && Primary()) { ForgetIcons(); QueueIcons(); Redraw(); }
+        temaAntes = tema;
+    }
     if ((shell::Setting(L"mesa_pilhas", L"0") == L"1") != g_stacks && Primary()) {  // Pilhas ligadas/desligadas fora do menu da mesa
         g_openStacks.clear();
         for (auto& it : g_items) it.col = it.row = -1;

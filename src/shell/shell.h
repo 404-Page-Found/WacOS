@@ -570,6 +570,9 @@ void Start();
 }
 namespace dock {
 bool Create(HINSTANCE hi);
+// issue #45: no Tahoe e no Golden Gate, o ícone fora do formato do Mac vai para dentro do quadrado arredondado cinza
+// (dock_icones_cinza, como o macOS 26). O Dock, o Launchpad e o Spotlight usam a mesma.
+void Cela(UINT w, UINT h, std::vector<BYTE>& px);
 void Update();          // apps mudaram
 HWND Hwnd();
 HWND Fundo();  // o vidro, a janela mais de baixo do Dock

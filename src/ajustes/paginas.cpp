@@ -1765,6 +1765,8 @@ Page PersonalizarDock() {
                          [] { double v = _wtof(Setting(L"launchpad_icones", L"1").c_str()); return v < 0.78 ? 2 : v < 0.93 ? 1 : 0; },
                          [](int i) { SetSetting(L"launchpad_icones", i == 2 ? L"0.7" : i == 1 ? L"0.85" : L"1"); });
     p.groups.push_back(G({ Flag(L"Mostrar o Launchpad", L"dock_launchpad", L"1"), lpIcones, Flag(L"Mostrar a divisória", L"dock_separador", L"1"),
+                           Flag(L"Separar os apps abertos que não estão no Dock", L"dock_separar_abertos", L"1"),
+                           Flag(L"Pôr os ícones fora do formato num quadrado cinza (Tahoe e Golden Gate)", L"dock_icones_cinza", L"1"),
                            Flag(L"Mostrar o nome ao passar o ponteiro", L"dock_rotulos", L"1"), ind,
                            Flag(L"Mostrar indicadores de aplicativos abertos", L"indicadores", L"1"),
                            Flag(L"Animar aplicativos ao abrir", L"animar_abertura", L"1"),
@@ -1778,7 +1780,7 @@ Page PersonalizarDock() {
     p.groups.push_back(Plain(Buttons({ { L"Restaurar o Padrão", [] {
         for (auto k : { L"dock_espaco", L"dock_margem", L"dock_folga", L"dock_raio", L"dock_opacidade" }) SetSetting(k, L"");
         SetSetting(L"dock_cor", L"auto"); SetSetting(L"dock_indicador", L"ponto");
-        for (auto k : { L"dock_launchpad", L"dock_separador", L"dock_rotulos" }) SetSetting(k, L"1");
+        for (auto k : { L"dock_launchpad", L"dock_separador", L"dock_separar_abertos", L"dock_rotulos" }) SetSetting(k, L"1");
         Rebuild();
     } } })));
     return p;
@@ -2034,6 +2036,11 @@ Page Protetor() {
 // ================= Spotlight
 Page Spotlight() {
     Page p;
+    // issue #50: o atalho que abre o Spotlight (o Shell lê atalho_spotlight; Win+Espaço é o do Mac, Cmd+Espaço)
+    Row atalho = Popup(L"Atalho do Spotlight", { L"Win+Espaço", L"Alt+Espaço", L"Ctrl+Espaço" },
+                       [] { std::wstring v = Setting(L"atalho_spotlight", L"win"); return v == L"alt" ? 1 : v == L"ctrl" ? 2 : 0; },
+                       [](int i) { SetSetting(L"atalho_spotlight", i == 1 ? L"alt" : i == 2 ? L"ctrl" : L"win"); });
+    p.groups.push_back(G({ atalho }, L"Teclado", L"Com Alt+Espaço ou Ctrl+Espaço, o Win+Espaço volta a trocar o idioma do teclado no Windows."));
     p.groups.push_back(G({ Uri(L"Permissões de Pesquisa", L"ms-settings:search-permissions", 0xE721, C_GRAY),
                            Uri(L"Pesquisa no Windows (Indexação)", L"ms-settings:cortana-windowssearch", 0xE8B7, C_BLUE) },
                          L"Resultados da Pesquisa", L"O Spotlight usa o índice de pesquisa do Windows para achar arquivos."));

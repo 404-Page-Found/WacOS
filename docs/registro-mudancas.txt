@@ -1761,3 +1761,17 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - limites.cpp e main.cpp (ApplyWorkArea): ignoram as janelas estacionadas (palco::Estacionada), senão elas voltavam.
   Compilado e instalado. NÃO visto ligado: ligar estaciona as janelas do usuário; fica para ele ligar na Central.
   DESFAZER: reverter o commit (o palco.cpp anterior escondia com apps::Hide).
+[2026-11-23 21:30] Issues #45, #47, #48, #49, #50 e #51:
+  - notificacoes.cpp (#51): com o Liquid Glass de verdade (vidro real), a Central de Notificações usa o mesmo vidro da
+    Central de Controle (backdrop::Attach + SetPieces): cada cartão é uma peça com a lente dela. Sem ele, o fosco de antes.
+  - widgets.cpp (#47): a grade dos widgets estica o passo na horizontal (Colunas, PassoX) e a última coluna fica rente à
+    margem esquerda. Antes sobrava até quase uma casa inteira na esquerda. Os índices das casas não mudam.
+  - mesa.cpp (#48): as pastas da mesa usam o ícone do tema (icones\tahoe no Tahoe e no Golden Gate, icones\leopard no
+    Leopard), como o Finder, e trocam quando o tema muda.
+  - dock.cpp (#49): divisória entre os apps fixos e os abertos que não estão no Dock (dock_separar_abertos, Ajustes >
+    Mesa e Dock).
+  - main.cpp (#50): atalho do Spotlight à escolha em Ajustes > Spotlight (atalho_spotlight: win, alt ou ctrl + Espaço).
+  - dock.cpp, launchpad.cpp, spotlight.cpp (#45): o quadrado cinza do macOS 26 para ícones fora do formato (já existia no
+    Dock do Tahoe, dock_icones_cinza) agora vale no Launchpad e no Spotlight e tem a opção nos Ajustes.
+  Compilado (shell, ajustes) e instalado. NÃO visto na tela: o WacOS foi fechado pelo usuário antes do teste.
+  DESFAZER: reverter o commit.

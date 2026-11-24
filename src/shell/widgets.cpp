@@ -737,10 +737,15 @@ Grid GridNow(HWND h) {
 }
 int Cols(const Widget& w) { return w.w > SMALL + 1 ? 2 : 1; }
 int Rows(const Widget& w) { return w.h > SMALL + 1 ? 2 : 1; }  // o grande ocupa 2 × 2 casas
-int MaxRc(const Grid& g, const Widget& w) { return std::max(0, (int)std::floor((g.right - g.left - 2 * MARGIN - w.w) / PITCH)); }
+// issue #47: as colunas contadas da direita com o passo fixo deixavam sobrar até quase uma casa inteira na esquerda,
+// e nenhum widget ia até a borda esquerda. O passo na horizontal agora se estica um pouco (as colunas cobrem a largura
+// toda, de margem a margem): a última coluna fica rente à margem esquerda. Os índices das casas não mudam.
+int Colunas(const Grid& g) { return std::max(1, (int)std::floor((g.right - g.left - 2 * MARGIN - SMALL) / PITCH) + 1); }
+float PassoX(const Grid& g) { int n = Colunas(g); return n > 1 ? (g.right - g.left - 2 * MARGIN - SMALL) / (n - 1) : PITCH; }
+int MaxRc(const Grid& g, const Widget& w) { return std::max(0, Colunas(g) - Cols(w)); }
 int MaxRow(const Grid& g, const Widget& w) { return std::max(0, (int)std::floor((g.bottom - g.top - 2 * MARGIN - w.h) / PITCH)); }
 POINT CellPx(const Grid& g, const Widget& w, int rc, int row) {  // rc: casa da borda direita do widget, contando da direita
-    float x = g.right - MARGIN - w.w - rc * PITCH, y = g.top + MARGIN + row * PITCH;
+    float x = g.right - MARGIN - w.w - rc * PassoX(g), y = g.top + MARGIN + row * PITCH;
     return { (LONG)std::lround(x * g.sc), (LONG)std::lround(y * g.sc) };
 }
 bool Overlaps(const Widget& w, int rc, int row) {

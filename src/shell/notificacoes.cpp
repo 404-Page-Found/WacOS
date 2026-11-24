@@ -302,6 +302,11 @@ struct GlassHost {  // uma janela de fundo: o painel e o banner têm cada um a s
 };
 GlassHost g_hostPanel, g_hostBanner, *g_host = &g_hostPanel;
 bool g_hasGlass;
+// issue #51: com o Liquid Glass de verdade (vidro real, com refração) o painel usa o mesmo vidro da Central de Controle
+// (backdrop::SetPieces): cada cartão é uma peça com a lente dela. Sem ele, o fosco de antes (GlassHost).
+bool g_real;
+std::vector<backdrop::Piece> g_pecas;
+D2D1_COLOR_F g_pecaTinta = D2D1::ColorF(0.13f, 0.13f, 0.14f, 0.5f);  // a tinta dos cartões (vem do GlassRect)
 
 bool GlassInit(HWND h, GlassHost& host) {
     try {
@@ -330,6 +335,11 @@ bool GlassInit(HWND h, GlassHost& host) {
 
 // um retângulo de vidro (px); cutTop: só aparece abaixo dessa linha (camadas da pilha)
 void GlassRect(D2D1_RECT_F r, float radius, D2D1_COLOR_F tint, float alpha, float cutTop = -1e9f) {
+    if (g_real && g_host == &g_hostPanel) {  // vidro real: só junta a peça (o recorte das camadas da pilha vira o topo dela)
+        if (cutTop > r.top) r.top = cutTop;
+        if (r.bottom - r.top > 2 && alpha > 0.05f) { if (g_pecas.empty()) g_pecaTinta = tint; g_pecas.push_back({ r, radius }); }
+        return;
+    }
     if (!g_hasGlass) return;
     if (!g_host->root) return;
     if (g_host->used == g_host->pool.size()) {
@@ -370,6 +380,12 @@ void GlassRect(D2D1_RECT_F r, float radius, D2D1_COLOR_F tint, float alpha, floa
 }
 
 void GlassEnd() {
+    if (g_real && g_host == &g_hostPanel) {
+        RECT wr; GetClientRect(g_back, &wr);
+        backdrop::SetPieces(g_back, (float)(wr.right - wr.left), (float)(wr.bottom - wr.top), g_pecas, g_pecaTinta);
+        g_pecas.clear();
+        return;
+    }
     if (!g_hasGlass) return;
     for (size_t i = g_host->used; i < g_host->pool.size(); i++) g_host->pool[i].outer.IsVisible(false);
 }
@@ -1902,7 +1918,9 @@ bool notificacoes::Create(HINSTANCE hi) {
     g_back = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, bc.lpszClassName, L"", WS_POPUP,
                              0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     if (!g_wnd || !g_back) return false;
-    g_hasGlass = GlassInit(g_back, g_hostPanel);
+    g_real = backdrop::Liquid() && backdrop::Real() && backdrop::Attach(g_back);  // issue #51
+    if (!g_real) g_hasGlass = GlassInit(g_back, g_hostPanel);
+    Log(L"notificações: vidro %ls", g_real ? L"real (Liquid Glass, como a Central)" : L"fosco");
     DWORD corner = 1; DwmSetWindowAttribute(g_back, 33, &corner, sizeof(corner));
     COLORREF none = 0xFFFFFFFE;
     DwmSetWindowAttribute(g_back, 34, &none, sizeof(none));

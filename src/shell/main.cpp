@@ -79,6 +79,10 @@ static bool g_capturaExe;   // WacOSScreenshot.exe existe: Win+Shift+3/4/5/S sã
 const UINT WM_APP_MACKEY = WM_APP + 43;
 const UINT WM_APP_EXPOSE = WM_APP + 44;  // Ctrl+Win+↓: Exposé do app da frente (Ctrl+↓ no Mac)
 static volatile bool g_macKeys = true;
+// issue #50: o atalho do Spotlight (ajuste atalho_spotlight): 0 Win+Espaço (o do Mac, Cmd+Espaço), 1 Alt+Espaço, 2 Ctrl+Espaço
+static volatile int g_spotAtalho = 0;
+static bool g_spotSegura;  // o Espaço do atalho apertado (a repetição e o soltar também são nossos)
+static int LeAtalhoSpot() { std::wstring v = shell::Setting(L"atalho_spotlight", L"win"); return v == L"alt" ? 1 : v == L"ctrl" ? 2 : 0; }
 static DWORD g_macKeyVk;    // a tecla do atalho: soltar também é nosso (o app não vê uma letra solta)
 static DWORD g_capKey;      // tecla do atalho da Captura de Tela ainda segurada
 static bool g_fullHook = true;  // false: o gancho só existe para a tela de bloqueio (tecla Windows do Launchpad desligada)
@@ -112,6 +116,23 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
         // atual do Windows (a mesma que a Ilha mostra), sem depender do caminho do Explorador
         auto* k = (KBDLLHOOKSTRUCT*)l;
         DWORD vk = k->vkCode;
+        // issue #50: Alt+Espaço ou Ctrl+Espaço abrem o Spotlight (quando escolhidos em Ajustes > Spotlight)
+        if (g_spotAtalho && k->dwExtraInfo != KEY_MARK && vk == VK_SPACE) {
+            bool down = w == WM_KEYDOWN || w == WM_SYSKEYDOWN;
+            bool alt = (k->flags & LLKHF_ALTDOWN) != 0, ctrl = GetAsyncKeyState(VK_CONTROL) < 0, shift = GetAsyncKeyState(VK_SHIFT) < 0;
+            bool win = GetAsyncKeyState(VK_LWIN) < 0 || GetAsyncKeyState(VK_RWIN) < 0;
+            bool combina = !shift && !win && (g_spotAtalho == 1 ? alt && !ctrl : ctrl && !alt);
+            if (down && combina) {
+                if (!g_spotSegura) {
+                    // a tecla muda (0xE8): o Alt solto depois não vira um "Alt sozinho" (que abre o menu do app da frente)
+                    if (alt) { Inject(0xE8, false); Inject(0xE8, true); }
+                    PostMessageW(g_msg, WM_APP_SPOTLIGHT, 0, 0);
+                }
+                g_spotSegura = true;
+                return 1;
+            }
+            if (!down && g_spotSegura) { g_spotSegura = false; return 1; }
+        }
         if (k->dwExtraInfo != KEY_MARK && (vk == VK_MEDIA_PLAY_PAUSE || vk == VK_MEDIA_NEXT_TRACK || vk == VK_MEDIA_PREV_TRACK || vk == VK_MEDIA_STOP)) {
             if (w == WM_KEYDOWN || w == WM_SYSKEYDOWN) PostMessageW(g_msg, WM_APP_VOLUME, vk, 0);
             return 1;
@@ -192,7 +213,7 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 // Ctrl+Alt+Esc: Forçar Encerrar Aplicativos (Command+Option+Esc do Mac)
                 PostMessageW(g_msg, WM_APP_MONITOR, 1, 0);
                 return 1;
-            } else if (k->vkCode == VK_SPACE && g_winDown && (!g_winCombo || g_winEaten)) {
+            } else if (k->vkCode == VK_SPACE && g_winDown && (!g_winCombo || g_winEaten) && g_spotAtalho == 0) {
                 // Win+Espaço: o Spotlight (Cmd+Espaço no Mac; no Windows trocaria o idioma do teclado).
                 // Segurando o Win, cada Espaço abre/fecha de novo; repetição de tecla segurada não conta e
                 // nenhum Espaço chega ao app de baixo
@@ -1119,6 +1140,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     if (m == reload && reload) {  // o Ajustes do Sistema gravou ajustes.txt
         g_macKeys = !shell::SoDock() && shell::Setting(L"atalhos_mac", L"1") == L"1";
+        g_spotAtalho = LeAtalhoSpot();
         static int lastLiquid = -1;
         if (lastLiquid < 0) lastLiquid = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On();
         static int lastTheme = -1;  // 0 Sequoia, 1 Tahoe, 2 Golden Gate, 3 Leopard
@@ -1448,6 +1470,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // só Dock: a tecla Windows, o Alt+Tab e a captura de tela ficam com o Windows (o gancho só deixa passar)
     g_fullHook = !soDock && shell::Setting(L"tecla_windows_launchpad", L"1") == L"1";
     g_macKeys = !soDock && shell::Setting(L"atalhos_mac", L"1") == L"1";
+    g_spotAtalho = LeAtalhoSpot();
     g_capturaExe = !soDock && GetFileAttributesW((shell::dir + L"\\" EXE_SCREENSHOT).c_str()) != INVALID_FILE_ATTRIBUTES;
     if (!soDock) EnsureScreenshot();
     g_volumeKeys = shell::Setting(L"volume_mac", L"1") == L"1";
