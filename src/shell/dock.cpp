@@ -413,12 +413,28 @@ void Layout() {
     // para fora do Dock, o lugar dele fecha. g_dragTo guarda a posição de destino (índice em apps::list).
     std::vector<int> order;
     for (int i = 0; i < (int)g_items.size(); i++) order.push_back(i);
-    int drag = g_dragging && g_press >= 0 && g_press < (int)g_items.size() && g_items[g_press].kind == I_APP && apps::list[g_items[g_press].app].pinned ? g_press : -1;
+    // App aberto ou recente (depois da divisória) também: levado para cima dos fixos, abre o espaço e, solto ali, fica
+    // fixo nesse lugar (como no Mac). Longe dos fixos ele fica onde está.
+    int drag = g_dragging && g_press >= 0 && g_press < (int)g_items.size() && g_items[g_press].kind == I_APP && !apps::list[g_items[g_press].app].finder ? g_press : -1;
+    bool dragFixo = drag >= 0 && apps::list[g_items[drag].app].pinned;
     g_dragTo = -1;
     if (drag >= 0) {
         order.erase(std::find(order.begin(), order.end(), drag));
         total -= wv[drag];
-        if (!g_dragOut) {
+        bool longe = false;  // não fixo e o ponteiro fora da área dos fixos: sem espaço aberto
+        if (!dragFixo && !g_dragOut) {
+            float xx = (W - total - wv[drag]) / 2 + PAD_X, fimFixos = -1;
+            for (int k = 0; k < (int)order.size(); k++) {
+                auto& it = g_items[order[k]];
+                xx += wv[order[k]];
+                if (it.kind == I_APP && (apps::list[it.app].pinned || apps::list[it.app].finder)) fimFixos = xx;
+            }
+            longe = fimFixos < 0 || g_mouseX > fimFixos + wv[drag] * 0.5f;
+        }
+        if (longe || (g_dragOut && !dragFixo)) {
+            order.insert(order.begin() + std::min(drag, (int)order.size()), drag);
+            total += wv[drag];
+        } else if (!g_dragOut) {
             // centros sem o arrastado; o lugar novo fica entre os fixos, depois do Finder e do Launchpad
             float xx = (W - total - wv[drag]) / 2 + PAD_X;
             int pos = -1, firstPinned = -1, lastPinned = -1;
@@ -1836,6 +1852,15 @@ LRESULT CALLBACK IconsProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 }
                 else if (a.pinned && g_dragTo >= 0 && g_dragTo != g_items[p].app)  // o lugar aberto ao vivo no Dock
                     apps::Move(g_items[p].app, std::clamp(g_dragTo, 1, (int)apps::list.size() - 1));
+                else if (!a.pinned && g_dragTo >= 0) {  // app aberto/recente solto entre os fixos: fica fixo ali
+                    std::wstring id = a.id;
+                    int to = g_dragTo;
+                    apps::SetPinned(a, true);  // vai para o fim dos fixos
+                    int idx = -1;
+                    for (int k = 0; k < (int)apps::list.size(); k++) if (apps::list[k].id == id) { idx = k; break; }
+                    if (idx > 0 && to != idx) apps::Move(idx, std::clamp(to, 1, idx));
+                    Log(L"dock: %ls fixado no Dock pelo arraste (lugar %d)", id.c_str(), to);
+                }
             }
             g_dragOut = false;
             BuildItems();

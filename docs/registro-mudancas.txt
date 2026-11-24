@@ -1881,3 +1881,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     antes disso é amarelo (o Shell solta memória sem abrir a janela).
   Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-24 21:10] Dock: arrastar um app aberto ou recente (depois da divisória) para a área dos fixos abre o espaço ao vivo
+  e, solto ali, o app fica fixo naquele lugar (como no Mac). Longe dos fixos ele fica onde está; fora do Dock não faz nada.
+  dock.cpp (Layout: drag também para não fixos; WM_LBUTTONUP: SetPinned + Move). Pedido do usuário. Não testado na tela.
+  DESFAZER: reverter o commit e rodar build.cmd shell.
