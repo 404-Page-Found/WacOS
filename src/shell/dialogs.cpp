@@ -10,6 +10,7 @@
 #include "shell.h"
 #include <shlobj.h>
 #include <shlwapi.h>
+#include <commctrl.h>
 #include <UIAutomation.h>
 #include <algorithm>
 #include <atomic>
@@ -263,6 +264,38 @@ std::wstring CurrentFolder(HWND dlg, bool* porNome = nullptr) {
     return c.found;
 }
 
+bool SameFolder(const std::wstring& a, const std::wstring& b);
+// Entra na pasta pela barra de endereço da janela original (a caixa de texto do "Address Band Root", que existe mesmo
+// escondida atrás do caminho em migalhas): texto + Enter, sem o OK. Issue #35 (Illustrator e outros da Adobe): com a
+// pasta no campo do nome + OK, o diálogo deles fechava e salvava "Sem título-1" na pasta de antes. true = a original
+// está na pasta; false = não deu (sem a barra, ou não entrou em 4 s): segue o jeito antigo.
+bool EntraPelaBarra(HWND dlg, const std::wstring& dir) {
+    struct C { HWND combo = nullptr; } c;
+    EnumChildWindows(dlg, [](HWND w, LPARAM p) -> BOOL {
+        wchar_t cls[32] = {}; GetClassNameW(w, cls, 32);
+        if (wcscmp(cls, L"ComboBoxEx32")) return TRUE;
+        for (HWND a = GetParent(w); a; a = GetParent(a)) {
+            wchar_t pc[32] = {}; GetClassNameW(a, pc, 32);
+            if (!wcscmp(pc, L"Address Band Root")) { ((C*)p)->combo = w; return FALSE; }
+        }
+        return TRUE;
+    }, (LPARAM)&c);
+    if (!c.combo) return false;
+    DWORD_PTR r = 0;
+    HWND edit = SendMessageTimeoutW(c.combo, CBEM_GETEDITCONTROL, 0, 0, SMTO_ABORTIFHUNG, 3000, &r) ? (HWND)r : nullptr;
+    if (!edit) return false;
+    SendMessageTimeoutW(edit, WM_SETTEXT, 0, (LPARAM)dir.c_str(), SMTO_ABORTIFHUNG, 3000, nullptr);
+    SendMessageTimeoutW(edit, WM_KEYDOWN, VK_RETURN, 0x001C0001, SMTO_ABORTIFHUNG, 3000, nullptr);
+    SendMessageTimeoutW(edit, WM_CHAR, L'\r', 0x001C0001, SMTO_ABORTIFHUNG, 3000, nullptr);
+    SendMessageTimeoutW(edit, WM_KEYUP, VK_RETURN, 0xC01C0001, SMTO_ABORTIFHUNG, 3000, nullptr);
+    ULONGLONG ate = GetTickCount64() + 4000;
+    while (IsWindow(dlg) && GetTickCount64() < ate) {
+        Sleep(40);
+        if (SameFolder(CurrentFolder(dlg), dir)) return true;
+    }
+    return false;
+}
+
 bool SameFolder(const std::wstring& a, const std::wstring& b) {
     if (a.empty() || b.empty()) return false;
     std::wstring x = a, y = b;
@@ -365,6 +398,11 @@ void Finish(const Request& r, const std::vector<std::wstring>& paths, int type) 
         bool jaNela = !porNome && SameFolder(atual, dir);
         Log(L"  original em '%ls'%ls; escolhida '%ls'", atual.c_str(), porNome ? L" (pelo nome)" : L"", dir.c_str());
         if (jaNela) value = PathFindFileNameW(paths[0].c_str());
+        if (!dir.empty() && !jaNela && EntraPelaBarra(r.dlg, dir)) {
+            Log(L"  original na pasta escolhida pela barra de endereço");
+            value = PathFindFileNameW(paths[0].c_str());
+            jaNela = true;
+        }
         if (!dir.empty() && !jaNela) {
             PoeTexto(r.dlg, edit, dir);
             SendMessageTimeoutW(r.dlg, WM_COMMAND, IDOK, (LPARAM)GetDlgItem(r.dlg, IDOK), SMTO_NORMAL, 10000, nullptr);

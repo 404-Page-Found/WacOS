@@ -1764,3 +1764,6 @@
 { L"Digitação por voz do Windows", L"Digitazione vocale di Windows" },
 { L"Mostrar o Finder", L"Mostra il Finder" },
 { L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"Se disattivato, il Finder appare nel Dock solo con una finestra aperta." },
+{ L"Altura da barra de menus", L"Altezza della barra dei menu" },
+{ L"Menor", L"Più bassa" },
+{ L"Maior", L"Più alta" },

@@ -1764,3 +1764,6 @@
 { L"Digitação por voz do Windows", L"Windows 음성 입력" },
 { L"Mostrar o Finder", L"Finder 보기" },
 { L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"끄면 Finder는 윈도우가 열려 있을 때만 Dock에 나타납니다." },
+{ L"Altura da barra de menus", L"메뉴 막대 높이" },
+{ L"Menor", L"작게" },
+{ L"Maior", L"크게" },

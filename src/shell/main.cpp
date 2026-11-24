@@ -1176,6 +1176,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring baixo = shell::Setting(L"barra_embaixo", L"0");
             if (baixo != lastBaixo) { menubar::Displays(); dock::ReloadSettings(); }
             lastBaixo = baixo;
+            static std::wstring lastAltura = L"?";  // altura da barra de menus (issue #68): a área de trabalho muda junto
+            std::wstring altura = shell::Setting(L"barra_altura", L"padrao");
+            if (lastAltura != L"?" && altura != lastAltura) { menubar::Displays(); dock::ReloadSettings(); shell::ApplyWorkArea(); }
+            lastAltura = altura;
             static std::wstring lastOcultar = L"?";  // ocultar a barra de menus automaticamente (issue #40)
             std::wstring ocultar = shell::Setting(L"barra_ocultar", L"0");
             if (lastOcultar != L"?" && ocultar != lastOcultar) { menubar::Displays(); dock::ReloadSettings(); }

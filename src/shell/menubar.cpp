@@ -37,7 +37,18 @@ namespace {
 const float BAR_PT_SEQUOIA = 26;  // altura da barra (telas sem entalhe; um pouco maior que os 24 pt do Mac, para telas grandes)
 // Tahoe: 30 pt, medido no macOS 26 (guia macOS26-Theme-Reference, seções 13 e 35: frame.maxY − visibleFrame.maxY)
 // Leopard: 22 pt, a barra do Mac OS X 10.5
-#define BAR_PT (liquid::On() ? 30.f : liquid::Leopard() ? 22.f : BAR_PT_SEQUOIA)
+// issue #68: Ajustes > Central de Controle > "Altura da barra de menus" (barra_altura = menor | padrao | maior): -3 ou
+// +6 pt sobre a do tema. Lida no máximo uma vez por segundo (o BAR_PT é usado a cada desenho).
+static float BarExtra() {
+    static float v = 0; static ULONGLONG quando = 0;
+    if (!quando || GetTickCount64() - quando > 1000) {
+        quando = GetTickCount64();
+        std::wstring a = shell::Setting(L"barra_altura", L"padrao");
+        v = a == L"maior" ? 6.f : a == L"menor" ? -3.f : 0.f;
+    }
+    return v;
+}
+#define BAR_PT ((liquid::On() ? 30.f : liquid::Leopard() ? 22.f : BAR_PT_SEQUOIA) + BarExtra())
 const float PAD_SEQUOIA = 10;     // espaço de cada lado de um ícone de status (Mac: ~10 pt, um item a cada ~38 pt)
 // Tahoe (guia, seção 35): cada item da direita = o ícone + ~8 pt de respiro de cada lado (31–42 pt por item)
 #define PAD (liquid::On() ? 8.f : PAD_SEQUOIA)

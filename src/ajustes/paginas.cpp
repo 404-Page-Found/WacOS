@@ -1727,7 +1727,12 @@ Page CentralControle() {
                            [](bool v) { SetSetting(L"barra_tela_cheia", v ? L"1" : L"0"); },
                            L"Com um app em tela cheia, leve o ponteiro até o topo da tela para a barra aparecer. Nunca em jogos.");
     telaCheia.icon = 0xE740; telaCheia.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, formato, segundos, ocultar, telaCheia, baixo, todos, priv }));
+    // issue #68: a altura da barra (a do tema, menos 3 ou mais 6 pt)
+    Row altura = Popup(L"Altura da barra de menus", { L"Menor", L"Padrão", L"Maior" },
+                       [] { std::wstring a = Setting(L"barra_altura", L"padrao"); return a == L"menor" ? 0 : a == L"maior" ? 2 : 1; },
+                       [](int i) { SetSetting(L"barra_altura", i == 0 ? L"menor" : i == 2 ? L"maior" : L"padrao"); });
+    altura.icon = 0xE8A7; altura.iconColor = C_GRAY;
+    p.groups.push_back(G({ clock, formato, segundos, ocultar, telaCheia, altura, baixo, todos, priv }));
     return p;
 }
 

@@ -1764,3 +1764,6 @@
 { L"Digitação por voz do Windows", L"Escritura por voz de Windows" },
 { L"Mostrar o Finder", L"Mostrar el Finder" },
 { L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"Desactivado, el Finder solo aparece en el Dock con una ventana abierta." },
+{ L"Altura da barra de menus", L"Altura de la barra de menús" },
+{ L"Menor", L"Menor" },
+{ L"Maior", L"Mayor" },

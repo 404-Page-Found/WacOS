@@ -1885,3 +1885,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   e, solto ali, o app fica fixo naquele lugar (como no Mac). Longe dos fixos ele fica onde está; fora do Dock não faz nada.
   dock.cpp (Layout: drag também para não fixos; WM_LBUTTONUP: SetPinned + Move). Pedido do usuário. Não testado na tela.
   DESFAZER: reverter o commit e rodar build.cmd shell.
+[2026-11-24 22:05] Issues #35 e #68:
+  - #35 (Illustrator/Adobe salvando na pasta do último uso): o log do usuário parava logo depois de "original em ...;
+    escolhida ...": com a pasta no campo do nome + OK, o diálogo da Adobe fechava e salvava "Sem título-1" na pasta de
+    antes. dialogs.cpp EntraPelaBarra: antes, a original entra na pasta pela barra de endereço (a caixa de texto do
+    ComboBoxEx32 do "Address Band Root": texto + Enter, sem OK) e só recebe o nome; se não entrar em 4 s, o jeito
+    antigo. Não testado (sem a Adobe aqui).
+  - #68: Ajustes > Central de Controle > "Altura da barra de menus" (Menor -3 pt / Padrão / Maior +6 pt, barra_altura);
+    menubar.cpp BAR_PT soma BarExtra(); main.cpp refaz as barras e a área de trabalho quando muda. Não testado na tela.
+  DESFAZER: reverter o commit e compilar.

@@ -1764,3 +1764,6 @@
 { L"Digitação por voz do Windows", L"Голосовой ввод Windows" },
 { L"Mostrar o Finder", L"Показывать Finder" },
 { L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"Если выключено, Finder появляется в Dock только с открытым окном." },
+{ L"Altura da barra de menus", L"Высота строки меню" },
+{ L"Menor", L"Меньше" },
+{ L"Maior", L"Больше" },

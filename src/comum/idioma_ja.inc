@@ -1764,3 +1764,6 @@
 { L"Digitação por voz do Windows", L"Windows の音声入力" },
 { L"Mostrar o Finder", L"Finder を表示" },
 { L"Desligado, o Finder só aparece no Dock com uma janela aberta.", L"オフにすると、Finder はウインドウが開いているときだけ Dock に表示されます。" },
+{ L"Altura da barra de menus", L"メニューバーの高さ" },
+{ L"Menor", L"小さく" },
+{ L"Maior", L"大きく" },
