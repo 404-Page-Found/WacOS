@@ -1011,6 +1011,11 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         DWORD now = GetTickCount();
         if (now - win > 1000) { win = now; n = 0; }
         if (++n <= 8) shell::ApplyWorkArea();  // no máximo 8 por segundo (se alguém brigar sem parar, não gira em laço)
+        // issue #62: a barra do Windows em "ocultar automaticamente" ligada DEPOIS do início (ou no primeiro início, com o
+        // Explorador ainda subindo e o estado dela lido vazio) brigava pela área de trabalho: maximizar o Chrome fazia a tela
+        // inteira "piscar". A conferência do início (#37) só rodava uma vez e não no modo nativo; agora a briga mesmo
+        // (3 ou mais trocas em 1 s) desliga o ocultar automático até o Shell sair (volta sozinho ao sair).
+        if (n == 3) OcultarAutomaticoOff();
     }
     static UINT reload = RegisterWindowMessageW(L"ShellAjustesMudaram");
     static UINT openCC = RegisterWindowMessageW(L"ShellAbrirCentral");  // abre/fecha a Central de Controle de fora

@@ -1826,3 +1826,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     do gênio; era o de 8 px do Windows e o canto saía pontudo.
   - traduções novas nos 11 idiomas.
   DESFAZER: reverter o commit e compilar (build.cmd e build.cmd janelas).
+[2026-11-24 17:10] Issue #62 (barra do Windows em ocultar automaticamente; maximizar o Chrome fazia a tela piscar):
+  - src\shell\main.cpp MsgProc: a conferência do início (#37) desligava o ocultar automático só uma vez e fora do modo
+    nativo. Agora, se o Explorador devolve a área de trabalho 3 vezes em 1 s (a briga), o Shell desliga o ocultar
+    automático na hora; ele volta ao sair (SecondaryTaskbarsRestore, como antes). Não testado (WacOS fechado).
+  DESFAZER: reverter o commit e rodar build.cmd shell.
