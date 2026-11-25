@@ -248,7 +248,8 @@ Lista viva: o que ainda não funciona como no macOS, ou que é limitação do Wi
 - Atalhos: Win+L (com a política abaixo) e Ctrl+Win+Q (o Control+Command+Q do Mac, sempre funciona).
 - Sem senha própria, a senha é conferida com `LogonUserW` (logon interativo, conta local ou Microsoft) numa thread; nunca é
   gravada e a cópia é zerada. Erros que não são "senha errada" (ex.: senha expirada, tipo de logon negado)
-  **aceitam** e ficam no `bin\shell.log`, para nunca trancar o dono para fora. Depois de 3 erros a tela espera
+  **mantêm a tela travada** (fail closed, a senha nunca é aceita sem o Windows confirmar) e ficam no `bin\shell.log`;
+  desbloquear pelo Ctrl+Alt+Del → Bloquear continua disponível. Depois de 3 erros a tela espera
   1 min (4: 5 min; 5+: 15 min), para não disparar o bloqueio de conta do Windows (10 tentativas).
 - **Saídas de emergência** (nenhuma deixa a sessão aberta):
   - Ctrl+Alt+Del → Bloquear → desbloqueie com o PIN/senha do Windows: ao voltar, a nossa tela some sozinha.
