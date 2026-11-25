@@ -3,6 +3,9 @@
 // tools\atualizar-github.ps1 -Verificar numa thread. Se o GitHub tem uma versão mais nova que a instalada
 // (bin\versao.txt), mostra uma notificação "Atualizações Disponíveis" uma vez por versão (atualizacao_avisada=).
 // Clicar nela abre o Ajustes na página de Atualização de Software (notificacoes.cpp, OpenApp).
+// Com "Instalar atualizações automaticamente" (atualizacao_automatica, desligado por padrão) a versão nova é
+// baixada e instalada sozinha (o mesmo script, sem janela; instalar.ps1 -Atualizar -Silencioso troca só os
+// programas e mantém os ajustes, e o WacOS fecha e abre de novo), com um aviso antes de começar (issue #102).
 //
 // A notificação é do Windows (vira o banner do Mac pela Central de Notificações): o remetente é o AUMID
 // WacOS.Atualizacao, registrado em HKCU\Software\Classes\AppUserModelId\WacOS.Atualizacao (nome e ícone que o
@@ -29,8 +32,8 @@ std::wstring Root() { return shell::dir.substr(0, shell::dir.find_last_of(L'\\')
 
 // Uma checagem (≈ 2 a 10 s, rede): atual= e novo= do script
 void Checar() {
-    // aviso desligado: nem confere (antes rodava o PowerShell e ia à rede a cada 6 h só para não mostrar nada)
-    if (shell::Setting(L"avisar_atualizacao", L"1") == L"0") return;
+    // aviso e instalação automática desligados: nem confere (antes rodava o PowerShell e ia à rede a cada 6 h só para não mostrar nada)
+    if (shell::Setting(L"avisar_atualizacao", L"1") == L"0" && shell::Setting(L"atualizacao_automatica", L"0") == L"0") return;
     std::wstring script = Root() + L"\\tools\\atualizar-github.ps1";
     if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) return;
     wchar_t tmp[MAX_PATH], f[MAX_PATH];
@@ -131,6 +134,33 @@ bool atualizacao::Handle(UINT m) {
     int n = 0;
     { std::lock_guard<std::mutex> lk(g_mx); atual = g_atual; novo = g_novo; n = g_mudancas; }
     if (novo.empty()) return true;
+    if (shell::Setting(L"atualizacao_automatica", L"0") != L"0") {  // baixar e instalar sozinho (issue #102)
+        if (shell::Setting(L"atualizacao_avisada", L"") == novo) return true;  // uma tentativa por versão
+        shell::SetSetting(L"atualizacao_avisada", novo);
+        Log(L"atualização automática: instalando %ls (instalada %ls)", novo.c_str(), atual.c_str());
+        Registrar();
+        std::wstring corpo = L"WacOS " + novo + L" " + Tr(L"está sendo instalada automaticamente. O WacOS fecha e abre de novo para aplicar.");
+        std::wstring xml = L"<toast launch=\"atualizacao\"><visual><binding template=\"ToastGeneric\"><text>" + Xml(Tr(L"Atualizações Disponíveis")) +
+                           L"</text><text>" + Xml(corpo) + L"</text></binding></visual></toast>";
+        try {
+            winrt::Windows::Data::Xml::Dom::XmlDocument doc;
+            doc.LoadXml(xml);
+            winrt::Windows::UI::Notifications::ToastNotificationManager::CreateToastNotifier(AUMID).Show(winrt::Windows::UI::Notifications::ToastNotification(doc));
+        } catch (...) {}
+        std::thread([] {
+            // o mesmo script do "Atualizar Agora", sem janela: baixa o pacote do GitHub, confere o SHA-256 e roda
+            // instalar.ps1 -Atualizar -Silencioso (só troca os programas; os ajustes ficam como estavam). O WacOS
+            // fecha e abre de novo no fim; se a rede falhar, a página do Ajustes continua instalando na mão.
+            std::wstring script = Root() + L"\\tools\\atualizar-github.ps1";
+            if (GetFileAttributesW(script.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+            std::wstring cmd = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\"";
+            STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+            if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS, nullptr, nullptr, &si, &pi)) return;
+            WaitForSingleObject(pi.hProcess, 20 * 60 * 1000);  // download grande em rede lenta
+            CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+        }).detach();
+        return true;
+    }
     if (shell::Setting(L"avisar_atualizacao", L"1") == L"0") return true;
     if (shell::Setting(L"atualizacao_avisada", L"") == novo) return true;  // uma vez por versão
     shell::SetSetting(L"atualizacao_avisada", novo);
