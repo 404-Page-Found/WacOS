@@ -759,6 +759,9 @@ static std::wstring PackIconFor(const App& a) {
     };
     std::wstring exeBase = a.exe.substr(a.exe.find_last_of(L'\\') + 1);
     if (exeBase.size() > 4) exeBase.resize(exeBase.size() - 4);
+    // issue #84: navegadores feitos sobre o Chromium (Helium, Chromium, Ungoogled...) também se chamam chrome.exe e
+    // ganhavam o ícone do Google Chrome. O chrome.exe só vale como Chrome dentro de uma pasta do Google.
+    if (Norm(exeBase) == L"chrome" && Lower(a.exe).find(L"\\google\\") == std::wstring::npos) exeBase.clear();
     for (const std::wstring& k : { Norm(a.name), Norm(exeBase) }) {
         if (k.empty()) continue;
         auto it = pack.find(k);

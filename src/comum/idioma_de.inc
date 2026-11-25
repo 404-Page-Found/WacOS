@@ -1769,3 +1769,4 @@
 { L"Maior", L"Größer" },
 { L"%ls disponíveis", L"%ls verfügbar" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows hat das Passwort nicht bestätigt (Fehler %lu). Versuche es erneut oder nutze Strg⁠+⁠Alt⁠+⁠Entf → Sperren." },
+{ L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: Mac-App-Umschalter" },

@@ -2177,6 +2177,11 @@ RECT PlaceRect() {
     // no Mac (Sequoia) o campo fica a ~22% da altura da tela; no Tahoe a 30 % (guia, seção 39); o painel cresce para baixo
     int x = m.left + (m.right - m.left - wpx) / 2, y = m.top + (int)((m.bottom - m.top) * (liquid::On() ? 0.30f : 0.22f));
     if (liquid::Leopard()) { x = m.right - wpx - 2; y = m.top + menubar::Height(); }  // Leopard: desce da lupa, na ponta direita
+    else {  // issue #88: a 125 % (1080p) o painel Apps passava da área livre e caía em cima do Dock: sobe o que faltar
+        RECT wk = mi.rcWork;
+        int folga = (int)std::lround(12 * sc);
+        if (y + hpx > wk.bottom - folga) y = std::max<int>(wk.top + folga, wk.bottom - folga - hpx);
+    }
     return { x, y, x + wpx, y + hpx };
 }
 

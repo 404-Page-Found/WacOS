@@ -1769,3 +1769,4 @@
 { L"Maior", L"Larger" },
 { L"%ls disponíveis", L"%ls available" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows didn't confirm the password (error %lu). Try again or use Ctrl⁠+⁠Alt⁠+⁠Del → Lock." },
+{ L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: Mac app switcher" },

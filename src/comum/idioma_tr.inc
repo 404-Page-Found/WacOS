@@ -1769,3 +1769,4 @@
 { L"Maior", L"Daha büyük" },
 { L"%ls disponíveis", L"%ls kullanılabilir" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows parolayı doğrulamadı (hata %lu). Yeniden deneyin veya Ctrl⁠+⁠Alt⁠+⁠Del → Kilitle’yi kullanın." },
+{ L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: Mac uygulama değiştirici" },

@@ -82,6 +82,8 @@ static volatile bool g_macKeys = true;
 // issue #64: Win+H no Windows é a digitação por voz; com os atalhos do Mac ele ocultava o app (Cmd+H). atalho_win_h=voz
 // deixa o Win+H para o Windows (Ajustes > Teclado), mantendo Win+Q e Win+W.
 static volatile bool g_winHVoz = false;
+// issue #91: Ajustes > Teclado > "Alt+Tab: seletor de apps do Mac" (seletor_mac=0 deixa o Alt+Tab para o Windows)
+static volatile bool g_seletorMac = true;
 // issue #50: o atalho do Spotlight (ajuste atalho_spotlight): 0 Win+Espaço (o do Mac, Cmd+Espaço), 1 Alt+Espaço, 2 Ctrl+Espaço
 static volatile int g_spotAtalho = 0;
 static bool g_spotSegura;  // o Espaço do atalho apertado (a repetição e o soltar também são nossos)
@@ -205,7 +207,7 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                     return 1;
                 }
                 return CallNextHookEx(g_kbHook, code, w, l);
-            } else if (k->vkCode == VK_TAB && down && !g_winDown && GetAsyncKeyState(VK_MENU) < 0 && GetAsyncKeyState(VK_CONTROL) >= 0) {
+            } else if (g_seletorMac && k->vkCode == VK_TAB && down && !g_winDown && GetAsyncKeyState(VK_MENU) < 0 && GetAsyncKeyState(VK_CONTROL) >= 0) {
                 // Alt+Tab: o seletor de apps do Mac no lugar do Alternar Tarefas do Windows. A tecla "muda"
                 // (0xE8) evita que o app da frente veja um Alt sozinho ao soltar e abra o menu dele
                 if (!g_altTab) { Inject(0xE8, false); Inject(0xE8, true); }
@@ -1158,7 +1160,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
     }
     if (m == reload && reload) {  // o Ajustes do Sistema gravou ajustes.txt
-        g_macKeys = !shell::SoDock() && shell::Setting(L"atalhos_mac", L"1") == L"1"; g_winHVoz = shell::Setting(L"atalho_win_h", L"ocultar") == L"voz";
+        g_macKeys = !shell::SoDock() && shell::Setting(L"atalhos_mac", L"1") == L"1"; g_winHVoz = shell::Setting(L"atalho_win_h", L"ocultar") == L"voz"; g_seletorMac = shell::Setting(L"seletor_mac", L"1") != L"0";
         g_spotAtalho = LeAtalhoSpot();
         static int lastLiquid = -1;
         if (lastLiquid < 0) lastLiquid = liquid::Leopard() ? 3 : liquid::Golden() ? 2 : liquid::On();
@@ -1492,7 +1494,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     RegisterHotKey(g_msg, 1, MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT, VK_F12);  // era Q: fácil de apertar sem querer
     // só Dock: a tecla Windows, o Alt+Tab e a captura de tela ficam com o Windows (o gancho só deixa passar)
     g_fullHook = !soDock && shell::Setting(L"tecla_windows_launchpad", L"1") == L"1";
-    g_macKeys = !soDock && shell::Setting(L"atalhos_mac", L"1") == L"1"; g_winHVoz = shell::Setting(L"atalho_win_h", L"ocultar") == L"voz";
+    g_macKeys = !soDock && shell::Setting(L"atalhos_mac", L"1") == L"1"; g_winHVoz = shell::Setting(L"atalho_win_h", L"ocultar") == L"voz"; g_seletorMac = shell::Setting(L"seletor_mac", L"1") != L"0";
     g_spotAtalho = LeAtalhoSpot();
     g_capturaExe = !soDock && GetFileAttributesW((shell::dir + L"\\" EXE_SCREENSHOT).c_str()) != INVALID_FILE_ATTRIBUTES;
     if (!soDock) EnsureScreenshot();
@@ -1589,7 +1591,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     WM_SHELLHOOK = RegisterWindowMessageW(L"SHELLHOOK");
     RegisterShellHookWindow(g_msg);
     g_fullHook = shell::Setting(L"tecla_windows_launchpad", L"1") == L"1";
-    g_macKeys = shell::Setting(L"atalhos_mac", L"1") == L"1"; g_winHVoz = shell::Setting(L"atalho_win_h", L"ocultar") == L"voz";
+    g_macKeys = shell::Setting(L"atalhos_mac", L"1") == L"1"; g_winHVoz = shell::Setting(L"atalho_win_h", L"ocultar") == L"voz"; g_seletorMac = shell::Setting(L"seletor_mac", L"1") != L"0";
     g_capturaExe = GetFileAttributesW((shell::dir + L"\\" EXE_SCREENSHOT).c_str()) != INVALID_FILE_ATTRIBUTES;
     EnsureScreenshot();
     g_volumeKeys = shell::Setting(L"volume_mac", L"1") == L"1";

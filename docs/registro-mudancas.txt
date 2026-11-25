@@ -1912,3 +1912,11 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   travada, treme, mostra o erro e oferece o Windows Hello; a saída é Ctrl+Alt+Del → Bloquear. Cabeçalho do arquivo e
   docs\problemas-conhecidos.md atualizados; mensagem traduzida nos 11 idiomas. Não testado na tela.
   DESFAZER: reverter o commit e rodar build.cmd shell (volta a falha aberta: não recomendado).
+[2026-11-25 15:45] Issues #84, #88 e #91:
+  - #84: navegadores feitos sobre o Chromium com o executável chrome.exe (Helium, Chromium...) ganhavam o ícone do Google
+    Chrome; apps.cpp PackIconFor: o chrome.exe só vale como Chrome numa pasta do Google.
+  - #88: a 125 % (1080p) o painel Apps do Spotlight passava da área livre e caía em cima do Dock; spotlight.cpp
+    PlaceRect sobe o painel o que faltar (também a Siri, que se alinha a ele).
+  - #91: Ajustes > Teclado > "Alt+Tab: seletor de apps do Mac" (seletor_mac=0 devolve o Alt+Tab ao Windows).
+  Não testado na tela.
+  DESFAZER: reverter o commit e compilar.
