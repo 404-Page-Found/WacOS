@@ -13,7 +13,8 @@
 //  - desbloquear o Windows de verdade (Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear, PIN/Windows Hello) também tira esta tela;
 //  - se o Shell sair ou cair com a tela travada, o Windows é bloqueado (LockWorkStation), também por um
 //    vigia em outro processo (Shell.exe --vigia), então matar o Shell não abre a sessão;
-//  - erros do LogonUserW que não são "senha errada" aceitam e ficam no shell.log;
+//  - erros do LogonUserW que não são "senha errada" NÃO destravam (issue #78): a tela fica travada, mostra o erro e
+//    oferece o Windows Hello; ficam no shell.log;
 //  - depois de 3 erros a tela espera antes de tentar de novo, para não disparar o bloqueio de conta do Windows.
 #include "shell.h"
 #include "../comum/fonte_cjk.h" // a reserva para coreano, japonês e chinês
@@ -732,8 +733,19 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_msg = Tr(L"O Windows travou a conta por tentativas. Use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear e o PIN.");
             return 0;
         }
-        Log(L"bloqueio: LogonUserW falhou com %lu (não é senha errada): aceito para não travar", err);
-        Unlock(L"erro do LogonUserW aceito");
+        // issue #78 (segurança): qualquer outro erro do LogonUserW (sem servidor de logon, conta desativada, tipo de logon
+        // não permitido...) destravava "para não travar": a tela abria sem o Windows confirmar a senha. Agora fica travada
+        // (falha fechada): o campo treme e mostra o erro; o Windows Hello continua valendo, e Ctrl+Alt+Del → Bloquear é a
+        // saída do Windows. Não conta para a espera das senhas erradas.
+        Log(L"bloqueio: LogonUserW falhou com %lu (não é senha errada): continua travado", err);
+        g_shakeAt = anim::Now();
+        {
+            wchar_t m[200];
+            swprintf_s(m, Tr(L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear."), err);
+            g_msg = m;
+        }
+        if (g_helloOk && !g_helloBusy) StartHello(h);
+        PaintAll();
         return 0;
     }
     case WM_BQ_HELLO:

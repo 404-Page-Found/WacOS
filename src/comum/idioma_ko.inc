@@ -1768,3 +1768,4 @@
 { L"Menor", L"작게" },
 { L"Maior", L"크게" },
 { L"%ls disponíveis", L"%ls 사용 가능" },
+{ L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows가 암호를 확인하지 못했습니다(오류 %lu). 다시 시도하거나 Ctrl⁠+⁠Alt⁠+⁠Del → 잠금을 사용하십시오." },

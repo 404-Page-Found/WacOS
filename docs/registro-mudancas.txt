@@ -1907,3 +1907,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     juntas, 140-600 pt, larguraColuna no opcoes.txt).
   Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-25 15:20] Issue #78 (SEGURANÇA, também o PR #79): a tela de bloqueio do WacOS destravava quando o LogonUserW
+  falhava com um erro que não fosse "senha errada" ou "conta travada" (falha aberta). bloqueio.cpp: agora continua
+  travada, treme, mostra o erro e oferece o Windows Hello; a saída é Ctrl+Alt+Del → Bloquear. Cabeçalho do arquivo e
+  docs\problemas-conhecidos.md atualizados; mensagem traduzida nos 11 idiomas. Não testado na tela.
+  DESFAZER: reverter o commit e rodar build.cmd shell (volta a falha aberta: não recomendado).

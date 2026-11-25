@@ -1768,3 +1768,4 @@
 { L"Menor", L"Menor" },
 { L"Maior", L"Mayor" },
 { L"%ls disponíveis", L"%ls disponibles" },
+{ L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows no confirmó la contraseña (error %lu). Vuelve a intentarlo o usa Ctrl⁠+⁠Alt⁠+⁠Supr → Bloquear." },

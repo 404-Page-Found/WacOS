@@ -1768,3 +1768,4 @@
 { L"Menor", L"小さく" },
 { L"Maior", L"大きく" },
 { L"%ls disponíveis", L"%ls 使用可能" },
+{ L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows がパスワードを確認できませんでした（エラー %lu）。もう一度試すか、Ctrl⁠+⁠Alt⁠+⁠Del → ロック を使ってください。" },

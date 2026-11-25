@@ -1768,3 +1768,4 @@
 { L"Menor", L"Mniejsza" },
 { L"Maior", L"Większa" },
 { L"%ls disponíveis", L"%ls dostępne" },
+{ L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows nie potwierdził hasła (błąd %lu). Spróbuj ponownie lub użyj Ctrl⁠+⁠Alt⁠+⁠Del → Zablokuj." },

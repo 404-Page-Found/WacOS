@@ -1768,3 +1768,4 @@
 { L"Menor", L"较小" },
 { L"Maior", L"较大" },
 { L"%ls disponíveis", L"%ls 可用" },
+{ L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows 未确认密码（错误 %lu）。请重试，或使用 Ctrl⁠+⁠Alt⁠+⁠Del → 锁定。" },

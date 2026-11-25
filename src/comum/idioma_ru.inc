@@ -1768,3 +1768,4 @@
 { L"Menor", L"Меньше" },
 { L"Maior", L"Больше" },
 { L"%ls disponíveis", L"Доступно %ls" },
+{ L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows не подтвердила пароль (ошибка %lu). Попробуйте ещё раз или используйте Ctrl⁠+⁠Alt⁠+⁠Del → Заблокировать." },
