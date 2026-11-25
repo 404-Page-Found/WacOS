@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"メニューバーの高さ" },
 { L"Menor", L"小さく" },
 { L"Maior", L"大きく" },
+{ L"%ls disponíveis", L"%ls 使用可能" },

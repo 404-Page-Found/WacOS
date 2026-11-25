@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"Высота строки меню" },
 { L"Menor", L"Меньше" },
 { L"Maior", L"Больше" },
+{ L"%ls disponíveis", L"Доступно %ls" },

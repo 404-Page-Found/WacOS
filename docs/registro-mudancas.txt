@@ -1898,3 +1898,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   e a hora locais com o fuso e o tempo da cidade do widget (widgets::ResumoTempo, o mesmo Open-Meteo da mesa), nos
   serviços por HTTP e nos apps locais. Não testado na tela.
   DESFAZER: reverter o commit e rodar build.cmd shell.
+[2026-11-25 07:00] Issues #71 e #60:
+  - #71 (retângulo preto em volta da Siri: Sequoia, "Reduzir transparência", tinta 1.00, Intel HD 620): backdrop.cpp
+    AdjustAlpha transformava a tinta 0 (sem tinta: a janela das peças) em 70-97 %, e fora do Liquid Glass o fosco cobria a
+    janela inteira. Agora tinta 0 continua 0 e, no fosco, cada peça ganha o fosco e a tinta só nela (PecasSemReal).
+  - #60 Finder: o espaço dos discos embaixo do ícone saía da célula e encavalava ("X disponíveis", recortado na
+    célula); a Galeria mostra o espaço do disco; a visão em colunas ganhou a divisória arrastável (todas as colunas
+    juntas, 140-600 pt, larguraColuna no opcoes.txt).
+  Não testado na tela.
+  DESFAZER: reverter o commit e compilar.

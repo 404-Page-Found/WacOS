@@ -348,7 +348,11 @@ static std::vector<Column> g_colTrail;
 static std::wstring g_childPath;
 static std::vector<Entry> g_childItems;
 
-namespace ColLay { const float COL_W = 230, ROW_H = 24, ICON = 16, PREVIEW_W = 280; }
+// COL_W: arrastando a divisória entre colunas (issue #60: não dava para mudar a largura); todas juntas, como o
+// Option+arrastar do Mac. Guardada em opcoes.txt (larguraColuna).
+namespace ColLay { inline float COL_W = 230; const float ROW_H = 24, ICON = 16, PREVIEW_W = 280, COL_MIN = 140, COL_MAX = 600; }
+static bool g_colDrag = false;
+static float g_colDragX0 = 0, g_colDragW0 = 0;
 namespace GalLay { const float STRIP_H = 108, THUMB = 64, STEP = 78; }
 static float g_galleryX;  // rolagem horizontal da faixa de miniaturas
 
@@ -602,6 +606,13 @@ static float ColScrollX() {
 
 static float ColX(size_t k) { return Lay::SIDEBAR_W + k * ColLay::COL_W - ColScrollX(); }  // borda esquerda da coluna k
 static float ActiveColX() { return ColX(g_colTrail.size()); }
+static bool In(const D2D1_RECT_F& r, D2D1_POINT_2F p);
+// o ponteiro em cima da divisória à direita de alguma coluna (a ativa inclusive)
+static bool NaDivisoriaColuna(D2D1_POINT_2F p) {
+    if (g_view != View::Columns || !In(ContentRect(), p)) return false;
+    for (size_t k = 0; k <= g_colTrail.size(); k++) if (std::fabs(p.x - (ColX(k) + ColLay::COL_W)) <= 4) return true;
+    return false;
+}
 
 // Galeria: área da prévia grande e faixa de miniaturas embaixo (coordenadas de documento).
 static float StripTopDoc() { auto c = ContentRect(); return (c.bottom - c.top) - GalLay::STRIP_H; }
@@ -2889,7 +2900,7 @@ static float TextWidth(const std::wstring& s, IDWriteTextFormat* tf) {
 
 // issue #60: o espaço dos discos ("120 GB disponíveis de 476 GB"), como o Finder mostra com "Mostrar Informações do
 // Item". Só discos locais (fixos e removíveis): o de rede pode demorar a responder.
-static std::wstring DriveInfo(const std::wstring& path) {
+static std::wstring DriveInfo(const std::wstring& path, bool curto = false) {  // curto: só o livre (embaixo do ícone)
     if (path.size() != 3 || path[1] != L':' || path[2] != L'\\') return L"";
     UINT type = GetDriveTypeW(path.c_str());
     if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE) return L"";
@@ -2898,7 +2909,8 @@ static std::wstring DriveInfo(const std::wstring& path) {
     wchar_t a[64], b[64], out[160];
     StrFormatByteSizeW((LONGLONG)fr.QuadPart, a, 64);
     StrFormatByteSizeW((LONGLONG)total.QuadPart, b, 64);
-    swprintf_s(out, Tr(L"%ls disponíveis de %ls"), a, b);
+    if (curto) swprintf_s(out, Tr(L"%ls disponíveis"), a);
+    else swprintf_s(out, Tr(L"%ls disponíveis de %ls"), a, b);
     return out;
 }
 
@@ -3325,7 +3337,8 @@ static void DrawGalleryView(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Sol
                 DrawTagDots(dc, br, (lr.left + lr.right) / 2 - tw / 2 - dots - 6, lr.top + 10, e.tags, pal.content);
             }
         }
-        std::wstring info = (e.dir ? KindName(e) : KindName(e) + L" · " + SizeText(e)) + L" · " + DateText(e.mtime);
+        std::wstring info = !DriveInfo(e.path).empty() ? DriveInfo(e.path)  // disco: o espaço (issue #60)
+                          : (e.dir ? KindName(e) : KindName(e) + L" · " + SizeText(e)) + L" · " + DateText(e.mtime);
         br->SetColor(pal.text2);
         dc->DrawTextW(info.c_str(), (UINT32)info.size(), g_tfPreviewInfo, D2D1::RectF(lr.left, lr.bottom + 2, lr.right, lr.bottom + 20), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
@@ -3374,12 +3387,12 @@ static void DrawIconGrid(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
         dc->DrawTextLayout({ lr.left, lr.top }, tl, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         if (g_tagView == VIEW_COMPUTER) {  // discos: o espaço livre embaixo do nome, em azul (issue #60)
             DWRITE_TEXT_METRICS m{}; tl->GetMetrics(&m);
-            std::wstring info = DriveInfo(e.path);
+            std::wstring info = DriveInfo(e.path, true);
             if (!info.empty() && m.lineCount == 1) {
                 g_tfLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 br->SetColor(pal.accent);
                 float y = lr.top + m.top + m.height + 1;
-                dc->DrawTextW(info.c_str(), (UINT32)info.size(), g_tfLabel, D2D1::RectF(lr.left - 20, y, lr.right + 20, y + m.height + 2), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                dc->DrawTextW(info.c_str(), (UINT32)info.size(), g_tfLabel, D2D1::RectF(lr.left, y, lr.right, y + m.height * 2 + 2), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             }
         }
         if (float dots = TagDotsWidth(e.tags)) {  // etiquetas antes da primeira linha do nome
@@ -5356,6 +5369,7 @@ static void SaveOptions() {
              (int)g_defaultView, (int)g_sortCol, g_sortAsc, (int)g_groupMain, g_icon, g_labelSize, g_rowTextSize, g_showThumbs,
              g_listLarge, g_colSize, g_colKind, g_colDate, g_colCreated, g_relDates, g_colIcons, g_colPreview, g_pick.on ? g_pathBarUser : g_pathBar);
     if (g_sideWidthSet) fwprintf(f, L"larguraLateral=%g\n", Lay::SIDEBAR_W);
+    if (ColLay::COL_W != 230) fwprintf(f, L"larguraColuna=%g\n", ColLay::COL_W);
     fwprintf(f, L"ocultos=%d\n", g_showHidden ? 1 : 0);
     fwprintf(f, L"lateralNuvem=%d\nlateralLocais=%d\nlateralEtiquetas=%d\n", g_sideCloud, g_sideDrives, g_sideTags);
     if (g_groupDl >= 0) fwprintf(f, L"grupoDownloads=%d\n", g_groupDl);
@@ -5397,6 +5411,7 @@ static void LoadOptions() {
         else if (k == L"lateralLocais") g_sideDrives = v != 0;
         else if (k == L"lateralEtiquetas") g_sideTags = v != 0;
         else if (k == L"barraCaminho") { g_pathBar = v != 0; Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0); }
+        else if (k == L"larguraColuna") ColLay::COL_W = std::clamp((float)v, ColLay::COL_MIN, ColLay::COL_MAX);
         else if (k == L"larguraLateral") { Lay::SIDEBAR_W = std::clamp((float)v, Lay::SIDEBAR_MIN, Lay::SIDEBAR_MAX); g_sideWidthSet = true; }
         else if (k == L"listaGrande") g_listLarge = v != 0;
         else if (k == L"colTamanho") g_colSize = v != 0;
@@ -6460,7 +6475,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             POINT p; GetCursorPos(&p); ScreenToClient(h, &p);
             D2D1_POINT_2F d = ToDip(p.x, p.y);
             bool text = (HitTool(d) == TB_SEARCH && SearchExpanded()) || (g_renameIdx >= 0 && In(RenameRect(), d));
-            bool edge = g_sideResize || (OverSideEdge(d) && !g_ql);
+            bool edge = g_sideResize || g_colDrag || (OverSideEdge(d) && !g_ql) || (!g_ql && NaDivisoriaColuna(d));
             SetCursor(LoadCursorW(nullptr, edge ? IDC_SIZEWE : text ? IDC_IBEAM : IDC_ARROW));
             return TRUE;
         }
@@ -6470,6 +6485,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         TrackMouseEvent(&tme);
         D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
         if (g_scrollDrag) { ScrollToThumbY(p.y - g_scrollDragOff); return 0; }
+        if (g_colDrag) {
+            float nw = std::round(std::clamp(g_colDragW0 + (p.x - g_colDragX0), ColLay::COL_MIN, ColLay::COL_MAX));
+            if (nw != ColLay::COL_W) { ColLay::COL_W = nw; Invalidate(); }
+            return 0;
+        }
         if (g_sideResize) {  // largura da barra lateral (a área de conteúdo fica com pelo menos 320)
             RECT rc; GetClientRect(h, &rc);
             float maxW = std::min(Lay::SIDEBAR_MAX, rc.right / g_scale - 320);
@@ -6552,6 +6572,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (CoverFlowClick(p)) return 0;  // Leopard: clique numa capa do Cover Flow
         if (ViewOptsClick(p)) return 0;  // clique no painel de Opções de Visualização
         if (PickerClick(p)) return 0;  // barra de Abrir/Salvar
+        if (!g_ql && NaDivisoriaColuna(p)) {  // largura das colunas
+            g_colDrag = true; g_colDragX0 = p.x; g_colDragW0 = ColLay::COL_W;
+            SetCapture(h);
+            return 0;
+        }
         if (g_renameIdx >= 0) {
             if (In(RenameRect(), p)) { g_rename.Click(g_tfRename, p, (w & MK_SHIFT) != 0); Invalidate(); return 0; }
             EndRename(true);
@@ -6652,6 +6677,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_LBUTTONUP: {
         D2D1_POINT_2F p = ToDip(GET_X_LPARAM(l), GET_Y_LPARAM(l));
+        if (g_colDrag) { g_colDrag = false; ReleaseCapture(); SaveOptions(); Invalidate(); return 0; }
         if (g_pressLight >= 0) {
             int k = g_pressLight;
             g_pressLight = -1;

@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"Altura de la barra de menús" },
 { L"Menor", L"Menor" },
 { L"Maior", L"Mayor" },
+{ L"%ls disponíveis", L"%ls disponibles" },

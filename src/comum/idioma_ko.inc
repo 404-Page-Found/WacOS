@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"메뉴 막대 높이" },
 { L"Menor", L"작게" },
 { L"Maior", L"크게" },
+{ L"%ls disponíveis", L"%ls 사용 가능" },

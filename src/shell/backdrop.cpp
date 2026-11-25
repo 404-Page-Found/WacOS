@@ -347,7 +347,14 @@ void Apply(Entry& e) {
 
     bool liquid = st.liquid && !st.reduce;
     PecasSemReal(e, false);
-    if (!liquid) { SetLiquidVisible(e, false); rg::Use(e, false); return; }
+    if (!liquid) {
+        SetLiquidVisible(e, false); rg::Use(e, false);
+        // issue #71: no fosco (Sequoia, Leopard, "Reduzir transparência") as peças também ganham o fosco e a tinta só
+        // nelas; antes o fosco cobria a janela inteira (a folga do brilho da Siri virava um retângulo)
+        if (!e.pieces.empty() && !std::any_of(e.pieces.begin(), e.pieces.end(), [](const backdrop::Piece& p) { return p.goo; }))
+            PecasSemReal(e, true);
+        return;
+    }
     BuildLiquid(e);
     SetLiquidVisible(e, true);
     // vidro real (captura + refração) quando ligado; senão fica o fosco do MakeFrost
@@ -1650,6 +1657,10 @@ void backdrop::Reload() {
 
 float backdrop::AdjustAlpha(float a) {
     const auto& st = g_style;
+    // Sem tinta pedida (a janela das peças, a folga do brilho da Siri): continua sem tinta. Com a tinta no máximo ou
+    // "Reduzir transparência", o 0 virava 70-97 % e a janela inteira ficava um retângulo preto (issue #71, Sequoia,
+    // reduzir=1, tinta 1.00).
+    if (a <= 0.001f) return 0.f;
     // tinta do vidro: 0 = mais transparente, 0,5 = a de cada janela, 1 = bem mais opaco
     // 0 = totalmente transparente (17/11/2026, o usuário: "deixe o slider fazer ele ficar totalmente transparente");
     // antes o mínimo ainda deixava 35 % da tinta

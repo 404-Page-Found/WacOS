@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"菜单栏高度" },
 { L"Menor", L"较小" },
 { L"Maior", L"较大" },
+{ L"%ls disponíveis", L"%ls 可用" },

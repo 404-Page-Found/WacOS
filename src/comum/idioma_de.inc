@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"Höhe der Menüleiste" },
 { L"Menor", L"Kleiner" },
 { L"Maior", L"Größer" },
+{ L"%ls disponíveis", L"%ls verfügbar" },

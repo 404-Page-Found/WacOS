@@ -1767,3 +1767,4 @@
 { L"Altura da barra de menus", L"Menü çubuğu yüksekliği" },
 { L"Menor", L"Daha küçük" },
 { L"Maior", L"Daha büyük" },
+{ L"%ls disponíveis", L"%ls kullanılabilir" },
