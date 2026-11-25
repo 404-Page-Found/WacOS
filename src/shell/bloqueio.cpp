@@ -13,7 +13,7 @@
 //  - desbloquear o Windows de verdade (Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear, PIN/Windows Hello) também tira esta tela;
 //  - se o Shell sair ou cair com a tela travada, o Windows é bloqueado (LockWorkStation), também por um
 //    vigia em outro processo (Shell.exe --vigia), então matar o Shell não abre a sessão;
-//  - erros do LogonUserW que não são "senha errada" aceitam e ficam no shell.log;
+//  - erros do LogonUserW que não são "senha errada" mantêm a tela travada (fail closed) e ficam no shell.log;
 //  - depois de 3 erros a tela espera antes de tentar de novo, para não disparar o bloqueio de conta do Windows.
 #include "shell.h"
 #include "../comum/fonte_cjk.h" // a reserva para coreano, japonês e chinês
@@ -732,8 +732,11 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             g_msg = Tr(L"O Windows travou a conta por tentativas. Use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear e o PIN.");
             return 0;
         }
-        Log(L"bloqueio: LogonUserW falhou com %lu (não é senha errada): aceito para não travar", err);
-        Unlock(L"erro do LogonUserW aceito");
+        // não dá para confirmar a senha: fecha sem liberar (nunca aceita um erro como sucesso); não conta como senha errada
+        Log(L"bloqueio: LogonUserW falhou com %lu (não é senha errada): tela continua travada", err);
+        g_shakeAt = anim::Now();
+        MessageBeep(0xFFFFFFFF);
+        g_msg = Tr(L"Não foi possível verificar a senha agora. Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.");
         return 0;
     }
     case WM_BQ_HELLO:
