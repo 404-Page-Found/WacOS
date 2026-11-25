@@ -483,7 +483,10 @@ Page Atualizacao() {
     p.groups.push_back(G(rows, L"WacOS"));
     p.groups.push_back(G({ Toggle(L"Avisar quando houver atualização", [] { return Setting(L"avisar_atualizacao", L"1") != L"0"; },
                                   [](bool v) { SetSetting(L"avisar_atualizacao", v ? L"1" : L"0"); },
-                                  L"O WacOS confere o GitHub ao entrar e a cada 6 horas e mostra uma notificação quando sai uma versão nova.") }));
+                                  L"O WacOS confere o GitHub ao entrar e a cada 6 horas e mostra uma notificação quando sai uma versão nova."),
+                           Toggle(L"Instalar atualizações automaticamente", [] { return Setting(L"atualizacao_automatica", L"0") != L"0"; },
+                                  [](bool v) { SetSetting(L"atualizacao_automatica", v ? L"1" : L"0"); },
+                                  L"Quando sai uma versão nova no GitHub, o WacOS baixa e instala sozinho, mantendo seus ajustes. Ele fecha e abre de novo para aplicar.") }));
     if (tem && !u.faltam.empty()) {
         std::vector<Row> ch;
         for (size_t k = 0; k < u.faltam.size() && k < 15; k++) ch.push_back(Note(L"• " + u.faltam[k]));
