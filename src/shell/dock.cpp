@@ -3,6 +3,7 @@
 // onde não há nada desenhado, o clique passa). Ver docs/dock-e-barra-de-menus.md.
 #include "shell.h"
 #include "../menu/context_menu.h"
+#include "../comum/ajustes_arquivo.h"  // ajarq::GravarTexto (dock-pastas.txt)
 #include <shellapi.h>
 #include <shlobj.h>
 #include <dwmapi.h>
@@ -16,8 +17,8 @@
 
 namespace {
 
-enum ItemKind { I_APP, I_SEP, I_DOWNLOADS, I_TRASH, I_LAUNCHPAD, I_MINWIN, I_GHOST };
-struct Item { ItemKind kind; int app; float cx = 0, size = 0; HWND win = nullptr; bool leaving = false; int ghost = -1; };  // ghost: app saindo (índice em g_ghosts)  // win: janela minimizada (I_MINWIN); leaving: saindo do Dock
+enum ItemKind { I_APP, I_SEP, I_DOWNLOADS, I_TRASH, I_LAUNCHPAD, I_MINWIN, I_GHOST, I_FOLDER };  // I_FOLDER: pasta do usuário (issue #108)
+struct Item { ItemKind kind; int app; float cx = 0, size = 0; HWND win = nullptr; bool leaving = false; int ghost = -1; int folder = -1; };  // ghost: app saindo (índice em g_ghosts)  // win: janela minimizada (I_MINWIN); leaving: saindo do Dock  // folder: índice em g_folders (I_FOLDER)
 
 float g_tile = 48;          // tamanho do ícone (pt)
 // Personalização (Ajustes > Mesa e Dock > Personalizar o Dock, pedido de 20/11/2026, "como o MyDockFinder"). Valor
@@ -286,6 +287,68 @@ void FitTile() {
     if (units > 0 && g_tile * units > W) g_tile = std::max(16.f, W / units);
 }
 
+// ---- pastas do usuário no lado direito do Dock (issue #108): uma por linha em %APPDATA%\Shell\dock-pastas.txt
+// (variáveis de ambiente valem; linhas vazias ou com # no começo são ignoradas, assim como caminhos que não são
+// pasta). Entre o Downloads e as janelas minimizadas, como no Mac. Botão direito > "Remover do Dock" tira a pasta;
+// arrastar arquivos para cima do ícone os move para ela.
+std::vector<std::wstring> g_folders;
+
+std::wstring FoldersFile() {
+    PWSTR p = nullptr; std::wstring d;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { d = std::wstring(p) + L"\\Shell"; CoTaskMemFree(p); }
+    CreateDirectoryW(d.c_str(), nullptr);
+    return d + L"\\dock-pastas.txt";
+}
+
+void LoadFolders() {
+    g_folders.clear();
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, FoldersFile().c_str(), L"r, ccs=UTF-8") || !f) return;
+    wchar_t line[2048];
+    while (fgetws(line, 2048, f)) {
+        std::wstring s = line;
+        while (!s.empty() && (s.back() == L'\n' || s.back() == L'\r' || s.back() == L' ' || s.back() == L'\t')) s.pop_back();
+        size_t a = s.find_first_not_of(L" \t");
+        if (a == std::wstring::npos || s[a] == L'#') continue;
+        s = s.substr(a);
+        wchar_t exp[MAX_PATH * 2];
+        if (ExpandEnvironmentStringsW(s.c_str(), exp, MAX_PATH * 2)) s = exp;
+        DWORD at = GetFileAttributesW(s.c_str());
+        if (at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY)) g_folders.push_back(s);
+    }
+    fclose(f);
+}
+
+void SaveFolders() {
+    std::wstring s;
+    for (auto& p : g_folders) s += p + L"\n";
+    ajarq::GravarTexto(FoldersFile(), s);
+}
+
+std::wstring FolderName(const std::wstring& p) {
+    std::wstring n = p.substr(p.find_last_of(L"\\/") + 1);
+    return n.empty() ? p : n;
+}
+
+// o desenho do pacote para a pasta: as conhecidas têm glifo próprio (como no Mac); as demais, a pasta azul comum
+std::wstring FolderIcon(const std::wstring& path) {
+    std::wstring a = path;
+    while (!a.empty() && a.back() == L'\\') a.pop_back();
+    auto eq = [&](const KNOWNFOLDERID& id) {
+        PWSTR p = nullptr; std::wstring k;
+        if (SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &p))) { k = p; CoTaskMemFree(p); }
+        while (!k.empty() && k.back() == L'\\') k.pop_back();
+        return !k.empty() && _wcsicmp(a.c_str(), k.c_str()) == 0;
+    };
+    if (eq(FOLDERID_Desktop)) return L"folder desktop";
+    if (eq(FOLDERID_Documents)) return L"folder docs";
+    if (eq(FOLDERID_Downloads)) return L"folder downloads";
+    if (eq(FOLDERID_Music)) return L"folder music";
+    if (eq(FOLDERID_Pictures)) return L"folder pictures";
+    if (eq(FOLDERID_Videos)) return L"folder videos";
+    return L"folder default";
+}
+
 void BuildItems() {
     g_items.clear();
     bool sep = false;
@@ -344,6 +407,8 @@ void BuildItems() {
     if (LEO_DOCK) g_items.push_back({ I_LAUNCHPAD, -1 });
     // Ajustes > Mesa e Dock > "Mostrar a pasta Downloads no Dock" (dock_downloads=0 tira)
     if (shell::Setting(L"dock_downloads", L"1") != L"0") g_items.push_back({ I_DOWNLOADS, -1 });
+    // as pastas do usuário (dock-pastas.txt), entre o Downloads e as minimizadas (issue #108)
+    for (int i = 0; i < (int)g_folders.size(); i++) { Item fi{ I_FOLDER, -1 }; fi.folder = i; g_items.push_back(fi); }
     // minimizadas: as que continuam minimizadas ficam na ordem; as novas entram no fim
     std::vector<std::pair<HWND, int>> mins;
     for (int i = 0; i < (int)apps::list.size(); i++)
@@ -800,6 +865,7 @@ std::wstring Label(const Item& it) {
     if (it.kind == I_APP) return apps::NomeVisivel(IconName(apps::list[it.app]), IconExe(apps::list[it.app]));
     if (it.kind == I_MINWIN) { wchar_t t[200] = {}; GetWindowTextW(it.win, t, 200); return t[0] ? t : apps::NomeVisivel(IconName(apps::list[it.app]), IconExe(apps::list[it.app])); }
     if (it.kind == I_DOWNLOADS) return L"Downloads";
+    if (it.kind == I_FOLDER && it.folder >= 0 && it.folder < (int)g_folders.size()) return FolderName(g_folders[it.folder]);
     if (it.kind == I_LAUNCHPAD) return LEO_DOCK ? Tr(L"Aplicativos") : L"Launchpad";  // Leopard: a pasta Aplicativos
     if (it.kind == I_TRASH) return Tr(L"Lixeira");
     return L"";
@@ -1216,7 +1282,7 @@ void Paint() {
             b = PackBitmap(rt, L"folder downloads"); mac = b != nullptr;
         }
         else if (it.kind == I_LAUNCHPAD && !LEO_DOCK && (b = LaunchpadProprio(rt)) != nullptr) mac = true;
-        else { b = PackBitmap(rt, it.kind == I_LAUNCHPAD ? L"Launchpad" : it.kind == I_DOWNLOADS ? L"folder downloads" : g_trashFull ? L"trashfull@2x" : L"trashempty@2x"); mac = b != nullptr; }
+        else { b = PackBitmap(rt, it.kind == I_LAUNCHPAD ? L"Launchpad" : it.kind == I_DOWNLOADS ? L"folder downloads" : it.kind == I_FOLDER && it.folder >= 0 && it.folder < (int)g_folders.size() ? FolderIcon(g_folders[it.folder]) : g_trashFull ? L"trashfull@2x" : L"trashempty@2x"); mac = b != nullptr; }
         // ícones do pacote do Sequoia já têm a margem do Mac; os do Windows (recortados) ficam com o mesmo corpo visual
         float art = s * (mac ? ART_PACK : ART_WIN);
         D2D1_RECT_F ir{ it.cx - art / 2, baseline - (s + art) / 2 + dy, it.cx + art / 2, baseline - (s - art) / 2 + dy };
@@ -1228,6 +1294,7 @@ void Paint() {
             if (b) rt->DrawBitmap(b, iw, 1, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);  // reduz 256 px sem serrilhar
             else if (it.kind == I_APP) { if (apps::list[it.app].finder) ui::DrawFolder(rt, iw, 0xE8B7); }
             else if (it.kind == I_DOWNLOADS) ui::DrawFolder(rt, iw, 0xE896);
+            else if (it.kind == I_FOLDER) ui::DrawFolder(rt, iw, 0xE8B7);
             else if (it.kind == I_TRASH) ui::DrawTrash(rt, iw, g_trashFull);
             if (it.kind == I_APP) if (int n = BadgeCount(apps::list[it.app])) {
                 float m = mac ? (iw.right - iw.left) * 0.10f : 0;  // PNG do pacote: corpo = 80% do desenho
@@ -1465,6 +1532,13 @@ void ContextMenu(int i) {
         else if (id == 4) { shell::SetSetting(L"dock_launchpad", L"0"); dock::ReloadSettings(); }
         return;
     }
+    if (it.kind == I_FOLDER) {  // pasta do usuário: abrir, tirar do Dock (issue #108)
+        if (it.folder < 0 || it.folder >= (int)g_folders.size()) return;
+        int id = ShowMenu(i, { MI(Tr(L"Abrir no Finder"), 1), MSep(), MI(Tr(L"Remover do Dock"), 2) });
+        if (id == 1) OpenFinder(g_folders[it.folder]);
+        else if (id == 2) { g_folders.erase(g_folders.begin() + it.folder); SaveFolders(); BuildItems(); Paint(); }
+        return;
+    }
     if (it.kind == I_TRASH) {
         int id = ShowMenu(i, { MI(Tr(L"Abrir"), 1), MSep(), MI(Tr(L"Esvaziar Lixeira…"), 2, false, !g_trashFull) });
         if (id == 1) OpenFinder(L"shell:RecycleBinFolder");  // a Lixeira no Finder
@@ -1635,6 +1709,7 @@ void LeftClick(int i) {
         apps::Activate(a); ui::FrameClock(g_icons, WM_DOCKFRAME, true); return;
     }
     if (it.kind == I_TRASH) { OpenFinder(L"shell:RecycleBinFolder"); return; }  // a Lixeira no Finder, não no Explorador
+    if (it.kind == I_FOLDER) { if (it.folder >= 0 && it.folder < (int)g_folders.size()) OpenFinder(g_folders[it.folder]); return; }  // a pasta no Finder
     if (it.kind == I_LAUNCHPAD && LEO_DOCK) { dock::OpenAppsStack(); return; }  // Leopard: a pasta Aplicativos como Pilha em Grade (10.5)
     if (it.kind == I_LAUNCHPAD) { launchpad::Toggle(); return; }
     if (it.kind == I_DOWNLOADS && shell::Setting(L"pilhas", L"1") == L"1") {  // Pilha em grade, como no Mac
@@ -1689,7 +1764,7 @@ struct DockDrop : IDropTarget {
     DWORD Effect(int i) {
         if (PinSpot(i)) return DROPEFFECT_LINK;
         if (i < 0) return DROPEFFECT_NONE;
-        if (g_items[i].kind == I_TRASH) return DROPEFFECT_MOVE;
+        if (g_items[i].kind == I_TRASH || g_items[i].kind == I_FOLDER) return DROPEFFECT_MOVE;  // pasta: move para dentro (issue #108)
         if (g_items[i].kind == I_APP) return DROPEFFECT_COPY;
         return DROPEFFECT_NONE;
     }
@@ -1731,7 +1806,17 @@ struct DockDrop : IDropTarget {
             GlobalUnlock(sm.hGlobal);
             ReleaseStgMedium(&sm);
         }
-        if (!files.empty() && g_items[i].kind == I_TRASH) {
+        if (!files.empty() && g_items[i].kind == I_FOLDER) {
+            int fi = g_items[i].folder;
+            if (fi >= 0 && fi < (int)g_folders.size()) {
+                std::wstring from;
+                for (auto& f : files) { from += f; from += L'\0'; }
+                from += L'\0';
+                std::wstring to = g_folders[fi] + L'\0' + L'\0';
+                SHFILEOPSTRUCTW op{ g_icons, FO_MOVE, from.c_str(), to.c_str(), FOF_ALLOWUNDO };  // com desfazer, como na Lixeira
+                SHFileOperationW(&op);
+            }
+        } else if (!files.empty() && g_items[i].kind == I_TRASH) {
             std::wstring from;
             for (auto& f : files) { from += f; from += L'\0'; }
             from += L'\0';
@@ -1998,6 +2083,7 @@ static void ReadSettings() {
     std::wstring pos = shell::Setting(L"dock_posicao", L"baixo");
     g_pos = pos == L"esquerda" ? 1 : pos == L"direita" ? 2 : 0;
     g_customIcon.clear();  // a pasta de ícones próprios pode ter mudado
+    LoadFolders();  // o dock-pastas.txt pode ter mudado (issue #108)
     FitTile();
 }
 

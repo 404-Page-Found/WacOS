@@ -49,13 +49,18 @@ e o menu **Janela** (Minimizar, Zoom, Trazer Tudo para a Frente, lista de janela
 | Abrir app | ícone pula até o app abrir | idem (para quando a janela aparece) |
 
 Seções: **Arquivos** (o Finder, sempre o primeiro) · apps fixos · (separador) · apps abertos não fixos
-e recentes · (separador) · **Downloads** · **Lixeira**.
+e recentes · (separador) · **Downloads** · pastas do usuário · minimizadas · **Lixeira**.
 
 - Clique: abre o app; se já está aberto, traz todas as janelas dele para frente (restaura as minimizadas).
 - Botão direito (app aberto): lista de janelas · Opções ▸ (Manter no Dock, Abrir ao Iniciar Sessão,
   Mostrar no Finder) · Mostrar Todas as Janelas · Ocultar · Encerrar. App fechado: Opções ▸ · Abrir.
 - Arrastar para reordenar; arrastar para fora e soltar remove.
 - Downloads: clique mostra os itens mais recentes; "Abrir no Finder".
+- Pastas do usuário: uma por linha em `%APPDATA%\Shell\dock-pastas.txt` (variáveis de ambiente valem; `#` comenta).
+  Ficam entre o Downloads e as janelas minimizadas, como no Mac. Clique abre a pasta no Finder; botão direito →
+  "Abrir no Finder" / "Remover do Dock"; arrastar arquivos para o ícone os move para a pasta (com desfazer). As
+  pastas conhecidas (Mesa, Documentos, Downloads, Música, Imagens e Vídeos) usam o desenho com o glifo próprio;
+  as demais, a pasta azul comum.
 - Lixeira: ícone vazio/cheio; clique abre; botão direito → Esvaziar Lixeira.
 - Primeira vez: os apps fixados na barra de tarefas do Windows viram os apps fixos do Dock.
 
