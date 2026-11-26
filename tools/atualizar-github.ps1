@@ -16,7 +16,7 @@ function Grava { if ($Saida) { Set-Content -Encoding utf8 $Saida $out } }
 function Fim($msg, $espera = 4) { if ($Verificar) { Grava; exit }; Write-Host $msg; Start-Sleep $espera; exit }
 function Erro($msg) { $out.Add("erro=$msg"); Fim $msg 8 }
 
-if (-not $Verificar) { $host.UI.RawUI.WindowTitle = 'WacOS - Update' }
+if (-not $Verificar) { try { $host.UI.RawUI.WindowTitle = 'WacOS - Update' } catch { } }  # sem console na instalação automática em segundo plano
 $atual = ''; $atualSha = ''
 $vf = Join-Path $Bin 'versao.txt'
 if (Test-Path $vf) { $v = @(Get-Content $vf); if ($v.Count -ge 1) { $atual = $v[0].Trim() }; if ($v.Count -ge 2) { $atualSha = $v[1].Trim() } }
