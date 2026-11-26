@@ -2983,7 +2983,7 @@ static void DrawListHeader(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Soli
             if (!c.show) continue;
             float l = c.id == SORT_NAME ? c.l + 20 : c.l;
             br->SetColor(D2D1::ColorF(0, 0, 0, 0.88f));
-            if (tfH) dc->DrawTextW(c.t, (UINT32)wcsnlen(c.t, _countof(c.t)), tfH, D2D1::RectF(l, top, c.r - 16, bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            if (tfH) dc->DrawTextW(c.t, (UINT32)std::char_traits<wchar_t>::length(c.t), tfH, D2D1::RectF(l, top, c.r - 16, bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             if (c.id == g_sortCol) {  // ▲/▼ cheio na ponta direita da coluna
                 float ax = c.r - 12, cy = (top + bottom) / 2;
                 ID2D1Factory* f = nullptr; dc->GetFactory(&f);
