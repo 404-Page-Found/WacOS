@@ -8,6 +8,17 @@ import os, shutil, sys
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.expandvars(r'%USERPROFILE%\Downloads\mac_os_x_cursor_pack_by_razcalinside_dgcsg6')
 DST = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cursor', 'Leopard')
+RAIZ = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+SRC = os.path.realpath(SRC)
+DST = os.path.realpath(DST)
+if not os.path.isdir(SRC):
+    sys.exit('pacote não encontrado: ' + SRC)
+try:
+    dentro = os.path.commonpath((DST, RAIZ)) == RAIZ
+except ValueError:
+    dentro = False
+if not dentro:
+    sys.exit('destino fora do projeto: ' + DST)
 ARQUIVOS = ['Normal Select.cur', 'Help Select.cur', 'RainbowSwirl-Background.ani', 'RainbowSwirl-Busy.ani',
             'Precision Select.cur', 'Text Select.cur', 'Handwriting.cur', 'Unavailable.cur', 'Vertical Resize.cur',
             'Horizontal Resize.cur', 'Diagonal Resize 1.cur', 'Diagonal Resize 2.cur', 'Move.cur', 'Alternate Select.cur',

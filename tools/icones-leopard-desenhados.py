@@ -16,6 +16,13 @@ from aqua_icone import recorta, tira_placa
 
 RAIZ = os.path.join(AQUI, '..', 'icones')
 DST = sys.argv[1] if len(sys.argv) > 1 else os.path.join(RAIZ, 'leopard')
+DST = os.path.realpath(DST)
+try:
+    dentro = os.path.commonpath((DST, os.path.realpath(RAIZ))) == os.path.realpath(RAIZ)
+except ValueError:
+    dentro = False
+if not dentro:
+    sys.exit('destino fora do projeto: ' + DST)
 LADO = 320
 
 
