@@ -1770,3 +1770,4 @@
 { L"%ls disponíveis", L"%ls dostępne" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows nie potwierdził hasła (błąd %lu). Spróbuj ponownie lub użyj Ctrl⁠+⁠Alt⁠+⁠Del → Zablokuj." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: przełącznik aplikacji Maca" },
+{ L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"\"Ogranicz przezroczystość\" jest włączone niżej: szkło staje się prawie nieprzezroczyste, a Liquid Glass i prawdziwe szkło są zablokowane. Wyłącz, aby zmienić te opcje." },

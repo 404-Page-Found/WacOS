@@ -3,6 +3,7 @@
 // As tratadas pela DLL têm a própria sombra, dentro do programa, que acompanha sem atraso.
 #include "shell.h"
 #include "../comum/sombra.h"
+#include "../comum/jogos.h"
 #include <map>
 #include <memory>
 
@@ -10,6 +11,26 @@ namespace {
 
 std::map<HWND, std::unique_ptr<sombra::Sombra>> g_s;
 HWINEVENTHOOK g_hooks[4];
+
+// issue #136: jogos que mexem na própria janela (Rhythm Doctor, Windowkill) deixavam a sombra para trás: no Modo Jogo
+// o gancho de posição sai, e ela parava de seguir. Janela de jogo não ganha a sombra do Shell (as mesmas regras da DLL
+// das barras: classe de motor de jogo ou programa de jogo). O programa é conferido uma vez por processo.
+bool DeJogo(HWND h, const wchar_t* cls) {
+    if (jogos::ClasseDeJogo(cls)) return true;
+    static std::map<DWORD, bool> cache;
+    DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
+    auto it = cache.find(pid);
+    if (it != cache.end()) return it->second;
+    bool jogo = false;
+    if (HANDLE ph = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+        wchar_t p[MAX_PATH]; DWORD n = MAX_PATH;
+        if (QueryFullProcessImageNameW(ph, 0, p, &n)) jogo = jogos::ProgramaDeJogo(p);
+        CloseHandle(ph);
+    }
+    if (cache.size() > 500) cache.clear();
+    cache[pid] = jogo;
+    return jogo;
+}
 
 bool Eligible(HWND h) {
     if (!IsWindow(h) || GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h)) return false;
@@ -22,6 +43,7 @@ bool Eligible(HWND h) {
     if (cloaked || GetWindowTextLengthW(h) == 0) return false;
     wchar_t cls[64]; GetClassNameW(h, cls, 64);
     if (mesa::IsDeskClass(cls)) return false;
+    if (DeJogo(h, cls)) return false;
     for (auto c : { L"Shell_TrayWnd", L"ArquivosJanela", L"AjustesJanela", L"MonitorAtividadeJanela", L"TerminalMacJanela", L"CalculadoraJanela", L"NotasJanela", L"NotasRapidaJanela", L"MacJanelaBarra" })
         if (!wcscmp(cls, c)) return false;
     RECT r; GetWindowRect(h, &r);

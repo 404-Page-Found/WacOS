@@ -1478,6 +1478,9 @@ Page TransparenciaEfeitos() {
     if (liquid && !reduce && leveOn)
         p.groups.push_back(G({ mat, lg, real, Note(L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo."), refr, redo },
                              L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
+    else if (reduce)  // issue #140: as opções de vidro ficam cinza; aqui diz por quê
+        p.groups.push_back(G({ mat, lg, Note(L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções."), real, refr, redo },
+                             L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
     else
         p.groups.push_back(G({ mat, lg, real, refr, redo }, L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
 

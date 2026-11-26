@@ -1770,3 +1770,4 @@
 { L"%ls disponíveis", L"%ls kullanılabilir" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows parolayı doğrulamadı (hata %lu). Yeniden deneyin veya Ctrl⁠+⁠Alt⁠+⁠Del → Kilitle’yi kullanın." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: Mac uygulama değiştirici" },
+{ L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"Aşağıdaki \"Şeffaflığı azalt\" açık: camı neredeyse opak yapar ve Liquid Glass ile gerçek camı kilitler. Bu seçenekleri değiştirmek için kapatın." },

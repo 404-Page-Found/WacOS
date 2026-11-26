@@ -1937,3 +1937,11 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     40 arquivos, só ruído).
   Compilado (tudo e as DLLs das janelas). Não testado na tela.
   DESFAZER: reverter os commits de merge e compilar.
+[2026-11-26 18:50] Issues #136 e #140:
+  - #136 (a sombra ficava para trás quando o jogo mexia na própria janela: Rhythm Doctor, Windowkill): no Modo Jogo o
+    gancho de posição sai; sombras.cpp agora não põe a sombra do Shell em janela de jogo (classe de motor ou programa
+    de jogo, as regras da DLL das barras; conferido uma vez por processo).
+  - #140 (as opções de vidro ficavam cinza sem explicação): com "Reduzir transparência" ligado, o grupo Vidro dos
+    Ajustes mostra uma nota dizendo que é ele que trava e como desligar. Traduções nos 11 idiomas.
+  Não testado na tela.
+  DESFAZER: reverter o commit e compilar.

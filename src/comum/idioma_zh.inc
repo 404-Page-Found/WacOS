@@ -1770,3 +1770,4 @@
 { L"%ls disponíveis", L"%ls 可用" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows 未确认密码（错误 %lu）。请重试，或使用 Ctrl⁠+⁠Alt⁠+⁠Del → 锁定。" },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab：Mac App 切换器" },
+{ L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"下方的“降低透明度”已打开：它会让玻璃几乎不透明，并锁定 Liquid Glass 和真实玻璃。关闭它即可更改这些选项。" },

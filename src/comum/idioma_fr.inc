@@ -1770,3 +1770,4 @@
 { L"%ls disponíveis", L"%ls disponibles" },
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows n’a pas confirmé le mot de passe (erreur %lu). Réessayez ou utilisez Ctrl⁠+⁠Alt⁠+⁠Suppr → Verrouiller." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab : sélecteur d’apps du Mac" },
+{ L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"« Réduire la transparence » est activé, plus bas : il rend le verre presque opaque et bloque Liquid Glass et le vrai verre. Désactivez-le pour modifier ces options." },
