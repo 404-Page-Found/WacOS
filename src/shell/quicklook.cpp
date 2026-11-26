@@ -886,7 +886,7 @@ void Paint() {
             } else {
                 br->SetColor(D2D1::ColorF(1, 1, 1, 0.55f));
                 const wchar_t* t = g_loading ? Tr(L"Carregando…") : Tr(L"Sem prévia");
-                rt->DrawTextW(t, (UINT32)wcsnlen(t, 256), tfT, D2D1::RectF(body.left, (body.top + body.bottom) / 2 - 10, body.right, (body.top + body.bottom) / 2 + 10), br);
+                rt->DrawTextW(t, (UINT32)std::char_traits<wchar_t>::length(t), tfT, D2D1::RectF(body.left, (body.top + body.bottom) / 2 - 10, body.right, (body.top + body.bottom) / 2 + 10), br);
             }
         }
         rt->PopAxisAlignedClip();
@@ -938,7 +938,7 @@ void Paint() {
         } else {
             br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.45f) : D2D1::ColorF(0, 0, 0, 0.45f));
             const wchar_t* t = g_loading ? Tr(L"Carregando…") : Tr(L"Sem prévia");
-            rt->DrawTextW(t, (UINT32)wcsnlen(t, 256), g_tfTitle, D2D1::RectF(body.left, (body.top + body.bottom) / 2 - 10, body.right, (body.top + body.bottom) / 2 + 10), br);
+            rt->DrawTextW(t, (UINT32)std::char_traits<wchar_t>::length(t), g_tfTitle, D2D1::RectF(body.left, (body.top + body.bottom) / 2 - 10, body.right, (body.top + body.bottom) / 2 + 10), br);
         }
     }
     rt->PopAxisAlignedClip();

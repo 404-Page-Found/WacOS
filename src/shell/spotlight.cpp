@@ -559,7 +559,7 @@ void AbreWin(const std::wstring& target) {
     AllowSetForegroundWindow(ASFW_ANY);
     std::vector<BYTE> bytes;
     { std::lock_guard<std::mutex> l(g_mu); if (auto it = g_winId.find(target); it != g_winId.end()) bytes = it->second; }
-    std::thread([t = target.substr(wcsnlen(WIN_PREFIXO, 16)), bytes = std::move(bytes)] {
+    std::thread([t = target.substr(std::char_traits<wchar_t>::length(WIN_PREFIXO)), bytes = std::move(bytes)] {
         HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
         SHELLEXECUTEINFOW se{ sizeof(se) };
         se.fMask = SEE_MASK_NOASYNC;

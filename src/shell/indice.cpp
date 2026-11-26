@@ -209,7 +209,7 @@ bool NoiseFile(const std::wstring& n) {  // temporários: vão e voltam o tempo 
     if (n.empty() || n[0] == L'~' || n.back() == L'~') return true;
     std::wstring l = LowerPath(n);
     for (auto e : { L".tmp", L".crdownload", L".part", L".partial", L".download", L".lock", L".swp", L".temp", L".etl" }) {
-        size_t el = wcsnlen(e, 16);
+        size_t el = std::char_traits<wchar_t>::length(e);
         if (l.size() > el && !l.compare(l.size() - el, el, e)) return true;
     }
     return false;

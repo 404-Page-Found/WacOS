@@ -1628,7 +1628,7 @@ bool ctxmenu::DumpToLog(HWND owner, const std::wstring& path, bool background) {
 HRESULT ctxmenu::InvokeVerb(HWND owner, const std::wstring& folder, const std::vector<std::wstring>& paths, const char* verb) {
     ShellMenu sm;
     if (!LoadShellMenu(owner, folder, paths, CMF_NORMAL | CMF_CANRENAME, sm)) return E_FAIL;
-    std::wstring wverb(verb, verb + strnlen(verb, 256));
+    std::wstring wverb(verb, verb + std::char_traits<char>::length(verb));
     CMINVOKECOMMANDINFOEX ici{ sizeof(ici) };
     ici.fMask = CMIC_MASK_UNICODE;
     ici.hwnd = owner;

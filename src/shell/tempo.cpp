@@ -64,7 +64,7 @@ std::wstring FindRoot() {
         else ws.assign(s.begin(), s.end());
         for (const wchar_t* tag : { L"<TargetUrl>", L"<TargetDriveSignature>" }) {
             size_t a = ws.find(tag); if (a == std::wstring::npos) continue;
-            a += wcsnlen(tag, 32); size_t b = ws.find(L'<', a);
+            a += std::char_traits<wchar_t>::length(tag); size_t b = ws.find(L'<', a);
             if (b != std::wstring::npos && tag[7] == L'U') bases.push_back(ws.substr(a, b - a));
         }
     }

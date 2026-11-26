@@ -77,7 +77,7 @@ inline Sym* Load(ID2D1Factory* f, const std::wstring& name) {
     Sym& s = cache[key];
     auto attr = [&](const char* key) -> float {
         size_t p = t.find(key);
-        return p == std::string::npos ? 0.f : (float)atof(t.c_str() + p + strnlen(key, 128));
+        return p == std::string::npos ? 0.f : (float)atof(t.c_str() + p + std::char_traits<char>::length(key));
     };
     s.w = attr("width='");
     s.h = attr("height='");

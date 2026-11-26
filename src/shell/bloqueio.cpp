@@ -138,7 +138,7 @@ int CheckOwnPassword(const std::wstring& pw) {
     char line[256] = {}; fgets(line, sizeof(line), fp); fclose(fp);
     unsigned long long iter = 0; char saltHex[64] = {}, hashHex[80] = {};
     if (sscanf_s(line, "pbkdf2-sha256$%llu$%32[0-9a-f]$%64[0-9a-f]", &iter, saltHex, (unsigned)sizeof(saltHex), hashHex, (unsigned)sizeof(hashHex)) != 3 ||
-        strnlen(saltHex, 64) != 32 || strnlen(hashHex, 80) != 64 || iter < 1000) return -1;
+        strnlen(saltHex, _countof(saltHex)) != 32 || strnlen(hashHex, _countof(hashHex)) != 64 || iter < 1000) return -1;
     BYTE salt[16], h[32];
     for (int i = 0; i < 16; i++) sscanf_s(saltHex + 2 * i, "%2hhx", &salt[i]);
     if (!Derive(pw, salt, 16, iter, h)) return -1;

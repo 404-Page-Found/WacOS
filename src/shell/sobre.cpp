@@ -60,7 +60,7 @@ std::wstring Processador() {
     std::wstring s = v;
     while (!s.empty() && s.back() == L' ') s.pop_back();
     while (!s.empty() && s[0] == L' ') s.erase(0, 1);
-    for (const wchar_t* tira : { L"(R)", L"(TM)", L" CPU", L" Processor" }) for (size_t p; (p = s.find(tira)) != std::wstring::npos;) s.erase(p, wcsnlen(tira, 16));
+    for (const wchar_t* tira : { L"(R)", L"(TM)", L" CPU", L" Processor" }) for (size_t p; (p = s.find(tira)) != std::wstring::npos;) s.erase(p, std::char_traits<wchar_t>::length(tira));
     if (size_t p = s.find(L" @ "); p != std::wstring::npos) s = s.substr(p + 3) + L" " + s.substr(0, p);  // "3,6 GHz Intel Core i7" como no Mac
     return s.empty() ? L"Intel Core 2 Duo" : s;
 }
@@ -101,7 +101,7 @@ const PcInfo& Pc() {
     if (GetComputerNameExW(ComputerNameDnsHostname, b, &n)) i.nome = b;
     if (lixo(i.modelo)) i.modelo = L"PC";
     i.cpu = Reg(L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"ProcessorNameString");
-    for (const wchar_t* tira : { L"(R)", L"(TM)", L" CPU", L" Processor" }) for (size_t p; (p = i.cpu.find(tira)) != std::wstring::npos;) i.cpu.erase(p, wcsnlen(tira, 16));
+    for (const wchar_t* tira : { L"(R)", L"(TM)", L" CPU", L" Processor" }) for (size_t p; (p = i.cpu.find(tira)) != std::wstring::npos;) i.cpu.erase(p, std::char_traits<wchar_t>::length(tira));
     if (size_t p = i.cpu.find(L" @ "); p != std::wstring::npos) i.cpu.erase(p);
     for (size_t p; (p = i.cpu.find(L"  ")) != std::wstring::npos;) i.cpu.erase(p, 1);
     DISPLAY_DEVICEW dd{ sizeof(dd) };

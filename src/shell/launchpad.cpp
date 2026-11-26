@@ -488,7 +488,7 @@ void PaintApps(ID2D1DeviceContext* dc, const Geo& g, float ease) {
     br->SetColor(text2);
     simbolo::Draw(dc, L"square.grid.2x2", D2D1::RectF(P.left + 22, P.top + AP_HEAD / 2 - 10, P.left + 42, P.top + AP_HEAD / 2 + 10), br);
     D2D1_RECT_F fr = D2D1::RectF(P.left + 54, P.top, P.right - 54, P.top + AP_HEAD);
-    if (g_query.empty()) { br->SetColor(text2); dc->DrawTextW(Tr(L"Aplicativos"), (UINT32)wcsnlen(Tr(L"Aplicativos"), 256), g_apField, fr, br); }
+    if (g_query.empty()) { br->SetColor(text2); dc->DrawTextW(Tr(L"Aplicativos"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Aplicativos")), g_apField, fr, br); }
     else { br->SetColor(text); dc->DrawTextW(g_query.c_str(), (UINT32)g_query.size(), g_apField, fr, br); }
     float tw = g_query.empty() ? 0 : ui::TextWidth(g_apField, g_query);
     br->SetColor(D2D1::ColorF(0.04f, 0.45f, 0.93f, 1));
@@ -514,7 +514,7 @@ void PaintApps(ID2D1DeviceContext* dc, const Geo& g, float ease) {
             const wchar_t* m = more ? Tr(L"Mostrar Menos") : Tr(L"Mostrar Mais");
             br->SetColor(text2);
             D2D1_RECT_F mr = D2D1::RectF(P.right - AP_PAD - 120, y, P.right - AP_PAD, y + AP_SEC);
-            dc->DrawTextW(m, (UINT32)wcsnlen(m, 256), g_apMoreTf, mr, br);
+            dc->DrawTextW(m, (UINT32)std::char_traits<wchar_t>::length(m), g_apMoreTf, mr, br);
             g_apHits.push_back({ mr, 1, si });
         }
         y += AP_SEC;
@@ -536,7 +536,7 @@ void PaintApps(ID2D1DeviceContext* dc, const Geo& g, float ease) {
         }
         y += AP_ROW + 8;
     }
-    if (secs.empty()) { br->SetColor(text2); dc->DrawTextW(Tr(L"Nenhum resultado"), (UINT32)wcsnlen(Tr(L"Nenhum resultado"), 256), g_apSec, D2D1::RectF(P.left + AP_PAD, y, P.right, y + 40), br); y += 40; }
+    if (secs.empty()) { br->SetColor(text2); dc->DrawTextW(Tr(L"Nenhum resultado"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Nenhum resultado")), g_apSec, D2D1::RectF(P.left + AP_PAD, y, P.right, y + 40), br); y += 40; }
     dc->PopAxisAlignedClip();
     float contentH = y + g_apScroll - (clip.top + 6) + 14;
     if (std::fabs(contentH - g_apContentH) > 0.5f) { g_apContentH = contentH; PostMessageW(g_wnd, WM_LP_FRAME, 0, 0); }  // o painel acompanha o conteúdo
@@ -595,7 +595,7 @@ void Paint() {
             br->SetColor(D2D1::ColorF(1, 1, 1, i == g_cat ? 1.f : 0.85f));
             float tw2 = ui::TextWidth(g_tfSearch, Tr(CATS[i]));
             float cx = (cr[i].left + cr[i].right) / 2;
-            dc->DrawTextW(Tr(CATS[i]), (UINT32)wcsnlen(Tr(CATS[i]), 256), g_tfSearch, D2D1::RectF(cx - tw2 / 2, cr[i].top, cx + tw2 / 2 + 4, cr[i].bottom), br);
+            dc->DrawTextW(Tr(CATS[i]), (UINT32)std::char_traits<wchar_t>::length(Tr(CATS[i])), g_tfSearch, D2D1::RectF(cx - tw2 / 2, cr[i].top, cx + tw2 / 2 + 4, cr[i].bottom), br);
         }
     } else if (liquid::Leopard() && g_query.empty()) {
         // Mac OS X (o Launchpad do Lion): sem campo de busca; digitar ainda filtra, e aí o campo aparece
@@ -618,7 +618,7 @@ void Paint() {
         std::lock_guard<std::mutex> lk(g_mu);
         if (!g_ready) {
             br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
-            dc->DrawTextW(Tr(L"Carregando apps…"), (UINT32)wcsnlen(Tr(L"Carregando apps…"), 256), g_tfLabel, D2D1::RectF(0, g.H / 2 - 20, g.W, g.H / 2 + 20), br);
+            dc->DrawTextW(Tr(L"Carregando apps…"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Carregando apps…")), g_tfLabel, D2D1::RectF(0, g.H / 2 - 20, g.W, g.H / 2 + 20), br);
         } else {
             float px = PageNow();
             D2D1_MATRIX_3X2_F base; dc->GetTransform(&base);
@@ -681,7 +681,7 @@ void Paint() {
             }
             if (g_view.empty()) {
                 br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
-                dc->DrawTextW(Tr(L"Nenhum resultado"), (UINT32)wcsnlen(Tr(L"Nenhum resultado"), 256), g_tfLabel, D2D1::RectF(0, g.H / 2 - 20, g.W, g.H / 2 + 20), br);
+                dc->DrawTextW(Tr(L"Nenhum resultado"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Nenhum resultado")), g_tfLabel, D2D1::RectF(0, g.H / 2 - 20, g.W, g.H / 2 + 20), br);
             }
             int n = Pages();
             if (n > 1) {

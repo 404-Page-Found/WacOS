@@ -2755,7 +2755,7 @@ static void DrawToolbar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
     DrawToolIcon(dc, TB_SEARCH, D2D1::RectF(sr.left + 3, sr.top, sr.left + 27, sr.bottom), br);
     D2D1_RECT_F tr{ sr.left + 28, sr.top, sr.right - 8, sr.bottom };
     if (g_search.text.empty() && !g_searchFocus) return;
-    if (g_search.text.empty()) dc->DrawTextW(Tr(L"Buscar"), (UINT32)wcsnlen(Tr(L"Buscar"), 256), g_tfSearch, tr, br);
+    if (g_search.text.empty()) dc->DrawTextW(Tr(L"Buscar"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Buscar")), g_tfSearch, tr, br);
     ID2D1SolidColorBrush *sel = nullptr, *txt = nullptr;
     dc->CreateSolidColorBrush(D2D1::ColorF(pal.accent.r, pal.accent.g, pal.accent.b, 0.30f), &sel);
     dc->CreateSolidColorBrush(pal.text, &txt);
@@ -2983,7 +2983,7 @@ static void DrawListHeader(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Soli
             if (!c.show) continue;
             float l = c.id == SORT_NAME ? c.l + 20 : c.l;
             br->SetColor(D2D1::ColorF(0, 0, 0, 0.88f));
-            if (tfH) dc->DrawTextW(c.t, (UINT32)wcsnlen(c.t, MAX_PATH), tfH, D2D1::RectF(l, top, c.r - 16, bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            if (tfH) dc->DrawTextW(c.t, (UINT32)wcsnlen(c.t, _countof(c.t)), tfH, D2D1::RectF(l, top, c.r - 16, bottom), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             if (c.id == g_sortCol) {  // ▲/▼ cheio na ponta direita da coluna
                 float ax = c.r - 12, cy = (top + bottom) / 2;
                 ID2D1Factory* f = nullptr; dc->GetFactory(&f);
@@ -3025,7 +3025,7 @@ static void DrawListHeader(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Soli
         br->SetColor(c.id == SORT_NAME ? pal.text : pal.text2);  // como no Finder: só o título da primeira coluna em destaque
         D2D1_RECT_F r{ c.l, top, c.r, bottom };
         if (c.right) r.right -= 14;  // espaço da seta
-        dc->DrawTextW(c.title, (UINT32)wcsnlen(c.title, 256), c.right ? g_tfHeaderR : c.id == SORT_NAME ? g_tfHeader : g_tfHeaderL, r, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        dc->DrawTextW(c.title, (UINT32)std::char_traits<wchar_t>::length(c.title), c.right ? g_tfHeaderR : c.id == SORT_NAME ? g_tfHeader : g_tfHeaderL, r, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         if (active) {  // seta ˄/˅ do lado direito da coluna
             float ax = c.right ? c.r - 6 : c.r - 12, cy = (top + bottom) / 2;
             br->SetColor(pal.text2);
@@ -5520,7 +5520,7 @@ static void DrawViewOptions(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Sol
     // título + fechar
     br->SetColor(pal.text);
     const wchar_t* title = Tr(L"Opções de Visualização");
-    dc->DrawTextW(title, (UINT32)wcsnlen(title, 256), g_tfQlTitle, D2D1::RectF(r.left, y, r.right, y + rowH), br);
+    dc->DrawTextW(title, (UINT32)std::char_traits<wchar_t>::length(title), g_tfQlTitle, D2D1::RectF(r.left, y, r.right, y + rowH), br);
     D2D1_RECT_F close{ r.left + 10, y + 6, r.left + 28, y + 24 };
     br->SetColor(pal.text2);
     float ccx = (close.left + close.right) / 2, ccy = (close.top + close.bottom) / 2;
@@ -5572,7 +5572,7 @@ static void DrawViewOptions(ID2D1DeviceContext* dc, const Palette& pal, ID2D1Sol
     dc->FillRoundedRectangle(D2D1::RoundedRect(def, 6, 6), br);
     br->SetColor(pal.text);
     const wchar_t* defLabel = Tr(L"Usar como Padrão");
-    dc->DrawTextW(defLabel, (UINT32)wcsnlen(defLabel, 256), g_tfQlButton, def, br);
+    dc->DrawTextW(defLabel, (UINT32)std::char_traits<wchar_t>::length(defLabel), g_tfQlButton, def, br);
     g_optCtls.push_back({ def, OPT_DEFAULT_VIEW });
     g_optCtls.push_back({ r, 0 });  // o resto do painel (consome o clique)
 }
@@ -5790,13 +5790,13 @@ static void DrawTrashBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
     br->SetColor(g_dark ? D2D1::ColorF(0, 0, 0, 0.6f) : D2D1::ColorF(0, 0, 0, 0.12f));
     dc->DrawLine({ Lay::SIDEBAR_W, y + TRASH_BAR_H - 0.5f }, { s.width, y + TRASH_BAR_H - 0.5f }, br, 1);
     br->SetColor(pal.text);
-    dc->DrawTextW(Tr(L"Lixeira"), (UINT32)wcsnlen(Tr(L"Lixeira"), 256), g_tfSide, D2D1::RectF(Lay::SIDEBAR_W + 16, y, Lay::SIDEBAR_W + 200, y + TRASH_BAR_H), br);  // à esquerda, como no Mac
+    dc->DrawTextW(Tr(L"Lixeira"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Lixeira")), g_tfSide, D2D1::RectF(Lay::SIDEBAR_W + 16, y, Lay::SIDEBAR_W + 200, y + TRASH_BAR_H), br);  // à esquerda, como no Mac
     auto r = TrashEmptyRect();
     bool any = !g_all.empty();
     br->SetColor(g_dark ? D2D1::ColorF(1, 1, 1, g_trashPress ? 0.26f : 0.16f) : D2D1::ColorF(0, 0, 0, g_trashPress ? 0.14f : 0.07f));
     dc->FillRoundedRectangle(D2D1::RoundedRect(r, 6, 6), br);
     br->SetColor(any ? pal.text : pal.text2);
-    dc->DrawTextW(Tr(L"Esvaziar"), (UINT32)wcsnlen(Tr(L"Esvaziar"), 256), g_tfQlButton, r, br);
+    dc->DrawTextW(Tr(L"Esvaziar"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Esvaziar")), g_tfQlButton, r, br);
 }
 
 static void DrawScopeBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
@@ -5807,7 +5807,7 @@ static void DrawScopeBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
     br->SetColor(pal.bar);
     dc->FillRectangle(bar, br);
     br->SetColor(pal.text2);
-    dc->DrawTextW(Tr(L"Buscar:"), (UINT32)wcsnlen(Tr(L"Buscar:"), 256), g_tfQlButton, D2D1::RectF(Lay::SIDEBAR_W + 14, y, Lay::SIDEBAR_W + 62, y + SCOPE_H), br);
+    dc->DrawTextW(Tr(L"Buscar:"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Buscar:")), g_tfQlButton, D2D1::RectF(Lay::SIDEBAR_W + 14, y, Lay::SIDEBAR_W + 62, y + SCOPE_H), br);
     std::wstring labels[2] = { Tr(L"Este Computador"), L"“" + DisplayName(g_searchHome) + L"”" };
     for (int k = 0; k < 2; k++) {
         auto r = ScopeBtnRect(k);
@@ -5892,7 +5892,7 @@ static void DrawPicker(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCol
     if (g_pick.mode == 1) {  // Salvar como: [nome]
         auto s = ClientDip(); float y = s.height - Lay::STATUS_H / 2;
         br->SetColor(pal.text2);
-        dc->DrawTextW(Tr(L"Salvar como:"), (UINT32)wcsnlen(Tr(L"Salvar como:"), 256), g_tfStatus, D2D1::RectF(Lay::SIDEBAR_W + 12, y - 13, Lay::SIDEBAR_W + 96, y + 13), br);
+        dc->DrawTextW(Tr(L"Salvar como:"), (UINT32)std::char_traits<wchar_t>::length(Tr(L"Salvar como:")), g_tfStatus, D2D1::RectF(Lay::SIDEBAR_W + 12, y - 13, Lay::SIDEBAR_W + 96, y + 13), br);
         auto nr = PickNameRect();
         float fr = tahoe::On() ? (nr.bottom - nr.top) / 2 : 6;  // Tahoe: campo em cápsula
         br->SetColor(pal.field);
@@ -7045,7 +7045,7 @@ static void LoadFavorites() {
     struct KF { const KNOWNFOLDERID* id; const wchar_t* label; wchar_t glyph; };
     const KF defs[] = {
         { &FOLDERID_Recent, Tr(L"Recentes"), 0xE823 },
-        { &FOLDERID_CommonPrograms, Tr(L"Aplicativos"), 0xE71D },  // atalhos do menu Iniciar; NOSONAR cpp:S5443 — só leitura da pasta compartilhada do Menu Iniciar, nada é gravado nela
+        { &FOLDERID_CommonPrograms, Tr(L"Aplicativos"), 0xE71D },  // atalhos do menu Iniciar; NOSONAR cpp:S5443 — o Finder navega e opera (nova pasta, renomear, colar) na pasta comum do Menu Iniciar, protegida por ACL
         { &FOLDERID_Desktop, Tr(L"Mesa"), 0xE7F4 }, { &FOLDERID_Documents, Tr(L"Documentos"), 0xE8A5 },
         { &FOLDERID_Downloads, Tr(L"Downloads"), 0xE896 }, { &FOLDERID_Pictures, Tr(L"Imagens"), 0xE91B },
         { &FOLDERID_Music, Tr(L"Músicas"), 0xE8D6 }, { &FOLDERID_Videos, Tr(L"Vídeos"), 0xE714 },
@@ -7068,7 +7068,7 @@ static void BuildSidebar() {
     g_recentFolder = KnownFolder(FOLDERID_Recent);
     // símbolos das pastas especiais (gravados no ícone delas), mesmo fora dos favoritos
     struct KF { const KNOWNFOLDERID* id; wchar_t glyph; };
-    const KF special[] = { { &FOLDERID_Recent, 0xE823 }, { &FOLDERID_CommonPrograms, 0xE71D }, { &FOLDERID_Desktop, 0xE7F4 },  // NOSONAR cpp:S5443 — só leitura do Menu Iniciar comum
+    const KF special[] = { { &FOLDERID_Recent, 0xE823 }, { &FOLDERID_CommonPrograms, 0xE71D }, { &FOLDERID_Desktop, 0xE7F4 },  // NOSONAR cpp:S5443 — o Finder navega e opera na pasta comum do Menu Iniciar, protegida por ACL
                            { &FOLDERID_Documents, 0xE8A5 }, { &FOLDERID_Downloads, 0xE896 }, { &FOLDERID_Pictures, 0xE91B },
                            { &FOLDERID_Music, 0xE8D6 }, { &FOLDERID_Videos, 0xE714 }, { &FOLDERID_Profile, 0xE80F }, { &FOLDERID_SkyDrive, 0xE753 } };
     for (auto& k : special) { std::wstring p = KnownFolder(*k.id); if (!p.empty()) g_emblems.push_back({ p, k.glyph }); }
@@ -7199,7 +7199,7 @@ static void RemoveFavorite(int fav) {
 static void FinderSettings() {
     struct KF { const KNOWNFOLDERID* id; const wchar_t* label; wchar_t glyph; };
     const KF defs[] = {
-        { &FOLDERID_Recent, L"Recentes", 0xE823 }, { &FOLDERID_CommonPrograms, L"Aplicativos", 0xE71D },  // NOSONAR cpp:S5443 — só leitura do Menu Iniciar comum
+        { &FOLDERID_Recent, L"Recentes", 0xE823 }, { &FOLDERID_CommonPrograms, L"Aplicativos", 0xE71D },  // NOSONAR cpp:S5443 — o Finder navega e opera na pasta comum do Menu Iniciar, protegida por ACL
         { &FOLDERID_Desktop, L"Mesa", 0xE7F4 }, { &FOLDERID_Documents, L"Documentos", 0xE8A5 },
         { &FOLDERID_Downloads, L"Downloads", 0xE896 }, { &FOLDERID_Pictures, L"Imagens", 0xE91B },
         { &FOLDERID_Music, L"Músicas", 0xE8D6 }, { &FOLDERID_Videos, L"Vídeos", 0xE714 }, { &FOLDERID_Profile, nullptr, 0xE80F },

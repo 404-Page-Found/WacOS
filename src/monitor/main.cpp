@@ -1175,7 +1175,7 @@ void DrawPanel(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, const Pal& pal) 
         break;
     case T_GPU: {
         std::wstring name = g_gpuName.empty() ? L"—" : g_gpuName;
-        for (auto w : { L"NVIDIA ", L"AMD ", L"Intel(R) ", L"GeForce " }) if (name.rfind(w, 0) == 0 && name.size() > 22) name = name.substr(wcsnlen(w, 16));
+        for (auto w : { L"NVIDIA ", L"AMD ", L"Intel(R) ", L"GeForce " }) if (name.rfind(w, 0) == 0 && name.size() > 22) name = name.substr(std::char_traits<wchar_t>::length(w));
         Stats(rt, br, pal, L, { { Tr(L"Placa:"), name, pal.text }, { Tr(L"Uso:"), pct(g_gpuTotal), blue },
                                 { Tr(L"Memória da GPU:"), Bytes((double)g_gpuUsedMem), pal.text }, { Tr(L"Total:"), Bytes((double)g_gpuTotalMem), pal.text } });
         title(Tr(L"USO DA GPU"));

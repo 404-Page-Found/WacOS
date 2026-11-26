@@ -844,14 +844,14 @@ void Paint(Info* in) {
         wchar_t t[256] = {}; GetWindowTextW(in->owner, t, 256);
         if (in->tool && g_tfTool && t[0]) {  // plug-in: título cinza, menor, no meio
             b->SetColor(D2D1::ColorF(1, 1, 1, in->active ? 0.62f : 0.38f));
-            rt->DrawTextW(t, (UINT32)wcsnlen(t, 256), g_tfTool, D2D1::RectF(70, 0, W - 70, H), b);
+            rt->DrawTextW(t, (UINT32)wcsnlen(t, _countof(t)), g_tfTool, D2D1::RectF(70, 0, W - 70, H), b);
         } else if (g_tf && t[0] && !in->custom && !(semaforo::Aqua() && OwnApp())) {  // macOS 27: os apps do sistema não mostram o título
             if (leo && !in->dark) {  // Leopard: o título em relevo (sombra branca 1 pt abaixo)
                 b->SetColor(D2D1::ColorF(1, 1, 1, in->active ? 0.55f : 0.35f));
-                rt->DrawTextW(t, (UINT32)wcsnlen(t, 256), g_tfLeo ? g_tfLeo : g_tf, D2D1::RectF(80, 1, W - 80, H + 1), b);
+                rt->DrawTextW(t, (UINT32)wcsnlen(t, _countof(t)), g_tfLeo ? g_tfLeo : g_tf, D2D1::RectF(80, 1, W - 80, H + 1), b);
             }
             b->SetColor(in->dark ? D2D1::ColorF(1, 1, 1, in->active ? 0.86f : 0.42f) : D2D1::ColorF(0, 0, 0, in->active ? 0.85f : 0.40f));
-            rt->DrawTextW(t, (UINT32)wcsnlen(t, 256), leo && g_tfLeo ? g_tfLeo : g_tf, D2D1::RectF(80, 0, W - 80, H), b);
+            rt->DrawTextW(t, (UINT32)wcsnlen(t, _countof(t)), leo && g_tfLeo ? g_tfLeo : g_tf, D2D1::RectF(80, 0, W - 80, H), b);
         }
         b->Release();
         rt->EndDraw();

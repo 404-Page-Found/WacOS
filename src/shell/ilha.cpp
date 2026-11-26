@@ -470,7 +470,7 @@ void DownloadsThread() {
             if (fi->Action == FILE_ACTION_ADDED || fi->Action == FILE_ACTION_RENAMED_NEW_NAME) {
                 std::wstring name(fi->FileName, fi->FileNameLength / sizeof(wchar_t));
                 std::wstring low = name; for (auto& c : low) c = towlower(c);
-                auto ends = [&](const wchar_t* e) { size_t n = wcsnlen(e, 16); return low.size() >= n && low.compare(low.size() - n, n, e) == 0; };
+                auto ends = [&](const wchar_t* e) { size_t n = std::char_traits<wchar_t>::length(e); return low.size() >= n && low.compare(low.size() - n, n, e) == 0; };
                 // arquivos parciais dos navegadores e temporários: espera virar o arquivo final
                 bool partial = ends(L".crdownload") || ends(L".part") || ends(L".tmp") || ends(L".partial") || ends(L".download") || ends(L".opdownload") ||
                                low.rfind(L"unconfirmed ", 0) == 0 || low[0] == L'~' || low[0] == L'.' || name.find(L'\\') != std::wstring::npos;

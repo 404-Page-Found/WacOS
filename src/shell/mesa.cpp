@@ -282,7 +282,7 @@ void StartExplorer(const wchar_t* why) {
     bool swap = ReadWinlogonShell(saved) && (Lower(saved).find(L"wacosshell.exe") != std::wstring::npos || Lower(saved).find(L"sequoiashell.exe") != std::wstring::npos);
     if (swap) {
         const wchar_t* ex = L"explorer.exe";
-        RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON, L"Shell", REG_SZ, ex, (DWORD)(wcsnlen(ex, 32) + 1) * 2);
+        RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON, L"Shell", REG_SZ, ex, (DWORD)(std::char_traits<wchar_t>::length(ex) + 1) * 2);
         Log(L"mesa: Winlogon Shell = explorer.exe por alguns segundos (era %ls)", saved.c_str());
     }
     wchar_t win[MAX_PATH]; GetWindowsDirectoryW(win, MAX_PATH);
@@ -2007,7 +2007,7 @@ void mesa::Start(HINSTANCE hi, HWND msgWnd) {
     g_hi = hi; g_msgWnd = msgWnd;
     g_explorerAtStart = ExplorerProgman() != nullptr;
     g_userDesk = Known(FOLDERID_Desktop);
-    g_publicDesk = Known(FOLDERID_PublicDesktop);  // NOSONAR cpp:S5443 — só lê os atalhos da Área de Trabalho pública, como o Explorer
+    g_publicDesk = Known(FOLDERID_PublicDesktop);  // NOSONAR cpp:S5443 — a Mesa lê, renomeia e exclui atalhos da Área de Trabalho pública, como o Explorer; a pasta é protegida por ACL
     g_posFile = Known(FOLDERID_RoamingAppData) + L"\\Shell\\mesa.txt";
     WNDCLASSW dc{}; dc.lpfnWndProc = DeskProc; dc.hInstance = hi; dc.lpszClassName = DESK_CLASS;
     dc.style = CS_DBLCLKS; dc.hCursor = LoadCursorW(nullptr, IDC_ARROW);

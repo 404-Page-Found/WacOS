@@ -68,7 +68,7 @@ std::string Section(const std::string& j, const char* key) {
 double Number(const std::string& s, const char* key) {
     size_t p = s.find(std::string("\"") + key + "\":");
     if (p == std::string::npos) return NAN;
-    p += strnlen(key, 128) + 3;
+    p += std::char_traits<char>::length(key) + 3;
     while (p < s.size() && s[p] == ' ') p++;
     if (s.compare(p, 4, "null") == 0) return NAN;
     return strtod(s.c_str() + p, nullptr);
@@ -93,7 +93,7 @@ std::string ToUtf8(const std::wstring& w) { int n = WideCharToMultiByte(CP_UTF8,
 std::string StrField(const std::string& s, const char* key) {
     size_t p = s.find(std::string("\"") + key + "\":\"");
     if (p == std::string::npos) return "";
-    p += strnlen(key, 128) + 4;
+    p += std::char_traits<char>::length(key) + 4;
     size_t e = s.find('"', p);
     return e == std::string::npos ? "" : s.substr(p, e - p);
 }
@@ -336,7 +336,7 @@ void PaintGoldenWx() {
     {
         IDWriteTextFormat* f = g_tfSmallW;
         const wchar_t* s = w.feels < w.temp - 1 ? Tr(L"O vento deixa mais frio do que a temperatura real.") : w.feels > w.temp + 1 ? Tr(L"A umidade deixa mais quente do que a temperatura real.") : Tr(L"Parecida com a temperatura real.");
-        br->SetColor(white); rt->DrawTextW(s, (UINT32)wcsnlen(s, 256), f, D2D1::RectF(c1.left + 14, c1.top + 66, c1.right - 12, c1.bottom - 8), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        br->SetColor(white); rt->DrawTextW(s, (UINT32)std::char_traits<wchar_t>::length(s), f, D2D1::RectF(c1.left + 14, c1.top + 66, c1.right - 12, c1.bottom - 8), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
     GlassCard(c2); CardHead(c2, Tr(L"VENTO"));
     {   // bússola com a velocidade no meio

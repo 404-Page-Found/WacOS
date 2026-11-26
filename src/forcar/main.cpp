@@ -135,7 +135,7 @@ BOOL CALLBACK OnWin(HWND h, LPARAM l) {
         // descrição que parece um identificador ("WhatsApp.Root"): o título da janela diz melhor o nome
         if (a.name.find(L'.') != std::wstring::npos && a.name.find(L' ') == std::wstring::npos) {
             wchar_t t[128] = L""; GetWindowTextW(h, t, 128);
-            if (t[0] && wcsnlen(t, 128) < 40) a.name = t;
+            if (t[0] && wcsnlen(t, _countof(t)) < 40) a.name = t;
         }
         if (a.name.empty()) { a.name = path.substr(path.find_last_of(L'\\') + 1); size_t d = a.name.rfind(L'.'); if (d != std::wstring::npos) a.name.erase(d); }
     }

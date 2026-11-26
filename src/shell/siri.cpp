@@ -49,7 +49,7 @@ IDWriteTextFormat *g_tfQ, *g_tfA;
 
 // ---------------------------------------------------------------- a pergunta (thread)
 std::wstring Limpa(std::wstring t) {  // os modelos insistem em Markdown: tira o que fica feio em texto puro
-    for (const wchar_t* m : { L"**", L"__", L"`" }) for (size_t i; (i = t.find(m)) != std::wstring::npos;) t.erase(i, wcsnlen(m, 8));
+    for (const wchar_t* m : { L"**", L"__", L"`" }) for (size_t i; (i = t.find(m)) != std::wstring::npos;) t.erase(i, std::char_traits<wchar_t>::length(m));
     std::wstring o; bool ini = true;
     for (size_t i = 0; i < t.size(); i++) {
         if (ini) {  // "# Título" e "* item" no começo da linha
