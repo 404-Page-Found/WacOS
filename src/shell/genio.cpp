@@ -57,6 +57,12 @@ void RealBack() {
     g_a.realBack = true;
     shell::Restaurar(g_a.target);
     shell::LiberaFrente(); SetForegroundWindow(g_a.target);
+    // Issues #142 e #143: o app só refazia o quadro (cantos arredondados, botões do semáforo, barra de rolagem do Chromium) depois
+    // que a camada saía, e isso aparecia como um estalo. Força o quadro e o conteúdo a se refazerem já, ainda escondidos.
+    // (de outro processo: sem esperar a resposta, senão um app travado travava o Shell junto; ele refaz no tempo dele,
+    // ainda dentro dos 320 ms em que a camada fica por cima)
+    SetWindowPos(g_a.target, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS);
+    RedrawWindow(g_a.target, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME | RDW_ALLCHILDREN);
     SetWindowPos(g_ov, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);  // a camada continua por cima
     dock::Raise();
 }
@@ -243,7 +249,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
     if (m == WM_TIMER && h == g_wnd) {
         if (w == T_BACK) { KillTimer(h, T_BACK); RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); dock::Raise(); }
-        else if (w == T_END) { KillTimer(h, T_END); if (g_a.restore) { RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); SetTimer(h, T_SETTLE, 220, nullptr); } else FinishComp(); }  // o último quadro fica enquanto a janela redesenha
+        else if (w == T_END) { KillTimer(h, T_END); if (g_a.restore) { RealBack(); SetWindowPos(g_wnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); SetTimer(h, T_SETTLE, 320, nullptr); } else FinishComp(); }  // o último quadro fica enquanto a janela redesenha
         else if (w == T_SETTLE) FinishComp();
         return 0;
     }
@@ -567,7 +573,7 @@ bool Start(HWND h) {
 
 // Uma faixa de cada vez: v = 0 no alto da janela, 1 no pé.
 void Frame() {
-    if (g_a.settleAt) { if (anim::Now() - g_a.settleAt > 140) Finish(); return; }  // a janela já redesenhou atrás
+    if (g_a.settleAt) { if (anim::Now() - g_a.settleAt > 260) Finish(); return; }  // a janela já redesenhou atrás
     float t = std::min(1.f, (float)((anim::Now() - g_a.t0) / 1000.0) / DURATION);
     float p = g_a.restore ? 1 - anim::Ease(t) : anim::Ease(t);  // 0 = janela na tela, 1 = no Dock
     if (g_a.restore && t >= 0.4f) RealBack();  // volta cedo, escondida: tem tempo de redesenhar (e a animação do Windows acaba)

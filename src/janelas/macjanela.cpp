@@ -2605,7 +2605,12 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     }
     case WM_SHOWWINDOW: {
         LRESULT r = DefSubclassProc(h, m, w, l);
-        if (!w) { ShowWindow(in->overlay, SW_HIDE); if (in->minis) ShowWindow(in->minis, SW_HIDE); ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); } else { PlaceOverlay(in); UpdateShadow(in); }
+        if (!w) { ShowWindow(in->overlay, SW_HIDE); if (in->minis) ShowWindow(in->minis, SW_HIDE); ShowWindow(in->shadow.wnd, SW_HIDE); HideCorners(in); } else {
+            // Issue #143: restaurada do Dock, a janela nativa aparecia com cantos quadrados e sem o semáforo por ~0,5 s (o recorte
+            // e a barra só voltavam num WM_SIZE/timer depois). Refaz o recorte e a barra já ao mostrar.
+            if (!in->custom && !IsIconic(h)) { ApplyRegion(in); Paint(in); }
+            PlaceOverlay(in); UpdateShadow(in);
+        }
         return r;
     }
     case WM_NCPAINT:

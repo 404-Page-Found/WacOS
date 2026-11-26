@@ -1954,3 +1954,14 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     um aviso com o botão "Ligar" (EnableTransparency = 1 e avisa o Windows). Traduções nos 11 idiomas.
   - #150: Ajustes > Central de Controle > "Logo da barra de menus": Maçã ou Windows (logo_barra=windows, quatro quadrados).
   DESFAZER: reverter o commit e compilar.
+[2026-11-26 20:10] Issues #141, #142, #143 e #138 (dos PRs #146, #147, #148 e #151 do 404-Page-Found, trazidos à mão):
+  - #141 (palco.cpp PlaceStrip): a faixa do Organizador só é reposicionada quando o retângulo, a visibilidade ou a
+    ordem mudaram; antes, a cada 1,5 s, o DWM recompunha a pilha e ela piscava.
+  - #142 (genio.cpp RealBack): a janela restaurada do Dock refaz o quadro e o conteúdo antes de a camada da animação
+    sair (espera 320 ms e 260 ms). Diferente do PR: SWP_ASYNCWINDOWPOS e sem RDW_UPDATENOW, para um app travado não
+    travar o Shell.
+  - #143 (macjanela.cpp WM_SHOWWINDOW): refaz o recorte e a barra ao mostrar a janela (cantos e semáforo na hora).
+  - #138 (notificacoes.cpp): o banner tem o vidro dele (g_hasBannerGlass) e CardGlass() não pinta o fundo sólido
+    quando o painel usa o vidro real.
+  Compilado (Shell e DLLs das janelas). Shell instalado e rodando; a DLL vai na build. Não visto na tela.
+  DESFAZER: reverter o commit e compilar.
