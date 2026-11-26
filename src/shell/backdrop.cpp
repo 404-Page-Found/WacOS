@@ -1594,6 +1594,10 @@ void backdrop::Restart() {
     Log(L"vidro real: reiniciado pelo usuário (estava %ls%ls)", rg::active ? L"ligado" : L"desligado", rg::semCaptura ? L", desistido" : L"");
     rg::semCaptura = false;
     rg::capJaFuncionou = false;
+    // issue #140: as janelas recusadas antes (e o "um app recusou") ficavam guardadas; logo depois do reinício, ainda sem
+    // nenhuma captura aberta, o vidro via só recusas e desistia de novo em 3 s ("aparece por um segundo e volta o sólido")
+    rg::capFailed.clear();
+    rg::appRecusada = false;
     if (rg::active) rg::SetActive(false);  // fecha todas as capturas; o Reload abre de novo
     Reload();
 }
@@ -1627,6 +1631,15 @@ void backdrop::Reload() {
             Log(L"vidro real: ligado nos ajustes, mas fica fosco (%ls)",
                 motivo == 1 ? L"a captura de janelas falhou nesta sessão" : motivo == 2 ? L"modo jogo" : L"modo leve ligado");
         ultimo = motivo;
+    }
+    {   // issues #138 e #140: com "Efeitos de transparência" do Windows desligado, o desfoque do DWM (HostBackdropBrush) vira
+        // uma cor sólida: o fosco do Dock, da barra, das notificações e dos painéis fica sólido, e parecia defeito do vidro
+        DWORD v = 1, n = sizeof(v);
+        bool semTransp = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                                      L"EnableTransparency", RRF_RT_REG_DWORD, nullptr, &v, &n) == ERROR_SUCCESS && v == 0;
+        static int ultimoT = -1;
+        if ((int)semTransp != ultimoT && semTransp) Log(L"vidro: \"Efeitos de transparência\" do Windows está desligado: o fosco fica sólido");
+        ultimoT = semTransp;
     }
     if (leveMudou && g_comp)  // o fosco é refeito com a receita nova (Apply põe na peça)
         for (auto& [h, e] : g_entries) if (e.liquidBuilt) { try { e.baseBrush = MakeFrost(); } catch (...) {} }

@@ -1771,3 +1771,8 @@
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows n’a pas confirmé le mot de passe (erreur %lu). Réessayez ou utilisez Ctrl⁠+⁠Alt⁠+⁠Suppr → Verrouiller." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab : sélecteur d’apps du Mac" },
 { L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"« Réduire la transparence » est activé, plus bas : il rend le verre presque opaque et bloque Liquid Glass et le vrai verre. Désactivez-le pour modifier ces options." },
+{ L"Ligar", L"Activer" },
+{ L"Transparência do Windows", L"Transparence de Windows" },
+{ L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"« Effets de transparence » est désactivé dans les Paramètres Windows (Personnalisation > Couleurs). Ainsi, le verre dépoli devient opaque." },
+{ L"Logo da barra de menus", L"Logo de la barre des menus" },
+{ L"Maçã", L"Pomme" },

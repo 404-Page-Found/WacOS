@@ -1945,3 +1945,12 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     Ajustes mostra uma nota dizendo que é ele que trava e como desligar. Traduções nos 11 idiomas.
   Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-26 19:40] Issues #140, #138 e #150:
+  - #140 (depois do "Reiniciar o Liquid Glass" o vidro aparecia por um segundo e voltava o sólido): backdrop::Restart
+    agora limpa as janelas recusadas (capFailed) e o appRecusada; antes, logo depois do reinício, sem nenhuma captura
+    aberta, o vidro só via recusas e desistia de novo em 3 s. Testado no PC: reiniciado, o vidro real continua ligado.
+  - #140 e #138 (fosco sólido: Central de Notificações, segundo monitor): com "Efeitos de transparência" do Windows
+    desligado, o HostBackdropBrush vira cor sólida. O Shell escreve isso no shell.log e os Ajustes > Aparência mostram
+    um aviso com o botão "Ligar" (EnableTransparency = 1 e avisa o Windows). Traduções nos 11 idiomas.
+  - #150: Ajustes > Central de Controle > "Logo da barra de menus": Maçã ou Windows (logo_barra=windows, quatro quadrados).
+  DESFAZER: reverter o commit e compilar.

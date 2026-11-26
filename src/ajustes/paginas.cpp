@@ -1475,6 +1475,25 @@ Page TransparenciaEfeitos() {
         if (sh) PostMessageW(sh, msg, 0, 0);
     });
     redo.enabled = liquid && !reduce;
+    // issues #138 e #140: "Efeitos de transparência" do Windows desligado deixa o desfoque do Windows sólido, e com ele o
+    // vidro fosco do WacOS (Dock, barra, notificações, segundo monitor). Diz isso aqui e liga com um clique.
+    {
+        DWORD v = 1, n = sizeof(v);
+        bool semTransp = RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                                      L"EnableTransparency", RRF_RT_REG_DWORD, nullptr, &v, &n) == ERROR_SUCCESS && v == 0;
+        if (semTransp && !reduce) {
+            Row liga = Button(L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.",
+                              L"Ligar", [] {
+                DWORD um = 1;
+                RegSetKeyValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                                L"EnableTransparency", REG_DWORD, &um, sizeof(um));
+                DWORD_PTR r = 0;
+                SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet", SMTO_ABORTIFHUNG, 500, &r);
+                Rebuild();
+            });
+            p.groups.push_back(G({ liga }, L"Transparência do Windows"));
+        }
+    }
     if (liquid && !reduce && leveOn)
         p.groups.push_back(G({ mat, lg, real, Note(L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo."), refr, redo },
                              L"Vidro", L"Vale para o Dock, a barra de menus, os menus, a Central de Controle, o Spotlight e os painéis do Shell."));
@@ -1738,7 +1757,12 @@ Page CentralControle() {
                        [] { std::wstring a = Setting(L"barra_altura", L"padrao"); return a == L"menor" ? 0 : a == L"maior" ? 2 : 1; },
                        [](int i) { SetSetting(L"barra_altura", i == 0 ? L"menor" : i == 2 ? L"maior" : L"padrao"); });
     altura.icon = 0xE8A7; altura.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, formato, segundos, ocultar, telaCheia, altura, baixo, todos, priv }));
+    // issue #150: o logo do Windows no lugar da maçã, no canto da barra
+    Row logo = Popup(L"Logo da barra de menus", { L"Maçã", L"Windows" },
+                     [] { return Setting(L"logo_barra", L"apple") == L"windows" ? 1 : 0; },
+                     [](int i) { SetSetting(L"logo_barra", i == 1 ? L"windows" : L"apple"); });
+    logo.icon = 0xE782; logo.iconColor = C_GRAY;
+    p.groups.push_back(G({ clock, formato, segundos, ocultar, telaCheia, altura, logo, baixo, todos, priv }));
     return p;
 }
 

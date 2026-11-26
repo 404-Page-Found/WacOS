@@ -1774,3 +1774,8 @@
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows didn't confirm the password (error %lu). Try again or use Ctrl⁠+⁠Alt⁠+⁠Del → Lock." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: Mac app switcher" },
 { L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"\"Reduce transparency\" is on, further down: it makes the glass almost opaque and locks Liquid Glass and real glass. Turn it off to change these options." },
+{ L"Ligar", L"Turn On" },
+{ L"Transparência do Windows", L"Windows Transparency" },
+{ L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"\"Transparency effects\" is off in Windows Settings (Personalization > Colors). With it off, the frosted glass turns solid." },
+{ L"Logo da barra de menus", L"Menu bar logo" },
+{ L"Maçã", L"Apple" },

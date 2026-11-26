@@ -1204,6 +1204,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring ocultar = shell::Setting(L"barra_ocultar", L"0");
             if (lastOcultar != L"?" && ocultar != lastOcultar) { menubar::Displays(); dock::ReloadSettings(); }
             lastOcultar = ocultar;
+            static std::wstring lastLogo = L"?";  // logo da barra (issue #150): maçã ou Windows
+            std::wstring logo = shell::Setting(L"logo_barra", L"apple");
+            if (lastLogo != L"?" && logo != lastLogo) menubar::Displays();
+            lastLogo = logo;
         }
         static int lastLang = -1;
         if (lastLang < 0) lastLang = idioma::Current();

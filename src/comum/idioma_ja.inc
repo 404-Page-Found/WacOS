@@ -1771,3 +1771,8 @@
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows がパスワードを確認できませんでした（エラー %lu）。もう一度試すか、Ctrl⁠+⁠Alt⁠+⁠Del → ロック を使ってください。" },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab：Mac の App スイッチャー" },
 { L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"下にある「透明度を下げる」がオンです。ガラスがほぼ不透明になり、Liquid Glass と本物のガラスが使えなくなります。これらの設定を変えるにはオフにしてください。" },
+{ L"Ligar", L"オンにする" },
+{ L"Transparência do Windows", L"Windows の透明効果" },
+{ L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows の設定 (個人用設定 > 色) で「透明効果」がオフです。オフのままだと、すりガラスが不透明になります。" },
+{ L"Logo da barra de menus", L"メニューバーのロゴ" },
+{ L"Maçã", L"リンゴ" },

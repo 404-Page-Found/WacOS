@@ -1771,3 +1771,8 @@
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows가 암호를 확인하지 못했습니다(오류 %lu). 다시 시도하거나 Ctrl⁠+⁠Alt⁠+⁠Del → 잠금을 사용하십시오." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: Mac 앱 전환기" },
 { L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"아래의 \"투명도 줄이기\"가 켜져 있습니다. 유리가 거의 불투명해지고 Liquid Glass와 실제 유리가 잠깁니다. 이 옵션을 바꾸려면 끄십시오." },
+{ L"Ligar", L"켜기" },
+{ L"Transparência do Windows", L"Windows 투명도" },
+{ L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows 설정(개인 설정 > 색)에서 \"투명 효과\"가 꺼져 있습니다. 꺼져 있으면 반투명 유리가 불투명해집니다." },
+{ L"Logo da barra de menus", L"메뉴 막대 로고" },
+{ L"Maçã", L"사과" },

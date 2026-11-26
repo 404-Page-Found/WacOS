@@ -1771,3 +1771,8 @@
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows не подтвердила пароль (ошибка %lu). Попробуйте ещё раз или используйте Ctrl⁠+⁠Alt⁠+⁠Del → Заблокировать." },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab: переключатель приложений Mac" },
 { L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"«Уменьшить прозрачность» включено ниже: стекло становится почти непрозрачным, а Liquid Glass и настоящее стекло блокируются. Выключите, чтобы изменить эти параметры." },
+{ L"Ligar", L"Включить" },
+{ L"Transparência do Windows", L"Прозрачность Windows" },
+{ L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"«Эффекты прозрачности» выключены в параметрах Windows (Персонализация > Цвета). Из-за этого матовое стекло становится сплошным." },
+{ L"Logo da barra de menus", L"Логотип строки меню" },
+{ L"Maçã", L"Яблоко" },

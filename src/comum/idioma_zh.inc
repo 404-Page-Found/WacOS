@@ -1771,3 +1771,8 @@
 { L"O Windows não confirmou a senha (erro %lu). Tente de novo ou use Ctrl⁠+⁠Alt⁠+⁠Del → Bloquear.", L"Windows 未确认密码（错误 %lu）。请重试，或使用 Ctrl⁠+⁠Alt⁠+⁠Del → 锁定。" },
 { L"Alt+Tab: seletor de apps do Mac", L"Alt+Tab：Mac App 切换器" },
 { L"\"Reduzir transparência\" está ligado, mais abaixo: ele deixa o vidro quase opaco e trava o Liquid Glass e o vidro real. Desligue para mudar estas opções.", L"下方的“降低透明度”已打开：它会让玻璃几乎不透明，并锁定 Liquid Glass 和真实玻璃。关闭它即可更改这些选项。" },
+{ L"Ligar", L"打开" },
+{ L"Transparência do Windows", L"Windows 透明度" },
+{ L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows 设置（个性化 > 颜色）中的“透明效果”已关闭。关闭时，磨砂玻璃会变成纯色。" },
+{ L"Logo da barra de menus", L"菜单栏标志" },
+{ L"Maçã", L"苹果" },

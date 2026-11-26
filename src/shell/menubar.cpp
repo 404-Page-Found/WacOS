@@ -663,6 +663,15 @@ void DrawLogo(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, float cx, float c
     }
 }
 
+// issue #150: logo do Windows no lugar da maçã (Ajustes > Central de Controle > Barra de menus): quatro quadrados retos
+void DrawWindowsLogo(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, float cx, float cy) {
+    float s = 6.2f, g = 1.2f;
+    for (int i = 0; i < 4; i++) {
+        float x = cx - s - g / 2 + (i % 2) * (s + g), y = cy - s - g / 2 + (i / 2) * (s + g);
+        rt->FillRectangle(D2D1::RectF(x, y, x + s, y + s), br);
+    }
+}
+
 void DrawCC(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, float cx, float cy) {
     // Central de Controle: duas chavinhas
     for (int k = 0; k < 2; k++) {
@@ -912,7 +921,8 @@ void Render() {
     float x = liquid::On() ? 10.f : 8.f;
     add(D2D1::RectF(x, 0, x + 34, H), K_LOGO, 0);
     br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
-    if (leo && !litNow) {
+    if (shell::Setting(L"logo_barra", L"apple") == L"windows") DrawWindowsLogo(rt, br, x + 17, H / 2);
+    else if (leo && !litNow) {
         // Leopard: a maçã grafite brilhante do 10.5 (a azul era a do Tiger): cinza claro em cima, quase preto embaixo;
         // aberta, fica branca
         D2D1_GRADIENT_STOP st[3] = { { 0, D2D1::ColorF(0.62f, 0.62f, 0.63f, 1) }, { 0.45f, D2D1::ColorF(0.36f, 0.36f, 0.37f, 1) }, { 1, D2D1::ColorF(0.16f, 0.16f, 0.17f, 1) } };
