@@ -11,16 +11,10 @@ from PIL import Image  # pip install pillow
 SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.expandvars(r'%USERPROFILE%\Downloads\leopard-huge-iconpack-650\Leopard Icons')
 DST = sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'icones', 'leopard')
 RAIZ = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-SRC = os.path.realpath(SRC)
-DST = os.path.realpath(DST)
-if not os.path.isdir(SRC):
-    sys.exit('pacote não encontrado: ' + SRC)
-try:
-    dentro = os.path.commonpath((DST, RAIZ)) == RAIZ
-except ValueError:
-    dentro = False
-if not dentro:
-    sys.exit('destino fora do projeto: ' + DST)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pasta_segura import pasta_origem, pasta_destino
+SRC = pasta_origem(SRC)
+DST = pasta_destino(DST, RAIZ)
 
 MAPA = {
     # apps do sistema (nomes do Mac, os mesmos de icones\goldengate)

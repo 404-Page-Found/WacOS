@@ -16,14 +16,8 @@ from aqua_icone import recorta, tira_placa
 
 RAIZ = os.path.join(AQUI, '..', 'icones')
 DST = sys.argv[1] if len(sys.argv) > 1 else os.path.join(RAIZ, 'leopard')
-DST = os.path.realpath(DST)
-RAIZ_PROJ = os.path.realpath(os.path.join(AQUI, '..'))
-try:
-    dentro = os.path.commonpath((DST, RAIZ_PROJ)) == RAIZ_PROJ
-except ValueError:
-    dentro = False
-if not dentro:
-    sys.exit('destino fora do projeto: ' + DST)
+from pasta_segura import pasta_destino
+DST = pasta_destino(DST, os.path.realpath(os.path.join(AQUI, '..')))
 LADO = 320
 
 
