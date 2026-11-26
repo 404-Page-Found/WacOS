@@ -72,6 +72,21 @@ std::wstring ExeOf(DWORD pid) {
     return Lower(r);
 }
 
+// issue #116: o OpenProcess + QueryFullProcessImageName de cada PID com som se repetia a cada tique de 4 s.
+// O nome do exe não muda enquanto o processo vive, então ele é guardado por PID (TTL de 2 min cobre o reuso
+// de PID; um processo que morreu é apagado na próxima consulta, porque o OpenProcess falha).
+const DWORD EXE_CACHE_MS = 120000;
+std::map<DWORD, std::pair<std::wstring, DWORD>> g_exeCache;
+
+std::wstring ExeOfCached(DWORD pid, DWORD now) {
+    auto it = g_exeCache.find(pid);
+    if (it != g_exeCache.end() && now - it->second.second < EXE_CACHE_MS) return it->second.first;
+    std::wstring e = ExeOf(pid);
+    if (!e.empty()) g_exeCache[pid] = { e, now };
+    else if (it != g_exeCache.end()) g_exeCache.erase(it);
+    return e;
+}
+
 bool NapOn() { return shell::Setting(L"app_nap", L"1") != L"0"; }
 
 bool Excluded(const std::wstring& exe) {
@@ -96,10 +111,21 @@ bool Excluded(const std::wstring& exe) {
 }
 
 // quem está tocando ou gravando som agora (sessões de áudio ativas em qualquer saída ou entrada)
-std::set<DWORD> AudioPids() {
-    std::set<DWORD> r;
+//
+// issue #116: enumerar os dispositivos e ativar o IAudioSessionManager2 de cada um (a parte mais cara do
+// tique) se repetia a cada 4 s com o mesmo resultado. Os gerentes ficam guardados por id de dispositivo e a
+// lista só é refeita a cada 60 s (fone novo pode levar até 1 min para proteger o som; antes disso o app
+// continua protegido pelos 30 s escondido do NAP_AFTER). As sessões continuam lidas a cada tique, então
+// ligar/desligar o som é percebido na hora.
+const DWORD AUDIO_DEVS_MS = 60000;
+std::map<std::wstring, IAudioSessionManager2*> g_audioMan;
+DWORD g_audioDevsAt;
+
+void AudioDevices() {
+    for (auto& [_, m] : g_audioMan) m->Release();
+    g_audioMan.clear();
     if (!g_mm) CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&g_mm));
-    if (!g_mm) return r;
+    if (!g_mm) return;
     for (EDataFlow flow : { eRender, eCapture }) {
         IMMDeviceCollection* col = nullptr;
         if (FAILED(g_mm->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, &col)) || !col) continue;
@@ -107,30 +133,40 @@ std::set<DWORD> AudioPids() {
         for (UINT d = 0; d < n; d++) {
             IMMDevice* dev = nullptr;
             if (FAILED(col->Item(d, &dev)) || !dev) continue;
-            IAudioSessionManager2* man = nullptr;
-            if (SUCCEEDED(dev->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&man)) && man) {
-                IAudioSessionEnumerator* en = nullptr;
-                if (SUCCEEDED(man->GetSessionEnumerator(&en)) && en) {
-                    int cnt = 0; en->GetCount(&cnt);
-                    for (int s = 0; s < cnt; s++) {
-                        IAudioSessionControl* c = nullptr;
-                        if (FAILED(en->GetSession(s, &c)) || !c) continue;
-                        AudioSessionState st;
-                        IAudioSessionControl2* c2 = nullptr;
-                        if (SUCCEEDED(c->GetState(&st)) && st == AudioSessionStateActive && SUCCEEDED(c->QueryInterface(IID_PPV_ARGS(&c2))) && c2) {
-                            DWORD pid = 0; c2->GetProcessId(&pid);
-                            if (pid) r.insert(pid);
-                        }
-                        if (c2) c2->Release();
-                        c->Release();
-                    }
-                    en->Release();
+            LPWSTR id = nullptr;
+            if (SUCCEEDED(dev->GetId(&id)) && id) {
+                if (!g_audioMan.count(id)) {
+                    IAudioSessionManager2* man = nullptr;
+                    if (SUCCEEDED(dev->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr, (void**)&man)) && man) g_audioMan[id] = man;
                 }
-                man->Release();
+                CoTaskMemFree(id);
             }
             dev->Release();
         }
         col->Release();
+    }
+}
+
+std::set<DWORD> AudioPids(DWORD now) {
+    std::set<DWORD> r;
+    if (!g_mm || !g_audioDevsAt || now - g_audioDevsAt > AUDIO_DEVS_MS) { AudioDevices(); g_audioDevsAt = now; }
+    for (auto& [_, man] : g_audioMan) {
+        IAudioSessionEnumerator* en = nullptr;
+        if (FAILED(man->GetSessionEnumerator(&en)) || !en) continue;
+        int cnt = 0; en->GetCount(&cnt);
+        for (int s = 0; s < cnt; s++) {
+            IAudioSessionControl* c = nullptr;
+            if (FAILED(en->GetSession(s, &c)) || !c) continue;
+            AudioSessionState st;
+            IAudioSessionControl2* c2 = nullptr;
+            if (SUCCEEDED(c->GetState(&st)) && st == AudioSessionStateActive && SUCCEEDED(c->QueryInterface(IID_PPV_ARGS(&c2))) && c2) {
+                DWORD pid = 0; c2->GetProcessId(&pid);
+                if (pid) r.insert(pid);
+            }
+            if (c2) c2->Release();
+            c->Release();
+        }
+        en->Release();
     }
     return r;
 }
@@ -230,7 +266,7 @@ void NapTick(DWORD now) {
     EnumWindows(ScanWin, (LPARAM)&s);
     DeleteObject(s.covered);
     DWORD fgPid = 0; GetWindowThreadProcessId(GetForegroundWindow(), &fgPid);
-    std::set<DWORD> audio = AudioPids();
+    std::set<DWORD> audio = AudioPids(now);
 
     // processos que sumiram (ou ficaram sem janela: Discord e Spotify fechados para a bandeja continuam rodando).
     // Em soneca, acordam antes de sair da lista: sem isso o modo de eficiência ficava ligado para sempre e o app
@@ -245,7 +281,7 @@ void NapTick(DWORD now) {
     // desenha o vídeo em outro; só o da janela entrava em soneca e o YouTube tocando atrás de outra janela travava
     // (17/11/2026). Se qualquer processo do mesmo exe toca som ou está à vista, o programa inteiro fica acordado.
     std::set<std::wstring> soundExe, shownExe;
-    for (DWORD a : audio) { std::wstring e = ExeOf(a); if (!e.empty()) soundExe.insert(Lower(e)); }
+    for (DWORD a : audio) { std::wstring e = ExeOfCached(a, now); if (!e.empty()) soundExe.insert(Lower(e)); }
     for (auto& [pid, _] : s.any) {
         auto [it, fresh] = g_procs.try_emplace(pid);
         Nap& n = it->second;
@@ -323,6 +359,10 @@ void Stop() {
     int n = 0;
     for (auto& [pid, p] : g_procs) if (p.napped) { SetThrottle(pid, false, p); p.napped = false; n++; }
     g_procs.clear();
+    for (auto& [_, m] : g_audioMan) m->Release();
+    g_audioMan.clear();
+    g_audioDevsAt = 0;
+    g_exeCache.clear();
     if (g_mm) { g_mm->Release(); g_mm = nullptr; }
     if (n) Log(L"memoria: %d apps acordados ao sair", n);
 }
