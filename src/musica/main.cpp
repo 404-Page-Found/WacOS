@@ -180,7 +180,7 @@ void PlayIndex(int pos) {
 }
 void PlayFrom(const std::vector<int>& list, int start) {
     g_queue = list;
-    if (g_shuffle) { int first = list[start]; std::shuffle(g_queue.begin(), g_queue.end(), std::mt19937{ std::random_device{}() })  // NOSONAR cpp:S2245 — ordem aleatória de músicas, sem uso de segurança; auto it = std::find(g_queue.begin(), g_queue.end(), first); std::iter_swap(g_queue.begin(), it); start = 0; }
+    if (g_shuffle) { int first = list[start]; std::shuffle(g_queue.begin(), g_queue.end(), std::mt19937{ std::random_device{}() }); auto it = std::find(g_queue.begin(), g_queue.end(), first); std::iter_swap(g_queue.begin(), it); start = 0; }  // NOSONAR cpp:S2245 — ordem aleatória de músicas, sem uso de segurança
     PlayIndex(start);
 }
 bool Playing() { try { return g_player && g_player.PlaybackSession().PlaybackState() == wmp::MediaPlaybackState::Playing; } catch (...) { return false; } }
