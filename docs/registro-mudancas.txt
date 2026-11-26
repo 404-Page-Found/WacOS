@@ -1926,3 +1926,14 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Músicas, Vídeos, OneDrive, Público, AppData, Windows, Arquivos de Programas) nunca vai para a Lixeira pela Lixeira do
   Dock nem pelo Delete da mesa; o que vai fica no shell.log. Não testado na tela.
   DESFAZER: reverter o commit e rodar build.cmd shell.
+[2026-11-26 16:30] PRs do 404-Page-Found (a pedido do usuário, depois da revisão):
+  - Merge: #120 (menu do app lido numa thread, #115), #121 (Soneca de Apps sem refazer a varredura de áudio, #116),
+    #122 (Quick Look lê o texto fora da pintura, #117), #110 (pastas do usuário no lado direito do Dock, #108; soltar
+    arquivos move para a pasta, agora sem mover pastas protegidas do #100), #107 (atualização automática opcional,
+    #102) e #106 (sem cantos nem borda colorida em tela cheia, #101).
+  - #109 (#99): só as 56 linhas de verdade, trazidas à mão (o PR convertia 3 arquivos inteiros para LF): tamanhos dos
+    ícones da Central, Mission Control abre num clique simples, Alarme/Cronômetro/Temporizador abrem o Relógio do WacOS.
+  - Fechados sem merge: #105 (reaparece a "linha" da moldura atrasada ao arrastar) e #118 (80 avisos do SonarCloud em
+    40 arquivos, só ruído).
+  Compilado (tudo e as DLLs das janelas). Não testado na tela.
+  DESFAZER: reverter os commits de merge e compilar.
