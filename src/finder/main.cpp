@@ -3641,41 +3641,64 @@ static bool IsTextFile(const Entry& e) {
 }
 
 // Primeiros 64 KB como texto (UTF-16 com BOM, UTF-8 ou a página de código do Windows).
+//
+// issue #117: a leitura rodava dentro do Render (caminho do WM_PAINT): CreateFile + 1 MB de ReadFile +
+// decodificação na thread da janela a cada troca de arquivo. Em disco lento, compartilhamento de rede ou
+// arquivo sendo gravado, a pintura (e a entrada) congelava. Agora a leitura vai para uma thread; a folha
+// mostra "Carregando…" e o texto entra quando a WM_APP_QLTEXT chega.
+static const UINT WM_APP_QLTEXT = WM_APP + 32;  // lParam: QlTextResult*
+struct QlTextResult { std::wstring path; std::vector<std::wstring> lines; };
+static std::wstring g_qlTextLoading;  // caminho com leitura em andamento (mexido só na thread da janela)
+
 static void LoadQlText(const std::wstring& path) {
     if (path == g_qlTextPath) return;
     g_qlTextPath = path;
     g_qlLines.clear();
     g_qlTextScroll = 0;
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return;
-    std::vector<char> buf(1024 * 1024);
-    DWORD n = 0;
-    ReadFile(h, buf.data(), (DWORD)buf.size(), &n, nullptr);
-    CloseHandle(h);
-    if (n == buf.size()) { int k = 0; while (n > 0 && k < 4 && ((BYTE)buf[n - 1] & 0x80)) { n--; k++; } }  // não corta uma letra UTF-8
-    std::wstring text;
-    if (n >= 2 && (BYTE)buf[0] == 0xFF && (BYTE)buf[1] == 0xFE) {
-        text.assign((const wchar_t*)(buf.data() + 2), (n - 2) / 2);
-    } else {
-        int off = (n >= 3 && (BYTE)buf[0] == 0xEF && (BYTE)buf[1] == 0xBB && (BYTE)buf[2] == 0xBF) ? 3 : 0;
-        bool utf8 = n == (DWORD)off || MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, buf.data() + off, (int)n - off, nullptr, 0) > 0;
-        UINT cp = utf8 ? CP_UTF8 : CP_ACP;
-        int len = MultiByteToWideChar(cp, 0, buf.data() + off, (int)n - off, nullptr, 0);
-        text.resize(std::max(0, len));
-        if (len > 0) MultiByteToWideChar(cp, 0, buf.data() + off, (int)n - off, text.data(), len);
-    }
-    std::wstring line;
-    for (wchar_t c : text) {
-        if (c == L'\n') { g_qlLines.push_back(line); line.clear(); if (g_qlLines.size() >= 20000) break; }
-        else if (c == L'\t') line += L"    ";
-        else if (c != L'\r') line += c;
-    }
-    if (!line.empty() && g_qlLines.size() < 20000) g_qlLines.push_back(line);
+    if (g_qlTextLoading == path) return;  // a leitura deste arquivo já está a caminho
+    g_qlTextLoading = path;
+    std::thread([path] {
+        std::unique_ptr<QlTextResult> r(new QlTextResult{ path, {} });
+        HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (h != INVALID_HANDLE_VALUE) {
+            std::vector<char> buf(1024 * 1024);
+            DWORD n = 0;
+            ReadFile(h, buf.data(), (DWORD)buf.size(), &n, nullptr);
+            CloseHandle(h);
+            if (n == buf.size()) { int k = 0; while (n > 0 && k < 4 && ((BYTE)buf[n - 1] & 0x80)) { n--; k++; } }  // não corta uma letra UTF-8
+            std::wstring text;
+            if (n >= 2 && (BYTE)buf[0] == 0xFF && (BYTE)buf[1] == 0xFE) {
+                text.assign((const wchar_t*)(buf.data() + 2), (n - 2) / 2);
+            } else {
+                int off = (n >= 3 && (BYTE)buf[0] == 0xEF && (BYTE)buf[1] == 0xBB && (BYTE)buf[2] == 0xBF) ? 3 : 0;
+                bool utf8 = n == (DWORD)off || MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, buf.data() + off, (int)n - off, nullptr, 0) > 0;
+                UINT cp = utf8 ? CP_UTF8 : CP_ACP;
+                int len = MultiByteToWideChar(cp, 0, buf.data() + off, (int)n - off, nullptr, 0);
+                text.resize(std::max(0, len));
+                if (len > 0) MultiByteToWideChar(cp, 0, buf.data() + off, (int)n - off, text.data(), len);
+            }
+            std::wstring line;
+            for (wchar_t c : text) {
+                if (c == L'\n') { r->lines.push_back(line); line.clear(); if (r->lines.size() >= 20000) break; }
+                else if (c == L'\t') line += L"    ";
+                else if (c != L'\r') line += c;
+            }
+            if (!line.empty() && r->lines.size() < 20000) r->lines.push_back(line);
+        }
+        if (PostMessageW(g_hwnd, WM_APP_QLTEXT, 0, (LPARAM)r.get())) r.release();  // senão a janela já fechou: o unique_ptr apaga
+    }).detach();
 }
 
 // as linhas visíveis da folha, a partir da rolagem, e a barrinha fina à direita quando há mais texto
 static void QlTextLines(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F page, float top, float left, bool dark) {
     const float LH = 17;
+    if (g_qlLines.empty() && !g_qlTextPath.empty() && g_qlTextLoading == g_qlTextPath) {  // o texto chega pela WM_APP_QLTEXT
+        g_qlTextShown = true;
+        g_qlTextMax = 0;
+        std::wstring t = Tr(L"Carregando…");
+        dc->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfMono, D2D1::RectF(page.left + left, page.top + top, page.right - 10, page.top + top + LH), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        return;
+    }
     float vis = page.bottom - page.top;
     g_qlTextMax = std::max(0.f, g_qlLines.size() * LH + top + 12 - vis);
     g_qlTextScroll = std::clamp(g_qlTextScroll, 0.f, g_qlTextMax);
@@ -3704,13 +3727,20 @@ static int QlItem() {
 }
 
 // Nome do app padrão para o tipo ("Fotos", "Bloco de Notas"...), para o botão "Abrir com".
+// issue #117: o WM_MOUSEMOVE sobre o botão chamava AssocQueryStringW (consulta ao Registro) a cada pixel
+// movido; o app padrão não muda com o Finder aberto, então o resultado é guardado por extensão.
 static std::wstring DefaultAppName(const Entry& e) {
     if (e.dir) return L"";
     std::wstring ext = L"." + ExtOf(e);
+    static std::map<std::wstring, std::wstring> cache;
+    auto it = cache.find(ext);
+    if (it != cache.end()) return it->second;
+    std::wstring r;
     wchar_t name[256] = {};
     DWORD n = 256;
-    if (SUCCEEDED(AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_FRIENDLYAPPNAME, ext.c_str(), nullptr, name, &n)) && name[0]) return name;
-    return L"";
+    if (SUCCEEDED(AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_FRIENDLYAPPNAME, ext.c_str(), nullptr, name, &n)) && name[0]) r = name;
+    cache[ext] = r;
+    return r;
 }
 
 // macOS 27 (captura Finder-Quick-Look, 2x): barra de título de 38, moldura clara de 5 em volta da prévia, cantos 16 na
@@ -6951,6 +6981,12 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         auto aplica = [&m](std::vector<Entry>& v) { for (auto& e : v) if (auto it = m.find(e.path); it != m.end()) e.tags = it->second; };
         aplica(g_all); aplica(g_items); aplica(g_childItems);
         Invalidate();
+        return 0;
+    }
+    case WM_APP_QLTEXT: {  // texto do Quick Look lido pela thread (LoadQlText, issue #117)
+        std::unique_ptr<QlTextResult> r((QlTextResult*)l);
+        if (g_qlTextLoading == r->path) g_qlTextLoading.clear();
+        if (r->path == g_qlTextPath) { g_qlLines = std::move(r->lines); g_qlTextScroll = 0; if (g_ql) Invalidate(); }
         return 0;
     }
     case WM_APP_CHANGE: {
