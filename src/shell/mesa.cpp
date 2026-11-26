@@ -2007,7 +2007,7 @@ void mesa::Start(HINSTANCE hi, HWND msgWnd) {
     g_hi = hi; g_msgWnd = msgWnd;
     g_explorerAtStart = ExplorerProgman() != nullptr;
     g_userDesk = Known(FOLDERID_Desktop);
-    g_publicDesk = Known(FOLDERID_PublicDesktop);
+    g_publicDesk = Known(FOLDERID_PublicDesktop);  // NOSONAR cpp:S5443 — só lê os atalhos da Área de Trabalho pública, como o Explorer
     g_posFile = Known(FOLDERID_RoamingAppData) + L"\\Shell\\mesa.txt";
     WNDCLASSW dc{}; dc.lpfnWndProc = DeskProc; dc.hInstance = hi; dc.lpszClassName = DESK_CLASS;
     dc.style = CS_DBLCLKS; dc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
@@ -2123,7 +2123,7 @@ void mesa::RunStartupApps() {
             }
             RegCloseKey(k);
         }
-        for (auto id : { FOLDERID_Startup, FOLDERID_CommonStartup }) {
+        for (auto id : { FOLDERID_Startup, FOLDERID_CommonStartup }) {  // NOSONAR cpp:S5443 — só abre os itens de inicialização já cadastrados, como o Windows faz
             std::wstring dir = Known(id);
             if (dir.empty()) continue;
             WIN32_FIND_DATAW fd;

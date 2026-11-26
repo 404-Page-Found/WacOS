@@ -4192,7 +4192,7 @@ winrt::Windows::Storage::Streams::IRandomAccessStream CreateNoiseStream(
         lut[i] = static_cast<uint8_t>(std::pow(i / 255.0f, exponent) * 255.0f);
     }
 
-    std::mt19937 rng(0);
+    std::mt19937 rng(0);  // NOSONAR cpp:S2245 — dithering visual com padrão fixo de propósito, nada de segurança
     std::uniform_int_distribution<int> dist(0, 255);
 
     for (size_t i = 0; i < pixels.size(); i += 4) {

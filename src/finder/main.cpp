@@ -7045,7 +7045,7 @@ static void LoadFavorites() {
     struct KF { const KNOWNFOLDERID* id; const wchar_t* label; wchar_t glyph; };
     const KF defs[] = {
         { &FOLDERID_Recent, Tr(L"Recentes"), 0xE823 },
-        { &FOLDERID_CommonPrograms, Tr(L"Aplicativos"), 0xE71D },  // atalhos do menu Iniciar
+        { &FOLDERID_CommonPrograms, Tr(L"Aplicativos"), 0xE71D },  // atalhos do menu Iniciar; NOSONAR cpp:S5443 — só leitura da pasta compartilhada do Menu Iniciar, nada é gravado nela
         { &FOLDERID_Desktop, Tr(L"Mesa"), 0xE7F4 }, { &FOLDERID_Documents, Tr(L"Documentos"), 0xE8A5 },
         { &FOLDERID_Downloads, Tr(L"Downloads"), 0xE896 }, { &FOLDERID_Pictures, Tr(L"Imagens"), 0xE91B },
         { &FOLDERID_Music, Tr(L"Músicas"), 0xE8D6 }, { &FOLDERID_Videos, Tr(L"Vídeos"), 0xE714 },
@@ -7068,7 +7068,7 @@ static void BuildSidebar() {
     g_recentFolder = KnownFolder(FOLDERID_Recent);
     // símbolos das pastas especiais (gravados no ícone delas), mesmo fora dos favoritos
     struct KF { const KNOWNFOLDERID* id; wchar_t glyph; };
-    const KF special[] = { { &FOLDERID_Recent, 0xE823 }, { &FOLDERID_CommonPrograms, 0xE71D }, { &FOLDERID_Desktop, 0xE7F4 },
+    const KF special[] = { { &FOLDERID_Recent, 0xE823 }, { &FOLDERID_CommonPrograms, 0xE71D }, { &FOLDERID_Desktop, 0xE7F4 },  // NOSONAR cpp:S5443 — só leitura do Menu Iniciar comum
                            { &FOLDERID_Documents, 0xE8A5 }, { &FOLDERID_Downloads, 0xE896 }, { &FOLDERID_Pictures, 0xE91B },
                            { &FOLDERID_Music, 0xE8D6 }, { &FOLDERID_Videos, 0xE714 }, { &FOLDERID_Profile, 0xE80F }, { &FOLDERID_SkyDrive, 0xE753 } };
     for (auto& k : special) { std::wstring p = KnownFolder(*k.id); if (!p.empty()) g_emblems.push_back({ p, k.glyph }); }
@@ -7199,7 +7199,7 @@ static void RemoveFavorite(int fav) {
 static void FinderSettings() {
     struct KF { const KNOWNFOLDERID* id; const wchar_t* label; wchar_t glyph; };
     const KF defs[] = {
-        { &FOLDERID_Recent, L"Recentes", 0xE823 }, { &FOLDERID_CommonPrograms, L"Aplicativos", 0xE71D },
+        { &FOLDERID_Recent, L"Recentes", 0xE823 }, { &FOLDERID_CommonPrograms, L"Aplicativos", 0xE71D },  // NOSONAR cpp:S5443 — só leitura do Menu Iniciar comum
         { &FOLDERID_Desktop, L"Mesa", 0xE7F4 }, { &FOLDERID_Documents, L"Documentos", 0xE8A5 },
         { &FOLDERID_Downloads, L"Downloads", 0xE896 }, { &FOLDERID_Pictures, L"Imagens", 0xE91B },
         { &FOLDERID_Music, L"Músicas", 0xE8D6 }, { &FOLDERID_Videos, L"Vídeos", 0xE714 }, { &FOLDERID_Profile, nullptr, 0xE80F },

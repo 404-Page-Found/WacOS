@@ -21,7 +21,7 @@ std::wstring Known(REFKNOWNFOLDERID id) {
 void Watch() {
     const DWORD FILTER = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE;
     std::vector<HANDLE> dirs;
-    for (auto& d : { Known(FOLDERID_Programs), Known(FOLDERID_CommonPrograms) }) {
+    for (auto& d : { Known(FOLDERID_Programs), Known(FOLDERID_CommonPrograms) }) {  // NOSONAR cpp:S5443 — só vigia o Menu Iniciar (usuário e comum), sem gravar nada
         if (d.empty()) continue;
         HANDLE h = FindFirstChangeNotificationW(d.c_str(), TRUE, FILTER);
         if (h != INVALID_HANDLE_VALUE) dirs.push_back(h);

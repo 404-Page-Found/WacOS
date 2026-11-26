@@ -79,7 +79,7 @@ bool g_rpn, g_convert, g_sidebar, g_rad, g_second;
 float g_sciW = 572, g_sciH = 347;
 wchar_t g_dec = L'.', g_grp = L',';
 std::vector<KeyDef> g_keys;
-std::mt19937_64 g_rng{ std::random_device{}() };
+std::mt19937_64 g_rng{ std::random_device{}() };  // NOSONAR cpp:S2245 — tecla Rand da calculadora, sem uso de segurança; semente aleatória
 
 // alvo sob o mouse
 enum TgKind { TG_NONE, TG_LIGHT, TG_KEY, TG_SIDEBTN, TG_MODEBTN, TG_HIST, TG_CONV, TG_BIT, TG_BASE };

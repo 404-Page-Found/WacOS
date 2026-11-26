@@ -443,7 +443,7 @@ std::wstring DownloadsDir() {
 // manuais, em ordem alfabética
 std::vector<std::wstring> ListApps(int max) {
     std::vector<std::pair<std::wstring, std::wstring>> v;  // nome, caminho
-    for (auto* id : { &FOLDERID_Programs, &FOLDERID_CommonPrograms }) {
+    for (auto* id : { &FOLDERID_Programs, &FOLDERID_CommonPrograms }) {  // NOSONAR cpp:S5443 — só lista os atalhos do Menu Iniciar (usuário e comum), sem gravar nada
         PWSTR p = nullptr;
         if (FAILED(SHGetKnownFolderPath(*id, 0, nullptr, &p))) continue;
         std::wstring root = p; CoTaskMemFree(p);

@@ -1228,7 +1228,7 @@ bool Init() {
             wdev = insp.as<wd3::IDirect3DDevice>();
             const UINT N = 128;  // ruído monocromático (dithering do estudo: 2-3%)
             std::vector<UINT32> px(N * N);
-            std::mt19937 rnd(7);
+            std::mt19937 rnd(7);  // NOSONAR cpp:S2245 — ruído de dithering com padrão fixo de propósito, nada de segurança
             for (auto& p : px) { BYTE v = (BYTE)(rnd() & 255); p = 0xFF000000u | (v << 16) | (v << 8) | v; }
             util->CreateBitmap(D2D1::SizeU(N, N), px.data(), N * 4, D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)), &noise);
             WNDCLASSW wc{}; wc.lpfnWndProc = MsgProc; wc.hInstance = GetModuleHandleW(nullptr); wc.lpszClassName = L"ShellVidroMsg";
