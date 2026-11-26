@@ -1920,3 +1920,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - #91: Ajustes > Teclado > "Alt+Tab: seletor de apps do Mac" (seletor_mac=0 devolve o Alt+Tab ao Windows).
   Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-26 15:55] Issue #100 (pastas "Downloads" foram parar na Lixeira; o usuário clicava na pasta Downloads do Dock):
+  causa não confirmada (o Shell só manda para a Lixeira ao soltar na Lixeira do Dock e no Delete da mesa). Proteção:
+  shell::PastaProtegida (raiz de disco, pasta do usuário e as pastas especiais: Mesa, Documentos, Downloads, Imagens,
+  Músicas, Vídeos, OneDrive, Público, AppData, Windows, Arquivos de Programas) nunca vai para a Lixeira pela Lixeira do
+  Dock nem pelo Delete da mesa; o que vai fica no shell.log. Não testado na tela.
+  DESFAZER: reverter o commit e rodar build.cmd shell.

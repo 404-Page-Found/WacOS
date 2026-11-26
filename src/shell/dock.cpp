@@ -1732,11 +1732,17 @@ struct DockDrop : IDropTarget {
             ReleaseStgMedium(&sm);
         }
         if (!files.empty() && g_items[i].kind == I_TRASH) {
+            // issue #100: pastas especiais (Downloads, Documentos, Mesa...) e raízes de disco nunca vão para a Lixeira por
+            // aqui; o resto vai e fica no shell.log
             std::wstring from;
-            for (auto& f : files) { from += f; from += L'\0'; }
+            int n = 0;
+            for (auto& f : files) {
+                if (shell::PastaProtegida(f)) { Log(L"dock: '%ls' é uma pasta do sistema: não vai para a Lixeira", f.c_str()); continue; }
+                Log(L"dock: para a Lixeira (soltado na Lixeira do Dock): %ls", f.c_str());
+                from += f; from += L'\0'; n++;
+            }
             from += L'\0';
-            SHFILEOPSTRUCTW op{ g_icons, FO_DELETE, from.c_str(), nullptr, FOF_ALLOWUNDO };
-            SHFileOperationW(&op);
+            if (n) { SHFILEOPSTRUCTW op{ g_icons, FO_DELETE, from.c_str(), nullptr, FOF_ALLOWUNDO }; SHFileOperationW(&op); }
             BuildItems();
         } else if (!files.empty() && g_items[i].kind == I_APP) {
             std::wstring args;

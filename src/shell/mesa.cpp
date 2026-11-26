@@ -995,6 +995,9 @@ void DeleteSelection(bool permanent) {
     op->SetOperationFlags(permanent ? FOF_WANTNUKEWARNING : (FOF_ALLOWUNDO | FOFX_RECYCLEONDELETE | FOF_NOCONFIRMATION));
     int n = 0;
     for (int i : sel) {
+        // issue #100: pasta especial ou raiz de disco (atalhos na mesa apontam para o próprio atalho, que pode ir) não vai
+        if (shell::PastaProtegida(g_items[i].path)) { Log(L"mesa: '%ls' é uma pasta do sistema: não vai para a Lixeira", g_items[i].path.c_str()); continue; }
+        Log(L"mesa: para a Lixeira: %ls", g_items[i].path.c_str());
         IShellItem* si = nullptr;
         if (SUCCEEDED(SHCreateItemFromParsingName(g_items[i].path.c_str(), nullptr, IID_PPV_ARGS(&si)))) { if (SUCCEEDED(op->DeleteItem(si, nullptr))) n++; si->Release(); }
     }

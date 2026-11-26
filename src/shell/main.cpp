@@ -488,6 +488,24 @@ void shell::OpenForceQuit(bool memory) {
     shell::Abrir(L"open", exe.c_str(), memory ? L"--memoria" : nullptr, nullptr, SW_SHOWNORMAL);
 }
 
+bool shell::PastaProtegida(const std::wstring& path0) {
+    std::wstring p = path0;
+    while (p.size() > 3 && (p.back() == L'\\' || p.back() == L'/')) p.pop_back();
+    if (p.size() <= 3) return true;  // "C:\\", "C:" ou vazio
+    for (const KNOWNFOLDERID* id : { &FOLDERID_Profile, &FOLDERID_Desktop, &FOLDERID_Documents, &FOLDERID_Downloads, &FOLDERID_Pictures,
+                                     &FOLDERID_Music, &FOLDERID_Videos, &FOLDERID_SkyDrive, &FOLDERID_Public, &FOLDERID_PublicDesktop,
+                                     &FOLDERID_PublicDocuments, &FOLDERID_PublicDownloads, &FOLDERID_RoamingAppData, &FOLDERID_LocalAppData,
+                                     &FOLDERID_Windows, &FOLDERID_ProgramFiles, &FOLDERID_ProgramFilesX86, &FOLDERID_UserProfiles }) {
+        PWSTR k = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(*id, 0, nullptr, &k)) && k) {
+            bool igual = !_wcsicmp(k, p.c_str());
+            CoTaskMemFree(k);
+            if (igual) return true;
+        }
+    }
+    return false;
+}
+
 void shell::Sound(const wchar_t* name) {
     std::wstring root = shell::dir.substr(0, shell::dir.find_last_of(L'\\'));  // a pasta do projeto (bin fica dentro dela)
     PlaySoundW((root + L"\\sons\\mac\\" + name + L".wav").c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT);

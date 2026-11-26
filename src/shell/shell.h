@@ -691,6 +691,9 @@ void AbrirFinder(const std::wstring& args);
 DWORD SemProprio();             // WINEVENT_SKIPOWNPROCESS fora do modo nativo (no nativo, o processo é o explorer)
 void ThreadDeGancho();          // a thread atual segura um gancho global de mouse/teclado: prioridade alta e fora do EcoQoS
 bool Nossa(HWND h);             // janela do próprio Shell (no nativo: só as criadas pelo Shell, não as do explorer)
+// issue #100 (pastas "Downloads" foram parar na Lixeira): pasta que o Shell nunca manda para a Lixeira: raiz de disco, a
+// pasta do usuário e as pastas especiais (Mesa, Documentos, Downloads, Imagens, Músicas, Vídeos, OneDrive, Público...)
+bool PastaProtegida(const std::wstring& path);
 extern HINSTANCE inst;
 extern std::wstring dir;        // pasta do Shell.exe
 void Quit(const wchar_t* why);  // sai do shell e devolve a barra do Windows
