@@ -574,6 +574,13 @@ void PlaceStrip() {  // logo acima da mesa: abaixo de todas as janelas dos apps
     for (HWND x = GetWindow(GetDesktopWindow(), GW_CHILD); x; x = GetWindow(x, GW_HWNDNEXT)) if (mesa::IsDeskWindow(x)) desk = x;
     HWND after = desk ? GetWindow(desk, GW_HWNDPREV) : HWND_BOTTOM;
     if (after == g_strip) after = nullptr;
+    // Issue #141 (a faixa piscava com o Organizador ligado): o Atualiza roda a cada 1,5 s e a cada evento de janela, e cada
+    // chamada reposicionava e reordenava a faixa mesmo parada no lugar certo: o DWM recompunha a pilha e a faixa (e as
+    // miniaturas) piscavam. Só mexe quando o retângulo, a visibilidade ou a ordem de fato mudaram.
+    RECT cur{}; GetWindowRect(g_strip, &cur);
+    bool mesmoRet = cur.left == wa.left && cur.top == wa.top && cur.right - cur.left == w && cur.bottom - cur.top == wa.bottom - wa.top;
+    bool ordemOk = after ? GetWindow(g_strip, GW_HWNDPREV) == after : true;
+    if (mesmoRet && ordemOk && IsWindowVisible(g_strip)) return;
     SetWindowPos(g_strip, after ? after : HWND_BOTTOM, wa.left, wa.top, w, wa.bottom - wa.top, SWP_NOACTIVATE | SWP_SHOWWINDOW | (after ? 0 : SWP_NOZORDER));
 }
 
