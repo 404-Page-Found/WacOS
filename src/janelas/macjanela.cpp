@@ -1013,7 +1013,9 @@ bool Fullscreen(HWND h) {
     // cima da página em tela cheia (21/11/2026). Conta como tela cheia se cobre o monitor inteiro, além da área de
     // trabalho (maximizar só vai até ela; se a área de trabalho é o monitor inteiro, não dá para saber: não é)
     if (IsZoomed(h)) return cobre && !EqualRect(&mi.rcWork, &mi.rcMonitor);
-    if ((GetWindowLongW(h, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;  // com barra de título não é tela cheia (só grande demais)
+    // Players e jogos entram em tela cheia sem tirar o estilo da barra de título (WS_CAPTION), então o estilo não
+    // exclui mais (issue #101): o que manda é cobrir o monitor inteiro. Uma janela com barra de verdade não chega a
+    // isso pelo caminho comum (a área de trabalho limita); quem se dimensiona assim quer a tela toda.
     return cobre;
 }
 
@@ -1272,6 +1274,14 @@ void ApplyRegion(Info* in) {
             DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &on, sizeof(on));
             DWORD round = 2; DwmSetWindowAttribute(h, 33, &round, sizeof(round));
             ApplyColors(in);  // borda fina de volta
+        }
+        if (Fullscreen(h)) {
+            // tela cheia (vídeo, jogo): nem o arredondamento nem a borda colorida ficam por cima (issue #101).
+            // Quem ia do maximizado para a tela cheia (F11) herdava os dois do estado maximizado, porque o recorte
+            // já tinha saído e o bloco de cima não rodava de novo.
+            DWORD square = 1;  // DWMWCP_DONOTROUND
+            DwmSetWindowAttribute(h, 33 /*DWMWA_WINDOW_CORNER_PREFERENCE*/, &square, sizeof(square));
+            ApplyColors(in);  // com Fullscreen() verdadeiro, ele grava a borda DWMWA_COLOR_NONE
         }
         return;
     }
@@ -1808,7 +1818,8 @@ void ApplyColors(Info* in) {
     if (cap == CLR_INVALID) { in->dark = Dark(); cap = in->dark ? RGB(0x2D, 0x2D, 0x2F) : RGB(0xE9, 0xE9, 0xEA); }
     else in->dark = (GetRValue(cap) * 299 + GetGValue(cap) * 587 + GetBValue(cap) * 114) / 1000 < 128;
     DwmSetWindowAttribute(in->owner, 35 /*DWMWA_CAPTION_COLOR*/, &cap, sizeof(cap));
-    COLORREF border = in->rgn.cx ? 0xFFFFFFFE : RGB(GetRValue(cap) * 8 / 10, GetGValue(cap) * 8 / 10, GetBValue(cap) * 8 / 10);
+    // tela cheia (vídeo, jogo): sem a borda fina colorida, cuja cor (lida do topo da janela) mudava com o vídeo (issue #101)
+    COLORREF border = in->rgn.cx || Fullscreen(in->owner) ? 0xFFFFFFFE : RGB(GetRValue(cap) * 8 / 10, GetGValue(cap) * 8 / 10, GetBValue(cap) * 8 / 10);
     DwmSetWindowAttribute(in->owner, 34 /*DWMWA_BORDER_COLOR*/, &border, sizeof(border));
     PaintNC(in);
     BOOL dk = in->dark;

@@ -25,6 +25,7 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <memory>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -252,10 +253,15 @@ ctxmenu::Item I(const std::wstring& label, int id, bool disabled = false, bool c
 ctxmenu::Item Sep() { ctxmenu::Item i; i.separator = true; return i; }
 
 // ---- menu Win32 real do app → itens do nosso menu
-std::vector<ctxmenu::Item> FromHmenu(HMENU m, int depth) {
+//
+// issue #115: esta leitura faz SendMessageTimeoutW e laços de Sleep para o app dono do menu; na thread da
+// barra (que é a do Dock também) um app lento ou travado congelava a barra por segundos a cada clique.
+// Ela roda numa thread auxiliar com prazo (3 s): estourado o prazo, o que já foi lido é devolvido.
+std::vector<ctxmenu::Item> FromHmenu(HMENU m, int depth, HWND fg, DWORD prazo) {
     std::vector<ctxmenu::Item> out;
     int n = GetMenuItemCount(m);
     for (int k = 0; k < n; k++) {
+        if ((int)(GetTickCount() - prazo) >= 0) break;  // prazo estourado: fica o que já foi lido
         wchar_t buf[256] = {};
         MENUITEMINFOW mi{ sizeof(mi) };
         mi.fMask = MIIM_STRING | MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU;
@@ -269,23 +275,23 @@ std::vector<ctxmenu::Item> FromHmenu(HMENU m, int depth) {
         it.disabled = (mi.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
         it.checked = (mi.fState & MFS_CHECKED) != 0;
         if (mi.hSubMenu) {
-            if (g_fg) {
+            if (fg) {
                 // alguns apps só preenchem o submenu quando o item dele é destacado (o Ableton deixa "*" nos
                 // sets recentes até receber WM_MENUSELECT); depois espera um pouco se ainda for o marcador
-                SendMessageTimeoutW(g_fg, WM_MENUSELECT, MAKEWPARAM(k, MF_POPUP | MF_HILITE), (LPARAM)m, SMTO_ABORTIFHUNG, 200, nullptr);
-                SendMessageTimeoutW(g_fg, WM_INITMENUPOPUP, (WPARAM)mi.hSubMenu, k, SMTO_ABORTIFHUNG, 200, nullptr);
-                for (int t = 0; t < 12; t++) {
+                SendMessageTimeoutW(fg, WM_MENUSELECT, MAKEWPARAM(k, MF_POPUP | MF_HILITE), (LPARAM)m, SMTO_ABORTIFHUNG, 200, nullptr);
+                SendMessageTimeoutW(fg, WM_INITMENUPOPUP, (WPARAM)mi.hSubMenu, k, SMTO_ABORTIFHUNG, 200, nullptr);
+                for (int t = 0; t < 12 && (int)(GetTickCount() - prazo) < 0; t++) {
                     wchar_t first[8] = {};
                     GetMenuStringW(mi.hSubMenu, 0, first, 8, MF_BYPOSITION);
                     if (wcscmp(first, L"*")) break;
-                    SendMessageTimeoutW(g_fg, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 100, nullptr);
+                    SendMessageTimeoutW(fg, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 100, nullptr);
                     Sleep(15);
                 }
             }
-            if (depth == 0) it.sub = FromHmenu(mi.hSubMenu, 1);
+            if (depth == 0) it.sub = FromHmenu(mi.hSubMenu, 1, fg, prazo);
             else {  // nosso menu tem um nível de submenu: os mais fundos entram achatados
                 out.push_back(Sep());
-                for (auto& c : FromHmenu(mi.hSubMenu, 2)) out.push_back(c);
+                for (auto& c : FromHmenu(mi.hSubMenu, 2, fg, prazo)) out.push_back(c);
                 out.push_back(Sep());
                 continue;
             }
@@ -295,6 +301,13 @@ std::vector<ctxmenu::Item> FromHmenu(HMENU m, int depth) {
     while (!out.empty() && out.back().separator) out.pop_back();
     return out;
 }
+
+// estado da leitura assíncrona do menu do app (issue #115): um clique por vez; o resultado volta pela
+// WM_BARMENU. Enquanto uma leitura está no ar, outro clique em título de menu é ignorado (a leitura costuma
+// levar dezenas de ms; a barra e o Dock seguem respondendo).
+const UINT WM_BARMENU = WM_APP + 46;  // lParam: MenuLido*
+struct MenuLido { std::vector<ctxmenu::Item> items; int hit; HWND target; };
+std::atomic<bool> g_lendoMenu{ false };
 
 App* ActiveApp() {
     if (g_finderActive || !g_fg) for (auto& a : apps::list) if (a.finder) return &a;
@@ -1441,10 +1454,16 @@ void Click(D2D1_POINT_2F p, bool right) {
         if (g_hmenu && IsMenu(g_hmenu)) {
             HMENU sub = GetSubMenu(g_hmenu, h.index);
             if (!sub) break;
-            SendMessageTimeoutW(g_fg, WM_INITMENU, (WPARAM)g_hmenu, 0, SMTO_ABORTIFHUNG, 200, nullptr);
-            SendMessageTimeoutW(g_fg, WM_INITMENUPOPUP, (WPARAM)sub, h.index, SMTO_ABORTIFHUNG, 200, nullptr);
-            HWND target = g_fg;
-            ShowAt(hit, FromHmenu(sub, 0), [&](int id) { PostMessageW(target, WM_COMMAND, MAKEWPARAM(id, 0), 0); });
+            if (g_lendoMenu.exchange(true)) break;  // já lendo outro menu (issue #115)
+            HWND target = g_fg, bar = Cur(); HMENU top = g_hmenu; int idx = h.index;
+            std::thread([bar, hit, target, top, sub, idx] {
+                SendMessageTimeoutW(target, WM_INITMENU, (WPARAM)top, 0, SMTO_ABORTIFHUNG, 200, nullptr);
+                SendMessageTimeoutW(target, WM_INITMENUPOPUP, (WPARAM)sub, idx, SMTO_ABORTIFHUNG, 200, nullptr);
+                std::unique_ptr<MenuLido> r(new MenuLido{ {}, hit, target });
+                if (IsMenu(sub)) r->items = FromHmenu(sub, 0, target, GetTickCount() + 3000);
+                if (PostMessageW(bar, WM_BARMENU, 0, (LPARAM)r.get())) r.release();  // senão a barra já morreu: o unique_ptr apaga
+                else g_lendoMenu = false;
+            }).detach();
         } else ShowAt(hit, GenericMenu(g_titles[h.index], app), [&](int id) { Run(id, app); });
         break;
     case K_TRAY: tray::Click(h.index, right ? WM_RBUTTONUP : WM_LBUTTONUP, spt); break;
@@ -1703,6 +1722,15 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_BARDISPLAYS: menubar::Displays(); return 0;
+    case WM_BARMENU: {  // menu do app lido pela thread auxiliar (issue #115)
+        std::unique_ptr<MenuLido> r((MenuLido*)l);
+        g_lendoMenu = false;
+        if (r->items.empty() || !IsWindow(r->target)) return 0;
+        if (r->hit < 0 || r->hit >= (int)g_hits.size() || g_hits[r->hit].kind != K_MENU) return 0;  // a barra mudou durante a leitura
+        int hit = r->hit; HWND target = r->target;
+        ShowAt(hit, r->items, [target](int id) { PostMessageW(target, WM_COMMAND, MAKEWPARAM(id, 0), 0); });
+        return 0;
+    }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
         if (w == 2) { TiqueOcultar(); return 0; }
