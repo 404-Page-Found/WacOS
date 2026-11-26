@@ -235,7 +235,7 @@ void DrawChrome(ID2D1DeviceContext* dc, HWND h, UINT w, UINT hh, const std::vect
             tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             b->SetColor(tool ? D2D1::ColorF(1, 1, 1, 0.62f) : dark ? D2D1::ColorF(1, 1, 1, 0.86f) : D2D1::ColorF(0, 0, 0, 0.85f));
             float m = (tool ? 70.f : 80.f) * sc;
-            dc->DrawTextW(t, (UINT32)wcslen(t), tf, D2D1::RectF(m, 0, w - m, cap), b);
+            dc->DrawTextW(t, (UINT32)wcsnlen(t, 256), tf, D2D1::RectF(m, 0, w - m, cap), b);
             tf->Release();
         }
     }

@@ -463,7 +463,7 @@ void shell::SetSetting(const wchar_t* key, const std::wstring& value) {
 bool shell::OpenCalculator(const std::wstring& target) {
     std::wstring t = target;
     for (auto& c : t) c = towlower(c);
-    auto ends = [&](const wchar_t* s) { size_t n = wcslen(s); return t.size() >= n && t.compare(t.size() - n, n, s) == 0; };
+    auto ends = [&](const wchar_t* s) { size_t n = wcsnlen(s, 64); return t.size() >= n && t.compare(t.size() - n, n, s) == 0; };
     bool calc = t.find(L"microsoft.windowscalculator") != std::wstring::npos || t == L"calc.exe" || t == L"calc" ||
                 ends(L"\\calc.exe") || ends(L"calculatorapp.exe") || ends(L"\\calculadora.exe") || ends(L"\\wacoscalculator.exe");
     if (!calc) return false;

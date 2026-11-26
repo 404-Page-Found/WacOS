@@ -138,7 +138,7 @@ void PaintLeopard() {
         std::lock_guard<std::mutex> l(g_mx);
         if (g_files.empty()) {
             br->SetColor(D2D1::ColorF(1, 1, 1, 0.6f));
-            dc->DrawTextW(Tr(L"Nenhum item"), (UINT32)wcslen(Tr(L"Nenhum item")), g_tfName, D2D1::RectF(0, HEAD + 30, PW(), HEAD + 60), br);
+            dc->DrawTextW(Tr(L"Nenhum item"), (UINT32)wcsnlen(Tr(L"Nenhum item"), 256), g_tfName, D2D1::RectF(0, HEAD + 30, PW(), HEAD + 60), br);
         }
         for (int i = 0; i < (int)g_files.size(); i++) {
             auto& f = g_files[i];
@@ -222,7 +222,7 @@ void Paint() {
         std::lock_guard<std::mutex> l(g_mx);
         if (g_files.empty()) {
             br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.5f) : D2D1::ColorF(0, 0, 0, 0.45f));
-            dc->DrawTextW(Tr(L"Nenhum item"), (UINT32)wcslen(Tr(L"Nenhum item")), g_tfName, D2D1::RectF(0, HEAD + 30, PW(), HEAD + 60), br);
+            dc->DrawTextW(Tr(L"Nenhum item"), (UINT32)wcsnlen(Tr(L"Nenhum item"), 256), g_tfName, D2D1::RectF(0, HEAD + 30, PW(), HEAD + 60), br);
         }
         for (int i = 0; i < (int)g_files.size(); i++) {
             auto& f = g_files[i];

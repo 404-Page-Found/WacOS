@@ -2435,7 +2435,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int show) {
     int argc; wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     for (int a = 1; a < argc; a++) {
         std::wstring s = argv[a];
-        auto val = [&](const wchar_t* k) { size_t n = wcslen(k); return s.compare(0, n, k) == 0 ? s.substr(n) : std::wstring(L"\x01"); };
+        auto val = [&](const wchar_t* k) { size_t n = wcsnlen(k, 16); return s.compare(0, n, k) == 0 ? s.substr(n) : std::wstring(L"\x01"); };
         if (auto v = val(L"--dados="); v != L"\x01") g_dataDirOverride = v;
         else if (auto v2 = val(L"--captura="); v2 != L"\x01") capOut = v2;
         else if (s == L"--escuro") forceDark = 1;

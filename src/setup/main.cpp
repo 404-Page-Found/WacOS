@@ -160,7 +160,7 @@ static bool HasHelper(const wstring& exe) {
     std::vector<char> b((size_t)std::min<LONGLONG>(sz.QuadPart, 64ll << 20)); DWORD got = 0;
     ReadFile(f, b.data(), (DWORD)b.size(), &got, nullptr); CloseHandle(f);
     static const wchar_t key[] = L"--desfazer-janelas";
-    const char* k = (const char*)key; size_t kn = (wcslen(key)) * 2;
+    const char* k = (const char*)key; size_t kn = (wcsnlen(key, 64)) * 2;
     return std::search(b.begin(), b.begin() + got, k, k + kn) != b.begin() + got;
 }
 static wstring Helper() {

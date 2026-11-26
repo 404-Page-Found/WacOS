@@ -86,7 +86,7 @@ void Load() {
         wchar_t b[4] = {};
         if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IFIRSTDAYOFWEEK, b, 4)) g_firstDow = (_wtoi(b) + 1) % 7 == 1 ? 1 : 0;
     }
-    { wchar_t cc[8] = {}; if (GetUserDefaultGeoName(cc, 8) && wcslen(cc) == 2) g_holCC = cc; }
+    { wchar_t cc[8] = {}; if (GetUserDefaultGeoName(cc, 8) && wcsnlen(cc, 8) == 2) g_holCC = cc; }
     if (!g_holCC.empty()) g_cals.push_back({ HOL_CAL, Tr(L"Feriados"), 1, g_holOn });
     for (auto& e : g_ev) g_nextId = std::max(g_nextId, e.id + 1);
     for (auto& c : g_cals) g_nextId = std::max(g_nextId, c.id + 1);

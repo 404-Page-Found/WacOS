@@ -638,7 +638,7 @@ void PaintMarkupBar(bool dark, float W) {
     if (g_tool == T_SIGN) {
         const wchar_t* tip = g_sign.empty() || g_signCapture ? Tr(L"Desenhe a assinatura na página; ela fica guardada.") : Tr(L"Clique na página para pôr a assinatura. Botão direito: desenhar outra.");
         g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.55f) : D2D1::ColorF(0, 0, 0, 0.55f));
-        g_rt->DrawTextW(tip, (UINT32)wcslen(tip), g_tfSub, D2D1::RectF(u.right + 16, TOOLH, W - 100, TOOLH + MB), g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        g_rt->DrawTextW(tip, (UINT32)wcsnlen(tip, 256), g_tfSub, D2D1::RectF(u.right + 16, TOOLH, W - 100, TOOLH + MB), g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
     D2D1_RECT_F ok = D2D1::RectF(W - 84, cy - 13, W - 14, cy + 13);
     g_br->SetColor(D2D1::ColorF(0.04f, 0.52f, 1, 1)); g_rt->FillRoundedRectangle(D2D1::RoundedRect(ok, 6, 6), g_br);
@@ -710,7 +710,7 @@ void Paint() {
                 else if (!pg.pending && pg.renderedW == 0) { pg.pending = true; Request(i, (int)std::lround(tw2 * 2 * sc)); }  // a miniatura também serve de primeira imagem
                 wchar_t nb[16]; swprintf_s(nb, L"%d", i + 1);
                 g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.75f) : D2D1::ColorF(0, 0, 0, 0.7f));
-                g_rt->DrawTextW(nb, (UINT32)wcslen(nb), g_tfThumbNum ? g_tfThumbNum : g_tfSub, D2D1::RectF(cell.left, pr.bottom + 8, cell.right, pr.bottom + 24), g_br);
+                g_rt->DrawTextW(nb, (UINT32)wcsnlen(nb, 16), g_tfThumbNum ? g_tfThumbNum : g_tfSub, D2D1::RectF(cell.left, pr.bottom + 8, cell.right, pr.bottom + 24), g_br);
             }
             g_thumbHits.push_back({ i, cell });
             y = pr.bottom + 34;
@@ -721,7 +721,7 @@ void Paint() {
     if (g_pages.empty()) {
         const wchar_t* t = !g_error.empty() ? g_error.c_str() : g_path.empty() ? Tr(L"Abra uma imagem ou um PDF (Ctrl+O) ou solte um arquivo aqui.") : Tr(L"Abrindo…");
         g_br->SetColor(dark ? D2D1::ColorF(1, 1, 1, 0.5f) : D2D1::ColorF(0, 0, 0, 0.5f));
-        g_rt->DrawTextW(t, (UINT32)wcslen(t), g_tfEmpty, D2D1::RectF(20, TB, W - 20, TB + v.height), g_br);
+        g_rt->DrawTextW(t, (UINT32)wcsnlen(t, 4096), g_tfEmpty, D2D1::RectF(20, TB, W - 20, TB + v.height), g_br);
     }
     // barra de ferramentas (a janela toda; com a coluna, ela fica atrás só do conteúdo)
     W = v.width + XS;

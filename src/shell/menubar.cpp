@@ -1007,7 +1007,7 @@ void Render() {
             wchar_t num[8]; swprintf_s(num, L"%d", std::clamp(g_st.pct, 0, 100));
             br->SetColor(dark ? D2D1::ColorF(0.15f, 0.13f, 0.12f, 0.92f) : D2D1::ColorF(1, 1, 1, 0.95f));
             D2D1_RECT_F tr = D2D1::RectF(body.left, body.top - 0.5f, body.right - (g_st.charging ? 6.f : 0.f), body.bottom - 0.5f);
-            if (tfB) { tfB->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); rt->DrawTextW(num, (UINT32)wcslen(num), tfB, tr, br); }
+            if (tfB) { tfB->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); rt->DrawTextW(num, (UINT32)wcsnlen(num, 8), tfB, tr, br); }
             if (g_st.charging) {  // raio
                 float bx0 = body.right - 6.5f;
                 ID2D1PathGeometry* g = nullptr;
@@ -1069,7 +1069,7 @@ void Render() {
                 if (u.v < 0) wcscpy_s(val, L"–"); else swprintf_s(val, L"%d%%", u.v);
                 std::wstring nome = Tr(u.nome);
                 if (tfNome) rt->DrawTextW(nome.c_str(), (UINT32)nome.size(), tfNome, D2D1::RectF(x - 4, cy - 10.5f, x + cw + 4, cy), br);
-                if (tfValor) rt->DrawTextW(val, (UINT32)wcslen(val), tfValor, D2D1::RectF(x - 4, cy - 2.5f, x + cw + 4, cy + 11), br);
+                if (tfValor) rt->DrawTextW(val, (UINT32)wcsnlen(val, 8), tfValor, D2D1::RectF(x - 4, cy - 2.5f, x + cw + 4, cy + 11), br);
                 x += cw + gap;
             }
         }

@@ -362,7 +362,7 @@ bool StartShell(const std::wstring& startDir, int cols, int rows) {
         g_shellName = L"cmd";
         // ambiente do pai + PROMPT com a marca (o $P mostra a pasta; o resto é o prompt padrão "C:\>")
         wchar_t* e = GetEnvironmentStringsW();
-        for (wchar_t* p = e; *p; p += wcslen(p) + 1) { if (_wcsnicmp(p, L"PROMPT=", 7)) env.insert(env.end(), p, p + wcslen(p) + 1); }
+        for (wchar_t* p = e; *p; p += wcsnlen(p, 32767) + 1) { if (_wcsnicmp(p, L"PROMPT=", 7)) env.insert(env.end(), p, p + wcsnlen(p, 32767) + 1); }
         FreeEnvironmentStringsW(e);
         std::wstring pr = L"PROMPT=$E]9;9;$P$E\\$P$G";
         env.insert(env.end(), pr.begin(), pr.end()); env.push_back(0); env.push_back(0);

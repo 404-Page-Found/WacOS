@@ -102,7 +102,7 @@ template <class F> void List(const std::wstring& path, bool top, bool profile, F
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_SYSTEM && dir) continue;
         if (dir && (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) continue;  // junções (evita voltas)
         if (dir && SkipDir(n, top, profile)) continue;
-        size_t len = wcslen(n);
+        size_t len = wcsnlen(n, MAX_PATH);
         if (len > 0xFFFF) continue;
         f(n, len, dir, ((uint64_t)fd.ftLastWriteTime.dwHighDateTime << 32) | fd.ftLastWriteTime.dwLowDateTime);
     } while (FindNextFileW(h, &fd));
@@ -209,7 +209,7 @@ bool NoiseFile(const std::wstring& n) {  // temporários: vão e voltam o tempo 
     if (n.empty() || n[0] == L'~' || n.back() == L'~') return true;
     std::wstring l = LowerPath(n);
     for (auto e : { L".tmp", L".crdownload", L".part", L".partial", L".download", L".lock", L".swp", L".temp", L".etl" }) {
-        size_t el = wcslen(e);
+        size_t el = wcsnlen(e, 16);
         if (l.size() > el && !l.compare(l.size() - el, el, e)) return true;
     }
     return false;

@@ -282,7 +282,7 @@ void StartExplorer(const wchar_t* why) {
     bool swap = ReadWinlogonShell(saved) && (Lower(saved).find(L"wacosshell.exe") != std::wstring::npos || Lower(saved).find(L"sequoiashell.exe") != std::wstring::npos);
     if (swap) {
         const wchar_t* ex = L"explorer.exe";
-        RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON, L"Shell", REG_SZ, ex, (DWORD)(wcslen(ex) + 1) * 2);
+        RegSetKeyValueW(HKEY_CURRENT_USER, WINLOGON, L"Shell", REG_SZ, ex, (DWORD)(wcsnlen(ex, 32) + 1) * 2);
         Log(L"mesa: Winlogon Shell = explorer.exe por alguns segundos (era %ls)", saved.c_str());
     }
     wchar_t win[MAX_PATH]; GetWindowsDirectoryW(win, MAX_PATH);
@@ -1034,7 +1034,7 @@ void EndEdit(bool commit) {
             const wchar_t* real = PathFindFileNameW(g_items[idx].path.c_str());
             std::wstring ext = PathFindExtensionW(real);
             bool escondida = !ext.empty() && _wcsicmp(g_items[idx].name.c_str(), real) != 0 &&
-                             g_items[idx].name.size() + ext.size() == wcslen(real);
+                             g_items[idx].name.size() + ext.size() == wcsnlen(real, 32768);
             if (escondida && (text.size() < ext.size() || _wcsicmp(text.c_str() + text.size() - ext.size(), ext.c_str()))) text += ext;
         }
         IFileOperation* op = nullptr; IShellItem* si = nullptr;

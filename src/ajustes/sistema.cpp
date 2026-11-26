@@ -502,8 +502,8 @@ void sys::SetWallpaperFit(int pos) {
     const wchar_t* style = L"10"; const wchar_t* tile = L"0";
     switch (pos) { case DWPOS_CENTER: style = L"0"; break; case DWPOS_TILE: style = L"0"; tile = L"1"; break; case DWPOS_STRETCH: style = L"2"; break;
                    case DWPOS_FIT: style = L"6"; break; case DWPOS_SPAN: style = L"22"; break; }
-    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"WallpaperStyle", REG_SZ, style, (DWORD)(wcslen(style) + 1) * 2);
-    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"TileWallpaper", REG_SZ, tile, (DWORD)(wcslen(tile) + 1) * 2);
+    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"WallpaperStyle", REG_SZ, style, (DWORD)(wcsnlen(style, 8) + 1) * 2);
+    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Desktop", L"TileWallpaper", REG_SZ, tile, (DWORD)(wcsnlen(tile, 8) + 1) * 2);
     std::wstring cur = sys::Wallpaper();  // reaplica para avisar (a mesa do Shell relê o registro)
     SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, (void*)cur.c_str(), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }

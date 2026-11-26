@@ -438,7 +438,7 @@ static void UpdCheck() {
                 std::wstring l = line;
                 while (!l.empty() && (l.back() == L'\n' || l.back() == L'\r')) l.pop_back();
                 if (!l.empty() && l[0] == 0xFEFF) l.erase(0, 1);
-                auto val = [&](const wchar_t* k) { size_t n = wcslen(k); return l.compare(0, n, k) == 0 ? l.substr(n) : std::wstring(1, 0); };
+                auto val = [&](const wchar_t* k) { size_t n = wcsnlen(k, 16); return l.compare(0, n, k) == 0 ? l.substr(n) : std::wstring(1, 0); };
                 if (auto v = val(L"atual="); v != std::wstring(1, 0)) u.atual = v;
                 else if (auto v2 = val(L"novo="); v2 != std::wstring(1, 0)) u.novo = v2;
                 else if (auto v3 = val(L"data="); v3 != std::wstring(1, 0)) u.data = v3;
@@ -1008,7 +1008,7 @@ static void GGAplicaRealce(int i) {
     UINT32 c = GG_REALCE[i];
     int r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
     wchar_t v[32]; swprintf_s(v, L"%d %d %d", r, g, b);
-    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Colors", L"Hilight", REG_SZ, v, (DWORD)((wcslen(v) + 1) * sizeof(wchar_t)));
+    RegSetKeyValueW(HKEY_CURRENT_USER, L"Control Panel\\Colors", L"Hilight", REG_SZ, v, (DWORD)((wcsnlen(v, 32) + 1) * sizeof(wchar_t)));
     INT el = COLOR_HIGHLIGHT; COLORREF cr = RGB(r, g, b); SetSysColors(1, &el, &cr);
     SetSetting(L"realce_texto", std::to_wstring(i));
 }
@@ -2741,7 +2741,7 @@ int SidebarIndexFor(const std::wstring& idOrUri) {
     if (id.rfind(L"ms-settings:", 0) == 0) {
         std::wstring best;
         size_t len = 0;
-        for (auto& [u, pid] : uris) { size_t n = wcslen(u); if (id.compare(0, n, u) == 0 && n > len) { len = n; best = pid; } }
+        for (auto& [u, pid] : uris) { size_t n = wcsnlen(u, 64); if (id.compare(0, n, u) == 0 && n > len) { len = n; best = pid; } }
         id = best.empty() ? L"geral" : best;
     }
     for (int i = 0; i < (int)items.size(); i++) if (items[i].id == id) return i;

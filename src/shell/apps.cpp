@@ -1231,7 +1231,7 @@ void apps::SetPinned(App& a, bool pin) {
 bool apps::IsProgramFile(const std::wstring& path) {
     std::wstring l = Lower(path);
     for (const wchar_t* e : { L".lnk", L".exe", L".url", L".appref-ms" })
-        if (l.size() > wcslen(e) && l.compare(l.size() - wcslen(e), wcslen(e), e) == 0) return true;
+        if (l.size() > wcsnlen(e, 16) && l.compare(l.size() - wcsnlen(e, 16), wcsnlen(e, 16), e) == 0) return true;
     return false;
 }
 

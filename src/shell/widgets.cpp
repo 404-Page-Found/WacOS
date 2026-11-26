@@ -96,7 +96,7 @@ std::string Section(const std::string& j, const char* key) {
 double Number(const std::string& s, const char* key) {
     size_t p = s.find(std::string("\"") + key + "\":");
     if (p == std::string::npos) return NAN;
-    p += strlen(key) + 3;
+    p += strnlen(key, 128) + 3;
     while (p < s.size() && s[p] == ' ') p++;
     if (s.compare(p, 4, "null") == 0) return NAN;
     return strtod(s.c_str() + p, nullptr);
