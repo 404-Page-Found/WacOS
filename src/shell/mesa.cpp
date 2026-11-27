@@ -1797,7 +1797,14 @@ void Tick() {
             if (!DeskExists()) { CreateDesk(); Log(L"mesa: Explorador no fundo; a mesa do Shell fica por cima da dele"); }
             HWND ed = TopExplorerDesk();
             Mon* p = Primary();
-            if (ed && p && GetWindow(ed, GW_HWNDPREV) != p->h)  // a dele passou para cima (Win+D...): a nossa volta
+            // a dele passou para cima (Win+D...): a nossa volta. Só quando a nossa ficou ABAIXO da dele: antes bastava
+            // outra janela entre as duas (as cercas do PecoFence/Fences, que ficam logo acima da mesa) para a nossa subir
+            // a cada 500 ms, e o PecoFence subia de volta, sem fim (as duas piscando, Discord 27/11/2026)
+            auto acima = [](HWND ed, HWND nossa) {
+                for (HWND h = GetWindow(ed, GW_HWNDPREV); h; h = GetWindow(h, GW_HWNDPREV)) if (h == nossa) return true;
+                return false;
+            };
+            if (ed && p && !acima(ed, p->h))
                 for (auto& m : g_mons) SetWindowPos(m.h, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         } else if (DeskExists()) DestroyDesk();
         g_explorerGoneAt = 0;

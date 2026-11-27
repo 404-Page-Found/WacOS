@@ -2080,3 +2080,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     frente (tenta a cada 30 s). alertas::Confirm ganhou o texto do outro botão e devolve false com outro alerta aberto.
   Compilado (Shell e Ajustes).
   DESFAZER: reverter o commit e compilar (build.cmd shell e build.cmd ajustes).
+[2026-11-27 20:05] Discord (bug-reports "Pecofence Error", achado do valenve): com o Explorador no fundo, a mesa do
+  Shell subia a cada 500 ms sempre que havia QUALQUER janela entre ela e a mesa do Explorador (as cercas do
+  PecoFence/Fences ficam ali), e o PecoFence subia de volta: as duas piscando sem fim. mesa.cpp: só volta para cima
+  quando a nossa mesa ficou ABAIXO da do Explorador (Win+D...). Compilado (build.cmd shell), não instalado.
+  DESFAZER: voltar a condição para GetWindow(ed, GW_HWNDPREV) != p->h em mesa.cpp e compilar.
