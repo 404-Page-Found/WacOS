@@ -183,6 +183,7 @@ static D2D1_POINT_2F g_sidePressPt;
 static bool g_sideDragging;        // arrastando um favorito para mudar de lugar
 static int g_sideInsert = -1;      // posição de inserção nos favoritos (linha azul)
 static int g_dropSideRow = -1;     // linha da barra lateral que receberá o soltar
+static int g_dropSeg = -1;         // trecho da barra de caminho que receberá o soltar
 
 static TextField g_search;
 
@@ -410,6 +411,19 @@ static bool g_showHidden = false;
 // o que aparece na barra lateral além dos Favoritos (Ajustes do Finder, Ctrl+,; issue #60)
 static bool g_sideCloud = true, g_sideDrives = true, g_sideTags = true;
 static bool g_pathBar = false;  // barra de caminho embaixo: desligada, como no Finder (Ctrl+Alt+P liga)   // tamanho do texto: ícones / lista e colunas
+// Alt segurado revela a barra por um instante (Option no Mac, issue #152); SyncFooterH refaz a altura do rodapé.
+static bool g_altPath = false;
+static bool PathBarOn() { return g_pathBar || g_altPath; }
+static void SyncFooterH() { Lay::FOOTER_H = Lay::STATUS_H + (PathBarOn() ? Lay::PATH_H : 0); }
+static void AltPathDown() {
+    if (g_altPath || g_pathBar || g_renameIdx >= 0) return;
+    if (GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_SHIFT) < 0) return;  // AltGr manda Ctrl+Alt; combos com Alt não contam
+    g_altPath = true; SyncFooterH(); Invalidate();
+}
+static void AltPathUp() {
+    if (!g_altPath) return;
+    g_altPath = false; SyncFooterH(); Invalidate();
+}
 // Leopard: a lista do 10.5 tem linhas de 19 com o ícone de 16 (sem o tamanho grande do Finder novo)
 static float ListRowH() { return tahoe::Leopard() ? 19.f : g_listLarge ? 36.f : 24.f; }
 static float ListIcon() { return tahoe::Leopard() ? 16.f : g_listLarge ? 32.f : 16.f; }
@@ -1830,6 +1844,10 @@ void SpringLoad(const std::wstring& path) {
     Invalidate(); UpdateWindow(g_hwnd);
 }
 
+// Barra de caminho: "Disco Local (C:) › Users › <conta> › Downloads". Duplo clique num trecho abre a pasta.
+struct PathSeg { std::wstring label, path; float w = 0; D2D1_RECT_F rect{}; };
+static std::vector<PathSeg> g_pathSegs;
+
 DropSpot DropSpotAt(POINT px) {
     DropSpot d;
     D2D1_POINT_2F p = ToDip(px.x, px.y);
@@ -1846,6 +1864,13 @@ DropSpot DropSpotAt(POINT px) {
         d.path = s.path;
         return d;
     }
+    for (int k = 0; k < (int)g_pathSegs.size(); k++) {  // barra de caminho: soltar num trecho manda para aquela pasta (issue #152)
+        const PathSeg& seg = g_pathSegs[k];
+        if (!In(seg.rect, p)) continue;
+        if (g_ownDrag && SamePath(seg.path, g_folder)) return d;  // na própria pasta de origem não faz nada
+        d.kind = DropSpot::FOLDER; d.path = seg.path; d.seg = k;
+        return d;
+    }
     if (!In(ContentRect(), p)) return d;
     int i = HitItem(p);
     if (i >= 0 && g_items[i].dir) {
@@ -1859,8 +1884,8 @@ DropSpot DropSpotAt(POINT px) {
 
 void SetDropFeedback(const DropSpot& s) {
     int insert = s.kind == DropSpot::SIDEBAR_INSERT ? s.index : -1;
-    if (s.item != g_dropHi || s.row != g_dropSideRow || insert != g_sideInsert) {
-        g_dropHi = s.item; g_dropSideRow = s.row; g_sideInsert = insert;
+    if (s.item != g_dropHi || s.row != g_dropSideRow || insert != g_sideInsert || s.seg != g_dropSeg) {
+        g_dropHi = s.item; g_dropSideRow = s.row; g_sideInsert = insert; g_dropSeg = s.seg;
         Invalidate();
     }
 }
@@ -3549,12 +3574,8 @@ static std::wstring StatusText() {
     return buf;
 }
 
-// Barra de caminho: "Disco Local (C:) › Users › <conta> › Downloads". Duplo clique num trecho abre a pasta.
-struct PathSeg { std::wstring label, path; float w = 0; D2D1_RECT_F rect{}; };
-static std::vector<PathSeg> g_pathSegs;
-
 static void DrawPathBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidColorBrush* br) {
-    if (!g_pathBar) { g_pathSegs.clear(); return; }
+    if (!PathBarOn()) { g_pathSegs.clear(); return; }
     auto s = ClientDip();
     float top = s.height - Lay::FOOTER_H, cy = top + Lay::PATH_H / 2;
     br->SetColor(pal.line);  // linha entre a lista e o rodapé, e entre caminho e status
@@ -3588,6 +3609,10 @@ static void DrawPathBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
     float x = Lay::SIDEBAR_W + 12;
     for (size_t i = 0; i < segs.size(); i++) {
         auto& seg = segs[i];
+        if ((int)i == g_dropSeg) {  // vai receber o que está sendo arrastado
+            br->SetColor(pal.hover);
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x - 2, top, x + icon + gap + seg.w + 2, top + Lay::PATH_H), 4, 4), br);
+        }
         D2D1_RECT_F ir{ x, cy - icon / 2, x + icon, cy + icon / 2 };
         if (seg.path.size() <= 3) {  // disco
             br->SetColor(pal.text2);
@@ -5440,7 +5465,7 @@ static void LoadOptions() {
         else if (k == L"lateralNuvem") g_sideCloud = v != 0;
         else if (k == L"lateralLocais") g_sideDrives = v != 0;
         else if (k == L"lateralEtiquetas") g_sideTags = v != 0;
-        else if (k == L"barraCaminho") { g_pathBar = v != 0; Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0); }
+        else if (k == L"barraCaminho") { g_pathBar = v != 0; SyncFooterH(); }
         else if (k == L"larguraColuna") ColLay::COL_W = std::clamp((float)v, ColLay::COL_MIN, ColLay::COL_MAX);
         else if (k == L"larguraLateral") { Lay::SIDEBAR_W = std::clamp((float)v, Lay::SIDEBAR_MIN, Lay::SIDEBAR_MAX); g_sideWidthSet = true; }
         else if (k == L"listaGrande") g_listLarge = v != 0;
@@ -6189,7 +6214,7 @@ static bool HandleKey(UINT vk) {
     }
     if (ctrl && alt && vk == 'P') {  // Mostrar/Ocultar Barra de Caminho (Option+Cmd+P no Mac)
         g_pathBar = !g_pathBar;
-        Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0);
+        SyncFooterH();
         SaveOptions();
         Invalidate();
         return true;
@@ -6487,6 +6512,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_ERASEBKGND: return 1;
     case WM_ACTIVATE:
         g_winActive = LOWORD(w) != WA_INACTIVE;
+        if (!g_winActive) AltPathUp();
         shadow::SetActive(g_winActive);
         shadow::Update();
         Invalidate();
@@ -6838,7 +6864,11 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        if ((UINT)w == VK_MENU) AltPathDown();
         if (HandleKey((UINT)w)) return 0;
+        break;
+    case WM_KEYUP: case WM_SYSKEYUP:
+        if ((UINT)w == VK_MENU) AltPathUp();
         break;
     case WM_CHAR:
         if (w < 32) return 0;
@@ -7290,7 +7320,7 @@ static void FinderSettings() {
         Reload();
     } else if (id == 51) {
         g_pathBar = !g_pathBar;
-        Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0);
+        SyncFooterH();
         SaveOptions();
     }
     Invalidate();
@@ -7636,7 +7666,7 @@ static LRESULT OnLaunchRequest(const COPYDATASTRUCT* cd) {
     std::wstring cmd((const wchar_t*)cd->lpData, cd->cbData / sizeof(wchar_t));
     int argc; wchar_t** argv = CommandLineToArgvW(cmd.c_str(), &argc);
     LoadOptions();  // opções atuais (visão, ícones, barra lateral, janela) antes dos argumentos do pedido
-    Lay::FOOTER_H = Lay::STATUS_H + (g_pathBar ? Lay::PATH_H : 0);
+    SyncFooterH();
     Launch L;
     ParseLaunch(argc, argv, L);
     LocalFree(argv);
