@@ -363,7 +363,9 @@ Page Sobre() {
     };
     p.groups.push_back(Plain(head));
     p.groups.push_back(G({ Value(L"Nome", i.computer), Value(L"Processador", i.cpu), Value(L"Memória", i.ram), Value(L"Gráficos", i.gpu) }));
-    p.groups.push_back(G({ Value(L"Windows", i.windows), Value(L"Compilação", i.build) }, L"Sistema"));
+    // Experimental > "Ocultar menções ao Windows" (issue #159): sem a linha do Windows e da compilação
+    if (Setting(L"ocultar_windows", L"0") != L"1")
+        p.groups.push_back(G({ Value(L"Windows", i.windows), Value(L"Compilação", i.build) }, L"Sistema"));
     auto mode = sys::CurrentResolution();
     p.groups.push_back(G({ Button(L"Tela", L"Ajustes de Telas…", [] { int k = SidebarIndexFor(L"telas"); if (k >= 0) { HWND w = Window(); COPYDATASTRUCT cd{ 0x414A5354, 10, (void*)L"telas" }; SendMessageW(w, WM_COPYDATA, 0, (LPARAM)&cd); } },
                                   Fmt(L"%d × %d", mode.w, mode.h)) }, L"Telas"));
@@ -2636,7 +2638,11 @@ Page Experimental() {
     p.groups.push_back(G({ tit, propria }, L"Janelas"));
     Row shellWin = Toggle(L"Abrir no lugar da área de trabalho do Windows", [] { return ShellDoWindows(); }, [](bool on) { SetShellDoWindows(on); Rebuild(); },
                           L"O WacOS abre já no login, sem a área de trabalho do Windows piscar antes. Vale no próximo login.");
-    p.groups.push_back(G({ shellWin }, L"Sistema"));
+    // Issue #159: esconde o nome do Windows no Sobre deste Mac (Ajustes e a janela "Sobre Este Mac")
+    Row semWin = Toggle(L"Ocultar menções ao Windows", [] { return Setting(L"ocultar_windows", L"0") == L"1"; },
+                        [](bool v) { SetSetting(L"ocultar_windows", v ? L"1" : L"0"); Rebuild(); },
+                        L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.");
+    p.groups.push_back(G({ shellWin, semWin }, L"Sistema"));
     return p;
 }
 

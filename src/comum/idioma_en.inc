@@ -1651,6 +1651,8 @@
 { L"O Modo leve está ligado e deixa o vidro fosco. Para usar o vidro real, mude o Modo leve para Desligado, em Desempenho, mais abaixo.", L"Lite mode is on and keeps the glass frosted. To use real glass, set Lite mode to Off, under Performance below." },
 { L"Copiar Também para a Área de Transferência", L"Also Copy to Clipboard" },
 { L"Abrir no lugar da área de trabalho do Windows", L"Open instead of the Windows desktop" },
+{ L"Ocultar menções ao Windows", L"Hide mentions of Windows" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"Removes the Windows version and build from About. Reopen the \"About This Mac\" window to see the change." },
 { L"Experimental. O WacOS abre já no login, sem a área de trabalho do Windows piscar antes. Vale no próximo login.", L"Experimental. WacOS opens right at sign-in, without the Windows desktop flashing first. Takes effect at the next sign-in." },
 { L"No próximo login, o WacOS abre no lugar da área de trabalho do Windows, antes do Explorador, sem a tela do Windows aparecer antes. O Explorador continua rodando no fundo.\n\nSe algo der errado, aperte Ctrl+Alt+Shift+F11 para voltar ao Explorador, ou desligue esta opção. Desinstalar o WacOS também desfaz isso.", L"At the next sign-in, WacOS opens instead of the Windows desktop, before File Explorer, so the Windows screen doesn't show first. File Explorer keeps running in the background.\n\nIf something goes wrong, press Ctrl+Alt+Shift+F11 to go back to File Explorer, or turn this option off. Uninstalling WacOS also undoes it." },
 { L"Abrir no lugar da área de trabalho do Windows?", L"Open instead of the Windows desktop?" },

@@ -404,8 +404,11 @@ void Paint() {
         rows[1][0] = Tr(L"Gráficos");    rows[1][1] = info.gpu;
         rows[2][0] = Tr(L"Memória");     rows[2][1] = info.ram;
         rows[3][0] = Tr(L"Nome");        rows[3][1] = info.nome;
-        rows[4][0] = L"Windows";         rows[4][1] = info.windows.substr(info.windows.find(L"Windows ") == 0 ? 8 : 0);
-        nrows = 5;
+        nrows = 4;
+        if (shell::Setting(L"ocultar_windows", L"0") != L"1") {  // Experimental > "Ocultar menções ao Windows" (issue #159)
+            rows[4][0] = L"Windows";     rows[4][1] = info.windows.substr(info.windows.find(L"Windows ") == 0 ? 8 : 0);
+            nrows = 5;
+        }
     }
     float row0 = ROW0_CY + (pc && GG ? 6.f : 0.f);  // macOS 27: abaixo da linha do fabricante
     float split = pc ? 96.f : COL_SPLIT;  // este PC: nomes de processador e placa de vídeo mais longos
