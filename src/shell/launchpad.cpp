@@ -42,6 +42,7 @@ struct LApp {
     UINT w = 0, h = 0;
     std::vector<BYTE> px;
     bool mac = false;             // ícone do pacote do Sequoia
+    bool proprio = false;         // app nosso sem atalho no Menu Iniciar: parsing é o caminho do exe (issue #174)
     ID2D1Bitmap* bmp = nullptr;
 };
 std::wstring NomeDe(const LApp& a) {
@@ -192,6 +193,33 @@ void Loader() {
             en->Release();
         }
         folder->Release();
+    }
+    // issue #174: rodando direto do zip (sem o WacOSSetup) não há atalhos no Menu Iniciar e os nossos apps sumiam do
+    // Launchpad. Os que faltam entram pelo exe da pasta do Shell.
+    {
+        wchar_t me[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, me, MAX_PATH);
+        std::wstring dir = me;
+        dir = dir.substr(0, dir.find_last_of(L'\\') + 1);
+        static const wchar_t* nossos[][2] = {
+            { L"WacOSFinder", L"Finder" }, { L"WacOSSettings", L"System Settings" }, { L"WacOSActivityMonitor", L"Activity Monitor" },
+            { L"WacOSTerminal", L"Terminal" }, { L"WacOSCalculator", L"Calculator" }, { L"WacOSNotes", L"Notes" },
+            { L"WacOSScreenshot", L"Screenshot" }, { L"WacOSPreview", L"Preview" }, { L"WacOSReminders", L"Reminders" },
+            { L"WacOSCalendar", L"Calendar" }, { L"WacOSTextEdit", L"TextEdit" }, { L"WacOSClock", L"Clock" },
+            { L"WacOSWeather", L"Weather" }, { L"WacOSContacts", L"Contacts" }, { L"WacOSPhotos", L"Photos" },
+            { L"WacOSTimeMachine", L"Time Machine" }, { L"WacOSMusic", L"Music" }, { L"WacOSQuickTime", L"QuickTime Player" } };
+        for (auto& n : nossos) {
+            std::wstring exe = dir + n[0] + L".exe", low = std::wstring(n[0]) + L".exe";
+            for (auto& c : low) c = towlower(c);
+            if (GetFileAttributesW(exe.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+            bool tem = false;
+            for (auto& a : found) {
+                std::wstring p = a.parsing;
+                for (auto& c : p) c = towlower(c);
+                if (p.size() >= low.size() && !p.compare(p.size() - low.size(), low.size(), low)) { tem = true; break; }
+            }
+            if (!tem) { LApp a; a.name = n[1]; a.parsing = exe; a.proprio = true; found.push_back(std::move(a)); }
+        }
     }
     std::sort(found.begin(), found.end(), [](const LApp& a, const LApp& b) { return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0; });
     found.erase(std::unique(found.begin(), found.end(), [](const LApp& a, const LApp& b) { return !_wcsicmp(a.name.c_str(), b.name.c_str()); }), found.end());
@@ -772,6 +800,12 @@ void Close() {
 
 void Launch(int i) {
     if (i < 0 || i >= (int)g_all.size()) return;
+    if (g_all[i].proprio) {  // app nosso sem atalho: o exe direto
+        ShellExecuteW(nullptr, L"open", g_all[i].parsing.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        Log(L"launchpad: abrindo %ls", g_all[i].name.c_str());
+        Close();
+        return;
+    }
     std::wstring target = L"shell:AppsFolder\\" + g_all[i].parsing;
     if (shell::OpenCalculator(target)) { Close(); return; }  // a Calculadora do Windows: abre a nossa
     if (apps::LaunchNoOcclusion(target)) { Close(); return; }  // Chrome, Discord...: miniatura viva no Mission Control

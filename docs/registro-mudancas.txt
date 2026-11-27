@@ -1973,3 +1973,22 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     desliga a cor avançada do Windows nas telas que aceitam; sem tela HDR, abre os Ajustes de Tela) e "Ajustes de Tela".
   Compilado e instalado (o Shell roda). Não testado: o HDR (esta tela não foi trocada) nem o atalho na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-27 14:15] Issues #173, #174, #160, #172 e PRs #177, #168, #167, #175, #178 (aplicados à mão, com crédito):
+  - #173 (main.cpp KeyHook): Win+A abre a nossa Central de Controle e Win+N a Central de Notificações (ShellAbrirPainel
+    9 e 10), no lugar das do Windows 11. Fora do modo nativo.
+  - #174 (paginas.cpp): Aparência avisa quando a Economia de energia do Windows está ligada (ela desliga a transparência
+    do Windows e o vidro fica sólido). launchpad.cpp: os nossos apps entram no Launchpad pelo exe da pasta do Shell
+    quando não há atalho no Menu Iniciar (rodando direto do zip, sem o WacOSSetup); abrem pelo exe (LApp::proprio).
+  - #160 (jogo.cpp): o modo jogo só tira o vidro real enquanto o jogo está NA FRENTE (jogo::VidroPausado); com o jogo
+    aberto e outro app ou a mesa na frente, o vidro real volta (o vidro comum ficava cinza no Dock e nos widgets).
+  - #172 (som.cpp): o volume mudado fora do Shell (botões/roda do fone, teclado que fala direto com o driver) mostra o
+    aviso de volume do Mac (IAudioEndpointVolumeCallback; as mudanças do Shell levam o contexto CTX_SHELL e não contam;
+    troca de saída registra de novo). Ajuste aviso_volume_fora=0 desliga. O aviso do Windows pode aparecer junto.
+  - PR #177 (KongGithubDev, issue #126): a barra de menus continua escondida no monitor do app em tela cheia quando
+    outro monitor tem o foco.
+  - PR #168 (404-Page-Found, issue #161): nome dos ícones da mesa escuro sobre papel de parede claro.
+  - PR #167 (404-Page-Found, issue #159): Experimental > "Ocultar menções ao Windows" (Sobre); traduzido nos 11 idiomas.
+  - PR #175 (eagle-233): miniaturas das janelas minimizadas no Dock não piscam na ampliação.
+  - PR #178 (Jop3r): bateria dos dispositivos Bluetooth na barra de menus (desligado por padrão).
+  Compilado (Shell e Ajustes). NÃO instalado nem testado na tela: o Shell em Rust estava rodando (teste da sessão do Rust).
+  DESFAZER: reverter o commit e compilar.

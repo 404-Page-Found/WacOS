@@ -262,6 +262,14 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 g_winCombo = g_winEaten = true;
                 PostMessageW(g_msg, k->vkCode == VK_TAB ? WM_APP_MISSION : WM_APP_SETTINGS, 0, 0);
                 return 1;
+            } else if (!shell::nativo && g_winDown && down && !g_winCombo && (k->vkCode == 'A' || k->vkCode == 'N') &&
+                       GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_CONTROL) >= 0 && GetAsyncKeyState(VK_MENU) >= 0) {
+                // issue #173: Win+A abre a nossa Central de Controle e Win+N a Central de Notificações (no lugar das
+                // Configurações Rápidas e da central do Windows 11)
+                g_winCombo = g_winEaten = true;
+                static UINT openPanel2 = RegisterWindowMessageW(L"ShellAbrirPainel");
+                PostMessageW(g_msg, openPanel2, k->vkCode == 'A' ? 9 : 10, 0);
+                return 1;
             } else if (!shell::nativo && g_winDown && down && (k->vkCode == VK_LEFT || k->vkCode == VK_RIGHT) && GetAsyncKeyState(VK_CONTROL) >= 0 &&
                        GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_MENU) >= 0) {
                 // Win+←/→: metade da tela (o encaixe do Windows fica desligado enquanto o Shell roda: encaixe.cpp)
@@ -983,10 +991,20 @@ bool shell::NaoIncomodar(HMONITOR mon) {
 
 // Com mais de um monitor, só some o que está no monitor do app em tela cheia (a barra daquele monitor; o Dock
 // se ele estiver lá). Tela travada: tudo some.
+// Issue #126: the fullscreen window stays fullscreen when the user clicks an app on another monitor. It is no longer
+// the foreground window, but its monitor keeps its menu bar (and the Dock, if it is there) hidden until something on
+// that same monitor takes the foreground or the window leaves fullscreen.
+static HWND g_fsJanela;
 static void CheckFullscreen() {
     HWND fg = GetForegroundWindow();
     bool locked = bloqueio::Active();
     bool fs = !locked && IsFullscreen(fg);
+    if (fs) g_fsJanela = fg;
+    else if (!locked && g_fsJanela && fg != g_fsJanela && IsWindow(g_fsJanela) && IsFullscreen(g_fsJanela)
+             && (!fg || MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) != MonitorFromWindow(g_fsJanela, MONITOR_DEFAULTTONEAREST))) {
+        fg = g_fsJanela; fs = true;  // foreground is on another monitor: the fullscreen app is still there
+    }
+    else g_fsJanela = nullptr;
     HMONITOR fm = fs ? MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) : nullptr;
     {   // registro: quem fez o Dock e a barra de menus sumirem (uma vez por janela)
         static HWND visto;
@@ -998,14 +1016,14 @@ static void CheckFullscreen() {
         visto = fs ? fg : nullptr;
     }
     dock::SetFullscreen(locked || (fs && fm == dock::MonitorHandle()));
-    menubar::SetFullscreen(locked || fs, fm);
+    menubar::SetFullscreen(locked || fs, fm, fs ? fg : nullptr);
     ilha::SetFullscreen(locked);  // a ilha confere sozinha a tela cheia do monitor principal (jogo, vídeo, app)
 }
 
 static void CALLBACK OnWinEvent(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     // maximizada por cima da barra/do Dock (issue #24): qualquer janela de topo (a conferência é barata e sai cedo)
     if (ev == EVENT_OBJECT_LOCATIONCHANGE && obj == OBJID_WINDOW && !shell::nativo && h && GetAncestor(h, GA_ROOT) == h) limites::Maximizada(h);
-    if (ev == EVENT_OBJECT_LOCATIONCHANGE && (obj != OBJID_WINDOW || h != GetForegroundWindow())) return;
+    if (ev == EVENT_OBJECT_LOCATIONCHANGE && (obj != OBJID_WINDOW || (h != GetForegroundWindow() && h != g_fsJanela))) return;
     if (ev == EVENT_SYSTEM_FOREGROUND) { revelar::Foreground(h); jogo::Foreground(h); }
     CheckFullscreen();
 }

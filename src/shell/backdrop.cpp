@@ -1615,7 +1615,7 @@ void backdrop::Reload() {
     s.tintK = std::clamp(s.tintK, 0.f, 1.f);
     s.real = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1" && !rg::semCaptura;  // aparece nas gravações (montado pelas janelas)
     // modo jogo (jogo.cpp): o vidro real remontava o fundo a cada quadro do jogo atrás das peças; fica o vidro comum
-    if (jogo::Ativo()) s.real = false;
+    if (jogo::VidroPausado()) s.real = false;
     rg::g_semRitmo = shell::Setting(L"vidro_ritmo", L"1") == L"0";
     // modo leve (leve.cpp: PC fraco ou na bateria): também sem o vidro real, e o fosco sem o desfoque extra (MakeFrost)
     leve::Atualizar();
@@ -1626,7 +1626,7 @@ void backdrop::Reload() {
     {
         bool pedido = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1";
         static int ultimo = -1;
-        int motivo = !pedido || s.real ? 0 : rg::semCaptura ? 1 : jogo::Ativo() ? 2 : 3;
+        int motivo = !pedido || s.real ? 0 : rg::semCaptura ? 1 : jogo::VidroPausado() ? 2 : 3;
         if (motivo != ultimo && motivo)
             Log(L"vidro real: ligado nos ajustes, mas fica fosco (%ls)",
                 motivo == 1 ? L"a captura de janelas falhou nesta sessão" : motivo == 2 ? L"modo jogo" : L"modo leve ligado");

@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"Logo della barra dei menu" },
 { L"Maçã", L"Mela" },
 { L"Ajustes de Tela", L"Impostazioni schermo" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Il Risparmio energia di Windows è attivo e disattiva la trasparenza di Windows: il vetro smerigliato resta pieno finché non si spegne (Impostazioni di Windows > Sistema > Alimentazione e batteria)." },
+{ L"Ocultar menções ao Windows", L"Nascondi i riferimenti a Windows" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"Toglie la versione e la build di Windows da Info. Riapri la finestra \"Informazioni su questo Mac\" per vedere la modifica." },

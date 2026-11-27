@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"Menü çubuğu logosu" },
 { L"Maçã", L"Elma" },
 { L"Ajustes de Tela", L"Ekran Ayarları" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Windows Enerji tasarrufu açık ve Windows saydamlığını kapatıyor: kapanana kadar buzlu cam düz renkte kalır (Windows Ayarları > Sistem > Güç ve pil)." },
+{ L"Ocultar menções ao Windows", L"Windows ifadelerini gizle" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"Windows sürümünü ve derlemesini Hakkında bölümünden kaldırır. Değişikliği görmek için \"Bu Mac Hakkında\" penceresini yeniden açın." },

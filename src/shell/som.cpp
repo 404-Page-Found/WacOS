@@ -178,11 +178,48 @@ void SetAppVolume(size_t i, float v) {
     g_apps[i].vol = v; g_apps[i].mute = v <= 0.001f;
 }
 
+// issue #172: o volume mudado por fora (botões/roda do fone, teclado que manda direto ao driver) também mostra o aviso
+// de volume do Mac. As mudanças do próprio Shell levam este contexto e são ignoradas.
+const GUID CTX_SHELL = { 0x5f3c7a21, 0x9b4e, 0x4d6a, { 0x8e, 0x12, 0x6c, 0x0b, 0x77, 0x3a, 0x51, 0xd4 } };
+const UINT WM_VOL_FORA = WM_APP + 71;
+HWND g_volAviso;  // a janela do aviso (recebe WM_VOL_FORA)
+struct VolCb : IAudioEndpointVolumeCallback, IMMNotificationClient {
+    LONG ref = 1;
+    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&ref); }
+    ULONG STDMETHODCALLTYPE Release() override { return InterlockedDecrement(&ref); }  // estático: vive o Shell todo
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID r, void** p) override {
+        if (r == __uuidof(IUnknown) || r == __uuidof(IAudioEndpointVolumeCallback)) *p = (IAudioEndpointVolumeCallback*)this;
+        else if (r == __uuidof(IMMNotificationClient)) *p = (IMMNotificationClient*)this;
+        else { *p = nullptr; return E_NOINTERFACE; }
+        AddRef(); return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA d) override {
+        if (d && d->guidEventContext != CTX_SHELL && g_volAviso) PostMessageW(g_volAviso, WM_VOL_FORA, 0, 0);
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow f, ERole r, LPCWSTR) override {
+        if (f == eRender && r == eConsole && g_volAviso) PostMessageW(g_volAviso, WM_VOL_FORA, 1, 0);  // outra saída: registra de novo
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override { return S_OK; }
+} g_volCb;
+IAudioEndpointVolume* g_volReg;  // a saída em que o aviso está registrado
+DWORD g_volRegAt;                // quando trocou de saída (o volume da nova saída não é "mudança")
+void RegistraVolume() {
+    if (g_volReg) { g_volReg->UnregisterControlChangeNotify(&g_volCb); g_volReg->Release(); g_volReg = nullptr; }
+    g_volReg = Endpoint();
+    if (g_volReg && FAILED(g_volReg->RegisterControlChangeNotify(&g_volCb))) { g_volReg->Release(); g_volReg = nullptr; }
+    g_volRegAt = GetTickCount();
+}
+
 void SetVolume(float v) {
     v = std::clamp(v, 0.f, 1.f);
     if (IAudioEndpointVolume* e = Endpoint()) {
-        e->SetMasterVolumeLevelScalar(v, nullptr);
-        e->SetMute(v <= 0.001f, nullptr);  // no zero, mudo (o ícone vira o alto-falante cortado, como no Mac)
+        e->SetMasterVolumeLevelScalar(v, &CTX_SHELL);
+        e->SetMute(v <= 0.001f, &CTX_SHELL);  // no zero, mudo (o ícone vira o alto-falante cortado, como no Mac)
         e->Release();
     }
     g_au.vol = v; g_au.mute = v <= 0.001f;
@@ -190,7 +227,7 @@ void SetVolume(float v) {
 }
 
 void SetMute(bool m) {
-    if (IAudioEndpointVolume* e = Endpoint()) { e->SetMute(m, nullptr); e->Release(); }
+    if (IAudioEndpointVolume* e = Endpoint()) { e->SetMute(m, &CTX_SHELL); e->Release(); }
     g_au.mute = m;
     menubar::SoundChanged(false);
 }
@@ -792,6 +829,20 @@ LRESULT CALLBACK HudProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); PaintHud(); return 0; }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_VOL_FORA: {  // issue #172: volume mudado fora do Shell (fone, teclado externo)
+        if (w == 1) { RegistraVolume(); Read(false); return 0; }
+        float antes = g_au.vol; bool mudoAntes = g_au.mute;
+        Read(false);
+        if (!g_au.ok || GetTickCount() - g_volRegAt < 1500) return 0;
+        if (std::fabs(g_au.vol - antes) < 0.004f && g_au.mute == mudoAntes) return 0;  // nada que se veja
+        menubar::SoundChanged(false);
+        if (g_open) { PaintMenu(); return 0; }
+        if (central::IsOpen()) return 0;  // o controle de som da Central de Controle sendo arrastado
+        if (shell::Setting(L"aviso_volume_fora", L"1") == L"0") return 0;
+        if (ilha::Volume(g_au.mute ? 0 : g_au.vol, g_au.mute)) { HideHud(); return 0; }
+        ShowHud();
+        return 0;
+    }
     case WM_TIMER:
         if (w == T_FADE) { KillTimer(h, T_FADE); g_hudFadeAt = anim::Now(); ui::FrameClock(h, WM_HUD_FRAME, true); }
         return 0;
@@ -812,6 +863,14 @@ LRESULT CALLBACK HudProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 bool som::Create(HINSTANCE hi) {
     if (!MakeGlass(g_m, hi, L"ShellSomMenu", MenuProc, false, L"Som")) return false;
     if (!MakeGlass(g_h, hi, L"ShellSomAviso", HudProc, true, L"Volume")) return false;
+    g_volAviso = g_h.wnd;
+    Read(false);
+    RegistraVolume();
+    {   // troca da saída padrão: o aviso passa para a nova
+        IMMDeviceEnumerator* en = nullptr;
+        if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&en))))
+            en->RegisterEndpointNotificationCallback(&g_volCb);  // o enumerador fica vivo com o registro
+    }
     g_tfTitle = ui::Format(13, DWRITE_FONT_WEIGHT_BOLD);
     g_tfHead = ui::Format(12, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     g_tfRow = ui::Format(13, DWRITE_FONT_WEIGHT_NORMAL);

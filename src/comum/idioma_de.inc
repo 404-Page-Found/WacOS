@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"Logo der Menüleiste" },
 { L"Maçã", L"Apfel" },
 { L"Ajustes de Tela", L"Displayeinstellungen" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Der Windows-Energiesparmodus ist aktiv und schaltet die Windows-Transparenz aus: Das Milchglas bleibt undurchsichtig, bis er aus ist (Windows-Einstellungen > System > Netzbetrieb und Akku)." },
+{ L"Ocultar menções ao Windows", L"Windows-Erwähnungen ausblenden" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"Entfernt die Windows-Version und den Build aus „Über“. Öffne das Fenster „Über diesen Mac“ erneut, um die Änderung zu sehen." },

@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"Логотип строки меню" },
 { L"Maçã", L"Яблоко" },
 { L"Ajustes de Tela", L"Настройки дисплея" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Включена экономия энергии Windows, и она отключает прозрачность Windows: матовое стекло остаётся сплошным, пока она не выключится (Параметры Windows > Система > Питание и батарея)." },
+{ L"Ocultar menções ao Windows", L"Скрыть упоминания Windows" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"Убирает версию и сборку Windows из раздела «Об этом». Откройте окно «Об этом Mac» заново, чтобы увидеть изменение." },

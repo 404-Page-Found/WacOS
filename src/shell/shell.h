@@ -245,7 +245,7 @@ bool Create(HINSTANCE hi);
 void Update();          // app ativo mudou, relógio, ícones
 HWND Hwnd();
 int Height();           // px
-void SetFullscreen(bool on, HMONITOR mon = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos)
+void SetFullscreen(bool on, HMONITOR mon = nullptr, HWND janela = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos). janela: the fullscreen window (nullptr = the foreground one)
 int HeightOn(HMONITOR mon);  // px da barra naquele monitor (cada monitor tem a sua barra)
 int ReservedOn(HMONITOR mon);  // px que a barra ocupa no topo daquele monitor (0: secundário sem barra, barra_todos_monitores=0, ou barra embaixo)
 bool Embaixo();         // barra_embaixo: a barra está na linha do Dock (Dock embaixo no monitor principal, fora do Leopard)
@@ -288,7 +288,14 @@ namespace sombras {  // sombra do Mac nas janelas que a MacJanela.dll não trata
 void Start();
 void Stop();
 }
-namespace central {  // Central de Controle: painel embaixo do ícone da barra de menus (central.cpp)
+namespace central {
+struct BluetoothBattery {
+    ULONGLONG address;
+    std::wstring name;
+    int percent;
+};
+void RefreshBluetoothBatteries();
+std::vector<BluetoothBattery> BluetoothBatteries();  // Central de Controle: painel embaixo do ícone da barra de menus (central.cpp)
 bool Create(HINSTANCE hi);
 void BrilhoPasso(int dir);  // teclas de brilho (F14/F15): -1/+1 de 16 passos, DDC/CI ou WMI, aviso na Ilha
 bool SemBrilho();           // já se sabe que nenhuma tela aceita brilho (sem DDC/CI nem WMI): F14/F15 ficam para os outros programas
@@ -763,6 +770,7 @@ void Start();
 void Reload();            // ajustes mudaram
 void Foreground(HWND h);  // a janela da frente mudou
 bool Ativo();
+bool VidroPausado();      // jogo aberto E na frente: só então o vidro real sai (issue #160)
 // gancho de EVENT_OBJECT_LOCATIONCHANGE que sai durante o modo jogo (cada movimento do cursor chegava ao Shell)
 void GanchoPosicao(WINEVENTPROC fn, DWORD flags);
 void SoltarPosicao(WINEVENTPROC fn);

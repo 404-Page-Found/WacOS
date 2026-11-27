@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"メニューバーのロゴ" },
 { L"Maçã", L"リンゴ" },
 { L"Ajustes de Tela", L"ディスプレイ設定" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Windows の省エネ機能がオンのため、Windows の透明効果がオフになっています。オフになるまで、すりガラスは不透明のままです (Windows の設定 > システム > 電源とバッテリー)。" },
+{ L"Ocultar menções ao Windows", L"Windows の表記を隠す" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"「情報」から Windows のバージョンとビルドを外します。変更を見るには「この Mac について」を開き直してください。" },

@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"메뉴 막대 로고" },
 { L"Maçã", L"사과" },
 { L"Ajustes de Tela", L"디스플레이 설정" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Windows 에너지 절약이 켜져 있어 Windows 투명도가 꺼집니다. 꺼질 때까지 반투명 유리가 불투명하게 유지됩니다(Windows 설정 > 시스템 > 전원 및 배터리)." },
+{ L"Ocultar menções ao Windows", L"Windows 언급 숨기기" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"정보에서 Windows 버전과 빌드를 뺍니다. 변경 사항을 보려면 \"이 Mac에 관하여\" 창을 다시 여세요." },

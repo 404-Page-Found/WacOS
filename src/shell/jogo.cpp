@@ -18,6 +18,7 @@
 namespace {
 
 std::atomic<bool> g_on{ false };  // lido também pela thread do índice
+bool g_frente = false;          // o jogo está na frente (o vidro real só sai enquanto ele estiver)
 bool g_enabled = true;
 DWORD g_pid = 0;
 int g_gone = 0;                 // verificações seguidas sem janela do jogo
@@ -153,6 +154,7 @@ void Eco(bool on) {
 
 void Apply(bool on) {
     g_on = on;
+    g_frente = on;
     Log(on ? L"modo jogo: ligado (%ls, pid %lu)" : L"modo jogo: desligado (%ls fechou)", g_name.c_str(), g_pid);
     backdrop::Reload();      // vidro real fora (backdrop.cpp confere jogo::Ativo)
     ponteiro::Pausar(on);    // sem Raw Input do mouse
@@ -166,6 +168,11 @@ void Apply(bool on) {
 void Check(HWND fg) {
     if (!g_enabled) return;
     if (g_on) {
+        // issue #160: com o jogo aberto mas outro app (ou a mesa) na frente, o vidro real volta; o vidro comum ficava
+        // cinza no Dock e nos widgets com a mesa do WacOS no lugar da do Windows
+        DWORD fp = 0; GetWindowThreadProcessId(fg, &fp);
+        bool frente = fp == g_pid;
+        if (frente != g_frente) { g_frente = frente; backdrop::Reload(); }
         if (HasWindow(g_pid)) { g_gone = 0; return; }
         if (++g_gone < 2) return;  // ~4 s sem janela nenhuma: o jogo fechou
         Apply(false);
@@ -215,3 +222,4 @@ void jogo::SoltarPosicao(WINEVENTPROC fn) {
         if (g_ganchos[i].fn == fn) { g_ganchos.erase(g_ganchos.begin() + i); Ganchos(!g_on); return; }
 }
 bool jogo::Ativo() { return g_on; }
+bool jogo::VidroPausado() { return g_on && g_frente; }

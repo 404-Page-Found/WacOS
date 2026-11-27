@@ -1777,3 +1777,6 @@
 { L"Logo da barra de menus", L"菜单栏标志" },
 { L"Maçã", L"苹果" },
 { L"Ajustes de Tela", L"显示器设置" },
+{ L"A Economia de energia do Windows está ligada e desliga a transparência do Windows: o vidro fosco fica sólido até ela desligar (Configurações do Windows > Sistema > Energia e bateria).", L"Windows 节能模式已开启，会关闭 Windows 透明效果：在它关闭之前，磨砂玻璃会保持纯色（Windows 设置 > 系统 > 电源和电池）。" },
+{ L"Ocultar menções ao Windows", L"隐藏 Windows 字样" },
+{ L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.", L"从“关于”中移除 Windows 版本和内部版本号。重新打开“关于本机”窗口即可看到变化。" },

@@ -531,6 +531,8 @@ void PegaStatus() {
 }
 
 void RefreshStatus() {
+    if (shell::Setting(L"barra_bluetooth", L"0") == L"1" || !shell::Setting(L"barra_baterias_bt", L"").empty())
+        central::RefreshBluetoothBatteries();
     PedeStatus();
     PegaStatus();
 }
@@ -951,11 +953,12 @@ void Render() {
     // entrada, Wi-Fi, bateria, som, Bluetooth, ícones fixados dos apps e a setinha dos guardados.
     // Cada item é o símbolo com 10 pt de cada lado (no Mac fica um a cada ~38 pt).
     float r = W - 10;
-    auto slot = [&](float iconW, Kind k, int i) {  // reserva o espaço e devolve a caixa do símbolo
-        float w = iconW + 2 * PAD;
+    auto slot = [&](float iconW, Kind k, int i, float rightInset = -1.f) {  // reserva o espaço e devolve a caixa do símbolo
+        if (rightInset < 0) rightInset = PAD;
+        float w = iconW + PAD + rightInset;
         if (r - w < limD) return D2D1::RectF(-1000, 0, -1000 + iconW, H);  // o Dock ocupa o lugar: fica de fora (nem clique)
         add(D2D1::RectF(r - w, 0, r, H), k, i);
-        D2D1_RECT_F box = D2D1::RectF(r - w + PAD, 0, r - PAD, H);
+        D2D1_RECT_F box = D2D1::RectF(r - w + PAD, 0, r - rightInset, H);
         r -= w;
         br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
         return box;
@@ -1010,6 +1013,80 @@ void Render() {
         br->SetColor(dark ? D2D1::ColorF(0.13f, 0.13f, 0.14f) : D2D1::ColorF(0.96f, 0.96f, 0.96f));
         rt->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfBadge, D2D1::RectF(k.left, k.top - 0.5f, k.right, k.bottom - 0.5f), br);
     }
+    const bool showBluetooth = g_st.bt && shell::Setting(L"barra_bluetooth", L"0") == L"1";
+    struct BatteryIndicator {
+        const wchar_t* symbol;
+        const wchar_t* fallback;
+        std::wstring percent;
+        float width;
+    };
+    constexpr float iconWidth = 14, iconGap = 3, deviceGap = 7, bluetoothGap = 4;
+    std::vector<BatteryIndicator> batteries;
+    float btWidth = showBluetooth ? 9.f : 0.f;
+    const auto selected = shell::Setting(L"barra_baterias_bt", L"");
+    const float btRightInset = !g_hits.empty() && g_hits.back().kind == K_INPUT ? std::min(PAD, 2.f) : PAD;
+    if (!selected.empty()) {
+        for (const auto& device : central::BluetoothBatteries()) {
+            if (selected.find(L"|" + std::to_wstring(device.address) + L"|") == std::wstring::npos) continue;
+
+            const wchar_t* symbol = L"battery.100percent";
+            const wchar_t* fallback = L"\uE850";
+            auto name = device.name;
+            for (auto& ch : name) ch = towlower(ch);
+            if (name.find(L"headphone") != std::wstring::npos || name.find(L"headset") != std::wstring::npos ||
+                name.find(L"earbud") != std::wstring::npos || name.find(L"airpods") != std::wstring::npos) {
+                symbol = L"headphones";
+                fallback = L"\uE7F6";
+            } else if (name.find(L"controller") != std::wstring::npos || name.find(L"gamepad") != std::wstring::npos ||
+                       name.find(L"xbox") != std::wstring::npos || name.find(L"dualsense") != std::wstring::npos) {
+                symbol = L"gamecontroller.fill";
+                fallback = L"\uE7FC";
+            } else if (name.find(L"phone") != std::wstring::npos || name.find(L"galaxy") != std::wstring::npos) {
+                symbol = nullptr;
+                fallback = L"\uE8EA";
+            } else if (name.find(L"keyboard") != std::wstring::npos) {
+                symbol = L"keyboard.fill";
+            } else if (name.find(L"mouse") != std::wstring::npos) {
+                symbol = L"computermouse.fill";
+            }
+            auto percent = std::to_wstring(device.percent) + L"%";
+            float width = iconWidth + iconGap + ui::TextWidth(tfN, percent) + 1;
+            float gap = batteries.empty() ? (showBluetooth ? bluetoothGap : 0.f) : deviceGap;
+            if (r - btWidth - gap - width - PAD - btRightInset < std::max(limD, leftEnd)) continue;
+            btWidth += gap + width;
+            batteries.push_back({ symbol, fallback, std::move(percent), width });
+        }
+    }
+    auto drawBluetooth = [&] {
+        // O rádio e as baterias abrem o mesmo menu e compartilham a mesma área de clique.
+        auto group = slot(btWidth, K_BT, 0, batteries.empty() ? PAD : btRightInset);
+        float cursor = group.left;
+        if (showBluetooth) {
+            auto bx = D2D1::RectF(cursor, 0, cursor + 9, H);
+            float cx = (bx.left + bx.right) / 2, cy = H / 2, hh = 7.2f, ww = 3.9f;
+            ID2D1PathGeometry* g = nullptr;
+            if (SUCCEEDED(ui::d2d->CreatePathGeometry(&g))) {
+                ID2D1GeometrySink* sk = nullptr; g->Open(&sk);
+                sk->BeginFigure({ cx - ww, cy - hh * 0.48f }, D2D1_FIGURE_BEGIN_HOLLOW);
+                D2D1_POINT_2F pts[] = { { cx + ww, cy + hh * 0.48f }, { cx, cy + hh }, { cx, cy - hh }, { cx + ww, cy - hh * 0.48f }, { cx - ww, cy + hh * 0.48f } };
+                sk->AddLines(pts, 5); sk->EndFigure(D2D1_FIGURE_END_OPEN); sk->Close(); sk->Release();
+                ID2D1StrokeStyle* st = nullptr;
+                ui::d2d->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND), nullptr, 0, &st);
+                rt->DrawGeometry(g, br, 1.5f, st);
+                if (st) st->Release();
+                g->Release();
+            }
+            cursor += 9 + bluetoothGap;
+        }
+        for (const auto& device : batteries) {
+            auto icon = D2D1::RectF(cursor, 0, cursor + iconWidth, H);
+            if (!device.symbol || !sym(device.symbol, icon, 12)) rt->DrawTextW(device.fallback, 1, g_tfIcon, icon, br);
+            auto text = D2D1::RectF(icon.right + iconGap, 0, cursor + device.width, H);
+            rt->DrawTextW(device.percent.c_str(), (UINT32)device.percent.size(), tfN, text, br);
+            cursor += device.width + deviceGap;
+        }
+    };
+    if (!batteries.empty()) drawBluetooth();
     // como no Mac: só quem tem Wi-Fi; no cabo, o Wi-Fi desconectado não aparece
     if (g_st.wlan && (g_st.wifiOn || !g_st.wired) && shell::Setting(L"barra_wifi", L"1") == L"1") {
         auto bx = slot(18, K_NET, 0);
@@ -1056,22 +1133,7 @@ void Render() {
         auto bx = slot(g_st.phones ? 16 : 21, K_SOUND, 0);
         sym(name, bx, g_st.phones ? 16 : 14);
     }
-    if (g_st.bt && shell::Setting(L"barra_bluetooth", L"0") == L"1") {  // o símbolo do Bluetooth do Mac (não está no SF Symbols público)
-        auto bx = slot(9, K_BT, 0);
-        float cx = (bx.left + bx.right) / 2, cy = H / 2, hh = 7.2f, ww = 3.9f;
-        ID2D1PathGeometry* g = nullptr;
-        if (SUCCEEDED(ui::d2d->CreatePathGeometry(&g))) {
-            ID2D1GeometrySink* sk = nullptr; g->Open(&sk);
-            sk->BeginFigure({ cx - ww, cy - hh * 0.48f }, D2D1_FIGURE_BEGIN_HOLLOW);
-            D2D1_POINT_2F pts[] = { { cx + ww, cy + hh * 0.48f }, { cx, cy + hh }, { cx, cy - hh }, { cx + ww, cy - hh * 0.48f }, { cx - ww, cy + hh * 0.48f } };
-            sk->AddLines(pts, 5); sk->EndFigure(D2D1_FIGURE_END_OPEN); sk->Close(); sk->Release();
-            ID2D1StrokeStyle* st = nullptr;
-            ui::d2d->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND), nullptr, 0, &st);
-            rt->DrawGeometry(g, br, 1.5f, st);
-            if (st) st->Release();
-            g->Release();
-        }
-    }
+    if (batteries.empty() && showBluetooth) drawBluetooth();
     // issue #44: uso do sistema, como os apps de monitor do Mac (Stats, iStat Menus): o nome pequeno em cima e a
     // porcentagem embaixo, um ao lado do outro (CPU, GPU, memória, disco). Clique: Monitor de Atividade.
     {
@@ -1528,7 +1590,36 @@ void Click(D2D1_POINT_2F p, bool right) {
         som::Toggle(ir);
         break;
     }
-    case K_BT: ShowAt(hit, { I(Tr(L"Bluetooth"), 0, true), Sep(), I(Tr(L"Ajustes de Bluetooth…"), 1) }, [](int) { shell::OpenSettings(L"bluetooth"); }); break;
+    case K_BT: {
+        central::RefreshBluetoothBatteries();
+        auto devices = central::BluetoothBatteries();
+        auto selected = shell::Setting(L"barra_baterias_bt", L"");
+        std::vector<ctxmenu::Item> items{ I(Tr(L"Bluetooth"), 0, true) };
+        if (!devices.empty()) {
+            items.push_back(Sep());
+            items.push_back(I(Tr(L"Mostrar na barra de menus"), 0, true));
+            for (size_t i = 0; i < devices.size(); ++i) {
+                const auto& device = devices[i];
+                auto key = L"|" + std::to_wstring(device.address) + L"|";
+                items.push_back(I(device.name + L" " + std::to_wstring(device.percent) + L"%",
+                                  (int)i + 3, false, selected.find(key) != std::wstring::npos));
+            }
+        }
+        if (!selected.empty()) items.push_back(I(Tr(L"Limpar"), 2));
+        items.push_back(Sep());
+        items.push_back(I(Tr(L"Ajustes de Bluetooth…"), 1));
+        ShowAt(hit, items, [&](int id) {
+            if (id == 1) shell::OpenSettings(L"bluetooth");
+            else if (id == 2) shell::SetSetting(L"barra_baterias_bt", L"");
+            else if (id >= 3 && (size_t)(id - 3) < devices.size()) {
+                auto key = L"|" + std::to_wstring(devices[id - 3].address) + L"|";
+                if (auto pos = selected.find(key); pos == std::wstring::npos) selected += key;
+                else selected.erase(pos, key.size());
+                shell::SetSetting(L"barra_baterias_bt", selected);
+            }
+        });
+        break;
+    }
     case K_BATT: {
         wchar_t b[64]; swprintf_s(b, Tr(L"Bateria: %d%%"), g_st.pct);
         ShowAt(hit, { I(b, 0, true), I(g_st.charging ? Tr(L"Fonte de Energia: Carregador") : Tr(L"Fonte de Energia: Bateria"), 0, true), Sep(), I(Tr(L"Ajustes de Bateria…"), 1) },
@@ -1847,13 +1938,13 @@ static void TiqueOcultar() {
     if (!fora) fora = agora;
     if (agora - fora >= 400) { fora = 0; Revela(false); }
 }
-void menubar::SetFullscreen(bool on, HMONITOR mon) {
+void menubar::SetFullscreen(bool on, HMONITOR mon, HWND janela) {
     if (!g_bar) return;
     bool revela = false;
     if (on && mon && !bloqueio::Active() && shell::Setting(L"barra_tela_cheia", L"1") == L"1") {
         QUERY_USER_NOTIFICATION_STATE q{};
         bool d3d = SUCCEEDED(SHQueryUserNotificationState(&q)) && q == QUERY_USER_NOTIFICATION_STATE::QUNS_RUNNING_D3D_FULL_SCREEN;
-        HWND fg = GetForegroundWindow();
+        HWND fg = janela ? janela : GetForegroundWindow();  // the fullscreen app, even when another monitor has the focus (issue #126)
         wchar_t cls[64] = {}, path[MAX_PATH] = {};
         GetClassNameW(fg, cls, 64);
         DWORD pid = 0; GetWindowThreadProcessId(fg, &pid);
