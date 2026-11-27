@@ -67,7 +67,7 @@ ui::GpuSurface g_s;
 bool g_open, g_glass, g_menu;
 double g_openAt;   // ms de anim::Now
 DWORD g_closedAt;
-IDWriteTextFormat *g_tfBold, *g_tfSmall, *g_tfTile;
+IDWriteTextFormat *g_tfBold, *g_tfSmall, *g_tfTile, *g_tfDet;  // g_tfDet: linhas do detalhe Wi-Fi/Bluetooth (à esquerda, no meio da altura)
 
 // ---- estado (lido em threads; a janela só desenha)
 std::mutex g_mx;
@@ -1600,7 +1600,7 @@ void PaintTahoe() {
             br->SetColor(on ? onColor : D2D1::ColorF(1, 1, 1, 0.18f));
             dc->FillEllipse(D2D1::Ellipse(c, 13, 13), br);
             Sym(dc, br, sym, fb, D2D1::RectF(c.x - 7, cy - 7, c.x + 7, cy + 7), white);
-            Text(dc, br, name, D2D1::RectF(L + 34, y, R - (lock ? 22 : 0), y + DET_ROW), g_tfTile, white);
+            Text(dc, br, name, D2D1::RectF(L + 34, y, R - (lock ? 22 : 0), y + DET_ROW), g_tfDet, white);
             if (lock) Sym(dc, br, L"lock.fill", 0xE72E, D2D1::RectF(R - 14, cy - 6, R - 2, cy + 6), white2);
             g_hits.push_back({ H_DET_ROW, D2D1::RectF(full.left + 4, y, full.right - 4, y + DET_ROW), arg });
             y += DET_ROW;
@@ -1609,7 +1609,7 @@ void PaintTahoe() {
             br->SetColor(D2D1::ColorF(1, 1, 1, 0.14f));
             dc->FillRectangle(D2D1::RectF(L, y + 5, R, y + 5 + 1 / sc), br);
             y += DET_SEP;
-            Text(dc, br, link, D2D1::RectF(L, y, R, y + DET_LINK), g_tfTile, white);
+            Text(dc, br, link, D2D1::RectF(L, y, R, y + DET_LINK), g_tfDet, white);
             g_hits.push_back({ H_DET_SET, D2D1::RectF(full.left + 4, y, full.right - 4, y + DET_LINK) });
         };
         std::vector<std::wstring> nets; std::vector<BtDevice> bts;
@@ -1634,14 +1634,14 @@ void PaintTahoe() {
             sw(st.radio[0] == 1);
             if (!st.ssid.empty()) { head(Tr(L"Rede Conhecida")); row(st.ssid, L"wifi", 0xE701, true, blue, -1, true); }
             Text(dc, br, Tr(L"Outras Redes"), D2D1::RectF(L, y, R, y + 22), g_tfBold, white2); y += 22;
-            if (nets.empty()) { Text(dc, br, g_detLoading ? Tr(L"Procurando…") : Tr(L"Nenhuma rede encontrada"), D2D1::RectF(L, y, R, y + DET_ROW), g_tfTile, white2); y += DET_ROW; }
+            if (nets.empty()) { Text(dc, br, g_detLoading ? Tr(L"Procurando…") : Tr(L"Nenhuma rede encontrada"), D2D1::RectF(L, y, R, y + DET_ROW), g_tfDet, white2); y += DET_ROW; }
             for (size_t i = 0; i < nets.size() && i < 6; i++) row(nets[i], L"wifi", 0xE701, false, blue, (int)i, true);
             tail(Tr(L"Ajustes de Wi‑Fi…"));
             break;
         case D_BT:
             sw(st.radio[1] == 1);
             head(Tr(L"Dispositivos"));
-            if (bts.empty()) { Text(dc, br, g_btLoading ? Tr(L"Procurando…") : Tr(L"Nenhum dispositivo"), D2D1::RectF(L, y, R, y + DET_ROW), g_tfTile, white2); y += DET_ROW; }
+            if (bts.empty()) { Text(dc, br, g_btLoading ? Tr(L"Procurando…") : Tr(L"Nenhum dispositivo"), D2D1::RectF(L, y, R, y + DET_ROW), g_tfDet, white2); y += DET_ROW; }
             for (size_t i = 0; i < bts.size() && i < 6; i++) {
                 const auto& device = bts[i];
                 std::wstring label = device.name;
@@ -2465,10 +2465,13 @@ bool central::Create(HINSTANCE hi) {
     g_tfBold = ui::Format(13, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     g_tfSmall = ui::Format(11, DWRITE_FONT_WEIGHT_NORMAL);
     g_tfTile = ui::Format(11, DWRITE_FONT_WEIGHT_MEDIUM, false, DWRITE_TEXT_ALIGNMENT_CENTER);
-    for (auto* tf : { g_tfBold, g_tfSmall }) if (tf) { tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); tf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); }
+    // linhas do detalhe Wi-Fi/Bluetooth: usavam o g_tfTile (centrado e no alto), o nome não ficava ao lado do ícone
+    // nem no meio da linha (achado no teste do Rust, 27/11/2026)
+    g_tfDet = ui::Format(11, DWRITE_FONT_WEIGHT_MEDIUM);
+    for (auto* tf : { g_tfBold, g_tfSmall, g_tfDet }) if (tf) { tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); tf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP); }
     if (g_tfTile) g_tfTile->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     DWRITE_TRIMMING tr{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-    for (auto* tf : { g_tfBold, g_tfSmall }) if (tf) {  // texto que não cabe termina em "…" (como no Mac), não cortado no meio
+    for (auto* tf : { g_tfBold, g_tfSmall, g_tfDet }) if (tf) {  // texto que não cabe termina em "…" (como no Mac), não cortado no meio
         IDWriteInlineObject* dots = nullptr;
         if (ui::dw) ui::dw->CreateEllipsisTrimmingSign(tf, &dots);
         tf->SetTrimming(&tr, dots);

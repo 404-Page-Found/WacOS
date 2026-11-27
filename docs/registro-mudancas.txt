@@ -2008,3 +2008,14 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     abria junto).
   Compilado; não testado na tela (o Shell em Rust estava no ar).
   DESFAZER: reverter o commit e compilar.
+[2026-11-27 15:34] Mais achados do teste ao vivo do Rust (dd6aee0), trazidos para o C++:
+  - macjanela.cpp ToggleZoom (botão verde): numa janela de barra própria maximizada (Claude, Electron), logo depois do
+    SW_RESTORE o DWM ainda devolvia a moldura da maximizada e o topo da ampliada caía em y=0, atrás da barra de menus; o
+    Windows gravava isso como posição normal. Agora as bordas são lidas antes do SW_RESTORE e o topo é o da área útil;
+    ao desfazer, o tamanho de antes nunca começa acima da área útil.
+  - indice.cpp: a primeira atualização depois da carga dobrava a capacidade dos nomes (shrink_to_fit seguido de +=);
+    agora reserva só o que falta, com ~1,5% de folga.
+  - central.cpp: as linhas do detalhe Wi-Fi/Bluetooth usam g_tfDet (à esquerda e no meio da altura) em vez do g_tfTile
+    (centrado e no alto).
+  Compilado (Shell e DLLs das janelas). Não testado na tela.
+  DESFAZER: reverter o commit e compilar.

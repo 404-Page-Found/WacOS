@@ -1510,10 +1510,20 @@ void ToggleZoom(Info* in) {
     if (in->zoomed) {
         in->zoomed = false;
         RemovePropW(h, L"MacJanelaAmpliada");
+        // o tamanho de antes não pode começar atrás da barra de menus (achado no teste do Rust: o Windows tinha gravado
+        // como posição normal o topo em y=0)
+        MONITORINFO mi{ sizeof(mi) };
+        if (GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi) && in->before.top < mi.rcWork.top)
+            OffsetRect(&in->before, 0, mi.rcWork.top - in->before.top);
         MoveAnimated(in, in->before);
         return;
     }
+    // Barra própria (Claude, apps Electron) maximizada: logo depois do SW_RESTORE o DWM ainda devolve a moldura da
+    // maximizada, e a borda de cima medida saía igual à altura da barra de menus; o ZoomRect punha o topo em y=0, atrás
+    // dela, e o Windows gravava isso como posição normal (achado no teste do Rust, 27/11/2026). As bordas são lidas antes.
+    bool preIns = false; int pl = 0, pt = 0, pr = 0, pb = 0;
     if (IsZoomed(h)) {  // maximizada pelo Windows/pelo app: vira "ampliada" (o tamanho normal guardado é o de antes)
+        if (in->custom) { Insets(in, pl, pt, pr, pb); preIns = true; }
         WINDOWPLACEMENT wp{ sizeof(wp) };
         GetWindowPlacement(h, &wp);
         in->before = wp.rcNormalPosition;
@@ -1523,6 +1533,11 @@ void ToggleZoom(Info* in) {
         ShowWindow(h, SW_RESTORE);
     } else GetWindowRect(h, &in->before);
     RECT z = ZoomRect(in);
+    if (preIns) {
+        MONITORINFO mi{ sizeof(mi) };
+        if (GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi))
+            z = { mi.rcWork.left - pl, mi.rcWork.top, mi.rcWork.right + pr, mi.rcWork.bottom + pb };
+    }
     in->zoomed = true;
     SetPropW(h, L"MacJanelaAmpliada", (HANDLE)1);  // o Shell sabe que Win+↓ deve desfazer
     MoveAnimated(in, z);

@@ -321,6 +321,12 @@ bool Incremental(const std::vector<std::wstring>& dirs) {
         }
         for (auto& [id, mt] : touch) if (id < N) ix.nodes[id].mtime = mt;
         uint32_t base = N, nameBase = (uint32_t)ix.names.size();
+        // depois do shrink_to_fit da carga, o primeiro acréscimo dobrava a capacidade (achado no teste do Rust: 74 → 147
+        // MB): cresce só o que falta, com ~1,5% de folga para as próximas atualizações
+        if (ix.names.size() + add.names.size() > ix.names.capacity())
+            ix.names.reserve(ix.names.size() + add.names.size() + (ix.names.size() + add.names.size()) / 64);
+        if (ix.nodes.size() + add.nodes.size() > ix.nodes.capacity())
+            ix.nodes.reserve(ix.nodes.size() + add.nodes.size() + (ix.nodes.size() + add.nodes.size()) / 64);
         for (auto n : add.nodes) {
             if (n.parent != UINT32_MAX && (n.parent & LOCAL)) n.parent = (n.parent & ~LOCAL) + base;
             n.name += nameBase;
