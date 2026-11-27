@@ -32,6 +32,8 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include "../comum/idioma.h"
 #include "../comum/jogos.h"
 
+static bool Desligada();       // barra_desligada (issue #179; mais abaixo)
+static void BarraVolta();      // a opção foi desligada: a barra volta (mais abaixo)
 static void TiqueOcultar();  // ocultar a barra automaticamente (mais abaixo, fora do namespace)
 namespace {
 
@@ -1734,6 +1736,13 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER:
         if (w == 2) { TiqueOcultar(); return 0; }
+        if (Desligada()) {  // issue #179: some a barra (e as dos outros monitores) mesmo depois de ligar a opção
+            if (IsWindowVisible(g_bar)) ShowWindow(g_bar, SW_HIDE);
+            for (HWND b : g_extras) if (IsWindowVisible(b)) ShowWindow(b, SW_HIDE);
+            shell::ApplyWorkArea();
+            return 0;
+        }
+        BarraVolta();
         RefreshStatus(); Assenta(); menubar::Update();
         SyncVidro(g_bar); for (HWND b : g_extras) SyncVidro(b);  // barra de vidro (PR #18): ligado/desligado nos Ajustes, tinta, monitores
         if (shell::Setting(L"relogio_segundos", L"0") == L"1") {  // com segundos: o tique cai logo depois da virada do segundo
@@ -1796,8 +1805,18 @@ static bool g_fsRevela;
 // reserva o topo (as janelas maximizadas vão até em cima) e só aparece com o ponteiro encostado no topo da tela; some
 // quando ele sai dela (e não há menu dela aberto). Com a barra na linha do Dock não vale.
 static bool g_revelada;
+// Barra de menus desligada (barra_desligada=1, issue #179): nunca aparece e não reserva o topo
+static bool Desligada() { return shell::Setting(L"barra_desligada", L"0") == L"1"; }
+static bool Ocultar();
+static void BarraVolta() {
+    if (IsWindowVisible(g_bar) || g_fsOn || Ocultar()) return;  // opção desligada de novo: a barra volta
+    ShowWindow(g_bar, SW_SHOWNOACTIVATE);
+    for (HWND b : g_extras) ShowWindow(b, SW_SHOWNOACTIVATE);
+    shell::ApplyWorkArea();
+}
 static bool Ocultar() { return shell::Setting(L"barra_ocultar", L"0") == L"1" && !menubar::Embaixo(); }
 static bool Escondida(HWND b, HMONITOR hm) {
+    if (Desligada()) return true;
     if (g_fsOn && (!g_fsMon || g_fsMon == hm)) return !(g_fsRevela && g_revelada);
     return Ocultar() && !g_revelada;
 }
@@ -1817,6 +1836,7 @@ static void Revela(bool on) {
 }
 // ponteiro no topo de um monitor com barra por ~120 ms: mostra; fora dela (com folga) por ~400 ms: esconde
 static void TiqueOcultar() {
+    if (Desligada()) return;
     if (!Ocultar() && !(g_fsOn && g_fsRevela)) { Revela(true); KillTimer(g_bar, 2); return; }
     POINT pt; if (!GetCursorPos(&pt)) return;
     HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
@@ -1909,6 +1929,7 @@ static bool AllMonitors() { return shell::Setting(L"barra_todos_monitores", L"1"
 int menubar::ReservedOn(HMONITOR mon) {
     MONITORINFO mi{ sizeof(mi) };
     bool prim = GetMonitorInfoW(mon, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY);
+    if (Desligada()) return 0;
     if (menubar::Embaixo()) return 0;  // o topo de todos os monitores volta para as janelas
     if (Ocultar()) return 0;  // ocultar automaticamente: o topo é das janelas, a barra aparece por cima
     if (prim) return Height();
