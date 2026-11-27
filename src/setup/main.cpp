@@ -401,6 +401,12 @@ static void AssocUndo(const Assoc& a) {
 }
 
 static const wchar_t* UNINST_KEY = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WacOS";
+// BETA-TEST (edição em Rust, ao lado: Programs\WacOS-Rust; o WacOSTroca.exe dela troca entre as duas)
+static wstring RustDir() { return Env(L"LOCALAPPDATA") + L"\\Programs\\WacOS-Rust"; }
+static bool BetaNoRust() {  // o beta está com a edição em Rust ativa (%APPDATA%\Shell\beta.txt: edicao=rust)
+    for (auto& l : Lines(ReadText(Env(L"APPDATA") + L"\\Shell\\beta.txt"))) if (Trim(l) == L"edicao=rust") return true;
+    return false;
+}
 static void RegisterUninstall() {
     wstring setup = g_dest + L"\\WacOSSetup.exe";
     RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"DisplayName", L"WacOS");
@@ -453,6 +459,16 @@ static void DoInstall(bool update) {
         // Música/QuickTime já registrados por esta instalação: registra de novo (nomes em inglês desde a issue #2)
         for (auto& a : ASSOC)
             if (Lower(RegGetStr(HKEY_CURRENT_USER, wstring(L"Software\\Classes\\") + a.prog + L"\\shell\\open\\command", nullptr)).find(Lower(g_dest + L"\\bin\\")) != wstring::npos) AssocRegister(a);
+        // BETA-TEST: a edição em Rust instalada (e parada) é atualizada pela mesma release (o WacOSTroca novo baixa o
+        // WacOS-Rust.zip). Solto: o download não segura o instalador.
+        if (IsDir(RustDir()) && !BetaNoRust() && Exists(g_dest + L"\\bin\\WacOSTroca.exe")) {
+            wstring cmd = L"\"" + g_dest + L"\\bin\\WacOSTroca.exe\" --instalar";
+            STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+                Anota(L"beta: atualizando a edição em Rust (WacOSTroca --instalar)");
+            }
+        }
         Status(T(L"Atualizado.", L"Updated.")); g_progress = 1; g_workOk = true; g_workDone = true; (void)shellWasOpen; return; }
     bool full = g_ch.mode == M_FULL, apps = g_ch.mode == M_APPS || g_ch.mode == M_APPSBARS, bars = g_ch.mode == M_BARS || g_ch.mode == M_APPSBARS;
     // 3. fontes SF (só para este usuário)
@@ -546,6 +562,16 @@ static void DoInstall(bool update) {
 // O mesmo que o desinstalar.ps1
 static void DoUninstall() {
     g_progress = 0.03f;
+    // BETA-TEST: com a edição em Rust ativa, volta primeiro para esta (devolve a tarefa do login, o Abrir/Salvar e o
+    // Winlogon que o WacOSTroca trocou); a pasta do Rust sai no fim
+    {
+        wstring troca = RustDir() + L"\\bin\\WacOSTroca.exe";
+        if (Exists(troca) && BetaNoRust()) {
+            Status(T(L"Voltando da edição em Rust…", L"Switching back from the Rust edition…"));
+            RunWait(troca, L"--para-cpp", 90000);
+            Anota(L"beta: WacOSTroca --para-cpp antes de desinstalar");
+        }
+    }
     wstring help = Helper();
     if (!CloseEverything()) { g_workOk = false; g_workDone = true; return; }
     g_progress = 0.15f;
@@ -635,6 +661,14 @@ static void DoUninstall() {
     for (auto& a : ASSOC) AssocUndo(a);
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
     RegDelTree(HKEY_CURRENT_USER, UNINST_KEY);
+    // BETA-TEST: a edição em Rust sai junto (tarefas, chave de desinstalação e a pasta)
+    if (IsDir(RustDir())) {
+        for (auto t : { L"WacOS-Rust", L"WacOS-Rust Title Bars" }) TaskDelete(t);
+        RegDelTree(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WacOS-Rust");
+        SHFILEOPSTRUCTW op{}; wstring d = RustDir(); d.push_back(0);
+        op.wFunc = FO_DELETE; op.pFrom = d.c_str(); op.fFlags = FOF_NO_UI; SHFileOperationW(&op);
+        Anota(L"beta: edição em Rust removida (" + RustDir() + L")");
+    }
     g_progress = 0.7f;
     Status(T(L"Apagando os arquivos…", L"Deleting files…"));
     {   // arquivo por arquivo: as cópias da DLL das janelas (bin\obj\mj) ficam presas nos apps abertos; essas vão para

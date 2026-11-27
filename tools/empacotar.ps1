@@ -23,6 +23,7 @@ $progs = 'WacOSShell.exe', 'WacOSFinder.exe', 'WacOSSettings.exe', 'WacOSActivit
          'DialogoMac.dll', 'DialogoMac32.dll'
 if ($SemSistema) { $progs = $progs | Where-Object { $_ -notlike 'DialogoMac*' } }
 $progs += 'versao.txt'  # a versão (o GitHub Actions grava; o atualizador compara)
+if (Test-Path "$bin\WacOSTroca.exe") { $progs += 'WacOSTroca.exe' }  # BETA-TEST: troca para a edição em Rust (vem do publicar.ps1)
 foreach ($p in $progs) {
     if (Test-Path "$bin\$p") { Copy-Item "$bin\$p" "$pkg\bin\$p" } else { Write-Host "faltando: bin\$p" }
 }

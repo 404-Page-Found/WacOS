@@ -2672,6 +2672,50 @@ Page Experimental() {
                         [](bool v) { SetSetting(L"ocultar_windows", v ? L"1" : L"0"); Rebuild(); },
                         L"Tira a versão e a compilação do Windows do Sobre. Reabra a janela \"Sobre Este Mac\" para ver a mudança.");
     p.groups.push_back(G({ shellWin, semWin }, L"Sistema"));
+    // BETA-TEST (27/11/2026): trocar para a edição em Rust pelo WacOSTroca (feito na edição Rust: --para-rust troca a
+    // tarefa do login, reaponta o Abrir/Salvar e abre o Shell em Rust; sem ele subir bem em 90 s, ou com duas quedas em
+    // 10 min, volta sozinho). Aqui o estado é sempre "desligado": com o beta ligado, quem roda é o Ajustes do Rust.
+    {
+        Row beta = Toggle(L"Usar a edição em Rust", [] { return false; }, [](bool on) {
+            if (!on) return;
+            int r = MessageBoxW(GetActiveWindow(),
+                Tr(L"O WacOS vai fechar e a versão nova, em Rust, abre no lugar dele, com os mesmos ajustes. Ela também passa a abrir no login. Para voltar, desligue esta opção nos Ajustes dela."),
+                Tr(L"Trocar para o WacOS em Rust?"), MB_OKCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
+            if (r != IDOK) { Rebuild(); return; }
+            wchar_t loc[MAX_PATH] = {};
+            GetEnvironmentVariableW(L"LOCALAPPDATA", loc, MAX_PATH);
+            std::wstring rust = std::wstring(loc) + L"\\Programs\\WacOS-Rust\\bin\\WacOSTroca.exe";
+            std::wstring cmd = GetFileAttributesW(rust.c_str()) != INVALID_FILE_ATTRIBUTES
+                ? L"\"" + rust + L"\" --para-rust"
+                : L"\"" + BinDir() + L"\\WacOSTroca.exe\" --instalar --para-rust";  // ainda não instalada: baixa da release
+            STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
+            if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW | DETACHED_PROCESS, nullptr, nullptr, &si, &pi)) {
+                CloseHandle(pi.hThread); CloseHandle(pi.hProcess);  // solto: o Ajustes pode fechar
+            }
+            Rebuild();
+        }, L"Versão nova do WacOS, reescrita em Rust: mais leve e em teste. Se ela não abrir direito, ou fechar sozinha duas vezes em 10 minutos, o WacOS de sempre volta sozinho.");
+        std::vector<Row> linhas{ beta };
+        // por que voltou sozinho da última vez (WacOSTroca grava ultima_volta= no %APPDATA%\Shell\beta.txt)
+        PWSTR ad = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &ad))) {
+            std::wstring f = std::wstring(ad) + L"\\Shell\\beta.txt";
+            CoTaskMemFree(ad);
+            FILE* fp = nullptr;
+            if (!_wfopen_s(&fp, f.c_str(), L"r, ccs=UTF-8") && fp) {
+                wchar_t line[512];
+                while (fgetws(line, 512, fp)) {
+                    std::wstring s = line;
+                    while (!s.empty() && iswspace(s.back())) s.pop_back();
+                    if (s.rfind(L"ultima_volta=", 0) != 0) continue;
+                    std::wstring m = s.substr(13);
+                    if (!m.empty() && m != L"pedido do usuário")
+                        linhas.push_back(Note(std::wstring(Tr(L"Da última vez, o WacOS voltou sozinho para a versão de sempre:")) + L" " + Tr(m.c_str()) + L"."));
+                }
+                fclose(fp);
+            }
+        }
+        p.groups.push_back(G(linhas, L"BETA-TEST"));
+    }
     return p;
 }
 

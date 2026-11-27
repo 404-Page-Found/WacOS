@@ -2026,3 +2026,16 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   Windows faz. Antes ia sempre WM_COMMAND com o ID, que os menus por posição ignoram (e lá os IDs costumam ser 0).
   Compilado; não testado (sem After Effects aqui; o Shell em Rust estava no ar).
   DESFAZER: reverter o commit e compilar.
+[2026-11-27 16:35] BETA-TEST, lado do C++ (o lado Rust é o commit 55fe08c do branch claude/rust-port-teste-23da8b):
+  - ajustes/paginas.cpp, Experimental: grupo "BETA-TEST" com "Usar a edição em Rust" (sempre desligado aqui). Ligar
+    pergunta (OK/Cancelar) e roda, solto, Programs\WacOS-Rust\bin\WacOSTroca.exe --para-rust, ou, sem a edição
+    instalada, <bin>\WacOSTroca.exe --instalar --para-rust. Mostra o motivo da última volta automática
+    (ultima_volta= no %APPDATA%\Shell\beta.txt). Textos (12) copiados do bloco BETA-TEST da edição Rust, 11 idiomas.
+  - setup/main.cpp: a atualização, com Programs\WacOS-Rust instalado e o beta em edicao=cpp, roda solto o WacOSTroca
+    --instalar novo (atualiza o Rust pela mesma release). A desinstalação roda antes WacOSTroca --para-cpp (se o beta
+    estiver no Rust) e no fim apaga as tarefas WacOS-Rust, a chave de desinstalação WacOS-Rust e a pasta.
+  - tools/publicar.ps1: copia o WacOSTroca.exe da dist da edição Rust para bin\ e sobe WacOS-Rust.zip como asset da
+    mesma release (-RustDist; padrão: rust-teste\dist ou a do worktree). tools/empacotar.ps1 leva o WacOSTroca.exe.
+  - Vigia de reinício do Shell: o C++ não tem (nada a mudar).
+  Compilado (Ajustes e WacOSSetup). Nada publicado. Não testado: a troca ao vivo é o próximo teste, com o usuário.
+  DESFAZER: reverter o commit e compilar (build.cmd ajustes e build.cmd setup).

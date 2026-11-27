@@ -6,7 +6,10 @@
 #   3. tools\empacotar.ps1 -SemSistema -SemAjustes (no personal settings) -> dist\WacOS-<date>.zip
 #   4. git push, then a release with that zip as the latest
 # Run it from a normal PowerShell of the user (it reads the installed fonts and the cursor in use).
-param([string]$Notas = '')
+#   BETA-TEST: com a edição em Rust gerada (rust-teste\build-rust.ps1 -Zip), o WacOSTroca.exe vai no bin\ do pacote
+#   e o WacOS-Rust.zip sobe como asset da mesma release (o WacOSTroca --instalar baixa dela). -RustDist aponta a pasta
+#   dist da edição Rust (padrão: a do worktree do port).
+param([string]$Notas = '', [string]$RustDist = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
@@ -24,6 +27,20 @@ $sha = (git rev-parse HEAD).Trim()
 L "versão: $tag ($sha)"
 Set-Content -Encoding utf8 (Join-Path $root 'bin\versao.txt') @($tag, $sha, (Get-Date -Format 'yyyy-MM-dd HH:mm'))
 
+# BETA-TEST: o trocador entra no pacote do C++ e o zip da edição Rust vai junto na release
+if (-not $RustDist) {
+    foreach ($c in @((Join-Path $root 'rust-teste\dist'), (Join-Path $root '.claude\worktrees\rust-port-teste-23da8b\rust-teste\dist'))) {
+        if (Test-Path (Join-Path $c 'WacOS-Rust.zip')) { $RustDist = $c; break }
+    }
+}
+$rustZip = $null
+if ($RustDist -and (Test-Path (Join-Path $RustDist 'WacOS-Rust.zip'))) {
+    $rustZip = Get-Item (Join-Path $RustDist 'WacOS-Rust.zip')
+    $troca = Join-Path $RustDist 'WacOS-Rust\bin\WacOSTroca.exe'
+    if (Test-Path $troca) { Copy-Item $troca (Join-Path $root 'bin\WacOSTroca.exe') -Force; L "beta: WacOSTroca.exe copiado para bin" }
+    else { L 'AVISO: WacOSTroca.exe não encontrado; o BETA-TEST não vai funcionar nesta build' }
+} else { L 'AVISO: WacOS-Rust.zip não encontrado; a release sai sem a edição em Rust (BETA-TEST)' }
+
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'empacotar.ps1') -SemSistema -SemAjustes *>&1 | ForEach-Object { L "$_" }
 if ($LASTEXITCODE -ne 0) { L 'ERRO: o empacotar.ps1 falhou'; exit 1 }  # senão subia o zip mais recente, de outra rodada
 $zip = Get-ChildItem (Join-Path $root 'dist') -Filter 'WacOS-*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
@@ -35,5 +52,7 @@ if (-not $Notas) {
 }
 $nf = Join-Path $root 'dist\notas.md'
 Set-Content -Encoding utf8 $nf $Notas
-gh release create $tag $zip.FullName -R $repo --target $sha --title "WacOS $tag" --notes-file $nf --latest 2>&1 | ForEach-Object { L "$_" }
+$assets = @($zip.FullName)
+if ($rustZip) { $assets += $rustZip.FullName }  # o WacOSTroca --instalar procura WacOS-Rust*.zip na release mais nova
+gh release create $tag @assets -R $repo --target $sha --title "WacOS $tag" --notes-file $nf --latest 2>&1 | ForEach-Object { L "$_" }
 L "publicado: $tag ($([math]::Round($zip.Length / 1MB)) MB)"
