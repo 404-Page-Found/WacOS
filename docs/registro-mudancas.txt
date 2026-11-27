@@ -2068,3 +2068,15 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   máximo uma limpeza por minuto, menos quando a pressão vai para crítica. Compilado e instalado (Shell reiniciado).
   DESFAZER: devolver SetProcessWorkingSetSizeEx(GetCurrentProcess(), -1, -1, 0) em Purge e tirar o ultimaLimpeza do
   Tick em memoria.cpp; compilar (build.cmd shell).
+[2026-11-27 18:45] PRs #186 e #187 aplicados e aviso do BETA-TEST:
+  - PR #186 (issue #184), central.cpp: botão Anterior da Central de Controle ganhou área de clique; Próxima/Anterior
+    recusados pela sessão de mídia (navegadores) mandam a tecla de mídia do Windows.
+  - PR #187 (issue #179): Dock com ocultar=desligado (nunca aparece, sem reserva) e barra de menus com
+    barra_desligada=1 (Ajustes > Central de Controle). Ajuste meu: a barra só volta sozinha quando foi o
+    barra_desligada que a escondeu (g_desligouBarra); o PR a mostrava sempre que estivesse escondida. Textos nos 11 idiomas.
+  - main.cpp AvisoBetaRust: 20 s depois do Shell abrir, uma vez (aviso_beta_rust=1), alerta do Mac no idioma do WacOS
+    contando que a edição em Rust está em Ajustes > Experimental > BETA-TEST ("Abrir Ajustes" / "Agora não"). Não
+    aparece sem WacOSTroca.exe na instalação, para quem já tem %APPDATA%\Shell\beta.txt, com jogo ou tela cheia na
+    frente (tenta a cada 30 s). alertas::Confirm ganhou o texto do outro botão e devolve false com outro alerta aberto.
+  Compilado (Shell e Ajustes).
+  DESFAZER: reverter o commit e compilar (build.cmd shell e build.cmd ajustes).

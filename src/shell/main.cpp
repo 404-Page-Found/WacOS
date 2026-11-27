@@ -4,6 +4,7 @@
 #include "shell.h"
 #include "../comum/simbolos.h"
 #include "../comum/ajustes_arquivo.h"
+#include "../comum/idioma.h"
 #include "../menu/context_menu.h"
 #include <shlobj.h>
 #include <propkey.h>
@@ -1428,6 +1429,35 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
 int AjudanteRodar(const wchar_t* cmd);  // ajudante.cpp: --sair, --aplicar-cursor... (para os scripts do instalador)
 
+// Aviso do BETA-TEST (pedido do usuário, 27/11/2026): na primeira vez que esta versão abre (depois de atualizar),
+// um alerta do Mac no idioma do WacOS (o mesmo do Dock e da barra) conta que a edição em Rust pode ser testada em
+// Ajustes do Sistema > Experimental. Uma vez só (aviso_beta_rust=1). Espera: nada de jogo, tela cheia de outro
+// programa ou outro alerta na frente (tenta de novo a cada 30 s). Não aparece se a troca não existe nesta
+// instalação (sem WacOSTroca.exe) nem para quem já usou o beta (%APPDATA%\Shell\beta.txt).
+void CALLBACK AvisoBetaRust(HWND, UINT, UINT_PTR id, DWORD) {
+    if (shell::Setting(L"aviso_beta_rust", L"0") == L"1") { KillTimer(nullptr, id); return; }
+    wchar_t ad[MAX_PATH] = {};
+    GetEnvironmentVariableW(L"APPDATA", ad, MAX_PATH);
+    bool jaUsou = ad[0] && GetFileAttributesW((std::wstring(ad) + L"\\Shell\\beta.txt").c_str()) != INVALID_FILE_ATTRIBUTES;
+    bool temTroca = GetFileAttributesW((shell::dir + L"\\WacOSTroca.exe").c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (jaUsou || !temTroca) { KillTimer(nullptr, id); shell::SetSetting(L"aviso_beta_rust", L"1"); return; }
+    KillTimer(nullptr, id);
+    SetTimer(nullptr, 0, 30000, AvisoBetaRust);  // a próxima tentativa, se esta não puder mostrar
+    if (jogo::Ativo()) return;
+    if (HWND fg = GetForegroundWindow()) {
+        DWORD pid = 0; GetWindowThreadProcessId(fg, &pid);
+        RECT r; MONITORINFO mi{ sizeof(mi) };
+        if (pid != GetCurrentProcessId() && GetWindowRect(fg, &r) && GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST), &mi) &&
+            r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right && r.bottom >= mi.rcMonitor.bottom) return;
+    }
+    if (!alertas::Confirm(Tr(L"O WacOS em Rust já pode ser testado"),
+                          Tr(L"Ligue a edição do WacOS reescrita em Rust em Ajustes do Sistema > Experimental > BETA-TEST. Ela ainda está em teste e dá para voltar para esta edição a qualquer momento."),
+                          Tr(L"Abrir Ajustes"), [] { shell::OpenSettings(L"experimental"); }, shell::dir + L"\\" EXE_SETTINGS, Tr(L"Agora não"))) return;
+    shell::SetSetting(L"aviso_beta_rust", L"1");
+    // mostrado: as tentativas param (o timer de 30 s acima ainda roda uma vez e sai pela primeira linha)
+    Log(L"beta: aviso da edição em Rust mostrado");
+}
+
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     if (int r = AjudanteRodar(GetCommandLineW()); r >= 0) return r;
     if (migrar::TrocarPeloNovo()) return 0;  // nome velho (SequoiaShell.exe): o WacOSShell.exe ao lado assume
@@ -1557,6 +1587,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     SetTimer(g_msg, 2, 200, nullptr);
     SetTimer(g_msg, 9, 3000, nullptr);  // pré-carregar o menu de contexto (depois que o Shell já apareceu)
     Log(L"pronto: %zu apps no Dock", apps::list.size());
+    if (!soDock) SetTimer(nullptr, 0, 20000, AvisoBetaRust);  // o aviso do BETA-TEST, depois de o Shell assentar
     boot::Done();
     mesa::RunStartupApps();  // só quando o Shell é o shell do Windows (o Explorador não abre no login)
     PreloadApps();

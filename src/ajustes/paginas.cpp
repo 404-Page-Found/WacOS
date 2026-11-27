@@ -1754,6 +1754,11 @@ Page CentralControle() {
                          [](bool v) { SetSetting(L"barra_ocultar", v ? L"1" : L"0"); },
                          L"As janelas usam a tela inteira. Leve o ponteiro até o topo da tela para a barra aparecer.");
     ocultar.icon = 0xE8A7; ocultar.iconColor = C_GRAY;
+    // issue #179: tira a barra de menus de vez (para usar outra, como a YASB); volta desligando aqui
+    Row desligar = Toggle(L"Desligar a barra de menus", [] { return Setting(L"barra_desligada", L"0") == L"1"; },
+                          [](bool v) { SetSetting(L"barra_desligada", v ? L"1" : L"0"); },
+                          L"A barra de menus não aparece e as janelas usam o topo da tela. Para ela voltar, desligue esta opção aqui (abra o Ajustes pelo Spotlight ou por Win+I).");
+    desligar.icon = 0xE8A7; desligar.iconColor = C_GRAY;
     // issue #53: em tela cheia (fora de jogos) a barra aparece com o ponteiro no topo, como no Mac
     Row telaCheia = Toggle(L"Mostrar a barra de menus em tela cheia", [] { return Setting(L"barra_tela_cheia", L"1") == L"1"; },
                            [](bool v) { SetSetting(L"barra_tela_cheia", v ? L"1" : L"0"); },
@@ -1769,7 +1774,7 @@ Page CentralControle() {
                      [] { return Setting(L"logo_barra", L"apple") == L"windows" ? 1 : 0; },
                      [](int i) { SetSetting(L"logo_barra", i == 1 ? L"windows" : L"apple"); });
     logo.icon = 0xE782; logo.iconColor = C_GRAY;
-    p.groups.push_back(G({ clock, formato, segundos, ocultar, telaCheia, altura, logo, baixo, todos, priv }));
+    p.groups.push_back(G({ clock, formato, segundos, desligar, ocultar, telaCheia, altura, logo, baixo, todos, priv }));
     return p;
 }
 
@@ -1931,9 +1936,10 @@ Page MesaDock() {
                        [monDev](int i) { SetSetting(L"dock_monitor", monDev[std::clamp(i, 0, (int)monDev.size() - 1)]); });
     monRow.enabled = monDev.size() > 1;
     // Inteligente: só esconde quando uma janela encosta no Dock (pedido de um usuário no Reddit)
-    Row hide = Popup(L"Ocultar o Dock", { L"Nunca", L"Automaticamente", L"Quando uma janela encostar nele" },
-                     [] { std::wstring v = Setting(L"ocultar", L"0"); return v == L"1" ? 1 : v == L"inteligente" ? 2 : 0; },
-                     [](int i) { SetSetting(L"ocultar", i == 1 ? L"1" : i == 2 ? L"inteligente" : L"0"); });
+    // issue #179: "Desligado" tira o Dock de vez (para usar outro, como o MyDockFinder), sem reservar espaço
+    Row hide = Popup(L"Ocultar o Dock", { L"Nunca", L"Automaticamente", L"Quando uma janela encostar nele", L"Desligado (nunca aparece)" },
+                     [] { std::wstring v = Setting(L"ocultar", L"0"); return v == L"1" ? 1 : v == L"inteligente" ? 2 : v == L"desligado" ? 3 : 0; },
+                     [](int i) { SetSetting(L"ocultar", i == 1 ? L"1" : i == 2 ? L"inteligente" : i == 3 ? L"desligado" : L"0"); });
     // issue #8 (macOS: "Minimizar janelas no ícone do aplicativo"): a janela minimizada vai para o ícone do app, sem a
     // miniatura entre Downloads e a Lixeira; clicar no ícone traz de volta
     Row minIcon = Toggle(L"Minimizar janelas no ícone do aplicativo", flag(L"dock_minimizar_no_icone", L"0"), setFlag(L"dock_minimizar_no_icone"));

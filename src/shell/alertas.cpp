@@ -814,9 +814,9 @@ void Show(int cx, int cy) {
 }  // namespace
 
 // pergunta do próprio Shell (Esvaziar Lixeira do Dock): o mesmo alerta, no meio da tela
-void alertas::Confirm(const std::wstring& title, const std::wstring& info, const std::wstring& yes, std::function<void()> onYes, const std::wstring& icon) {
-    if (g.target) return;  // já tem um alerta aberto
-    g.title = title; g.info = info; g.yes = yes; g.no = Tr(L"Cancelar");
+bool alertas::Confirm(const std::wstring& title, const std::wstring& info, const std::wstring& yes, std::function<void()> onYes, const std::wstring& icon, const std::wstring& no) {
+    if (g.target || g.onYes) return false;  // já tem um alerta aberto
+    g.title = title; g.info = info; g.yes = yes; g.no = no.empty() ? std::wstring(Tr(L"Cancelar")) : no;
     g.onYes = std::move(onYes);
     SetIcon(icon);
     MONITORINFO mi{ sizeof(mi) };
@@ -824,6 +824,7 @@ void alertas::Confirm(const std::wstring& title, const std::wstring& info, const
     GetMonitorInfoW(MonitorFromPoint(c, MONITOR_DEFAULTTOPRIMARY), &mi);
     Show((mi.rcWork.left + mi.rcWork.right) / 2, mi.rcWork.top + (mi.rcWork.bottom - mi.rcWork.top) / 3);
     g.target = nullptr;
+    return true;
 }
 
 namespace {

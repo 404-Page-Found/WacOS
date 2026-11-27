@@ -44,6 +44,7 @@ float g_resizeTile;
 float g_large = 128;        // tamanho máximo na ampliação
 bool g_magnify = false;
 bool g_autohide = false;
+bool g_desligado = false;      // ocultar=desligado (issue #179): o Dock nunca aparece e não reserva espaço
 bool g_smart = false;        // ocultação inteligente: só esconde quando uma janela encosta no Dock
 bool g_covered = false;      // alguma janela por cima da área do Dock agora
 DWORD g_coverAt = 0;
@@ -1100,6 +1101,10 @@ bool LabelGeom(int lab, LabelBox& L) {
 
 void JumpIds(const App& a, std::wstring& exe, std::wstring& aumid);
 void Paint() {
+    if (g_icons && g_desligado) {  // Dock desligado (issue #179): tudo escondido, sem reserva na área de trabalho
+        ShowWindow(g_icons, SW_HIDE); if (g_back) ShowWindow(g_back, SW_HIDE); if (g_thumbWnd) ShowWindow(g_thumbWnd, SW_HIDE);
+        return;
+    }
     if (!g_icons || g_fullscreen) { if (g_thumbWnd) ShowWindow(g_thumbWnd, SW_HIDE); return; }
     Layout();
     float sc = Sc();
@@ -2079,7 +2084,7 @@ HMONITOR dock::MonitorHandle() { return DockMon(); }
 int dock::Posicao() { return Pos(); }
 
 int dock::ReservedHeight() {  // a espessura do Dock na borda dele (embaixo, à esquerda ou à direita: dock::Posicao)
-    if (!g_icons || g_autohide) return 0;
+    if (!g_icons || g_autohide || g_desligado) return 0;
     // + a folga (dock_folga): no Mac a janela maximizada encosta no Dock. A folga fixa de 4 pt (issue #8) deixava o
     // Dock "descolado" da janela (21/11/2026); agora é opcional, 0 por padrão. Na escala da tela; com o Dock oculto
     // (automático ou inteligente) não há reserva nem folga
@@ -2092,6 +2097,7 @@ static void ReadSettings() {
     g_magnify = shell::Setting(L"ampliacao", L"0") == L"1";
     std::wstring oc = shell::Setting(L"ocultar", L"0");  // 0, 1 (sempre) ou inteligente
     g_autohide = oc == L"1" || oc == L"inteligente";
+    g_desligado = oc == L"desligado";
     g_smart = oc == L"inteligente";
     g_tile = g_tileWant = std::clamp(g_tile, 16.f, 128.f);
     g_large = std::clamp(g_large, g_tile, 256.f);
