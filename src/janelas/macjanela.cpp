@@ -58,6 +58,41 @@ UINT g_msgTile;  // "MacJanelaEncaixar": reaplica o encaixe logo depois do fim d
 // carregada pelo próprio app do WacOS (WacOSPropria, barra_mac.h), não pelo gancho do Shell: a barra é do app e
 // o "desfazer" do Shell (ao sair) não vale aqui
 bool g_proprio = false;
+wchar_t g_meuCaminho[520];  // o arquivo desta cópia (bin\obj\mj\WacOSWindow-<data>.dll), lido no DllMain
+
+// Esta cópia ficou velha: o Shell foi aberto com outra versão da DLL, escreveu o caminho dela no mapa (gancho_mapa.h)
+// e a carregadora já passa as mensagens para a nova. As cópias antigas ficam presas no app (PIN, ver DllMain) e os
+// ganchos que ELAS puseram na thread (ShowProc, MenuShowEvent) e o vigia das travadas seguiam rodando: só o OwnerProc
+// os tirava, então nos apps de barra própria (Chrome, Claude, Discord, WhatsApp) nada tirava. Com 10 versões
+// acumuladas, cada janela que se escondia esperava até 10 x 150 ms pelo Shell e o app travava (27/11/2026).
+// Sem o mapa (Shell fechado) ou sem caminho nele: não é velha (o jeito de antes).
+bool Velha() {
+    if (g_proprio || !g_meuCaminho[0]) return false;
+    static GanchoMapa* volatile mapa;
+    static volatile LONG genVisto;
+    static volatile bool velha;
+    if (!mapa) {
+        HANDLE h = OpenFileMappingW(FILE_MAP_READ, FALSE, GANCHO_MAPA);
+        if (!h) return false;
+        void* v = MapViewOfFile(h, FILE_MAP_READ, 0, 0, sizeof(GanchoMapa));
+        CloseHandle(h);  // a vista mantém o mapa vivo
+        if (!v) return false;
+        if (((GanchoMapa*)v)->tamanho != sizeof(GanchoMapa)) { UnmapViewOfFile(v); return false; }
+        if (InterlockedCompareExchangePointer((PVOID volatile*)&mapa, v, nullptr) != nullptr) UnmapViewOfFile(v);
+    }
+    LONG gen = mapa->gen;
+    if (gen != genVisto) {
+        wchar_t p[520];
+#ifdef _WIN64
+        lstrcpynW(p, mapa->real64, 520);
+#else
+        lstrcpynW(p, mapa->real32, 520);
+#endif
+        velha = p[0] && lstrcmpiW(p, g_meuCaminho) != 0;
+        genVisto = gen;
+    }
+    return velha;
+}
 UINT g_msgUndo, g_msgZoom;  // Zoom: "MacJanelaAmpliar" (o Shell manda no Win+↑/↓; a DLL usa para converter o maximizar)
 // Barra própria: ler a tela custa ~5,5 ms e a foto do app até ~30 ms, na thread da janela DELE. Com 33 e 120 ms
 // trocar o foco e passar o mouse na faixa engasgavam o Electron (medido em 22/11/2026). Não baixar sem medir.
@@ -198,7 +233,7 @@ void VigiaTravadas() {
     static volatile LONG uma;
     if (InterlockedExchange(&uma, 1)) return;
     HANDLE t = CreateThread(nullptr, 64 * 1024, [](LPVOID) -> DWORD {
-        for (;;) { Sleep(700); EnumWindows(VigiaUma, 0); }
+        for (;;) { Sleep(700); if (!Velha()) EnumWindows(VigiaUma, 0); }  // cópia velha: a nova vigia
     }, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (t) { SetThreadPriority(t, THREAD_PRIORITY_BELOW_NORMAL); CloseHandle(t); }
     else InterlockedExchange(&uma, 0);
@@ -3156,6 +3191,7 @@ DWORD g_tls = TLS_OUT_OF_INDEXES, g_tlsShow = TLS_OUT_OF_INDEXES, g_tlsPos = TLS
 // fora (no Shell) chegava depois de a janela aparecer; o submenu grande do Serum piscava no canto (0,0).
 // Com a propriedade ShellMenuLivre (o Shell desistiu de trocar aquele menu), não mexe.
 void CALLBACK MenuShowEvent(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, DWORD, DWORD) {
+    if (Velha()) { StopShowHook(); return; }  // a versão nova põe os dela nesta thread
     if (obj != OBJID_WINDOW || child != CHILDID_SELF || !h) return;
     wchar_t c[8] = {};
     if (!GetClassNameW(h, c, 8) || wcscmp(c, L"#32768") || GetPropW(h, L"ShellMenuLivre")) return;
@@ -3172,6 +3208,7 @@ void CALLBACK MenuShowEvent(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG child, 
 // ela aparecer, então já abre com a barra do Mac na cor certa (pela varredura acima ela aparecia primeiro
 // com a barra do Windows). Sai quando o Shell manda desfazer.
 LRESULT CALLBACK ShowProc(int code, WPARAM w, LPARAM l) {
+    if (code >= 0 && Velha()) { StopShowHook(); return CallNextHookEx(nullptr, code, w, l); }  // cópia velha: sai da thread
     if (code >= 0) {
         auto* m = (CWPRETSTRUCT*)l;
         // Menu nativo (#32768) nascendo com o Shell trocando os menus pelo do Mac: já nasce invisível (alfa 0),
@@ -3403,6 +3440,7 @@ BOOL WINAPI DllMain(HINSTANCE h, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         if (DentroDeJogo()) return FALSE;
         g_mod = h;
+        if (!GetModuleFileNameW(h, g_meuCaminho, 520) || GetLastError() == ERROR_INSUFFICIENT_BUFFER) g_meuCaminho[0] = 0;
         g_tls = TlsAlloc();
         g_tlsShow = TlsAlloc();
         g_tlsPos = TlsAlloc();

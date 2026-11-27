@@ -2051,3 +2051,13 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     com, atalhos) antes de apagar a pasta; sem ele, ao menos as tarefas (incluindo "WacOS-Rust volta automatica").
   Compilado. Não testado.
   DESFAZER: reverter o commit e compilar (build.cmd setup).
+[2026-11-27 18:20] Travadas nos apps (pedido do usuário): Chrome, Claude, Discord, WhatsApp e outros estavam com até 10
+  cópias da WacOSWindow.dll carregadas (1 do C++ e 9 da edição Rust, uma por build instalada nos testes; ficam presas
+  no app, PIN). Só o OwnerProc tirava os ganchos da thread (ShowProc/MenuShowEvent) de uma cópia velha; nos apps de
+  barra própria (modo leve) nada tirava, e cada cópia velha seguia pedindo ao Shell a foto de fechar (até 150 ms
+  cada) em toda janela que se escondia, além do vigia das travadas (EnumWindows a cada 700 ms) por cópia.
+  macjanela.cpp: Velha() compara o caminho desta cópia com o do mapa (gancho_mapa.h); velha, ShowProc e
+  MenuShowEvent tiram os próprios ganchos da thread e o vigia para de varrer. Sem mapa (Shell fechado): como antes.
+  A carregadora não mudou (mesmo hash). Compilado (build.cmd janelas). Não instalado: as cópias que já estão nos apps
+  só saem fechando e abrindo esses apps.
+  DESFAZER: tirar Velha() e as três chamadas dela em macjanela.cpp e compilar (build.cmd janelas).
