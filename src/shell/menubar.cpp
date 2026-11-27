@@ -257,6 +257,37 @@ ctxmenu::Item Sep() { ctxmenu::Item i; i.separator = true; return i; }
 // issue #115: esta leitura faz SendMessageTimeoutW e laços de Sleep para o app dono do menu; na thread da
 // barra (que é a do Dock também) um app lento ou travado congelava a barra por segundos a cada clique.
 // Ela roda numa thread auxiliar com prazo (3 s): estourado o prazo, o que já foi lido é devolvido.
+// Cada item lido do menu do app guarda onde está (menu e posição): o ID do nosso menu é 0x40000000 + o índice aqui.
+// Nos menus "por posição" (MNS_NOTIFYBYPOS) os IDs dos itens costumam ser 0 ou repetidos.
+struct ItemDoApp { HMENU menu; int pos; UINT id; };
+std::mutex g_itensMx;
+std::vector<ItemDoApp> g_itens;
+const int ID_DO_APP = 0x40000000;
+
+// Item escolhido no menu de um app: o que o Windows faz quando o menu é dele. Issue #144 (After Effects: o menu
+// abria, mas o item não fazia nada): o menu com MNS_NOTIFYBYPOS recebe WM_MENUCOMMAND (posição + menu), não
+// WM_COMMAND, e há apps que só agem depois de ver o item destacado (WM_MENUSELECT) e o menu fechado. Numa thread:
+// o app pode demorar a responder.
+void MandaComando(HWND target, int nosso) {
+    ItemDoApp it{};
+    {
+        std::lock_guard<std::mutex> l(g_itensMx);
+        int k = nosso - ID_DO_APP;
+        if (k < 0 || k >= (int)g_itens.size()) return;
+        it = g_itens[k];
+    }
+    std::thread([target, it] {
+        MENUINFO mi{ sizeof(mi) }; mi.fMask = MIM_STYLE;
+        bool porPos = IsMenu(it.menu) && GetMenuInfo(it.menu, &mi) && (mi.dwStyle & MNS_NOTIFYBYPOS);
+        if (IsMenu(it.menu))
+            SendMessageTimeoutW(target, WM_MENUSELECT, MAKEWPARAM(porPos ? it.pos : it.id, 0), (LPARAM)it.menu, SMTO_ABORTIFHUNG, 200, nullptr);
+        SendMessageTimeoutW(target, WM_MENUSELECT, MAKEWPARAM(0, 0xFFFF), 0, SMTO_ABORTIFHUNG, 200, nullptr);  // o menu fechou
+        if (porPos) PostMessageW(target, WM_MENUCOMMAND, (WPARAM)it.pos, (LPARAM)it.menu);
+        else PostMessageW(target, WM_COMMAND, MAKEWPARAM(it.id, 0), 0);
+        Log(L"menu do app: item %u (posição %d) -> %ls", it.id, it.pos, porPos ? L"WM_MENUCOMMAND" : L"WM_COMMAND");
+    }).detach();
+}
+
 std::vector<ctxmenu::Item> FromHmenu(HMENU m, int depth, HWND fg, DWORD prazo) {
     std::vector<ctxmenu::Item> out;
     int n = GetMenuItemCount(m);
@@ -271,7 +302,11 @@ std::vector<ctxmenu::Item> FromHmenu(HMENU m, int depth, HWND fg, DWORD prazo) {
         if (mi.fType & MFT_OWNERDRAW || !buf[0]) continue;
         ctxmenu::Item it;
         it.label = Clean(buf, &it.shortcut);
-        it.id = (int)mi.wID;
+        {   // o ID do nosso menu aponta para o item de verdade (MandaComando)
+            std::lock_guard<std::mutex> l(g_itensMx);
+            it.id = ID_DO_APP + (int)g_itens.size();
+            g_itens.push_back({ m, k, mi.wID });
+        }
         it.disabled = (mi.fState & (MFS_DISABLED | MFS_GRAYED)) != 0;
         it.checked = (mi.fState & MFS_CHECKED) != 0;
         if (mi.hSubMenu) {
@@ -1531,6 +1566,7 @@ void Click(D2D1_POINT_2F p, bool right) {
             std::thread([bar, hit, target, top, sub, idx] {
                 SendMessageTimeoutW(target, WM_INITMENU, (WPARAM)top, 0, SMTO_ABORTIFHUNG, 200, nullptr);
                 SendMessageTimeoutW(target, WM_INITMENUPOPUP, (WPARAM)sub, idx, SMTO_ABORTIFHUNG, 200, nullptr);
+                { std::lock_guard<std::mutex> l(g_itensMx); g_itens.clear(); }  // um menu aberto por vez
                 std::unique_ptr<MenuLido> r(new MenuLido{ {}, hit, target });
                 if (IsMenu(sub)) r->items = FromHmenu(sub, 0, target, GetTickCount() + 3000);
                 if (PostMessageW(bar, WM_BARMENU, 0, (LPARAM)r.get())) r.release();  // senão a barra já morreu: o unique_ptr apaga
@@ -1829,7 +1865,7 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (r->items.empty() || !IsWindow(r->target)) return 0;
         if (r->hit < 0 || r->hit >= (int)g_hits.size() || g_hits[r->hit].kind != K_MENU) return 0;  // a barra mudou durante a leitura
         int hit = r->hit; HWND target = r->target;
-        ShowAt(hit, r->items, [target](int id) { PostMessageW(target, WM_COMMAND, MAKEWPARAM(id, 0), 0); });
+        ShowAt(hit, r->items, [target](int id) { MandaComando(target, id); });
         return 0;
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;

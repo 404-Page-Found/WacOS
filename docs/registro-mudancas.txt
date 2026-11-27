@@ -2019,3 +2019,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     (centrado e no alto).
   Compilado (Shell e DLLs das janelas). Não testado na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-27 16:02] Issue #144 (After Effects: o menu do app abre na barra de menus, mas o item escolhido não faz nada):
+  menubar.cpp: cada item lido do menu do app guarda o menu e a posição (g_itens; o ID no nosso menu é 0x40000000 + o
+  índice). Escolhido o item, MandaComando (numa thread) manda WM_MENUSELECT do item e o de menu fechado e depois
+  WM_MENUCOMMAND (posição + menu) quando o menu é MNS_NOTIFYBYPOS, ou WM_COMMAND com o ID de verdade nos outros, como o
+  Windows faz. Antes ia sempre WM_COMMAND com o ID, que os menus por posição ignoram (e lá os IDs costumam ser 0).
+  Compilado; não testado (sem After Effects aqui; o Shell em Rust estava no ar).
+  DESFAZER: reverter o commit e compilar.
