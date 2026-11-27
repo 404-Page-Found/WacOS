@@ -755,6 +755,7 @@ void EnsureFormat() {
     if (ell) ell->Release();
 }
 
+bool LabelOnLight(const D2D1_RECT_F& lb);  // abaixo (issue #161)
 void DrawIcons(ID2D1RenderTarget* rt) {
     EnsureFormat();
     if (!g_br) rt->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &g_br);
@@ -805,18 +806,20 @@ void DrawIcons(ID2D1RenderTarget* rt) {
         IDWriteTextLayout* lay = nullptr;
         ui::dw->CreateTextLayout(it.name.c_str(), (UINT32)it.name.size(), g_tf, lb.right - lb.left, lb.bottom - lb.top, &lay);
         if (!lay) continue;
+        const bool claro = !it.sel && LabelOnLight(lb);
         if (it.sel) {
             DWRITE_TEXT_METRICS tm{}; lay->GetMetrics(&tm);
             float h = std::min(tm.height, lb.bottom - lb.top);
             g_br->SetColor(D2D1::ColorF(0.04f, 0.38f, 0.88f, 1));
             rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(lb.left + tm.left - 4 * s, lb.top - 1 * s, lb.left + tm.left + tm.width + 4 * s, lb.top + h + 1 * s), 4 * s, 4 * s), g_br);
-        } else {  // sombra do nome, como no Mac
+        } else if (!claro) {  // sombra do nome, como no Mac
             g_br->SetColor(D2D1::ColorF(0, 0, 0, 0.30f));
             rt->DrawTextLayout(D2D1::Point2F(lb.left, lb.top + 1.5f * s), lay, g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             g_br->SetColor(D2D1::ColorF(0, 0, 0, 0.55f));
             rt->DrawTextLayout(D2D1::Point2F(lb.left, lb.top + 1 * s), lay, g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
-        g_br->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        if (claro) g_br->SetColor(D2D1::ColorF(0.08f, 0.08f, 0.09f, 1));  // papel de parede claro: nome escuro (issue #161)
+        else g_br->SetColor(D2D1::ColorF(1, 1, 1, 1));
         rt->DrawTextLayout(D2D1::Point2F(lb.left, lb.top), lay, g_br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         lay->Release();
     }
@@ -833,6 +836,30 @@ void DrawIcons(ID2D1RenderTarget* rt) {
 // de outro programa ali dentro, a mesa vira transparente (janela em camadas, alfa por pixel): só os ícones, sobre
 // um fundo de alfa 1/255 (invisível, mas ainda recebe os cliques da mesa: seleção, botão direito, arrastar).
 bool g_live;
+// Papel de parede claro (branco, por exemplo): o nome branco do ícone sumia (issue #161). Mede o brilho médio do papel
+// de parede atrás do nome: se for claro, o nome sai escuro. No papel de parede animado a mesa é transparente e o
+// papel não está aqui; fica o nome branco.
+bool LabelOnLight(const D2D1_RECT_F& lb) {
+    Mon* p = Primary();
+    if (!p || !p->wallDC || !p->wall || g_live) return false;
+    static HDC dc = nullptr; static HBITMAP bmp = nullptr; static BYTE* bits = nullptr;
+    if (!dc) {
+        BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), 1, -1, 1, 32, BI_RGB };
+        dc = CreateCompatibleDC(nullptr);
+        bmp = dc ? CreateDIBSection(dc, &bi, DIB_RGB_COLORS, (void**)&bits, nullptr, 0) : nullptr;
+        if (!dc || !bmp || !bits) return false;
+        SelectObject(dc, bmp);
+        SetStretchBltMode(dc, HALFTONE);
+    }
+    BITMAP bm{};
+    if (!GetObjectW(p->wall, sizeof(bm), &bm) || bm.bmWidth <= 0 || bm.bmHeight <= 0) return false;
+    int x = std::clamp((int)lb.left, 0, (int)bm.bmWidth - 1), y = std::clamp((int)lb.top, 0, (int)bm.bmHeight - 1);
+    int w = std::clamp((int)(lb.right - lb.left), 1, (int)bm.bmWidth - x), h = std::clamp((int)(lb.bottom - lb.top), 1, (int)bm.bmHeight - y);
+    if (!StretchBlt(dc, 0, 0, 1, 1, p->wallDC, x, y, w, h, SRCCOPY)) return false;
+    GdiFlush();
+    float lum = (0.2126f * bits[2] + 0.7152f * bits[1] + 0.0722f * bits[0]) / 255.f;  // BGRA
+    return lum > 0.72f;
+}
 bool LiveWallpaperNow() {
     HWND pm = FindWindowW(L"Progman", nullptr);
     DWORD exPid = 0; if (pm) GetWindowThreadProcessId(pm, &exPid);
