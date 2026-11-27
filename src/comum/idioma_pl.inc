@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"\"Efekty przezroczystości\" są wyłączone w Ustawieniach systemu Windows (Personalizacja > Kolory). Wtedy matowe szkło staje się pełne." },
 { L"Logo da barra de menus", L"Logo paska menu" },
 { L"Maçã", L"Jabłko" },
+{ L"Ajustes de Tela", L"Ustawienia ekranu" },

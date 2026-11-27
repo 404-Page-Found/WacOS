@@ -1779,3 +1779,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"\"Transparency effects\" is off in Windows Settings (Personalization > Colors). With it off, the frosted glass turns solid." },
 { L"Logo da barra de menus", L"Menu bar logo" },
 { L"Maçã", L"Apple" },
+{ L"Ajustes de Tela", L"Display Settings" },

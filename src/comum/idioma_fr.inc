@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"« Effets de transparence » est désactivé dans les Paramètres Windows (Personnalisation > Couleurs). Ainsi, le verre dépoli devient opaque." },
 { L"Logo da barra de menus", L"Logo de la barre des menus" },
 { L"Maçã", L"Pomme" },
+{ L"Ajustes de Tela", L"Réglages de l’écran" },

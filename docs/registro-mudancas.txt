@@ -1965,3 +1965,11 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
     quando o painel usa o vidro real.
   Compilado (Shell e DLLs das janelas). Shell instalado e rodando; a DLL vai na build. Não visto na tela.
   DESFAZER: reverter o commit e compilar.
+[2026-11-26 23:52] Issues #155 e #154:
+  - #155 (QuickTime não ia para a tela cheia com Cmd+F): no teclado do Mac o Cmd é a tecla Win e o Windows ficava com o
+    Win+F. O KeyHook (main.cpp) agora manda o Win+F e o Ctrl+Win+F (Ctrl+Cmd+F do Mac) para a janela do QuickTime
+    (QuickTimeJanela) quando ela está na frente, o mesmo aviso do botão de tela cheia. Outros apps não mudam.
+  - #154: dois controles novos na galeria da Central de Controle (Tela e Brilho): "HDR" (central.cpp AlternaHdr: liga ou
+    desliga a cor avançada do Windows nas telas que aceitam; sem tela HDR, abre os Ajustes de Tela) e "Ajustes de Tela".
+  Compilado e instalado (o Shell roda). Não testado: o HDR (esta tela não foi trocada) nem o atalho na tela.
+  DESFAZER: reverter o commit e compilar.

@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"\"Efectos de transparencia\" está desactivado en la Configuración de Windows (Personalización > Colores). Así, el cristal esmerilado se vuelve sólido." },
 { L"Logo da barra de menus", L"Logotipo de la barra de menús" },
 { L"Maçã", L"Manzana" },
+{ L"Ajustes de Tela", L"Ajustes de pantalla" },

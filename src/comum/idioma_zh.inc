@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows 设置（个性化 > 颜色）中的“透明效果”已关闭。关闭时，磨砂玻璃会变成纯色。" },
 { L"Logo da barra de menus", L"菜单栏标志" },
 { L"Maçã", L"苹果" },
+{ L"Ajustes de Tela", L"显示器设置" },

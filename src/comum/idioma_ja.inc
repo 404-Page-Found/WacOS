@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows の設定 (個人用設定 > 色) で「透明効果」がオフです。オフのままだと、すりガラスが不透明になります。" },
 { L"Logo da barra de menus", L"メニューバーのロゴ" },
 { L"Maçã", L"リンゴ" },
+{ L"Ajustes de Tela", L"ディスプレイ設定" },

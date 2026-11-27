@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"\"Transparenzeffekte\" ist in den Windows-Einstellungen (Personalisierung > Farben) deaktiviert. Dann wird das Milchglas undurchsichtig." },
 { L"Logo da barra de menus", L"Logo der Menüleiste" },
 { L"Maçã", L"Apfel" },
+{ L"Ajustes de Tela", L"Displayeinstellungen" },

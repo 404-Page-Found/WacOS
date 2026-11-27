@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"\"Effetti trasparenza\" è disattivato nelle Impostazioni di Windows (Personalizzazione > Colori). Così il vetro smerigliato diventa pieno." },
 { L"Logo da barra de menus", L"Logo della barra dei menu" },
 { L"Maçã", L"Mela" },
+{ L"Ajustes de Tela", L"Impostazioni schermo" },

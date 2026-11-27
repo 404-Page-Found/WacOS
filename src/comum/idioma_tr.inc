@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows Ayarları’nda (Kişiselleştirme > Renkler) \"Saydamlık efektleri\" kapalı. Kapalıyken buzlu cam düz renge döner." },
 { L"Logo da barra de menus", L"Menü çubuğu logosu" },
 { L"Maçã", L"Elma" },
+{ L"Ajustes de Tela", L"Ekran Ayarları" },

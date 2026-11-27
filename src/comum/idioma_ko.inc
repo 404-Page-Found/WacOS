@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"Windows 설정(개인 설정 > 색)에서 \"투명 효과\"가 꺼져 있습니다. 꺼져 있으면 반투명 유리가 불투명해집니다." },
 { L"Logo da barra de menus", L"메뉴 막대 로고" },
 { L"Maçã", L"사과" },
+{ L"Ajustes de Tela", L"디스플레이 설정" },

@@ -1776,3 +1776,4 @@
 { L"\"Efeitos de transparência\" está desligado nas Configurações do Windows (Personalização > Cores). Com ele desligado, o vidro fosco fica sólido.", L"«Эффекты прозрачности» выключены в параметрах Windows (Персонализация > Цвета). Из-за этого матовое стекло становится сплошным." },
 { L"Logo da barra de menus", L"Логотип строки меню" },
 { L"Maçã", L"Яблоко" },
+{ L"Ajustes de Tela", L"Настройки дисплея" },

@@ -164,6 +164,8 @@ const Ctl CTLS[] = {
     { L"cronometro", L"Cronômetro", L"Relógio", 1, 1, L"stopwatch", 0xE916 },
     { L"temporizador", L"Temporizador", L"Relógio", 1, 1, L"timer", 0xE823 },
     { L"luznoturna", L"Night Shift", L"Tela e Brilho", 1, 1, L"sun.max", 0xE706 },
+    { L"hdr", L"HDR", L"Tela e Brilho", 1, 1, L"sparkles", 0xE7F8 },
+    { L"ajustestela", L"Ajustes de Tela", L"Tela e Brilho", 1, 1, L"display", 0xE7F8 },
     { L"bateria", L"Modo de Baixo Consumo", L"Bateria", 1, 1, L"battery.25", 0xE850 },
 };
 const int NCTLS = (int)(sizeof(CTLS) / sizeof(CTLS[0]));
@@ -1948,6 +1950,41 @@ void ToggleCtl(const std::wstring& id) {
     Paint();
     gal::Paint();
 }
+// issue #154: liga ou desliga o HDR (cor avançada do Windows) nas telas que aceitam, como o atalho do Seelen e do
+// MyDockFinder. Se alguma está com HDR, desliga em todas; senão, liga. Sem tela HDR: false (abre os Ajustes de Tela).
+bool AlternaHdr() {
+    UINT32 np = 0, nm = 0;
+    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &np, &nm) != ERROR_SUCCESS || !np) return false;
+    std::vector<DISPLAYCONFIG_PATH_INFO> paths(np);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modes(nm);
+    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &np, paths.data(), &nm, modes.data(), nullptr) != ERROR_SUCCESS) return false;
+    paths.resize(np);
+    std::vector<DISPLAYCONFIG_PATH_TARGET_INFO> aceitam;
+    bool algumLigado = false;
+    for (auto& p : paths) {
+        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO gi{};
+        gi.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
+        gi.header.size = sizeof(gi);
+        gi.header.adapterId = p.targetInfo.adapterId;
+        gi.header.id = p.targetInfo.id;
+        if (DisplayConfigGetDeviceInfo(&gi.header) != ERROR_SUCCESS || !gi.advancedColorSupported) continue;
+        aceitam.push_back(p.targetInfo);
+        if (gi.advancedColorEnabled) algumLigado = true;
+    }
+    if (aceitam.empty()) return false;
+    for (auto& t : aceitam) {
+        DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE ss{};
+        ss.header.type = DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
+        ss.header.size = sizeof(ss);
+        ss.header.adapterId = t.adapterId;
+        ss.header.id = t.id;
+        ss.enableAdvancedColor = algumLigado ? 0 : 1;
+        LONG r = DisplayConfigSetDeviceInfo(&ss.header);
+        Log(L"central: HDR %ls na tela %u (%ld)", algumLigado ? L"desligado" : L"ligado", t.id, r);
+    }
+    return true;
+}
+
 void RunExtra(const std::wstring& id) {  // controle da galeria clicado (fora da edição)
     Close();
     auto open = [](const std::wstring& t, const wchar_t* args = nullptr) { shell::Abrir(L"open", t.c_str(), args, nullptr, SW_SHOWNORMAL); };
@@ -1966,6 +2003,8 @@ void RunExtra(const std::wstring& id) {  // controle da galeria clicado (fora da
         else open(L"ms-clock:");  // instalação antiga, sem o Relógio
     }
     else if (id == L"luznoturna") open(L"ms-settings:nightlight");
+    else if (id == L"hdr") { if (!AlternaHdr()) open(L"ms-settings:display"); }
+    else if (id == L"ajustestela") open(L"ms-settings:display");
     else if (id == L"bateria") open(L"ms-settings:batterysaver");
 }
 

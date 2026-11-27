@@ -298,6 +298,14 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 g_macKeyVk = k->vkCode;
                 g_winCombo = g_winEaten = true;
                 return 1;
+            } else if (g_macKeys && g_winDown && down && k->vkCode == 'F' && GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_MENU) >= 0 &&
+                       [] { wchar_t c[32] = {}; HWND f = GetForegroundWindow(); return f && GetClassNameW(f, c, 32) && !wcscmp(c, L"QuickTimeJanela"); }()) {
+                // issue #155: Cmd+F e Ctrl+Cmd+F (Win+F e Ctrl+Win+F) põem o QuickTime em tela cheia; antes o Windows
+                // ficava com o Win+F (Hub de Comentários) e nada acontecia. O mesmo aviso que o botão de tela cheia manda.
+                if (g_macKeyVk != k->vkCode) PostMessageW(GetForegroundWindow(), WM_KEYDOWN, 'F', 1);
+                g_macKeyVk = k->vkCode;
+                g_winCombo = g_winEaten = true;
+                return 1;
             } else if (g_capKey && k->vkCode == g_capKey && !down) {
                 g_capKey = 0;  // fim do atalho da Captura de Tela: a tecla solta também é nossa
                 return 1;
