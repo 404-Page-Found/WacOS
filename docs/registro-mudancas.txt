@@ -2043,3 +2043,11 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   abre o Forçar Encerrar na pressão crítica com o ajuste aviso_memoria=1 (padrão 0); a limpeza de memória continua. O
   mesmo no Rust (memoria.rs). Compilado; WacOSShell.exe copiado para a instalação (o C++ estava parado, o Rust no ar).
   DESFAZER: tirar o shell::Setting(L"aviso_memoria"...) da condição em memoria.cpp e compilar.
+[2026-11-27 16:38] BETA-TEST no WacOSSetup, respostas da sessão do Rust:
+  - Instalar/Atualizar com o beta no Rust (edicao=rust): roda antes WacOSTroca --para-cpp (os dois Shells se chamam
+    WacOSShell.exe e o --sair daqui fecharia o do Rust sem devolver a tarefa do login); na atualização, o WacOSTroca
+    novo roda depois com --instalar --para-rust (g_betaVolta), e o beta continua.
+  - Desinstalar: WacOSTroca --desinstalar limpa o que é da edição Rust (processos, tarefas, ProgIDs WacOSRust, Abrir
+    com, atalhos) antes de apagar a pasta; sem ele, ao menos as tarefas (incluindo "WacOS-Rust volta automatica").
+  Compilado. Não testado.
+  DESFAZER: reverter o commit e compilar (build.cmd setup).
