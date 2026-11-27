@@ -82,7 +82,7 @@ std::atomic<bool> g_mediaBusy{ false };
 
 // ---- interação
 enum HitId { H_WIFI_BTN, H_WIFI, H_BT_BTN, H_BT, H_AIRDROP, H_FOCUS, H_MISSION, H_STAGE, H_MIRROR, H_DISPLAY, H_BRIGHT, H_SOUND, H_VOLUME, H_OUTPUT,
-             H_PLAY, H_NEXT, H_EDIT, H_DARK, H_SHOT, H_REMOVE, H_EXTRA,
+             H_PLAY, H_NEXT, H_PREV, H_EDIT, H_DARK, H_SHOT, H_REMOVE, H_EXTRA,
              H_FOCUS_TEXT, H_DET_PANEL, H_DET_SWITCH, H_DET_ROW, H_DET_SET, H_NIGHT };  // Tahoe: módulos expandidos
 struct Hit { HitId id; D2D1_RECT_F r; int arg = -1; };  // arg: H_REMOVE/H_EXTRA = índice no layout
 std::vector<Hit> g_hits;
@@ -681,12 +681,20 @@ void ReadMedia() {
     }).detach();
 }
 
-void MediaCommand(bool next) {
-    std::thread([next] {
+void Key(WORD vk, bool up);
+// cmd: 0 tocar/pausar, 1 próxima, 2 anterior (issue #184). Se o app recusa o comando da sessão (navegadores: o
+// TrySkip volta false), manda a tecla de mídia do Windows, a mesma do teclado.
+void MediaCommand(int cmd) {
+    std::thread([cmd] {
         winrt::init_apartment(winrt::apartment_type::multi_threaded);
         try {
             auto s = wmc::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get().GetCurrentSession();
-            if (s) { if (next) s.TrySkipNextAsync().get(); else s.TryTogglePlayPauseAsync().get(); }
+            bool ok = false;
+            if (s) ok = cmd == 1 ? s.TrySkipNextAsync().get() : cmd == 2 ? s.TrySkipPreviousAsync().get() : s.TryTogglePlayPauseAsync().get();
+            if (!ok && cmd != 0) {
+                WORD vk = cmd == 1 ? VK_MEDIA_NEXT_TRACK : VK_MEDIA_PREV_TRACK;
+                Key(vk, false); Key(vk, true);
+            }
         } catch (...) {}
         Sleep(250);
         ReadMedia();
@@ -1362,6 +1370,7 @@ void PaintTahoe() {
         Sym(dc, br, L"forward.fill", 0xE893, D2D1::RectF(mcx + 26, my - 7, mcx + 46, my + 7), ctl);
         g_hits.push_back({ H_PLAY, D2D1::RectF(mcx - 18, my - 18, mcx + 18, my + 18) });
         g_hits.push_back({ H_NEXT, D2D1::RectF(mcx + 20, my - 18, mcx + 54, my + 18) });
+        g_hits.push_back({ H_PREV, D2D1::RectF(mcx - 54, my - 18, mcx - 20, my + 18) });  // issue #184: o botão era só desenho
     };
     // Tela e Som: blocos largos com trilho fino e ícone nas duas pontas
     auto bar = [&](D2D1_RECT_F r, const wchar_t* label, HitId head, HitId track, float v, const wchar_t* sl, wchar_t fl, const wchar_t* sr, wchar_t fr, bool output) {
@@ -2141,8 +2150,9 @@ void Click(D2D1_POINT_2F p) {
         SetForegroundWindow(g_wnd);
         break;
     }
-    case H_PLAY: MediaCommand(false); break;
-    case H_NEXT: MediaCommand(true); break;
+    case H_PLAY: MediaCommand(0); break;
+    case H_NEXT: MediaCommand(1); break;
+    case H_PREV: MediaCommand(2); break;
     case H_EDIT: OpenSettings(L"central"); return;
     case H_DARK: {  // Modo Escuro: o tema do Windows (como o botão de Aparência), e o Shell segue o Windows
         DWORD light = ui::Dark() ? 1 : 0;
