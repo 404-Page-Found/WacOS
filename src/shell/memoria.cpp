@@ -306,7 +306,9 @@ void Purge(const wchar_t* why) {
     TrimGpu(ui::D3D());
     TrimGpu(BackdropD3D());
     TrimGpu(GenioD3D());
-    SetProcessWorkingSetSizeEx(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1, 0);
+    // As páginas do PRÓPRIO Shell ficam (antes saíam todas): com a RAM no fim (Ableton com 15 GB, 4% livre) elas iam
+    // para o disco e a interface parava ~2 s no próximo desenho, buscando de volta o papel de parede da mesa
+    // (sentinela: BitBlt em mesa.cpp, 27/11/2026). O Shell tem ~90 MB na RAM: soltar isso não salva ninguém.
     int n = 0;
     for (auto& [pid, p] : g_procs) if (p.napped) { Trim(pid); n++; }
     // ajudantes do Shell escondidos
@@ -327,7 +329,13 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
     PressaoMemoria p = MedirPressao();
     if (p.nivel != g_level) {
         Log(L"memoria: pressão %ls (disponível %.0f%%, commit %.0f%%)", p.nivel == 2 ? L"crítica" : p.nivel == 1 ? L"alta" : L"normal", p.livre * 100, p.commit * 100);
-        if (p.nivel > g_level) Purge(p.nivel == 2 ? L"pressão crítica" : L"pressão alta");
+        // no máximo uma limpeza por minuto (a não ser que vá para crítica): na beira do limite a pressão ia e voltava entre
+        // alta e normal a cada 2 s e a limpeza repetia (3 vezes em 1 min), e cada uma deixa os apps lentos ao voltar
+        static DWORD ultimaLimpeza;
+        if (p.nivel > g_level && (p.nivel == 2 || !ultimaLimpeza || now - ultimaLimpeza >= 60000)) {
+            ultimaLimpeza = now | 1;
+            Purge(p.nivel == 2 ? L"pressão crítica" : L"pressão alta");
+        }
         // a janela "Your system has run out of application memory" (Forçar Encerrar) só com aviso_memoria=1: o usuário
         // pediu para desligar (27/11/2026); a limpeza acima continua
         if (p.nivel == 2 && shell::Setting(L"aviso_memoria", L"0") == L"1" && (!g_lastForceQuit || now - g_lastForceQuit > 600000)) { g_lastForceQuit = now; shell::OpenForceQuit(true); }

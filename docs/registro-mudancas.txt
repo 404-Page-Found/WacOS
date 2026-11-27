@@ -2061,3 +2061,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   A carregadora não mudou (mesmo hash). Compilado (build.cmd janelas). Não instalado: as cópias que já estão nos apps
   só saem fechando e abrindo esses apps.
   DESFAZER: tirar Velha() e as três chamadas dela em macjanela.cpp e compilar (build.cmd janelas).
+[2026-11-27 18:20] Travadas (2): o Ableton com 15 GB deixa a RAM em 4-12% livre e a pressão vai e volta. A cada subida
+  a limpeza de memória esvaziava as páginas do PRÓPRIO Shell, que iam para o disco: a sentinela pegou a interface
+  parada 1968 ms no BitBlt do papel de parede da mesa (mesa.cpp Paint). E a limpeza repetia 3 vezes em 1 min.
+  memoria.cpp: Purge não mexe mais no conjunto de trabalho do Shell (a GPU e os apps em soneca continuam); no
+  máximo uma limpeza por minuto, menos quando a pressão vai para crítica. Compilado e instalado (Shell reiniciado).
+  DESFAZER: devolver SetProcessWorkingSetSizeEx(GetCurrentProcess(), -1, -1, 0) em Purge e tirar o ultimaLimpeza do
+  Tick em memoria.cpp; compilar (build.cmd shell).
