@@ -1996,3 +1996,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   (tabela 0x103506d8, slot 123, função 0x3706430, mesma assinatura da 157), medida pela sessão do Rust sem o .pdb e
   testada lá (botões do Mac no Chrome, nenhum programa caiu). Compilado (DLLs das janelas); a DLL vai na próxima build.
   DESFAZER: apagar a linha do Chrome 158 em g_ganchos e compilar (build.cmd janelas).
+[2026-11-27 14:41] Issue #176 (rolagem dos Ajustes atrasada, tela de 120 Hz): ajustes/main.cpp T_ANIM: a rolagem cobre 45%
+  do que falta a cada 15 ms (antes 30%): assenta em ~70 ms em vez de ~200 ms. Compilado; não visto na tela (a sessão do
+  Rust estava trocando o Shell).
+  DESFAZER: voltar o 0.55 para 0.7 em std::pow(...) no T_ANIM de ajustes/main.cpp e compilar.

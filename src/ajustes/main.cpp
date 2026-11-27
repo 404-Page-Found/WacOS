@@ -2198,7 +2198,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             double dt = g_rol.on ? (now.QuadPart - g_rol.ult.QuadPart) * 1000.0 / Qpf() : 15.0;
             if (g_rol.on) g_rol.ult = now;
             float diff = g_scrollTarget - g_scroll;
-            if (std::fabs(diff) < 0.5f) g_scroll = g_scrollTarget; else g_scroll += diff * (float)(1.0 - std::pow(0.7, std::clamp(dt, 1.0, 60.0) / 15.0));
+            // issue #176: 30% do que falta a cada 15 ms levava ~200 ms para assentar e parecia atrasado; 45% assenta em
+            // ~70 ms (95%), ainda suave, mais perto da rolagem do Mac, que segue a roda quase na hora
+            if (std::fabs(diff) < 0.5f) g_scroll = g_scrollTarget; else g_scroll += diff * (float)(1.0 - std::pow(0.55, std::clamp(dt, 1.0, 60.0) / 15.0));
             if (g_scroll == g_scrollTarget && g_rol.on) {
                 double tot = (now.QuadPart - g_rol.ini.QuadPart) * 1000.0 / Qpf();
                 double q = g_rol.n ? g_rol.n : 1;
