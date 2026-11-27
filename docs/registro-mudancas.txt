@@ -1992,3 +1992,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - PR #178 (Jop3r): bateria dos dispositivos Bluetooth na barra de menus (desligado por padrão).
   Compilado (Shell e Ajustes). NÃO instalado nem testado na tela: o Shell em Rust estava rodando (teste da sessão do Rust).
   DESFAZER: reverter o commit e compilar.
+[2026-11-27 14:38] Issue #170: linha do Chrome 158.0.8127.37 na tabela g_ganchos (macjanela.cpp) do gancho das abas
+  (tabela 0x103506d8, slot 123, função 0x3706430, mesma assinatura da 157), medida pela sessão do Rust sem o .pdb e
+  testada lá (botões do Mac no Chrome, nenhum programa caiu). Compilado (DLLs das janelas); a DLL vai na próxima build.
+  DESFAZER: apagar a linha do Chrome 158 em g_ganchos e compilar (build.cmd janelas).

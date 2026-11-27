@@ -2286,6 +2286,9 @@ struct GanchoChromium { const wchar_t* dll; DWORD vt; int slot; DWORD fn; BYTE s
 static const GanchoChromium g_ganchos[] = {
     // Chrome 157.0.8103.79 (chrome.dll.pdb 57DD8BAFFD89996F4C4C44205044422E1): vftable 0x100845a0, slot 123
     { L"chrome.dll", 0x100845a0, 123, 0x371cb40, { 0x48, 0x89, 0xd0, 0x0f, 0x57, 0xc0, 0x0f, 0x11, 0x42, 0x20, 0x0f, 0x11, 0x42, 0x10, 0x0f, 0x10 } },
+    // Chrome 158.0.8127.37 (issue #170), medido sem o .pdb pela sessão do Rust (27/11/2026): a única função do chrome.dll
+    // com os 16 bytes da 157 está em 0x3706430 e o único ponteiro para ela fica na tabela em 0x103506d8, slot 123
+    { L"chrome.dll", 0x103506d8, 123, 0x3706430, { 0x48, 0x89, 0xd0, 0x0f, 0x57, 0xc0, 0x0f, 0x11, 0x42, 0x20, 0x0f, 0x11, 0x42, 0x10, 0x0f, 0x10 } },
 };
 using LayoutParamsFn = void* (__fastcall*)(void* self, void* out);
 static LayoutParamsFn g_lpOrig;
