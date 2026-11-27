@@ -2039,3 +2039,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Vigia de reinício do Shell: o C++ não tem (nada a mudar).
   Compilado (Ajustes e WacOSSetup). Nada publicado. Não testado: a troca ao vivo é o próximo teste, com o usuário.
   DESFAZER: reverter o commit e compilar (build.cmd ajustes e build.cmd setup).
+[2026-11-27 16:37] Pedido do usuário (print da janela "Your system has run out of application memory"): memoria.cpp só
+  abre o Forçar Encerrar na pressão crítica com o ajuste aviso_memoria=1 (padrão 0); a limpeza de memória continua. O
+  mesmo no Rust (memoria.rs). Compilado; WacOSShell.exe copiado para a instalação (o C++ estava parado, o Rust no ar).
+  DESFAZER: tirar o shell::Setting(L"aviso_memoria"...) da condição em memoria.cpp e compilar.

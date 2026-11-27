@@ -328,7 +328,9 @@ void CALLBACK Tick(HWND, UINT, UINT_PTR, DWORD) {
     if (p.nivel != g_level) {
         Log(L"memoria: pressão %ls (disponível %.0f%%, commit %.0f%%)", p.nivel == 2 ? L"crítica" : p.nivel == 1 ? L"alta" : L"normal", p.livre * 100, p.commit * 100);
         if (p.nivel > g_level) Purge(p.nivel == 2 ? L"pressão crítica" : L"pressão alta");
-        if (p.nivel == 2 && (!g_lastForceQuit || now - g_lastForceQuit > 600000)) { g_lastForceQuit = now; shell::OpenForceQuit(true); }
+        // a janela "Your system has run out of application memory" (Forçar Encerrar) só com aviso_memoria=1: o usuário
+        // pediu para desligar (27/11/2026); a limpeza acima continua
+        if (p.nivel == 2 && shell::Setting(L"aviso_memoria", L"0") == L"1" && (!g_lastForceQuit || now - g_lastForceQuit > 600000)) { g_lastForceQuit = now; shell::OpenForceQuit(true); }
         g_level = p.nivel;
     }
     static int k;
