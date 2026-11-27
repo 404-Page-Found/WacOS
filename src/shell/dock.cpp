@@ -958,6 +958,22 @@ void UpdateThumbs(float baseline) {
     if (!IsWindowVisible(g_thumbWnd) || cur.left != strip.left || cur.top != strip.top || cur.right != strip.right || cur.bottom != strip.bottom) {
         SetWindowPos(g_thumbWnd, g_icons, strip.left, strip.top, strip.right - strip.left, strip.bottom - strip.top, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
+    // O HTTRANSPARENT só passa o clique para janelas da mesma thread: cobrindo a faixa inteira, a janela engolia os
+    // cliques dos outros programas logo acima do Dock (achado no teste do Rust, 27/11/2026). A região da janela fica só
+    // nas miniaturas (o tamanho não muda, então nada pisca); fora delas o clique vai para quem está embaixo.
+    {
+        static std::vector<RECT> ultima;
+        std::vector<RECT> agora;
+        for (auto& [it, px] : rects) agora.push_back({ px.left - strip.left, px.top - strip.top, px.right - strip.left, px.bottom - strip.top });
+        bool igual = ultima.size() == agora.size();
+        for (size_t i = 0; igual && i < agora.size(); i++) igual = EqualRect(&ultima[i], &agora[i]) != FALSE;
+        if (!igual) {
+            HRGN rgn = CreateRectRgn(0, 0, 0, 0);
+            for (auto& r : agora) { HRGN p = CreateRectRgn(r.left, r.top, r.right, r.bottom); CombineRgn(rgn, rgn, p, RGN_OR); DeleteObject(p); }
+            SetWindowRgn(g_thumbWnd, rgn, TRUE);  // a janela fica dona da região
+            ultima = agora;
+        }
+    }
     for (auto& [it, px] : rects) {
         auto f = g_thumbs.find(it->win);
         if (f == g_thumbs.end()) continue;

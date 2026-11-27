@@ -262,13 +262,16 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                 g_winCombo = g_winEaten = true;
                 PostMessageW(g_msg, k->vkCode == VK_TAB ? WM_APP_MISSION : WM_APP_SETTINGS, 0, 0);
                 return 1;
-            } else if (!shell::nativo && g_winDown && down && !g_winCombo && (k->vkCode == 'A' || k->vkCode == 'N') &&
+            } else if (!shell::nativo && g_winDown && down && (k->vkCode == 'A' || k->vkCode == 'N') &&
                        GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_CONTROL) >= 0 && GetAsyncKeyState(VK_MENU) >= 0) {
                 // issue #173: Win+A abre a nossa Central de Controle e Win+N a Central de Notificações (no lugar das
-                // Configurações Rápidas e da central do Windows 11)
+                // Configurações Rápidas e da central do Windows 11). A repetição da tecla segurada também é engolida:
+                // com o "!g_winCombo" ela passava para o Windows e abria a central dele junto (achado no teste do Rust)
+                if (!g_winCombo) {
+                    static UINT openPanel2 = RegisterWindowMessageW(L"ShellAbrirPainel");
+                    PostMessageW(g_msg, openPanel2, k->vkCode == 'A' ? 9 : 10, 0);
+                }
                 g_winCombo = g_winEaten = true;
-                static UINT openPanel2 = RegisterWindowMessageW(L"ShellAbrirPainel");
-                PostMessageW(g_msg, openPanel2, k->vkCode == 'A' ? 9 : 10, 0);
                 return 1;
             } else if (!shell::nativo && g_winDown && down && (k->vkCode == VK_LEFT || k->vkCode == VK_RIGHT) && GetAsyncKeyState(VK_CONTROL) >= 0 &&
                        GetAsyncKeyState(VK_SHIFT) >= 0 && GetAsyncKeyState(VK_MENU) >= 0) {
