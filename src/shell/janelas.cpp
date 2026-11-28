@@ -34,9 +34,12 @@ std::map<DWORD, Permissao> g_procOk; // processo -> permitido (chromium: Chromiu
 std::vector<std::wstring> g_extra;   // exclusões do usuário
 const UINT HOST_HOOK = WM_APP + 1, HOST_QUIT = WM_APP + 2;
 
-// Jogos, launchers, anti-cheat e partes do próprio Windows: nunca recebem a DLL
+// Jogos, launchers, anti-cheat, partes do próprio Windows e apps cuja janela a DLL quebra: nunca recebem a DLL
 const wchar_t* EXCLUDED_EXE[] = {
-    L"explorer.exe", L"dwm.exe", L"shell.exe", L"arquivos.exe", L"ajustes.exe", L"monitoratividade.exe", L"terminal.exe", L"calculadora.exe", L"notas.exe",
+    L"explorer.exe",
+    // VLC (issue #220): com a DLL injetada a barra de título sai quebrada e o duplo clique não leva à tela
+    // cheia com a janela pequena (maximizada funciona). App Qt: fora, como os jogos; a barra nativa volta.
+    L"vlc.exe", L"dwm.exe", L"shell.exe", L"arquivos.exe", L"ajustes.exe", L"monitoratividade.exe", L"terminal.exe", L"calculadora.exe", L"notas.exe",
     L"wacosshell.exe", L"wacosfinder.exe", L"wacossettings.exe", L"wacosactivitymonitor.exe", L"wacosterminal.exe", L"wacoscalculator.exe", L"wacosnotes.exe", L"wacoswindow32host.exe", L"searchhost.exe", L"startmenuexperiencehost.exe",
     L"snippingtool.exe", L"screenclippinghost.exe",  // Ferramenta de Captura (gravação de tela parava: prints do Discord, 19/11/2026)
     L"applicationframehost.exe", L"textinputhost.exe", L"lockapp.exe", L"shellexperiencehost.exe", L"systemsettings.exe", L"taskmgr.exe",
